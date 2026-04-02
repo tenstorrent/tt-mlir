@@ -698,19 +698,59 @@ getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
   int64_t sDim = expertOutType.getShape()[2];  // S
   int64_t hDim = expertOutType.getShape()[3];  // H
   int64_t kDim = metadataType.getShape()[3];   // K
-  int64_t dDim = mappingType.getShape()[3];    // D (num dispatch devices)
+  int64_t dDim = mappingType.getShape()[3];    // D (total devices)
+
+  // Parse num_devices and cluster_axis from frontend attributes to determine
+  // how to split the E factor for compound-sharded experts.
+  int64_t numDevices = 1;
+  int64_t clusterAxis = 0;
+  auto frontendAttributes = llvm::dyn_cast_or_null<mlir::DictionaryAttr>(
+      op->getDiscardableAttr("mhlo.frontend_attributes"));
+  if (frontendAttributes) {
+    if (auto attr = frontendAttributes.getAs<mlir::StringAttr>("num_devices")) {
+      attr.getValue().getAsInteger(10, numDevices);
+    }
+    if (auto attr =
+            frontendAttributes.getAs<mlir::StringAttr>("cluster_axis")) {
+      attr.getValue().getAsInteger(10, clusterAxis);
+    }
+  }
+
+  int64_t eDispatch = numDevices;
+  int64_t eReduce = (numDevices > 1) ? eDim / numDevices : 1;
 
   mlir::sdy::OpShardingRuleBuilder builder(op);
 
-  // E factor: single kPassThrough — combine handles dispatch-axis
-  // communication internally. Cross-column reduction (for 2D compound
-  // sharding) is inserted explicitly in the StableHLOToTTIR conversion pass.
-  // Using kReduction here causes Shardy to insert all_reduce on BOTH axes
-  // (kPassThrough with kNullDim in the result also triggers reduce), which
-  // corrupts the combine output by summing unrelated batches.
-  builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
-                    {mlir::sdy::kNullDim}, eDim,
-                    mlir::sdy::FactorType::kPassThrough);
+  // E factor(s): For 2D compound sharding (e.g. {"batch","model"} on experts),
+  // split E into two compound sub-factors so Shardy can differentiate:
+  //   - dispatch sub-factor (kPassThrough): combine handles this axis
+  //   internally
+  //   - reduce sub-factor (kReduction): Shardy auto-inserts all_reduce via
+  //     unreduced_axes
+  // Sub-factor order must match the compound sharding axis order.
+  // cluster_axis=0 → dispatch is first axis → [kPassThrough, kReduction]
+  // cluster_axis=1 → dispatch is second axis → [kReduction, kPassThrough]
+  if (eDispatch > 1 && eReduce > 1) {
+    if (clusterAxis == 0) {
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eDispatch,
+                        mlir::sdy::FactorType::kPassThrough);
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eReduce,
+                        mlir::sdy::FactorType::kReduction);
+    } else {
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eReduce,
+                        mlir::sdy::FactorType::kReduction);
+      builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                        {mlir::sdy::kNullDim}, eDispatch,
+                        mlir::sdy::FactorType::kPassThrough);
+    }
+  } else {
+    builder.addFactor({0, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                      {mlir::sdy::kNullDim}, eDim,
+                      mlir::sdy::FactorType::kPassThrough);
+  }
 
   // E factor (mapping): mapping dim 2 is the global expert count and must
   // stay replicated — combine reads it to determine expert-to-device routing.

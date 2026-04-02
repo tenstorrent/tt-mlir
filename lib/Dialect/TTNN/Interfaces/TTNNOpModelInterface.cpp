@@ -3020,6 +3020,47 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// MoE CCL ops constraint helper
+//===----------------------------------------------------------------------===//
+
+// MoE CCL kernels (all_to_all_dispatch, all_to_all_combine,
+// moe_expert_token_remap) require all operands in ROW_MAJOR layout.
+// Reject TILE inputs so OperationValidationAndFallback triggers its
+// tryFallbacks() path, which generates ROW_MAJOR input candidates and
+// inserts ToLayoutOps for both inputs and outputs automatically.
+static llvm::Expected<op_model::OpConstraints>
+moeCclOpConstraints(Operation *op, const std::vector<TTNNLayoutAttr> &inputs,
+                    const TTNNLayoutAttr &proposedOutput) {
+  for (const auto &input : inputs) {
+    if (input.isTiled()) {
+      return llvm::make_error<llvm::StringError>(
+          "MoE CCL ops require ROW_MAJOR input layout",
+          llvm::inconvertibleErrorCode());
+    }
+  }
+
+  llvm::SmallVector<TTNNLayoutAttr> outputLayouts;
+  for (auto result : op->getResults()) {
+    auto rtt = mlir::dyn_cast<RankedTensorType>(result.getType());
+    if (!rtt) {
+      continue;
+    }
+    auto layout = mlir::dyn_cast<TTNNLayoutAttr>(rtt.getEncoding());
+    if (!layout && proposedOutput) {
+      layout = proposedOutput;
+    }
+    if (layout && layout.isTiled()) {
+      outputLayouts.push_back(
+          layout.withLayout(Layout::RowMajor, rtt.getShape()));
+    } else if (layout) {
+      outputLayouts.push_back(layout);
+    }
+  }
+
+  return op_model::OpConstraints(0, 0, 0, 0, std::move(outputLayouts));
+}
+
+//===----------------------------------------------------------------------===//
 // SparseMatmulOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -3044,8 +3085,7 @@ SparseMatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 AllToAllDispatchOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  return moeCclOpConstraints(getOperation(), inputs, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3062,8 +3102,7 @@ AllToAllDispatchOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 AllToAllCombineOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                     const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  return moeCclOpConstraints(getOperation(), inputs, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3079,8 +3118,7 @@ AllToAllCombineOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 llvm::Expected<op_model::OpConstraints> MoeExpertTokenRemapOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  return moeCclOpConstraints(getOperation(), inputs, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>

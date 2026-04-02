@@ -670,7 +670,12 @@ private:
 
 const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
-        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
+        ttnn::WhereOp::getOperationName(),
+        ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
-        ttnn::ScatterOp::getOperationName()};
+        ttnn::ScatterOp::getOperationName(),
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName()};
 } // namespace mlir::tt::ttnn

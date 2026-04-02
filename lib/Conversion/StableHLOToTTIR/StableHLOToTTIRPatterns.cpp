@@ -7226,28 +7226,7 @@ public:
         rewriter.getI64IntegerAttr(clusterAxis),
         rewriter.getI64IntegerAttr(numExpertsPerTok));
 
-    Value result = combineOp.getResult();
-
-    // For 2D mesh with compound-sharded experts, the combine only handles
-    // communication along the dispatch axis (cluster_axis). If the non-cluster
-    // axis has multiple devices, insert all_reduce(sum) on that axis to
-    // aggregate partial expert results from devices holding different expert
-    // subsets.
-    // mapping shape: [1, 1, E_total, D_total] where D_total = total devices.
-    // nonClusterSize = D_total / dispatch_devices = devices on the other axis.
-    auto mappingType = cast<RankedTensorType>(expertMapping.getType());
-    int64_t totalDevices = mappingType.getShape()[3];
-    int64_t nonClusterSize =
-        totalDevices / std::max(numDevices, static_cast<int64_t>(1));
-    if (nonClusterSize > 1 && numDevices > 1) {
-      uint32_t reduceAxis = (clusterAxis == 0) ? 1 : 0;
-      auto allReduceOp = rewriter.create<ttir::AllReduceOp>(
-          srcOp.getLoc(), outputType, result, ttcore::ReduceType::Sum,
-          reduceAxis);
-      result = allReduceOp.getResult();
-    }
-
-    rewriter.replaceOp(srcOp, result);
+    rewriter.replaceOp(srcOp, combineOp.getResult());
 
     return success();
   }
