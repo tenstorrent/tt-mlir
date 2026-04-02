@@ -96,11 +96,15 @@ private:
   /// Returns one vector per operand.
   std::vector<std::vector<InputCandidate>> getInputCandidateSets(Operation *op);
 
-  /// Generate reshard candidate layouts for a tensor type: sharded-to-sharded
-  /// variants derived from the current layout.
+  /// Generate reshard candidate layouts for a tensor type: sharded target
+  /// layouts from any source layout (interleaved or sharded).
+  /// When exploreInterleavedToSharded is false (default), only sharded source
+  /// layouts generate candidates. Set to true to also explore
+  /// interleaved-to-sharded reshards for ops that benefit from sharded inputs.
   std::vector<TTNNLayoutAttr>
   generateReshardCandidates(RankedTensorType tensorType,
-                            TTNNLayoutAttr currentLayout);
+                            TTNNLayoutAttr currentLayout,
+                            bool exploreInterleavedToSharded = false);
 
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
@@ -130,12 +134,10 @@ private:
 
   /// Validate that a reshard (ToMemoryConfigOp) from producerOutputLayout to
   /// reshardLayout is feasible via backend constraint validation.
-  /// producerResultIdx specifies which result of the producer to use for the
-  /// input shape (relevant for multi-output producers).
-  bool validateReshard(Operation *consumerOp, Operation *producerOp,
+  bool validateReshard(Operation *consumerOp,
+                       llvm::ArrayRef<int64_t> inputShape,
                        TTNNLayoutAttr producerOutputLayout,
-                       TTNNLayoutAttr reshardLayout,
-                       size_t producerResultIdx = 0);
+                       TTNNLayoutAttr reshardLayout);
 
   /// Map from tensor-operand index (used in producerCandidateIndices) back to
   /// the actual defining op. Skips non-tensor operands.

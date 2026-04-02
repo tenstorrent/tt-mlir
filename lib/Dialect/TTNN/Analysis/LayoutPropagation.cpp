@@ -465,6 +465,22 @@ LayoutPropagation::processOp(Operation *op) {
   llvm::SmallVector<size_t> indices(numOperandSets, 0);
   bool done = false;
 
+  const auto &ruleBook = getRuleBook(op);
+
+  // Advance the index vector (odometer-style).
+  auto advanceIndices = [&]() {
+    for (int i = static_cast<int>(numOperandSets) - 1; i >= 0; --i) {
+      ++indices[i];
+      if (indices[i] < inputCandidateSets[i].size()) {
+        return;
+      }
+      indices[i] = 0;
+      if (i == 0) {
+        done = true;
+      }
+    }
+  };
+
   while (!done) {
     // Build the current input combination.
     std::vector<TTNNLayoutAttr> inputLayouts;
@@ -483,6 +499,12 @@ LayoutPropagation::processOp(Operation *op) {
         anyReshard = true;
         reshardLayouts[i] = ic.layout;
       }
+    }
+
+    // Op-specific pruning: skip invalid input combinations early.
+    if (!ruleBook.isValidInputCombination(inputLayouts)) {
+      advanceIndices();
+      continue;
     }
 
     // Try primary output hints with this input combination.
@@ -507,17 +529,7 @@ LayoutPropagation::processOp(Operation *op) {
       }
     }
 
-    // Advance the index vector (odometer-style).
-    for (int i = static_cast<int>(numOperandSets) - 1; i >= 0; --i) {
-      ++indices[i];
-      if (indices[i] < inputCandidateSets[i].size()) {
-        break;
-      }
-      indices[i] = 0;
-      if (i == 0) {
-        done = true;
-      }
-    }
+    advanceIndices();
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
@@ -578,13 +590,14 @@ LayoutPropagation::processOp(Operation *op) {
 }
 
 bool LayoutPropagation::validateReshard(Operation *consumerOp,
-                                        Operation *producerOp,
+                                        llvm::ArrayRef<int64_t> inputShape,
                                         TTNNLayoutAttr producerOutputLayout,
-                                        TTNNLayoutAttr reshardLayout,
-                                        size_t producerResultIdx) {
-  auto inputShape = mlir::cast<RankedTensorType>(
-                        producerOp->getResult(producerResultIdx).getType())
-                        .getShape();
+                                        TTNNLayoutAttr reshardLayout) {
+  if (producerOutputLayout.isTiled() != reshardLayout.isTiled()) {
+    // Reject reshards that change tiling.
+    return false;
+  }
+
   MemoryConfigAttr memConfig = MemoryConfigAttr::get(reshardLayout, deviceGrid);
 
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
@@ -639,7 +652,10 @@ void LayoutPropagation::addL1InterleavedFallbacks(
     if (!ml || !isShardedMemoryLayout(ml.getValue())) {
       continue;
     }
-    if (!validateReshard(op, producerOp, prodOut, l1Interleaved, resultIdx)) {
+    auto inputShape =
+        mlir::cast<RankedTensorType>(producerOp->getResult(resultIdx).getType())
+            .getShape();
+    if (!validateReshard(op, inputShape, prodOut, l1Interleaved)) {
       continue;
     }
     InputCandidate ic;
@@ -708,11 +724,25 @@ void LayoutPropagation::addReshardCandidates(
     }
   }
 
+  // Enable interleaved-to-sharded reshards when no existing candidate offers
+  // a sharded layout. This targets ops whose producers are stuck at
+  // DRAM/interleaved (e.g., all_gather -> silu) where resharding the input
+  // to L1/sharded enables dramatically faster execution.
+  bool hasAnyShardedCandidate = false;
+  for (const auto &ic : candidates) {
+    auto ml = ic.layout.getMemLayout();
+    if (ml && isShardedMemoryLayout(ml.getValue())) {
+      hasAnyShardedCandidate = true;
+      break;
+    }
+  }
+  bool exploreInterleavedToSharded = !hasAnyShardedCandidate;
+
   // Collect unique reshard layouts across all base layouts.
   llvm::SmallVector<TTNNLayoutAttr> uniqueReshardLayouts;
   for (const auto &baseLayout : layoutsToExplore) {
-    std::vector<TTNNLayoutAttr> reshardCandidates =
-        generateReshardCandidates(tensorType, baseLayout);
+    std::vector<TTNNLayoutAttr> reshardCandidates = generateReshardCandidates(
+        tensorType, baseLayout, exploreInterleavedToSharded);
     for (const auto &reshardLayout : reshardCandidates) {
       // Dedup: skip if already in uniqueReshardLayouts or existing candidates.
       bool alreadyPresent = false;
@@ -759,8 +789,8 @@ void LayoutPropagation::addReshardCandidates(
       if (!producerOutput) {
         continue;
       }
-      if (!validateReshard(op, producerOp, producerOutput, reshardLayout,
-                           resultIdx)) {
+      if (!validateReshard(op, tensorType.getShape(), producerOutput,
+                           reshardLayout)) {
         continue;
       }
       InputCandidate ic;
@@ -867,16 +897,21 @@ LayoutPropagation::getInputCandidateSets(Operation *op) {
 
 std::vector<TTNNLayoutAttr>
 LayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
-                                             TTNNLayoutAttr currentLayout) {
-  // Only generate sharded-to-sharded reshard candidates. Resharding from
-  // sharded to interleaved (DRAM or L1) almost always hurts performance.
+                                             TTNNLayoutAttr currentLayout,
+                                             bool exploreInterleavedToSharded) {
+  // Generate reshard candidates targeting sharded layouts.
+  // getShardedLayoutsForTensorTypeAndScalarType only returns sharded layouts,
+  // so the output is always sharded regardless of the source layout.
   if (!tensorTypePossibleLayouts) {
     return {};
   }
 
-  // Only explore reshards from sharded source layouts.
-  if (!currentLayout.getMemLayout() ||
-      !isShardedMemoryLayout(currentLayout.getMemLayout().getValue())) {
+  // For sharded source layouts: generate sharded-to-sharded reshards (always).
+  // For interleaved source layouts: generate interleaved-to-sharded reshards
+  // only when exploreInterleavedToSharded is true (caller decides).
+  if (!exploreInterleavedToSharded &&
+      (!currentLayout.getMemLayout() ||
+       !isShardedMemoryLayout(currentLayout.getMemLayout().getValue()))) {
     return {};
   }
 
@@ -952,7 +987,7 @@ LayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "generateReshardCandidates: {0} sharded-to-sharded candidates "
+               "generateReshardCandidates: {0} sharded target candidates "
                "for tensor type with shape [{1}]",
                deduped.size(), tensorType.getShape().size());
 
