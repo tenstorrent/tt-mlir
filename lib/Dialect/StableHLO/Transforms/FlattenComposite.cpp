@@ -200,9 +200,8 @@ static void eraseDeadPrivateCallees(mlir::ModuleOp module) {
 }
 
 // The pass that flattens stablehlo.composite ops without custom sharding rules.
-// Composites with a registered ShardingRuleOpInterface that returns a non-null
-// rule are marked with `tt.has_custom_sharding` and left intact for Shardy to
-// propagate through directly.
+// Composites with custom sharding rules are converted to stablehlo.custom_call
+// ops so Shardy can propagate through them using the CustomCall sharding model.
 struct FlattenGenericCompositesPass
     : public impl::FlattenGenericCompositesPassBase<
           FlattenGenericCompositesPass> {
