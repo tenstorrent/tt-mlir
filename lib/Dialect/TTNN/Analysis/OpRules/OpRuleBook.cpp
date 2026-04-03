@@ -86,6 +86,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(TypecastOp::getOperationName(), &typecast);
     reg(WhereOp::getOperationName(), &typecast);
     reg(RotaryEmbeddingOp::getOperationName(), &rotaryEmbedding);
+    reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;
