@@ -19,3 +19,5 @@ target_include_directories(TTUnifiedOpLib PRIVATE
 target_include_directories(TTUnifiedOpLib SYSTEM PUBLIC
   "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>"
 )
+
+add_dependencies(TTUnifiedOpLib tt-metal)
