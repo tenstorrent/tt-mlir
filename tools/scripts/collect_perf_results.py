@@ -59,7 +59,6 @@ MARK_ARG_RE = re.compile(
 )
 
 FUNC_START_RE = re.compile(r"^\s*func\.func\b")
-FUNC_END_RE = re.compile(r"^\s*\}(?:\s*loc\(|\s*$)")
 
 
 def _strip_mark_args_in_block(lines: list[str]) -> list[str]:
@@ -109,19 +108,24 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
     content = re.sub(TTCORE_SHARD_STATUS_RE.pattern + r"\s*,\s*", "", content)
 
     # --- tt.mark_argument custom calls (scoped per function) ---
+    # Track brace depth to correctly find the function-closing '}'.
+    # The old FUNC_END_RE regex was fooled by '}' inside reduce/region bodies.
     lines = content.split("\n")
     out_lines: list[str] = []
     func_buf: list[str] | None = None
+    brace_depth = 0
 
     for line in lines:
         if FUNC_START_RE.match(line):
             if func_buf is not None:
                 out_lines.extend(_strip_mark_args_in_block(func_buf))
             func_buf = [line]
+            brace_depth = line.count("{") - line.count("}")
             continue
         if func_buf is not None:
             func_buf.append(line)
-            if FUNC_END_RE.match(line):
+            brace_depth += line.count("{") - line.count("}")
+            if brace_depth <= 0:
                 out_lines.extend(_strip_mark_args_in_block(func_buf))
                 func_buf = None
             continue
@@ -337,7 +341,8 @@ def op_count_from_csv(csv_path: Path) -> int:
         return max(0, sum(1 for _ in f) - 1)
 
 
-def main():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Compare perf of manual vs auto-sharding configurations"
     )
@@ -373,37 +378,11 @@ def main():
         action="store_true",
         help="Dump each auto-sharding variant IR to disk for inspection",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    output_dir = (
-        Path(args.output_dir) if args.output_dir else GENERATED_DIR / "perf_comparison"
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
 
-    auto_input = args.auto_input
-
-    if not args.skip_auto_sharding:
-        input_stem = Path(args.auto_input).stem
-        auto_sharding_dir = GENERATED_DIR / "auto_sharding" / input_stem
-        winner = run_auto_sharding(
-            args.auto_input, args.mesh_shape, auto_sharding_dir, args.dump_variants
-        )
-        if winner is None:
-            print("\nAuto-sharding search failed. Aborting.")
-            sys.exit(1)
-        auto_input = winner
-
-    graphs = {
-        "manual_sharding": {
-            "input": args.manual_input,
-            "description": "Manual sharding",
-        },
-        "auto_sharding": {
-            "input": auto_input,
-            "description": "Auto-sharding winner",
-        },
-    }
-
+def compile_and_profile(graphs: dict, output_dir: Path, mesh_shape: str) -> dict:
+    """Compile each graph through the full pipeline and run ttrt perf."""
     results = {}
 
     for label, info in graphs.items():
@@ -418,9 +397,7 @@ def main():
             results[label] = {"status": "MISSING_INPUT"}
             continue
 
-        flatbuffer = lower_to_flatbuffer(
-            info["input"], output_dir, label, args.mesh_shape
-        )
+        flatbuffer = lower_to_flatbuffer(info["input"], output_dir, label, mesh_shape)
         if flatbuffer is None:
             results[label] = {"status": "LOWER_FAILED"}
             continue
@@ -441,6 +418,11 @@ def main():
             "flatbuffer": str(flatbuffer),
         }
 
+    return results
+
+
+def print_comparison(results: dict, graphs: dict, output_dir: Path) -> None:
+    """Print and save the performance comparison summary."""
     print(f"\n\n{'='*70}")
     print("PERFORMANCE COMPARISON: Manual vs Auto-Sharding")
     print(f"{'='*70}\n")
@@ -508,6 +490,42 @@ def main():
     with open(summary_path, "w") as f:
         f.write(summary_text + "\n")
     print(f"\nSummary saved to: {summary_path}")
+
+
+def main():
+    args = parse_args()
+
+    output_dir = (
+        Path(args.output_dir) if args.output_dir else GENERATED_DIR / "perf_comparison"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    auto_input = args.auto_input
+
+    if not args.skip_auto_sharding:
+        input_stem = Path(args.auto_input).stem
+        auto_sharding_dir = GENERATED_DIR / "auto_sharding" / input_stem
+        winner = run_auto_sharding(
+            args.auto_input, args.mesh_shape, auto_sharding_dir, args.dump_variants
+        )
+        if winner is None:
+            print("\nAuto-sharding search failed. Aborting.")
+            sys.exit(1)
+        auto_input = winner
+
+    graphs = {
+        "manual_sharding": {
+            "input": args.manual_input,
+            "description": "Manual sharding",
+        },
+        "auto_sharding": {
+            "input": auto_input,
+            "description": "Auto-sharding winner",
+        },
+    }
+
+    results = compile_and_profile(graphs, output_dir, args.mesh_shape)
+    print_comparison(results, graphs, output_dir)
 
 
 if __name__ == "__main__":

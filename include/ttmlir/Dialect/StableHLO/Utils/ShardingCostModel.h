@@ -27,7 +27,13 @@ struct ShardingResult {
 
 // Tunable parameters for ShardingCostModel.
 struct ShardingCostModelOptions {
+  // Fixed latency penalty per CCL op (synchronization + setup overhead).
+  // Unitless; relative to bandwidth cost which is scaled by volume fraction.
   double baseCCLLatency = 1.0;
+
+  // Multiplier for memory benefit of sharding weight/parameter tensors vs
+  // activations. Weights are persistent on-device and dominate peak memory,
+  // so sharding them is ~3x more valuable than sharding transient activations.
   double parameterMultiplier = 3.0;
 };
 

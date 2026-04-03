@@ -37,18 +37,13 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 struct MeshInfo {
-  llvm::StringRef meshName;
+  std::string meshName;
   llvm::SmallVector<std::pair<std::string, int64_t>> axes;
 
-  llvm::SmallVector<std::string> getShardableAxes() const {
-    llvm::SmallVector<std::string> results;
-    for (const auto &[name, size] : axes) {
-      if (size > 1) {
-        results.push_back(name);
-      }
-    }
-    return results;
-  }
+  MeshInfo() = default;
+  MeshInfo(std::string meshName,
+           llvm::SmallVector<std::pair<std::string, int64_t>> axes)
+      : meshName(std::move(meshName)), axes(std::move(axes)) {}
 };
 
 static std::optional<MeshInfo> extractMeshInfo(ModuleOp &module) {
@@ -58,14 +53,13 @@ static std::optional<MeshInfo> extractMeshInfo(ModuleOp &module) {
     return std::nullopt;
   }
 
-  MeshInfo info;
-  info.meshName = meshOps[0].getSymName();
+  llvm::SmallVector<std::pair<std::string, int64_t>> axes;
   for (auto axisAttr : meshOps[0].getMeshAttr().getAxes()) {
     if (axisAttr.getSize() > 1) {
-      info.axes.emplace_back(axisAttr.getName().str(), axisAttr.getSize());
+      axes.emplace_back(axisAttr.getName().str(), axisAttr.getSize());
     }
   }
-  return info;
+  return MeshInfo(meshOps[0].getSymName().str(), std::move(axes));
 }
 
 //===----------------------------------------------------------------------===//
@@ -96,6 +90,8 @@ enumerateArgShardings(ModuleOp &module) {
     totalDims += rank;
   }
 
+  // Cap at 2^20 (~1M) configurations to bound compile time. With typical
+  // models having 3-10 args of rank 2-4, totalDims is usually well under 20.
   if (totalDims > 20) {
     llvm::errs() << "AutoSharding: totalDims=" << totalDims
                  << " too large, capping enumeration at 2^20 bit patterns\n";
@@ -361,21 +357,14 @@ private:
     AnalysisResult analysis;
     analysis.meshInfo = *meshInfoOpt;
 
-    auto shardableAxes = analysis.meshInfo.getShardableAxes();
-    if (shardableAxes.empty()) {
+    if (analysis.meshInfo.axes.empty()) {
       llvm::errs() << "AutoSharding: no shardable axes (all size 1), "
                    << "applying all-replicated config\n";
       return std::nullopt;
     }
 
-    analysis.shardAxisName = shardableAxes[0];
-    analysis.meshAxisSize = 1;
-    for (const auto &[name, size] : analysis.meshInfo.axes) {
-      if (name == analysis.shardAxisName) {
-        analysis.meshAxisSize = size;
-        break;
-      }
-    }
+    analysis.shardAxisName = analysis.meshInfo.axes[0].first;
+    analysis.meshAxisSize = analysis.meshInfo.axes[0].second;
     llvm::errs() << "AutoSharding: mesh='" << analysis.meshInfo.meshName
                  << "', sharding axis='" << analysis.shardAxisName
                  << "' (size=" << analysis.meshAxisSize << ")\n";

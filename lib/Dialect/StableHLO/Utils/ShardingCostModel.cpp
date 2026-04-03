@@ -6,7 +6,26 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 
+#include "llvm/ADT/StringMap.h"
+
 namespace mlir::tt::stablehlo {
+
+// Relative cost weights for collective communication ops.
+// all_gather / collective_permute: 1.0 (single data movement, no reduction)
+// reduce_scatter / all_reduce / all_to_all: 1.5 (reduction + data movement)
+// all_slice: 0.5 (local slicing, minimal communication)
+static const llvm::StringMap<double> cclWeights = {
+    {"stablehlo.all_gather", 1.0},         {"stablehlo.reduce_scatter", 1.5},
+    {"stablehlo.all_reduce", 1.5},         {"stablehlo.all_to_all", 1.5},
+    {"stablehlo.collective_permute", 1.0},
+};
+
+static const llvm::StringMap<double> compositeWeights = {
+    {"sdy.all_slice", 0.5},
+    {"sdy.all_gather", 1.0},
+    {"sdy.reduce_scatter", 1.5},
+    {"sdy.all_reduce", 1.5},
+};
 
 ShardingCostModel::ShardingCostModel() = default;
 
@@ -45,27 +64,14 @@ double ShardingCostModel::evaluateCommunicationCost(ModuleOp module,
     StringRef opName = op->getName().getStringRef();
     double opWeight = 0.0;
 
-    if (opName == "stablehlo.all_gather") {
-      opWeight = 1.0;
-    } else if (opName == "stablehlo.reduce_scatter") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.all_reduce") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.all_to_all") {
-      opWeight = 1.5;
-    } else if (opName == "stablehlo.collective_permute") {
-      opWeight = 1.0;
+    auto it = cclWeights.find(opName);
+    if (it != cclWeights.end()) {
+      opWeight = it->second;
     } else if (opName == "stablehlo.composite") {
       if (auto nameAttr = op->getAttrOfType<StringAttr>("name")) {
-        StringRef compositeName = nameAttr.getValue();
-        if (compositeName == "sdy.all_slice") {
-          opWeight = 0.5;
-        } else if (compositeName == "sdy.all_gather") {
-          opWeight = 1.0;
-        } else if (compositeName == "sdy.reduce_scatter") {
-          opWeight = 1.5;
-        } else if (compositeName == "sdy.all_reduce") {
-          opWeight = 1.5;
+        auto cit = compositeWeights.find(nameAttr.getValue());
+        if (cit != compositeWeights.end()) {
+          opWeight = cit->second;
         }
       }
     }
@@ -116,8 +122,10 @@ double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
         cast<RankedTensorType>(funcOp.getArgument(argIdx).getType());
     int64_t numElements = tensorType.getNumElements();
 
+    // Heuristic: tensors with rank <= 4 and > 1024 elements are likely
+    // model weights/parameters rather than activations.
     double typeMultiplier = 1.0;
-    if (tensorType.getRank() <= 2 && numElements > 1024) {
+    if (tensorType.getRank() <= 4 && numElements > 1024) {
       typeMultiplier = options.parameterMultiplier;
     }
 
