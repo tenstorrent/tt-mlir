@@ -10,11 +10,10 @@
 #include "llvm/ADT/SmallVector.h"
 #include <tuple>
 // #include "ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
-// #include "../runtime/include/tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
-
+// #include
+// "../runtime/include/tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-#include <ttnn/graph/graph_query_op_runtime.hpp>
 #include "conv/unifiedConv2dOp.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
@@ -22,6 +21,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include <ttnn/graph/graph_query_op_runtime.hpp>
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -5185,17 +5185,17 @@ static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
                          toNative(outputLayout.getDataType()))
                    : ::flatbuffers::nullopt;
   conv2dOpT.conv2d_config =
-      conv2dConfig.has_value()
+      (conv2dConfig.has_value() && *conv2dConfig)
           ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
                 toNative(*conv2dConfig))
           : nullptr;
   conv2dOpT.compute_config =
-      deviceComputeKernelConfig.has_value()
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
           ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
                 toNative(*deviceComputeKernelConfig))
           : nullptr;
   conv2dOpT.conv2d_slice_config =
-      conv2dSliceConfig.has_value()
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
           ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
                 toNative(*conv2dSliceConfig))
           : nullptr;
