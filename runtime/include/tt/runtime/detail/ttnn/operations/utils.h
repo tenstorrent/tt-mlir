@@ -22,9 +22,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 ::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-// ::ttnn::operations::unary::UnaryOpType
-// toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
-
 ::ttnn::operations::unary::UnaryWithParam
 toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParam &unaryWithParam);
 
@@ -37,12 +34,6 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op);
 ::ttnn::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 
-// ::ttnn::Conv2dConfig
-// createConv2dConfig(const ::tt::target::ttnn::Conv2dConfigT &config);
-
-// ::ttnn::Conv2dSliceConfig
-// createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfigT &config);
-
 ::ttnn::Conv2dSliceConfig
 createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config);
 
@@ -51,9 +42,6 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
-
-// ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
-//     const ::tt::target::ttnn::DeviceComputeKernelConfigT &config);
 
 ::ttnn::prim::LayerNormProgramConfig
 createLayerNormShardedMultiCoreProgramConfig(

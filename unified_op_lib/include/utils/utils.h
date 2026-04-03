@@ -1,12 +1,15 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
 
-// #include "ttmlir/Target/TTNN/operations/conv_generated.h"
+#ifndef UNIFIED_OP_LIB_UTILS_H
+#define UNIFIED_OP_LIB_UTILS_H
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
-// #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #pragma clang diagnostic pop
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
-// #include "ttmlir/Target/Common/types_generated.h"
 
 // Macros to wrap overloaded functions for use with
 // query_op_constraints/runtime. These create a generic lambda that forwards
@@ -24,6 +27,16 @@
 #define QUERY_OP_RUNTIME(op, device, ...)                                      \
   ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
 // clang-format on
+
+namespace unifiedOpLib {
+
+enum class CallType {
+  QUERY_OP_CONSTRAINTS,
+  QUERY_OP_RUNTIME,
+  EXECUTE,
+};
+
+} // namespace unifiedOpLib
 
 namespace unifiedOpLib::operations::utils {
 
@@ -75,3 +88,5 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfigT &config);
     const ::tt::target::ttnn::DeviceComputeKernelConfigT &config);
 
 } // namespace unifiedOpLib::operations::utils
+
+#endif // UNIFIED_OP_LIB_UTILS_H

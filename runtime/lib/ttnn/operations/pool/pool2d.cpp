@@ -58,8 +58,9 @@ void runAvgPool2dOp(
 
   std::optional<::ttnn::TensorMemoryLayout> appliedShardScheme = std::nullopt;
   if (op->applied_shard_scheme()) {
-    appliedShardScheme = ::unifiedOpLib::operations::utils::toTTNNTensorMemoryLayout(
-        *op->applied_shard_scheme());
+    appliedShardScheme =
+        ::unifiedOpLib::operations::utils::toTTNNTensorMemoryLayout(
+            *op->applied_shard_scheme());
   }
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
@@ -120,8 +121,9 @@ void runMaxPool2dOp(
 
   std::optional<::ttnn::TensorMemoryLayout> appliedShardScheme = std::nullopt;
   if (op->applied_shard_scheme()) {
-    appliedShardScheme = ::unifiedOpLib::operations::utils::toTTNNTensorMemoryLayout(
-        *op->applied_shard_scheme());
+    appliedShardScheme =
+        ::unifiedOpLib::operations::utils::toTTNNTensorMemoryLayout(
+            *op->applied_shard_scheme());
   }
 
   std::vector<::ttnn::Tensor> results =
@@ -184,8 +186,9 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
 
   std::optional<::ttnn::TensorMemoryLayout> appliedShardScheme = std::nullopt;
   if (op->applied_shard_scheme()) {
-    appliedShardScheme = ::unifiedOpLib::operations::utils::toTTNNTensorMemoryLayout(
-        *op->applied_shard_scheme());
+    appliedShardScheme =
+        ::unifiedOpLib::operations::utils::toTTNNTensorMemoryLayout(
+            *op->applied_shard_scheme());
   }
 
   // Call ttnn::max_pool2d with return_indices = true, returning both output and
