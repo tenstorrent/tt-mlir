@@ -13,6 +13,7 @@
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/types.hpp"
+#include "utils/utils.h"
 
 #include <optional>
 
