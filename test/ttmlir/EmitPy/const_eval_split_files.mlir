@@ -13,7 +13,7 @@
 // CHECK-LABEL: # File: "main"
 // CHECK: import ttnn
 // CHECK: import utils
-// CHECK: from consteval import cpu_hoisted_const_eval_{{.*}}, consteval_forward
+// CHECK: from consteval import consteval_forward
 // CHECK: _cached_forward = {}
 // CHECK: def forward(input
 // CHECK:   global _cached_forward
