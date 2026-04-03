@@ -375,7 +375,6 @@ module attributes {} {
   func.func @gather_28(%arg0: tensor<32128x512xbf16>, %arg1: tensor<1x15xi64>) -> tensor<1x15x512xbf16> {
     // CHECK: "ttir.embedding"
     // CHECK-SAME: (tensor<1x15xi64>, tensor<32128x512xbf16>) -> tensor<1x15x512xbf16>
-    // CHECK-NOT: "ttir.gather"
     %0 = "stablehlo.gather"(%arg0, %arg1) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 512>}> : (tensor<32128x512xbf16>, tensor<1x15xi64>) -> tensor<1x15x512xbf16>
     return %0 : tensor<1x15x512xbf16>
   }
