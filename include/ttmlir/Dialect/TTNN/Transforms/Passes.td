@@ -634,8 +634,8 @@ def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mli
   ];
 }
 
-def TTNNGreedyLayoutPropagation : Pass<"ttnn-greedy-layout-propagation", "::mlir::ModuleOp"> {
-  let summary = "Greedy edge-based layout propagation for all operands.";
+def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagation", "::mlir::ModuleOp"> {
+  let summary = "Greedy edge-based memory layout propagation for all operands.";
   let description = [{
     This pass performs edge-based layout propagation using a greedy algorithm
     or beam search to find optimal tensor layouts across the module.
