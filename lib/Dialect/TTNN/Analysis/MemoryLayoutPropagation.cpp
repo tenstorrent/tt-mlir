@@ -723,19 +723,8 @@ void MemoryLayoutPropagation::addReshardCandidates(
     }
   }
 
-  // Enable interleaved-to-sharded reshards when no existing candidate offers
-  // a sharded layout. This targets ops whose producers are stuck at
-  // DRAM/interleaved (e.g., all_gather -> silu) where resharding the input
-  // to L1/sharded enables dramatically faster execution.
-  bool hasAnyShardedCandidate = false;
-  for (const auto &ic : candidates) {
-    auto ml = ic.layout.getMemLayout();
-    if (ml && isShardedMemoryLayout(ml.getValue())) {
-      hasAnyShardedCandidate = true;
-      break;
-    }
-  }
-  bool exploreInterleavedToSharded = !hasAnyShardedCandidate;
+  // Interleaved-to-sharded reshard exploration disabled for perf testing.
+  bool exploreInterleavedToSharded = false;
 
   // Compute max grid volume from output tensor tile count. For tiled outputs,
   // reshard grids larger than the output tile count are wasteful — the op can't
