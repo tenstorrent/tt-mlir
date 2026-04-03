@@ -922,32 +922,6 @@ public:
   }
 };
 
-// --- Gather ---
-class TTIRGatherToEmitPy : public OpConversionPattern<ttir::GatherOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    EmitPyCallBuilder b(op, getTypeConverter(), getCallee(op));
-    b.addOperand(adaptor.getInput());
-    b.addOperand(adaptor.getStartIndices());
-    b.addKwarg("offset_dims", formatI64List(adaptor.getOffsetDims()));
-    b.addKwarg("collapsed_slice_dims",
-               formatI64List(adaptor.getCollapsedSliceDims()));
-    b.addKwarg("operand_batching_dims",
-               formatI64List(adaptor.getOperandBatchingDims()));
-    b.addKwarg("start_indices_batching_dims",
-               formatI64List(adaptor.getStartIndicesBatchingDims()));
-    b.addKwarg("start_index_map", formatI64List(adaptor.getStartIndexMap()));
-    b.addKwarg("index_vector_dim", std::to_string(adaptor.getIndexVectorDim()));
-    b.addKwarg("slice_sizes", formatI64List(adaptor.getSliceSizes()));
-    b.replaceOp(rewriter);
-    return success();
-  }
-};
-
 // --- SplitQueryKeyValueAndSplitHeads ---
 class TTIRSplitQKVToEmitPy
     : public OpConversionPattern<ttir::SplitQueryKeyValueAndSplitHeadsOp> {
@@ -1240,10 +1214,10 @@ struct ConvertTTIRCPUToEmitPyPass
         TTIRSliceStaticToEmitPy, TTIRBroadcastToEmitPy,
         TTIRGlobalAvgPool2dToEmitPy, TTIRClampScalarToEmitPy,
         TTIRClampTensorToEmitPy, TTIRTypecastToEmitPy, TTIRLayerNormToEmitPy,
-        TTIRDotGeneralToEmitPy, TTIRGatherToEmitPy, TTIRSplitQKVToEmitPy,
-        TTIRMaxPool2dToEmitPy, TTIRMaxPool2dWithIndicesToEmitPy,
-        TTIRAvgPool2dToEmitPy, TTIRConv2dToEmitPy, TTIRCumSumToEmitPy,
-        TTIRConcatenateHeadsToEmitPy>(typeConverter, &getContext());
+        TTIRDotGeneralToEmitPy, TTIRSplitQKVToEmitPy, TTIRMaxPool2dToEmitPy,
+        TTIRMaxPool2dWithIndicesToEmitPy, TTIRAvgPool2dToEmitPy,
+        TTIRConv2dToEmitPy, TTIRCumSumToEmitPy, TTIRConcatenateHeadsToEmitPy>(
+        typeConverter, &getContext());
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
