@@ -101,6 +101,8 @@ Tensor createEmptyTensor(Device device, Layout layout,
                          const std::vector<std::uint32_t> &stride,
                          std::uint32_t itemsize);
 
+Tensor createScalarTensor(Scalar scalar);
+
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,
                                                  desc.itemsize, desc.dataType);

@@ -28,8 +28,8 @@ using HostBuffer = std::shared_ptr<::tt::tt_metal::HostBuffer>;
 using DistributedHostBuffer =
     std::shared_ptr<::tt::tt_metal::DistributedHostBuffer>;
 using MeshBuffer = std::shared_ptr<::tt::tt_metal::distributed::MeshBuffer>;
-using MetalTensor =
-    std::variant<TensorDesc, HostBuffer, DistributedHostBuffer, MeshBuffer>;
+using MetalTensor = std::variant<TensorDesc, HostBuffer, DistributedHostBuffer,
+                                 MeshBuffer, std::uint32_t>;
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);
@@ -69,6 +69,8 @@ Tensor createMultiDeviceBorrowedHostTensor(
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
+
+Tensor createScalarTensor(Scalar scalar);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);

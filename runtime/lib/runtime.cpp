@@ -426,6 +426,22 @@ Tensor createEmptyTensor(Device device, Layout layout,
       });
 }
 
+Tensor createScalarTensor(Scalar scalar) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createEmptyTensor", DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createScalarTensor(scalar);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createEmptyTensor",
+                                    HostRuntime::Distributed);
+      });
+}
+
 bool isTensorAllocated(Tensor tensor) {
   using RetType = bool;
   return DISPATCH_TO_CURRENT_RUNTIME(

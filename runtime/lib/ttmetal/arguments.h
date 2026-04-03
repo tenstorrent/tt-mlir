@@ -153,19 +153,10 @@ std::vector<std::uint32_t> processKernelArgs(
       LOG_ASSERT(hostBuffers.find(buffer->global_id()) != hostBuffers.end(),
                  "Scalar id is no longer alive or was never created ",
                  logger::Buffer(buffer->global_id()));
-      const Tensor &scalarTensor = hostBuffers.at(buffer->global_id());
-      LOG_ASSERT(scalarTensor.data != nullptr,
-                 "Scalar tensor data is null for global id ",
-                 buffer->global_id());
-
-      // Get the scalar value and cast it to uint32_t. We also need to validate
-      // that the scalar value can fit into uint32_t.
-      uint32_t scalarValue = 0;
-      std::memcpy(&scalarValue, scalarTensor.data.get(), sizeof(uint32_t));
-      LOG_ASSERT(scalarValue <= std::numeric_limits<uint32_t>::max(),
-                 "Scalar value ", scalarValue,
-                 " cannot fit into uint32_t for global id ",
-                 buffer->global_id());
+      const MetalTensor &metalTensor =
+          hostBuffers.at(buffer->global_id())
+              .as<MetalTensor>(DeviceRuntime::TTMetal);
+      std::uint32_t scalarValue = std::get<std::uint32_t>(metalTensor);
       argsVec.push_back(scalarValue);
       break;
     }

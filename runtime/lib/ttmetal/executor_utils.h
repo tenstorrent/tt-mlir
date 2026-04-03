@@ -297,6 +297,7 @@ inline void writeHostTensorToMeshBuffer(
     std::shared_ptr<distributed::MeshBuffer> meshBuffer, bool blockingCQ) {
   std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
           [&](const TensorDesc &) {
             void *src = input.data.get();
             LOG_ASSERT(src);
@@ -322,6 +323,7 @@ inline void readHostTensorFromMeshBuffer(
     bool blockingCQ) {
   std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
           [&](const TensorDesc &) {
             void *dst = output.data.get();
             LOG_ASSERT(dst);
@@ -345,6 +347,7 @@ inline void checkHostTensorSizeMatchWithMeshBufferSize(
     const Tensor &tensor, std::shared_ptr<distributed::MeshBuffer> meshBuffer) {
   std::visit(
       utils::overloaded{
+          [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
           [&](const TensorDesc &tensorDesc) {
             LOG_ASSERT(meshBuffer.get()->size() == tensorDesc.sizeBytes());
           },
