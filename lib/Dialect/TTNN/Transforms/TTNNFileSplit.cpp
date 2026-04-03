@@ -110,14 +110,17 @@ private:
                               constevalFile.getBodyRegion().front().end());
     }
 
-    // Create a declaration in the main file for each consteval wrapper function
-    // so that func.call ops can resolve the symbols.
+    // Create an ImportedDeclaration in the main file for each consteval wrapper
+    // function so that func.call ops can resolve the symbols.
     builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
     for (auto wrapperFunc : wrapperFuncs) {
       auto privateDecl = builder.create<func::FuncOp>(
           wrapperFunc.getLoc(), wrapperFunc.getName().str(),
           wrapperFunc.getFunctionType());
       privateDecl.setPrivate();
+      ttmlir::utils::setFunctionType(
+          privateDecl, ttmlir::utils::FunctionType::ImportedDeclaration);
+      ttmlir::utils::setImportedFrom(privateDecl, kConstevalFileName);
     }
 
     // Move CPU-hoisted declarations into the file that contains their

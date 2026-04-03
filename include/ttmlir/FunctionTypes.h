@@ -58,6 +58,13 @@ enum class FunctionType {
   /// Main function - the entry point for the generated program.
   /// Relevant for EmitPy and EmitC targets.
   Main,
+
+  /// Imported declaration - a private declaration that represents a function
+  /// defined in a different file. Only relevant in multi-file contexts (i.e.,
+  /// when TTNNFileSplit is performed). These declarations are lowered to
+  /// `from <file> import <func>` statements during the EmitPy conversion.
+  /// The source file is stored in the "tt.imported_from" attribute.
+  ImportedDeclaration,
 };
 
 namespace detail {
@@ -77,6 +84,11 @@ constexpr inline llvm::StringLiteral kTraceExecuteValue = "trace_execute";
 constexpr inline llvm::StringLiteral kKernelValue = "kernel";
 constexpr inline llvm::StringLiteral kInputGeneratorValue = "input_generator";
 constexpr inline llvm::StringLiteral kMainValue = "main";
+constexpr inline llvm::StringLiteral kImportedDeclarationValue =
+    "imported_declaration";
+
+/// Attribute name for the source file of an imported declaration.
+constexpr inline llvm::StringLiteral kImportedFromAttrName = "tt.imported_from";
 } // namespace detail
 
 /// Returns the string value for the given function type.
@@ -102,6 +114,8 @@ inline llvm::StringRef getFunctionTypeValue(FunctionType type) {
     return detail::kInputGeneratorValue;
   case FunctionType::Main:
     return detail::kMainValue;
+  case FunctionType::ImportedDeclaration:
+    return detail::kImportedDeclarationValue;
   }
   llvm_unreachable("Unknown FunctionType");
 }
@@ -138,6 +152,9 @@ parseFunctionTypeValue(llvm::StringRef value) {
   }
   if (value == detail::kMainValue) {
     return FunctionType::Main;
+  }
+  if (value == detail::kImportedDeclarationValue) {
+    return FunctionType::ImportedDeclaration;
   }
   return std::nullopt;
 }
@@ -229,6 +246,29 @@ inline bool isInputGeneratorFunc(mlir::func::FuncOp funcOp) {
 /// Returns true if the function is marked as a main function.
 inline bool isMainFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::Main);
+}
+
+/// Returns true if the function is marked as an imported declaration.
+inline bool isImportedDeclarationFunc(mlir::func::FuncOp funcOp) {
+  return hasFunctionType(funcOp, FunctionType::ImportedDeclaration);
+}
+
+/// Sets the source file attribute on an imported declaration function.
+inline void setImportedFrom(mlir::func::FuncOp funcOp,
+                            llvm::StringRef fileName) {
+  funcOp->setAttr(detail::kImportedFromAttrName,
+                  mlir::StringAttr::get(funcOp->getContext(), fileName));
+}
+
+/// Gets the source file attribute from an imported declaration function.
+inline std::optional<llvm::StringRef>
+getImportedFrom(mlir::func::FuncOp funcOp) {
+  auto attr =
+      funcOp->getAttrOfType<mlir::StringAttr>(detail::kImportedFromAttrName);
+  if (!attr) {
+    return std::nullopt;
+  }
+  return attr.getValue();
 }
 
 //===----------------------------------------------------------------------===//
