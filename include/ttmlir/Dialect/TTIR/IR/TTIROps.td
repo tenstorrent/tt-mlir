@@ -4960,6 +4960,37 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let hasFolder = 1;
 }
 
+def TTIR_GatherDimOp : TTIR_NamedOp<"gather_dim"> {
+  let summary = "Gather operation along a single dimension";
+  let description = [{
+    The `gather_dim` operation gathers values from an input tensor along a
+    given dimension using an index tensor. This corresponds to torch.gather
+    semantics and maps directly to the tt-metal `ttnn::gather` device op.
+
+    This is distinct from the StableHLO-style `gather` op which has complex
+    multi-dimensional semantics.
+
+    Parameters:
+      - `input` (Tensor): The source tensor to gather from.
+      - `index` (Tensor): Indices specifying which values to gather.
+      - `dim` (int32_t): The dimension along which to gather.
+
+    Example:
+    ```mlir
+    %result = "ttir.gather_dim"(%input, %index)
+        <{dim = 0 : i32}> : (tensor<4x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$index,
+                       I32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR creation ops
 //===----------------------------------------------------------------------===//
@@ -5378,6 +5409,24 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let summary = "AllReduce operation.";
     let description = [{
       AllReduce op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async"> {
+    let summary = "Asynchronous AllReduce operation.";
+    let description = [{
+      Asynchronous all-reduce collective communication operation. Performs a
+      reduction (e.g. sum) across all devices in a mesh and distributes the
+      result back to all devices, using async execution to overlap
+      communication with computation.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
@@ -5812,6 +5861,37 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
   let hasVerifier = 1;
 }
 
+def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
+  let summary = "Paged flash multi-latent attention decode operation.";
+  let description = [{
+    Paged flash Multi-Latent Attention (MLA) for the decode phase. This is a
+    specialized attention kernel that combines flash attention with multi-latent
+    attention and paged KV cache support, optimized for single-token decode.
+
+    MLA compresses the KV cache using low-rank projections, significantly
+    reducing memory requirements for long-context inference. The paged variant
+    manages cache memory in fixed-size pages.
+
+    Key difference from PagedScaledDotProductAttentionDecode: the value tensor
+    is optional (may be null for latent-only MLA) and head_dim_v specifies the
+    value head dimension separately.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       Optional<AnyRankedTensor>:$value,
+                       UI32Attr:$head_dim_v,
+                       AnyRankedTensor:$page_table,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
 
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
   let summary = "Scaled dot product attention operation.";

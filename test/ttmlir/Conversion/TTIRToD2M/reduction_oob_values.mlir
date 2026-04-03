@@ -76,8 +76,11 @@ module {
 
   // CHECK-LABEL: func @sum_then_add
   // Reduction → eltwise: sum result feeds directly into add (no undef→undef
-  // to_layout between them).
-  // CHECK: %[[SUM_RES:.+]] = d2m.generic
+  // to_layout between them). Scaler fill closes before the sum generic (%5).
+  // CHECK: d2m.tile_fill
+  // CHECK: } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>,{{.*}}
+  // CHECK: %[[SUM_RES:[0-9]+]] = d2m.generic
+  // CHECK-NEXT: ins({{.*}}, %1 :
   // CHECK: d2m.tile_reduce_sum
   // CHECK: ins(%[[SUM_RES]],
   // CHECK: d2m.tile_add

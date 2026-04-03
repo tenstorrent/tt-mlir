@@ -1225,7 +1225,8 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
   // Create a new RemoteStoreOp with bufferized operands and result
   mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
       rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
-      localBufferBufferized, /*cb=*/Value{});
+      localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
+      getSemaphore(), getSemaphoreIndices());
 
   return mlir::success();
 }

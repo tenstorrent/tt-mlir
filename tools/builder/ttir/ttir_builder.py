@@ -15126,6 +15126,557 @@ class TTIRBuilder(Builder):
 
         return topk_module, topk_builder
 
+    ############### ttir.GatherDimOp ###############
+
+    @tag(ttir.GatherDimOp)
+    def gather_dim(
+        self,
+        in0: Operand,
+        index: Operand,
+        dim: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.gather_dim)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
+
+        input0 = self._get_golden_tensor(in0)
+        input_index = self._get_golden_tensor(index)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            input_index,
+            dim_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            index,
+            dim_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.GatherDimOp)
+    def gather_dim_parser(
+        self,
+        old_op: ttir.GatherDimOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.gather_dim_parser)
+
+        in0 = global_dict[old_op.input]
+        index = global_dict[old_op.index]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+
+        new_op = ttir_op(
+            result,
+            in0,
+            index,
+            dim_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input_index = self._get_golden_tensor(index)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            input_index,
+            dim_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.GatherDimOp)
+    def gather_dim_split(
+        self,
+        old_op: ttir.GatherDimOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.gather_dim_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            gather_dim_module = Module.create()
+            gather_dim_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type, old_op.index.type]
+
+            with InsertionPoint(gather_dim_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="gather_dim_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    index = inputs[1]
+                    result = old_op.result.type
+                    dim_attr = old_op.dim
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        index,
+                        dim_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    input_index = self._get_golden_tensor(old_op.index)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gather_dim_builder._set_golden_tensor(new_op_result, old_op_result)
+                    gather_dim_builder._set_golden_tensor(in0, input0)
+                    gather_dim_builder._set_golden_tensor(index, input_index)
+                    ordered_inputs.extend([in0, index])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                gather_dim_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return gather_dim_module, gather_dim_builder
+
+    ############### ttir.AllReduceAsyncOp ###############
+
+    @tag(ttir.AllReduceAsyncOp)
+    def all_reduce_async(
+        self,
+        input: Operand,
+        cluster_axis: int,
+        reduce_type: ReduceType,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.all_reduce_async)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type.value)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, reduce_type_attr, cluster_axis_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            reduce_type_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttir.AllReduceAsyncOp)
+    def all_reduce_async_parser(
+        self,
+        old_op: ttir.AllReduceAsyncOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.all_reduce_async_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        reduce_type_attr = old_op.reduce_type
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            result,
+            in0,
+            reduce_type_attr,
+            cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            reduce_type_attr,
+            cluster_axis_attr,
+            old_op.result.type.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.PagedFlashMultiLatentAttentionDecodeOp ###############
+
+    @tag(ttir.PagedFlashMultiLatentAttentionDecodeOp)
+    def paged_flash_multi_latent_attention_decode(
+        self,
+        query: Operand,
+        key: Operand,
+        value: Optional[Operand],
+        head_dim_v: int,
+        page_table: Operand,
+        is_causal: bool = True,
+        attention_mask: Optional[Operand] = None,
+        cur_pos_tensor: Optional[Operand] = None,
+        attention_sink: Optional[Operand] = None,
+        scale: Optional[float] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(
+            TTIRBuilder.paged_flash_multi_latent_attention_decode
+        )
+
+        if output_type is None:
+            mlir_output_type = self.get_type(query)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        head_dim_v_attr = IntegerAttr.get(IntegerType.get_unsigned(32), head_dim_v)
+        is_causal_attr = BoolAttr.get(is_causal)
+        scale_attr = FloatAttr.get_f32(scale) if scale is not None else None
+
+        golden_inputs = [self._get_golden_tensor(query), self._get_golden_tensor(key)]
+        if value is not None:
+            golden_inputs.append(self._get_golden_tensor(value))
+        else:
+            golden_inputs.append(None)
+        golden_inputs.append(self._get_golden_tensor(page_table))
+        if attention_mask is not None:
+            golden_inputs.append(self._get_golden_tensor(attention_mask))
+        else:
+            golden_inputs.append(None)
+        if cur_pos_tensor is not None:
+            golden_inputs.append(self._get_golden_tensor(cur_pos_tensor))
+        else:
+            golden_inputs.append(None)
+        if attention_sink is not None:
+            golden_inputs.append(self._get_golden_tensor(attention_sink))
+        else:
+            golden_inputs.append(None)
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            *golden_inputs,
+            head_dim_v_attr,
+            is_causal_attr,
+            scale_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            query,
+            key,
+            head_dim_v_attr,
+            page_table,
+            value=value,
+            is_causal=is_causal_attr,
+            attention_mask=attention_mask,
+            cur_pos_tensor=cur_pos_tensor,
+            attention_sink=attention_sink,
+            scale=scale_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.PagedFlashMultiLatentAttentionDecodeOp)
+    def paged_flash_multi_latent_attention_decode_parser(
+        self,
+        old_op: ttir.PagedFlashMultiLatentAttentionDecodeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.paged_flash_multi_latent_attention_decode_parser
+        )
+
+        query = global_dict[old_op.query]
+        key = global_dict[old_op.key]
+        value = global_dict[old_op.value] if old_op.value is not None else None
+        page_table = global_dict[old_op.page_table]
+        attention_mask = (
+            global_dict[old_op.attention_mask]
+            if old_op.attention_mask is not None
+            else None
+        )
+        cur_pos_tensor = (
+            global_dict[old_op.cur_pos_tensor]
+            if old_op.cur_pos_tensor is not None
+            else None
+        )
+        attention_sink = (
+            global_dict[old_op.attention_sink]
+            if old_op.attention_sink is not None
+            else None
+        )
+        result = old_op.result.type
+        head_dim_v_attr = old_op.head_dim_v
+        is_causal_attr = old_op.is_causal
+        scale_attr = old_op.scale if "scale" in old_op.attributes else None
+
+        new_op = ttir_op(
+            result,
+            query,
+            key,
+            head_dim_v_attr,
+            page_table,
+            value=value,
+            is_causal=is_causal_attr,
+            attention_mask=attention_mask,
+            cur_pos_tensor=cur_pos_tensor,
+            attention_sink=attention_sink,
+            scale=scale_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        golden_inputs = [
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+        ]
+        if value is not None:
+            golden_inputs.append(self._get_golden_tensor(value))
+        else:
+            golden_inputs.append(None)
+        golden_inputs.append(self._get_golden_tensor(page_table))
+        if attention_mask is not None:
+            golden_inputs.append(self._get_golden_tensor(attention_mask))
+        else:
+            golden_inputs.append(None)
+        if cur_pos_tensor is not None:
+            golden_inputs.append(self._get_golden_tensor(cur_pos_tensor))
+        else:
+            golden_inputs.append(None)
+        if attention_sink is not None:
+            golden_inputs.append(self._get_golden_tensor(attention_sink))
+        else:
+            golden_inputs.append(None)
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            *golden_inputs,
+            head_dim_v_attr,
+            is_causal_attr,
+            scale_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.PagedFlashMultiLatentAttentionDecodeOp)
+    def paged_flash_multi_latent_attention_decode_split(
+        self,
+        old_op: ttir.PagedFlashMultiLatentAttentionDecodeOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(
+            TTIRBuilder.paged_flash_multi_latent_attention_decode_split
+        )
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            pflmad_module = Module.create()
+            pflmad_builder = TTIRBuilder(old_ctx, old_loc)
+
+            op_input_types = [old_op.query.type, old_op.key.type]
+            if old_op.value is not None:
+                op_input_types.append(old_op.value.type)
+            op_input_types.append(old_op.page_table.type)
+            if old_op.attention_mask is not None:
+                op_input_types.append(old_op.attention_mask.type)
+            if old_op.cur_pos_tensor is not None:
+                op_input_types.append(old_op.cur_pos_tensor.type)
+            if old_op.attention_sink is not None:
+                op_input_types.append(old_op.attention_sink.type)
+
+            with InsertionPoint(pflmad_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(
+                    *op_input_types,
+                    name="paged_flash_multi_latent_attention_decode_module",
+                )
+                def decorated_func(*inputs):
+                    idx = 0
+                    query = inputs[idx]
+                    idx += 1
+                    key = inputs[idx]
+                    idx += 1
+                    if old_op.value is not None:
+                        value = inputs[idx]
+                        idx += 1
+                    else:
+                        value = None
+                    page_table = inputs[idx]
+                    idx += 1
+                    if old_op.attention_mask is not None:
+                        attention_mask = inputs[idx]
+                        idx += 1
+                    else:
+                        attention_mask = None
+                    if old_op.cur_pos_tensor is not None:
+                        cur_pos_tensor = inputs[idx]
+                        idx += 1
+                    else:
+                        cur_pos_tensor = None
+                    if old_op.attention_sink is not None:
+                        attention_sink = inputs[idx]
+                        idx += 1
+                    else:
+                        attention_sink = None
+
+                    result = old_op.result.type
+                    head_dim_v_attr = old_op.head_dim_v
+                    is_causal_attr = old_op.is_causal
+                    scale_attr = old_op.scale if "scale" in old_op.attributes else None
+
+                    new_op = ttir_op(
+                        result,
+                        query,
+                        key,
+                        head_dim_v_attr,
+                        page_table,
+                        value=value,
+                        is_causal=is_causal_attr,
+                        attention_mask=attention_mask,
+                        cur_pos_tensor=cur_pos_tensor,
+                        attention_sink=attention_sink,
+                        scale=scale_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    pflmad_builder._set_golden_tensor(new_op_result, old_op_result)
+
+                    input_query = self._get_golden_tensor(old_op.query)
+                    pflmad_builder._set_golden_tensor(query, input_query)
+                    ordered_inputs.append(query)
+
+                    input_key = self._get_golden_tensor(old_op.key)
+                    pflmad_builder._set_golden_tensor(key, input_key)
+                    ordered_inputs.append(key)
+
+                    if old_op.value is not None:
+                        input_value = self._get_golden_tensor(old_op.value)
+                        pflmad_builder._set_golden_tensor(value, input_value)
+                        ordered_inputs.append(value)
+
+                    input_page_table = self._get_golden_tensor(old_op.page_table)
+                    pflmad_builder._set_golden_tensor(page_table, input_page_table)
+                    ordered_inputs.append(page_table)
+
+                    if old_op.attention_mask is not None:
+                        input_attention_mask = self._get_golden_tensor(
+                            old_op.attention_mask
+                        )
+                        pflmad_builder._set_golden_tensor(
+                            attention_mask, input_attention_mask
+                        )
+                        ordered_inputs.append(attention_mask)
+
+                    if old_op.cur_pos_tensor is not None:
+                        input_cur_pos_tensor = self._get_golden_tensor(
+                            old_op.cur_pos_tensor
+                        )
+                        pflmad_builder._set_golden_tensor(
+                            cur_pos_tensor, input_cur_pos_tensor
+                        )
+                        ordered_inputs.append(cur_pos_tensor)
+
+                    if old_op.attention_sink is not None:
+                        input_attention_sink = self._get_golden_tensor(
+                            old_op.attention_sink
+                        )
+                        pflmad_builder._set_golden_tensor(
+                            attention_sink, input_attention_sink
+                        )
+                        ordered_inputs.append(attention_sink)
+
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                pflmad_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return pflmad_module, pflmad_builder
+
     # ----- Parse ttir module ----
 
     @staticmethod

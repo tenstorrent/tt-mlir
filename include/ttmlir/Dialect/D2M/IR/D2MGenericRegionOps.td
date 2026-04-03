@@ -796,10 +796,10 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_FillTileOp : D2M_GenericRegionComputeOp<"fill_tile"> {
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
     let summary = "D2M Fill Tile Op";
     let description = [{
-        The `fill_tile` operation creates a tile filled with a constant scalar value.
+        The `tile_fill` operation creates a tile filled with a constant scalar value.
         All elements in the resulting tile will have the same value as the input scalar.
 
         This operation abstracts away the complexity of creating a constant-filled tile,
@@ -822,7 +822,7 @@ def D2M_FillTileOp : D2M_GenericRegionComputeOp<"fill_tile"> {
         bool getDstRegInPlace() { return false; }
         // Operand 0 is the fill scalar (not a tile). Other indices must be
         // false so passes that query isScalarOperand(1) for tile+scalar rhs do
-        // not treat fill_tile as in-place on store.
+        // not treat tile_fill as in-place on store.
         bool isScalarOperand(int64_t operandIdx) {
           return operandIdx == 0;
         }
@@ -1017,7 +1017,8 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
                          I64Attr:$numElems,
-                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape,
+                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape);
     let results = (outs D2M_MemTx:$result);
 
     let builders =
@@ -1025,29 +1026,41 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       // Fully indexed unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Fully indexed multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+      }]>,
+
+      // Fully indexed unicast, with destination device range
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange());
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Shard-level multicast (no indices on either, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
+
+      // Shard-level unicast (no src indices, grid indices on dst, numElems = 0), with destination device range
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+      }]>
     ];
 
-    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -1520,24 +1533,47 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         Variadic<Index>:$indices,
         Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to store from",
         [MemRead]>:$localBuffer,
-        Optional<D2M_CB>:$cb);
-
+        Optional<D2M_CB>:$cb,
+        Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape,
+        Optional<D2M_GlobalSemaphore>:$semaphore,
+        Variadic<Index>:$semaphoreIndices
+        );
     let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let builders = [
       // Explicit CB form (with CB, no result)
       OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
       [{
-        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb);
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, /*startDevice=*/ValueRange{}, /*deviceMcastShape=*/ValueRange{}, /*semaphore=*/Value{}, /*semaphoreIndices=*/ValueRange());
       }]>,
       // Implicit form with local buffer and result (required)
       OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer),
       [{
-        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{});
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, /*startDevice=*/ValueRange{}, /*deviceMcastShape=*/ValueRange{}, /*semaphore=*/Value{}, /*semaphoreIndices=*/ValueRange());
+      }]>,
+      // Explicit CB form (with CB, no result); with destination device range
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb, "ValueRange":$startDevice, "ValueRange":$deviceMcastShape, "Value":$semaphore, "ValueRange":$semaphoreIndices),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, startDevice, deviceMcastShape, semaphore, semaphoreIndices);
+      }]>,
+      // Implicit form with local buffer and result (required); with destination device range
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer, "ValueRange":$startDevice, "ValueRange":$deviceMcastShape, "Value":$semaphore, "ValueRange":$semaphoreIndices),
+      [{
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, startDevice, deviceMcastShape, semaphore, semaphoreIndices);
       }]>
     ];
 
-    let assemblyFormat = [{ $memref `[` $indices `]` ($localBuffer^)? (`from` $cb^)? attr-dict `:` type($memref) (`,` type($localBuffer)^)? (`from` type($cb)^)? (`->` type($result)^)? }];
+    let assemblyFormat = [{
+      $memref `[` $indices `]`
+      ($localBuffer^)?
+      (`from` $cb^)?
+      (`devices` `startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)?
+      (`semaphore` `increment` $semaphore^ `[` $semaphoreIndices `]`)?
+      attr-dict `:` type($memref)
+      (`,` type($localBuffer)^)?
+      (`from` type($cb)^)?
+      (`->` type($result)^)?
+    }];
 
     let hasVerifier = 1;
 
@@ -1669,19 +1705,24 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
     }];
 
     let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
-                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape,
+                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` type($semaphore) }];
+    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? (`startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)? attr-dict `:` type($semaphore) }];
 
     let builders =
     [
       OpBuilder<(ins "Value":$semaphore, "Value":$value),
       [{
-        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange());
+        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange(), ValueRange(), ValueRange());
       }]>,
       OpBuilder<(ins "Value":$semaphore, "Value":$value, "ValueRange":$dstCoreIndex),
       [{
-        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange());
+        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      OpBuilder<(ins "Value":$semaphore, "Value":$value, "ValueRange":$dstCoreIndex, "ValueRange":$startDevice, "ValueRange":$deviceMcastShape),
+      [{
+        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange(), startDevice, deviceMcastShape);
       }]>,
     ];
 }
@@ -2314,6 +2355,17 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
     let hasVerifier = 1;
 }
 
+def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
+    let summary = "Mesh position op.";
+    let description = [{
+      Return the mesh position for the current device at the given dimension.
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
+    let results = (outs Index:$result);
+}
+
+
 //===----------------------------------------------------------------------===//
 // D2M Remote Access ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
@@ -2512,4 +2564,43 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let hasVerifier = 1;
 }
+
+def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
+  [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Device synchronize op.";
+  let description = [{
+    The different devices in a mesh are not running ops in a synchronized manner
+    (devices can be running different ops in the program) so in ops where we are transferring data between devices,
+    we need to ensure that receiving devices have started the op before senders send data to them.
+
+    This op allows us to do this in two steps:
+    1) receiver devices inform senders that they have started the op by incrementing the sync_semaphore on the sender device
+    2) senders wait for all receivers that they have to send to using a semaphore wait
+
+    To ensure correct behaviour, we have to correctly set senderStartDevice, senderDeviceMcastShape, and
+    numReceivers based on which devices are sending to which receivers. Note that the senders and receivers
+    to be specified are in terms of the own device's perspective.
+
+    Example 1: All gather on a 1x8 mesh along cluster axis 1:
+      We have to set senderStartDevice to [0, 0], senderDeviceMcastShape to [1, 8], and numReceivers to 7 for ALL devices.
+
+    Example 2: broadcast CCL from device x to all other devices in 1x8 mesh:
+      - on device x, senderStartDevice/senderDeviceMcastShape will be empty since it is not receiving any data from other devices, but
+      numReceivers will be 7 since it is sending to all other devices
+      - on other devices, senderStartDevice will be device x, senderDeviceMcastShape will be empty, and numReceivers will be 0 (not sending to anyone)
+
+    Pre-condition: sync_semaphore is initialized to 0.
+    Post-condition: Receiver devices are guaranteed to have started their op
+      and so we can send data to them.
+  }];
+
+  let arguments = (ins
+    D2M_GlobalSemaphore:$sync_semaphore,
+    Variadic<Index>:$senderStartDevice,
+    Variadic<Index>:$senderDeviceMcastShape,
+    I32Attr:$numReceivers,
+    Variadic<Index>:$coreIndices
+  );
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

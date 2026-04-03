@@ -266,7 +266,9 @@ def get_request_kwargs(request):
         kwargs["enable_intermediate_verification"] = True
     if request.config.getoption("--disable-golden"):
         kwargs["disable_golden"] = True
-    if request.config.getoption("--skip-exec"):
+    if request.config.getoption("--skip-exec") or getattr(
+        request.node, "skip_exec", False
+    ):
         kwargs["skip_exec"] = True
     if request.config.getoption("--disable-pcc"):
         kwargs["check_pcc"] = False

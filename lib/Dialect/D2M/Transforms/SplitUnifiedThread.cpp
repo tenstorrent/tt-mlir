@@ -44,7 +44,7 @@ public:
         generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
         generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        generic.getScratchInputsAttr(),
+        generic.getScratchInputsAttr(), generic.getFabricConnectionConfigAttr(),
         /*numRegions*/ 2);
 
     // Get the original region
@@ -105,7 +105,7 @@ public:
     // body contents)
     std::function<void(Block *, DenseSet<Operation *> &, bool)>
         collectOpsToErase = [&](Block *block, DenseSet<Operation *> &eraseSet,
-                                bool keepRemoteOps) {
+                                bool isDatamovementThread) {
           for (Operation &op : block->getOperations()) {
             Operation *opPtr = &op;
 
@@ -117,23 +117,25 @@ public:
             // Never erase scf.for operations - they have nested regions.
             // Recursively process their body instead.
             if (auto forOp = dyn_cast<scf::ForOp>(opPtr)) {
-              collectOpsToErase(forOp.getBody(), eraseSet, keepRemoteOps);
+              collectOpsToErase(forOp.getBody(), eraseSet,
+                                isDatamovementThread);
               continue;
             }
 
-            bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
+            bool isDatamovementOnlyOp =
+                isa<RemoteLoadOp, RemoteStoreOp, DeviceSynchronizeOp>(opPtr);
             // Semaphore waits are replicated: preserved in both threads.
             bool isReplicatedOp = isa<SemaphoreWaitOp>(opPtr);
-            if (keepRemoteOps) {
+            if (isDatamovementThread) {
               // In datamovement region: keep RemoteLoadOp, RemoteStoreOp, and
               // replicated ops; erase everything else.
-              if (!isRemoteOp && !isReplicatedOp) {
+              if (!isDatamovementOnlyOp && !isReplicatedOp) {
                 eraseSet.insert(opPtr);
               }
             } else {
               // In compute region: remove RemoteLoadOp and RemoteStoreOp, keep
               // everything else (including replicated ops).
-              if (isRemoteOp) {
+              if (isDatamovementOnlyOp) {
                 eraseSet.insert(opPtr);
               }
             }
@@ -143,7 +145,7 @@ public:
     // Helper function to iteratively erase operations that should be removed
     // We keep erasing operations with no uses (or uses only by ops we're
     // erasing) until no more can be erased
-    auto eraseOpsIteratively = [&](Block *block, bool keepRemoteOps) {
+    auto eraseOpsIteratively = [&](Block *block, bool isDatamovementThread) {
       bool changed = true;
       while (changed) {
         changed = false;
@@ -152,7 +154,7 @@ public:
 
         // First pass: recursively identify all operations that should be
         // erased (based on type), walking into all nested scf.for loops
-        collectOpsToErase(block, eraseSet, keepRemoteOps);
+        collectOpsToErase(block, eraseSet, isDatamovementThread);
 
         // Second pass: only erase operations that have no uses
         // Operations with uses will be handled by canonicalization
@@ -175,11 +177,11 @@ public:
 
     // Filter operations in datamovement region: keep only RemoteLoadOp and
     // RemoteStoreOp (preserve loops and terminators)
-    eraseOpsIteratively(datamovementBlock, /*keepRemoteOps=*/true);
+    eraseOpsIteratively(datamovementBlock, /*isDatamovementThread=*/true);
 
     // Filter operations in compute region: remove RemoteLoadOp and
     // RemoteStoreOp (preserve loops and terminators)
-    eraseOpsIteratively(computeBlock, /*keepRemoteOps=*/false);
+    eraseOpsIteratively(computeBlock, /*isDatamovementThread=*/false);
 
     rewriter.replaceOp(generic, newGeneric.getResults());
 

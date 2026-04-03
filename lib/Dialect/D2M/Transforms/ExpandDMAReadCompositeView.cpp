@@ -266,7 +266,8 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
       gOp.getLoc(), gOp.getResultTypes(), newInputs, gOp.getOutputs(),
       gOp.getAdditionalArgs(), gOp.getGrid(), rewriter.getI64ArrayAttr({}),
       rewriter.getAffineMapArrayAttr({}), rewriter.getArrayAttr({}),
-      gOp.getThreads(), newScratchInputs, gOp.getNumRegions());
+      gOp.getThreads(), newScratchInputs, gOp.getFabricConnectionConfigAttr(),
+      gOp.getNumRegions());
 
   // Step 2: clone old regions into the new GenericOp and fix up d2m.get_cb
   // operand indices that shifted due to the input list expansion.

@@ -2511,6 +2511,29 @@ public:
 } // namespace
 
 namespace {
+class AllReduceAsyncOpConversionPattern
+    : public OpConversionPattern<ttir::AllReduceAsyncOp> {
+public:
+  using OpConversionPattern<ttir::AllReduceAsyncOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllReduceAsyncOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::AllReduceAsyncOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        adaptor.getInput(), adaptor.getReduceType(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()),
+        /*sub_device_id=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*num_links=*/nullptr,
+        /*topology=*/nullptr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ReduceScatterOpConversionPattern
     : public OpConversionPattern<ttir::ReduceScatterOp> {
 public:
@@ -2996,6 +3019,25 @@ public:
 } // namespace
 
 namespace {
+class GatherDimOpConversionPattern
+    : public OpConversionPattern<ttir::GatherDimOp> {
+  using OpConversionPattern<ttir::GatherDimOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::GatherDimOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getIndex(),
+        rewriter.getI32IntegerAttr(adaptor.getDim()),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
 public:
   using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
@@ -3233,6 +3275,29 @@ public:
         adaptor.getPageTable(), adaptor.getIsCausal(),
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class PagedFlashMultiLatentAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<ttir::PagedFlashMultiLatentAttentionDecodeOp> {
+public:
+  using OpConversionPattern<
+      ttir::PagedFlashMultiLatentAttentionDecodeOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::PagedFlashMultiLatentAttentionDecodeOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PagedFlashMultiLatentAttentionDecodeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        static_cast<uint32_t>(adaptor.getHeadDimV()), adaptor.getPageTable(),
+        adaptor.getIsCausal(), adaptor.getAttentionMask(),
+        adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
+        adaptor.getScaleAttr(),
         /*memory_config=*/nullptr);
     return success();
   }
@@ -3614,6 +3679,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConvTranspose2dOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
+           AllReduceAsyncOpConversionPattern,
            AllGatherOpConversionPattern,
            MeshPartitionOpConversionPattern,
            ReduceScatterOpConversionPattern,
@@ -3625,6 +3691,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
+           GatherDimOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
@@ -3633,6 +3700,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
+           PagedFlashMultiLatentAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,

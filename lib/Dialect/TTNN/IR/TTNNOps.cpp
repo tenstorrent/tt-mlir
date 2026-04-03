@@ -3121,6 +3121,52 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPostAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPostAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType statsType = getStats().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input must have rank >= 2.
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank >= 2");
+  }
+
+  // Stats must have rank >= 2.
+  if (statsType.getRank() < 2) {
+    return emitOpError("stats must have rank >= 2");
+  }
+
+  // Output shape must match input shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != lastDimSize) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != lastDimSize) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::GroupNormOp::verify() {
@@ -3338,6 +3384,39 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// GatherOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult GatherOp::verify() {
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType resultType = getResult().getType();
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t indexRank = indexType.getRank();
+
+  if (inputRank != indexRank) {
+    return emitOpError()
+           << "Input tensor and index tensor must have the same rank. "
+           << "Got input rank = " << inputRank
+           << ", index rank = " << indexRank;
+  }
+
+  int32_t dim = getDim();
+  if (dim >= inputRank || dim < -inputRank) {
+    return emitOpError() << "Dimension must be in the range [-" << inputRank
+                         << ", " << inputRank << "), got dim = " << dim;
+  }
+
+  if (indexType.getShape() != resultType.getShape()) {
+    return emitOpError(
+        "Index tensor and result tensor must have the same shape.");
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllReduceOp
 //===----------------------------------------------------------------------===//
 
@@ -3362,6 +3441,21 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceAsyncOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllReduceAsyncOp::verify() {
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
+
+  // Currently TTNN only supports the sum reduce types.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
+    return emitOpError("Invalid reduction op for all reduce async op.");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -5179,6 +5273,58 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError(
           "Cur pos tensor number of users must match query number of users.");
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+
+  // Verify ranks.
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key tensor must be a 4D tensor.");
+  }
+  if (pageTableType.getShape().size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor.");
+  }
+
+  // Verify element types.
+  if (!queryType.getElementType().isFloat()) {
+    return emitOpError("Query must be a float tensor.");
+  }
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type.");
+  }
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+
+  // Verify value if present.
+  if (getValue()) {
+    RankedTensorType valueType = getValue().getType();
+    if (valueType.getShape().size() != 4) {
+      return emitOpError("Value tensor must be a 4D tensor.");
+    }
+    if (queryType.getElementType() != valueType.getElementType()) {
+      return emitOpError("Query and value must have the same element type.");
+    }
+  }
+
+  // head_dim_v must be > 0.
+  if (getHeadDimV() == 0) {
+    return emitOpError("head_dim_v must be greater than 0.");
   }
 
   return success();

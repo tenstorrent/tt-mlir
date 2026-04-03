@@ -47,7 +47,7 @@ static Value getLayoutOrCastResult(Operation *op) {
 }
 
 /// Splatted fill value when \p genericOp matches the lowered `ttir.full` shape
-/// (one inputless `linalg.generic` in the outer region, body is fill_tile +
+/// (one inputless `linalg.generic` in the outer region, body is tile_fill +
 /// arith.constant for the scalar). Otherwise std::nullopt.
 static std::optional<Attribute>
 tryGetSplatAttrFromFillGeneric(GenericOp genericOp) {
@@ -71,22 +71,22 @@ tryGetSplatAttrFromFillGeneric(GenericOp genericOp) {
   }
 
   Block *body = fillLinalg.getBody();
-  FillTileOp fillTile;
+  TileFillOp tileFill;
   for (Operation &op : body->without_terminator()) {
-    if (auto tf = dyn_cast<FillTileOp>(&op)) {
-      if (fillTile) {
+    if (auto tf = dyn_cast<TileFillOp>(&op)) {
+      if (tileFill) {
         return std::nullopt;
       }
-      fillTile = tf;
+      tileFill = tf;
     } else if (!isa<arith::ConstantOp>(&op)) {
       return std::nullopt;
     }
   }
-  if (!fillTile) {
+  if (!tileFill) {
     return std::nullopt;
   }
 
-  Value fillVal = fillTile.getValue();
+  Value fillVal = tileFill.getValue();
   if (auto cst = fillVal.getDefiningOp<arith::ConstantOp>()) {
     return cst.getValue();
   }
@@ -354,6 +354,7 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
       genericOp.getGrid(), genericOp.getBlockFactors(),
       rewriter.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
       genericOp.getThreads(), genericOp.getScratchInputsAttr(),
+      genericOp.getFabricConnectionConfigAttr(),
       /*regions=*/1);
 
   for (auto [oldRegion, newRegion] :
@@ -505,24 +506,6 @@ scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
   return madeChanges ? success() : failure();
 }
 
-class ScalarizeFullOpPattern : public OpRewritePattern<FullOp> {
-public:
-  using OpRewritePattern<FullOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(FullOp fullOp,
-                                PatternRewriter &rewriter) const override {
-    SmallVector<ConstantUseChain> chains;
-    traceValueToGenericChains(fullOp.getResult(), chains);
-
-    if (chains.empty()) {
-      return failure();
-    }
-
-    return scalarizeSplatThroughUseChains(
-        fullOp.getLoc(), fullOp.getFillValue(), chains, rewriter);
-  }
-};
-
 class ScalarizeGenericFillPattern : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
@@ -555,7 +538,7 @@ public:
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<ScalarizeFullOpPattern, ScalarizeGenericFillPattern>(ctx);
+    patterns.add<ScalarizeGenericFillPattern>(ctx);
 
     GreedyRewriteConfig config;
     config.setMaxIterations(25);

@@ -2412,6 +2412,44 @@ def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
     let hasVerifier = 1;
 }
 
+def TTNN_LayerNormPostAllGatherOp : TTNN_Op<"layer_norm_post_all_gather",
+    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Layer normalization post-all-gather op.";
+    let description = [{
+      Applies normalization using gathered statistics from a distributed
+      layer normalization pipeline. Takes the original input tensor and
+      the all-gathered partial statistics, computes the final normalized
+      output, and optionally scales by weight and shifts by bias.
+
+      Inputs:
+        - input: Original input tensor.
+        - stats: All-gathered statistics tensor from pre-all-gather phase.
+        - weight: Optional scale (gamma) tensor.
+        - bias: Optional shift (beta) tensor.
+
+      Attributes:
+        - epsilon: Small constant for numerical stability (default 1e-12).
+        - dtype: Optional output data type.
+        - compute_config: Optional device compute kernel configuration.
+        - program_config: Optional LayerNormShardedMultiCoreProgramConfig.
+        - memory_config: Optional output memory configuration.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$stats,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Group normalization op.";
     let description = [{
@@ -2794,6 +2832,29 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
     }];
 }
 
+def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Gather op.";
+    let description = [{
+      Gathers values from the input tensor along the given dimension using an
+      index tensor. This corresponds to torch.gather semantics and maps
+      directly to the tt-metal `ttnn::gather` device op.
+
+      Parameters:
+        - `input` (ttnn.Tensor): The source tensor to gather from.
+        - `index` (ttnn.Tensor): Indices specifying which values to gather.
+        - `dim` (int32_t): The dimension along which to gather.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let summary = "All gather op.";
     let description = [{
@@ -2859,6 +2920,28 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+}
+
+def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Asynchronous all reduce op.";
+    let description = [{
+        Asynchronous all-reduce collective communication operation. Performs a
+        reduction (e.g. sum) across all devices in a mesh and distributes the
+        result back to all devices, using async execution to overlap
+        communication with computation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
@@ -3504,6 +3587,41 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_latent_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+  let summary = "Paged flash multi-latent attention decode operation.";
+  let description = [{
+    Paged flash Multi-Latent Attention (MLA) for the decode phase. Combines
+    flash attention with multi-latent attention and paged KV cache support,
+    optimized for single-token decode.
+
+    Key difference from PagedScaledDotProductAttentionDecode: the value tensor
+    is optional (may be null for latent-only MLA) and head_dim_v specifies the
+    value head dimension separately.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       Optional<AnyRankedTensor>:$value,
+                       UI32Attr:$head_dim_v,
+                       AnyRankedTensor:$page_table,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(getOperation());
     }
   }];
 

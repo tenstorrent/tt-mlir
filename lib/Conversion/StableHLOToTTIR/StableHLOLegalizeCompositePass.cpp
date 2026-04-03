@@ -604,6 +604,91 @@ public:
   }
 };
 
+// Special handling for tenstorrent.scaled_dot_product_attention ->
+// ttir.scaled_dot_product_attention
+// Extracts is_causal, scale from composite attributes and sets
+// operandSegmentSizes for AttrSizedOperandSegments
+class TenstorrentScaledDotProductAttentionConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentScaledDotProductAttentionConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.scaled_dot_product_attention") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands < 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.scaled_dot_product_attention composite op must have "
+          "at least 3 operands (query, key, value).");
+    }
+
+    // For now, frontend composite doesnt support attention_sink.
+    // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
+    if (numOperands > 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.scaled_dot_product_attention composite op must have "
+          "at most 4 operands (query, key, value, attention_mask). "
+          "Attention sink is not supported yet.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    SmallVector<NamedAttribute> namedAttrs;
+
+    bool isCausal = true;
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
+        isCausal = attr.getValue();
+        namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
+      }
+      if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
+        namedAttrs.push_back(rewriter.getNamedAttr(
+            "scale", rewriter.getF32FloatAttr(
+                         static_cast<float>(attr.getValueAsDouble()))));
+      }
+    }
+
+    // The composite's first 3 operands are always query, key, value.
+    // A 4th boundary input (attention_mask) is present only when
+    // is_causal is false and the frontend marked 4 inputs.
+    bool hasAttnMask = !isCausal && numOperands == 4;
+    SmallVector<Value> sdpaOperands = {adaptor.getOperands()[0],
+                                       adaptor.getOperands()[1],
+                                       adaptor.getOperands()[2]};
+    if (hasAttnMask) {
+      sdpaOperands.push_back(adaptor.getOperands()[3]);
+    }
+
+    // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
+    //   [query, key, value, attention_mask, attention_sink]
+    SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, sdpaOperands, namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -643,6 +728,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
+  patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt
