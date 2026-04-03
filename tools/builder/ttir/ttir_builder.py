@@ -444,7 +444,7 @@ class TTIRBuilder(Builder):
         with old_ctx, old_loc:
             all_to_all_module = Module.create()
             all_to_all_builder = TTIRBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -581,7 +581,7 @@ class TTIRBuilder(Builder):
         with old_ctx, old_loc:
             collective_broadcast_module = Module.create()
             collective_broadcast_builder = TTIRBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -713,7 +713,7 @@ class TTIRBuilder(Builder):
         with old_ctx, old_loc:
             collective_permute_module = Module.create()
             collective_permute_builder = TTIRBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -864,7 +864,7 @@ class TTIRBuilder(Builder):
         with old_ctx, old_loc:
             reduce_scatter_module = Module.create()
             reduce_scatter_builder = TTIRBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1319,7 +1319,7 @@ class TTIRBuilder(Builder):
         with old_ctx, old_loc:
             all_gather_module = Module.create()
             all_gather_builder = TTIRBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
