@@ -23,6 +23,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFileSplit.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
+        Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
+        Decomposition/TTNNDecompositionPass.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp

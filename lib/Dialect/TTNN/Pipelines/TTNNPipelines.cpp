@@ -288,6 +288,7 @@ void createTTIRToTTNNDevicePipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
+    devicePm.addPass(createTTNNDecomposition());
 
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());

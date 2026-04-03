@@ -313,10 +313,13 @@ def test_hoisted_layer_norm(
         (1, 1, 32, 512),
         (1, 1, 32, 4096),
         (1, 1, 32, 8192),
+        (1, 1, 128, 128),
+        (1, 1, 32, 68),
+        (1, 1, 37, 72),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("has_weight", [True])
+@pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])
