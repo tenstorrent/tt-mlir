@@ -274,24 +274,47 @@ def test_layer_norm(
         ((2, 4, 64), [64]),
     ],
 )
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_layer_norm(
     shape: Shape,
     normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
     target: str,
     request,
     device,
 ):
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def layer_norm(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def layer_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+            builder = inputs[-1]
+            in0 = inputs[0]
+            weight = None
+            bias = None
+
+            if has_weight and len(inputs) > 1:
+                weight = inputs[1]
+            if has_bias:
+                if has_weight and len(inputs) > 2:
+                    bias = inputs[2]
+                elif not has_weight and len(inputs) > 1:
+                    bias = inputs[1]
+
             return builder.layer_norm(
                 in0,
                 normalized_shape=normalized_shape,
-                weight=None,
-                bias=None,
+                weight=weight,
+                bias=bias,
                 unit_attrs=["ttir.should_hoist"],
             )
 

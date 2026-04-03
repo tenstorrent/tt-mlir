@@ -190,6 +190,13 @@ public:
     kwargNames.push_back(StringAttr::get(ctx, name));
   }
 
+  void addKwarg(StringRef name, Value val) {
+    unsigned idx = operands.size();
+    operands.push_back(val);
+    args.push_back(IntegerAttr::get(IndexType::get(ctx), idx));
+    kwargNames.push_back(StringAttr::get(ctx, name));
+  }
+
   void replaceOp(ConversionPatternRewriter &rewriter) {
     SmallVector<Type> resultTypes;
     for (Type t : srcOp->getResultTypes()) {
@@ -876,12 +883,12 @@ public:
     EmitPyCallBuilder b(op, getTypeConverter(), getCallee(op));
     b.addOperand(adaptor.getInput());
     if (adaptor.getWeight()) {
-      b.addOperand(adaptor.getWeight());
+      b.addKwarg("weight", adaptor.getWeight());
     } else {
       b.addKwarg("weight", "None");
     }
     if (adaptor.getBias()) {
-      b.addOperand(adaptor.getBias());
+      b.addKwarg("bias", adaptor.getBias());
     } else {
       b.addKwarg("bias", "None");
     }

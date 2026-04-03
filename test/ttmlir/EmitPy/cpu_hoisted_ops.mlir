@@ -230,6 +230,17 @@ func.func @softmax_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// CHECK-LABEL: def layer_norm_validation
+// CHECK: cpu_hoisted_ttir_layer_{{.*}}
+// CHECK: ttnn.layer_norm(
+// CHECK: ttnn.subtract(
+func.func @layer_norm_validation(%arg0: tensor<32x128xf32>, %arg1: tensor<128xf32>, %arg2: tensor<128xf32>) -> tensor<32x128xf32> {
+  %cpu_result = "ttir.layer_norm"(%arg0, %arg1, %arg2) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> {ttir.should_hoist} : (tensor<32x128xf32>, tensor<128xf32>, tensor<128xf32>) -> tensor<32x128xf32>
+  %device_result = "ttir.layer_norm"(%arg0, %arg1, %arg2) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<32x128xf32>, tensor<128xf32>, tensor<128xf32>) -> tensor<32x128xf32>
+  %diff = "ttir.subtract"(%cpu_result, %device_result) : (tensor<32x128xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
+  return %diff : tensor<32x128xf32>
+}
+
 // Verify CPU-hoisted functions call ttir_cpu.<op> directly.
 
 // CHECK-LABEL : # File: "consteval"
@@ -312,3 +323,9 @@ func.func @softmax_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // Softmax
 // CHECK-LABEL: def cpu_hoisted_ttir_softmax_{{.*}}
 // CHECK: ttir_cpu.softmax(
+
+// LayerNorm (with weight and bias as kwargs)
+// CHECK-LABEL: def cpu_hoisted_ttir_layer_{{.*}}
+// CHECK: ttir_cpu.layer_norm(
+// CHECK-SAME: weight=
+// CHECK-SAME: bias=
