@@ -17,16 +17,11 @@ bool isOnHost(const ::ttnn::StorageType &storageType);
 
 bool isOnDevice(const ::ttnn::StorageType &storageType);
 
-// bool inSystemMemory(const ::tt::target::ttnn::TensorRefT &tensorRef);
-
 bool inSystemMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 bool inDeviceMemory(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 bool isValidTileShape(const ::tt::target::Dim2d *shape);
-
-// bool isSharded(
-//     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 
@@ -45,23 +40,12 @@ const ::tt::target::ttnn::Program *getProgram(const Binary &executableHandle,
 
 ::reduction_common::ReduceType getReduceType(uint32_t reduceType);
 
-// ::ttnn::DataType toTTNNDataType(::tt::target::DataType dataType);
-
 ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType);
-
-// MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity);
-
-// ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout);
 
 ::tt::target::TensorLayout fromTTNNLayout(::ttnn::Layout layout);
 
-// ::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
-//     ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout);
-
 ::tt::target::ttnn::TensorMemoryLayout
 fromTTNNTensorMemoryLayout(::ttnn::TensorMemoryLayout tensorMemoryLayout);
-
-// ::ttnn::BufferType toTTNNBufferType(::tt::target::BufferType bufferType);
 
 ::tt::target::BufferType fromTTNNBufferType(::ttnn::BufferType bufferType);
 
@@ -76,23 +60,14 @@ fromTTNNStorageType(::ttnn::StorageType storageType);
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-// tt::tt_metal::CoreCoord
-// toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);
-
 ::tt::target::ttnn::CoreCoord
 fromTTNNCoreCoord(const tt::tt_metal::CoreCoord &coreCoord);
-
-// tt::tt_metal::CoreRange
-// toTTNNCoreRange(const tt::target::ttnn::CoreRange &coreRange);
 
 ::tt::target::ttnn::CoreRange
 fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange);
 
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet);
-
-// tt::tt_metal::CoreRangeSet
-// toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSetT &coreRangeSet);
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
 fromTTNNCoreRangeSet(::flatbuffers::FlatBufferBuilder &fbb,
@@ -104,14 +79,8 @@ toTTNNMeshCoordinate(const ::tt::target::ttnn::MeshCoord &meshCoord);
 tt::tt_metal::distributed::MeshCoordinateRange toTTNNMeshCoordinateRange(
     const ::tt::target::ttnn::MeshCoordRange &meshCoordRange);
 
-// ::ttnn::ShardOrientation
-// toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
-
 ::tt::target::ttnn::ShardOrientation
 fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
-
-// tt::tt_metal::ShardDistributionStrategy toTTNNShardDistributionStrategy(
-//     tt::target::ttnn::ShardDistributionStrategy distributionStrategy);
 
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
@@ -119,14 +88,8 @@ fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
 
 CoreType toCoreType(const ::tt::target::ttnn::CoreType &coreType);
 
-// const ::tt::target::ttnn::MemoryConfigT
-// getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRefT &tensorRef);
-
 const ::tt::target::ttnn::MemoryConfig *
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRef *tensorRef);
-
-// std::optional<::ttnn::MemoryConfig>
-// createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg);
 
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg);

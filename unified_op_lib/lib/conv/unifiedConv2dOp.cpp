@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// #include "tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 #include "conv/unifiedConv2dOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
@@ -14,30 +13,6 @@
 #include <variant>
 
 namespace unifiedOpLib {
-
-// namespace utils = ::tt::runtime::ttnn::operations::utils;
-
-// // Extract output MemoryConfig from the Conv2dOpT.out TensorRefT.
-// static std::optional<::ttnn::MemoryConfig>
-// getOutputMemoryConfig(const ::tt::target::ttnn::TensorRefT &outRef) {
-//   if (!outRef.desc || !outRef.desc->layout ||
-//       !outRef.desc->layout->memory_desc ||
-//       !outRef.desc->layout->memory_desc->memory_config) {
-//     return std::nullopt;
-//   }
-//   return tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-//       *outRef.desc->layout->memory_desc->memory_config);
-// }
-
-// // Check if TensorRefT is in system memory (host).
-// static bool isSystemMemory(const ::tt::target::ttnn::TensorRefT &tensorRef) {
-//   if (!tensorRef.desc || !tensorRef.desc->layout ||
-//       !tensorRef.desc->layout->memory_desc) {
-//     return true; // default to host if no layout info
-//   }
-//   return tensorRef.desc->layout->memory_desc->storage_type ==
-//          ::tt::target::ttnn::StorageType::Host;
-// }
 
 Conv2dResolvedParams
 resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
@@ -86,14 +61,7 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
         *conv2dOpT.conv2d_slice_config);
   }
 
-  // std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-  //     ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-  //         ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  // LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-  //                outputMemoryConfig.has_value(),
-  //            "Memory config must exist for device tensors");
   if (conv2dOpT.out) {
-    // params.outputMemoryConfig = getOutputMemoryConfig(*conv2dOpT.out);
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(*conv2dOpT.out));
     LOG_ASSERT(operations::utils::inSystemMemory(*conv2dOpT.out) ||

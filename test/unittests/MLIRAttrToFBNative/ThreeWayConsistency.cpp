@@ -73,7 +73,8 @@ protected:
       override {
     tt::target::ttnn::DeviceComputeKernelConfigT deviceComputeKernelConfigT =
         mlir::tt::toNative(computeConfigAttr);
-    return unifiedOpLib::operations::utils::createDeviceComputeKernelConfig(deviceComputeKernelConfigT);
+    return unifiedOpLib::operations::utils::createDeviceComputeKernelConfig(
+        deviceComputeKernelConfigT);
   }
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
@@ -137,8 +138,7 @@ protected:
   pathB(mlir::tt::ttnn::Conv2dConfigAttr conv2dConfigAttr) override {
     tt::target::ttnn::Conv2dConfigT conv2dConfigT =
         mlir::tt::toNative(conv2dConfigAttr);
-    return unifiedOpLib::operations::utils::createConv2dConfig(
-        conv2dConfigT);
+    return unifiedOpLib::operations::utils::createConv2dConfig(conv2dConfigT);
   }
 
   std::optional<::ttnn::Conv2dConfig>

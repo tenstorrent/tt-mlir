@@ -36,12 +36,6 @@ struct Conv2dResolvedParams {
   std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
 };
 
-enum class CallType {
-  QUERY_OP_CONSTRAINTS,
-  QUERY_OP_RUNTIME,
-  EXECUTE,
-};
-
 Conv2dResolvedParams
 resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT);
 
@@ -49,8 +43,7 @@ Conv2dOpResult callConv2d(
     CallType callType, const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
     TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
     ::ttnn::MeshDevice &targetDevice,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-        std::nullopt);
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt);
 
 } // namespace unifiedOpLib
 
