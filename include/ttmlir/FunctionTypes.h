@@ -55,6 +55,10 @@ enum class FunctionType {
   /// Relevant for EmitPy and EmitC targets.
   InputGenerator,
 
+  /// Const-eval wrapper function - wraps const-eval logic with caching.
+  /// Created by TTNNPrepareConstEvalCaching.
+  ConstEvalWrapper,
+
   /// Main function - the entry point for the generated program.
   /// Relevant for EmitPy and EmitC targets.
   Main,
@@ -83,6 +87,8 @@ constexpr inline llvm::StringLiteral kTraceRunAndCaptureValue =
 constexpr inline llvm::StringLiteral kTraceExecuteValue = "trace_execute";
 constexpr inline llvm::StringLiteral kKernelValue = "kernel";
 constexpr inline llvm::StringLiteral kInputGeneratorValue = "input_generator";
+constexpr inline llvm::StringLiteral kConstEvalWrapperValue =
+    "const_eval_wrapper";
 constexpr inline llvm::StringLiteral kMainValue = "main";
 constexpr inline llvm::StringLiteral kImportedDeclarationValue =
     "imported_declaration";
@@ -112,6 +118,8 @@ inline llvm::StringRef getFunctionTypeValue(FunctionType type) {
     return detail::kKernelValue;
   case FunctionType::InputGenerator:
     return detail::kInputGeneratorValue;
+  case FunctionType::ConstEvalWrapper:
+    return detail::kConstEvalWrapperValue;
   case FunctionType::Main:
     return detail::kMainValue;
   case FunctionType::ImportedDeclaration:
@@ -149,6 +157,9 @@ parseFunctionTypeValue(llvm::StringRef value) {
   }
   if (value == detail::kInputGeneratorValue) {
     return FunctionType::InputGenerator;
+  }
+  if (value == detail::kConstEvalWrapperValue) {
+    return FunctionType::ConstEvalWrapper;
   }
   if (value == detail::kMainValue) {
     return FunctionType::Main;
@@ -241,6 +252,11 @@ inline bool isKernelFunc(mlir::func::FuncOp funcOp) {
 /// Returns true if the function is marked as an input generator function.
 inline bool isInputGeneratorFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::InputGenerator);
+}
+
+/// Returns true if the function is marked as a const-eval wrapper.
+inline bool isConstEvalWrapperFunc(mlir::func::FuncOp funcOp) {
+  return hasFunctionType(funcOp, FunctionType::ConstEvalWrapper);
 }
 
 /// Returns true if the function is marked as a main function.
