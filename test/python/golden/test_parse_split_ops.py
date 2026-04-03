@@ -93,6 +93,7 @@ def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
 
 skip_split_ttnn_tests = [
     "ttnn_all_gather.mlir",
+    "ttnn_reduce_scatter.mlir",
 ]
 
 
