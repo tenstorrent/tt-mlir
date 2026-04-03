@@ -10,13 +10,18 @@
 
 namespace mlir::tt::ttnn::decomposition {
 
-// Returns true if the input shape is (1,1,32,M) where M is a multiple of 32,
-// which is the only shape supported by the fused_rms_minimal kernel.
-// Mirrors the TT_FATAL assertion in rms_allgather_device_operation.cpp:
-//   shape[0]==1, shape[1]==1, shape[2]==32, shape[3]%32==0
-static bool isSupportedByFusedKernel(ArrayRef<int64_t> shape) {
+// Returns true if the op can be lowered to the fused_rms_minimal kernel.
+// The kernel requires:
+//   - input shape (1,1,32,M) where M is a multiple of 32
+//     (rms_allgather_device_operation.cpp: shape[0]==1, shape[1]==1,
+//      shape[2]==32, shape[3]%32==0)
+//   - a weight (gamma) tensor must be present; the kernel asserts
+//     gamma.has_value() (https://github.com/tenstorrent/tt-metal/issues/38211)
+static bool isSupportedByFusedKernel(ttnn::DistributedRMSNormOp op) {
+  ArrayRef<int64_t> shape =
+      mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
   return shape.size() == 4 && shape[0] == 1 && shape[1] == 1 &&
-         shape[2] == 32 && shape[3] % 32 == 0;
+         shape[2] == 32 && shape[3] % 32 == 0 && op.getWeight();
 }
 
 LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
@@ -24,10 +29,12 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
   RankedTensorType inputType =
       mlir::cast<RankedTensorType>(op.getInput().getType());
+  RankedTensorType resultType =
+      mlir::cast<RankedTensorType>(op.getResult().getType());
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
-  // Only decompose when the fused kernel cannot handle the shape.
-  if (isSupportedByFusedKernel(inputShape)) {
+  // Only decompose when the fused kernel cannot handle the op.
+  if (isSupportedByFusedKernel(op)) {
     return failure();
   }
 
@@ -106,11 +113,10 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       allGatherOp.getResult(), /*keep_dim=*/true, dimArg);
 
   // eps_tensor = full(epsilon)
-  auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
   auto epsTensor = rewriter.create<ttnn::FullOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_epsilon"), statsType,
       rewriter.getF32FloatAttr(op.getEpsilon().convertToFloat()),
-      device.getResult());
+      op.getDevice());
 
   // stabilized = add(global_stats, eps_tensor)
   auto addEpsOp = rewriter.create<ttnn::AddOp>(
@@ -124,14 +130,14 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
   // normalized = multiply(x, inv_rms) — broadcasts inv_rms across last dim
   auto normalizedOp = rewriter.create<ttnn::MultiplyOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_normalize"), inputType, x,
+      ttmlir::utils::appendLocationSuffix(loc, "_normalize"), resultType, x,
       rsqrtOp.getResult());
 
   // Apply optional weight (gamma).
   mlir::Value result = normalizedOp.getResult();
   if (op.getWeight()) {
     auto weightOp = rewriter.create<ttnn::MultiplyOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_weight"), inputType, result,
+        ttmlir::utils::appendLocationSuffix(loc, "_weight"), resultType, result,
         op.getWeight());
     result = weightOp.getResult();
   }
