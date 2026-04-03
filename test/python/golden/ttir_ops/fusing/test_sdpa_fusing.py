@@ -15,7 +15,14 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs, DeferredDevice
 
-pytestmark = pytest.mark.frontend("ttir")
+pytestmark = [
+    pytest.mark.frontend("ttir"),
+    pytest.mark.skip_config(
+        ("p150",),
+        ("p300",),
+        reason="Optimizer mock device grid mismatch on Blackhole (https://github.com/tenstorrent/tt-mlir/issues/7809)",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
