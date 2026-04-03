@@ -2,16 +2,287 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
-import torch
+import os
 import math
 from typing import List, Optional
+from dataclasses import dataclass
+
+import pytest
+import torch
+
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from conftest import get_request_kwargs
+from conftest import get_request_kwargs, DeferredDevice
 
-pytestmark = pytest.mark.frontend("ttir")
+pytestmark = [
+    pytest.mark.frontend("ttir"),
+    pytest.mark.skip_config(
+        ("p150",),
+        ("p300",),
+        reason="Optimizer mock device grid mismatch on Blackhole (https://github.com/tenstorrent/tt-mlir/issues/7809)",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Shape definitions
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SDPAShapes:
+    batch: int
+    q_heads: int
+    kv_heads: int
+    q_seq: int
+    kv_seq: int
+    head_dim: int
+
+    @property
+    def query(self):
+        return (self.batch, self.q_heads, self.q_seq, self.head_dim)
+
+    @property
+    def key(self):
+        return (self.batch, self.kv_heads, self.kv_seq, self.head_dim)
+
+    @property
+    def value(self):
+        return (self.batch, self.kv_heads, self.kv_seq, self.head_dim)
+
+    @property
+    def mask(self):
+        return (self.batch, 1, self.q_seq, self.kv_seq)
+
+    @property
+    def is_decode(self):
+        return self.q_seq == 1
+
+    @property
+    def is_gqa(self):
+        return self.q_heads != self.kv_heads
+
+    @property
+    def scale(self):
+        return 1.0 / math.sqrt(self.head_dim)
+
+    @property
+    def split_scale(self):
+        return 1.0 / math.sqrt(math.sqrt(self.head_dim))
+
+
+DECODE_SHAPES = [
+    pytest.param(
+        SDPAShapes(batch=32, q_heads=32, kv_heads=8, q_seq=1, kv_seq=128, head_dim=64),
+        id="gqa_decode",
+    ),
+    pytest.param(
+        SDPAShapes(batch=32, q_heads=32, kv_heads=32, q_seq=1, kv_seq=128, head_dim=64),
+        id="mha_decode",
+    ),
+    pytest.param(
+        SDPAShapes(batch=8, q_heads=32, kv_heads=1, q_seq=1, kv_seq=128, head_dim=64),
+        id="mqa_decode",
+    ),
+    pytest.param(
+        SDPAShapes(batch=8, q_heads=32, kv_heads=8, q_seq=1, kv_seq=256, head_dim=128),
+        id="gqa_decode_large_hd",
+    ),
+    pytest.param(
+        SDPAShapes(batch=32, q_heads=64, kv_heads=8, q_seq=1, kv_seq=128, head_dim=64),
+        id="high_gqa_decode",
+    ),
+]
+
+PREFILL_SHAPES = [
+    pytest.param(
+        SDPAShapes(batch=1, q_heads=32, kv_heads=8, q_seq=128, kv_seq=128, head_dim=64),
+        id="gqa_prefill",
+    ),
+    pytest.param(
+        SDPAShapes(
+            batch=1, q_heads=12, kv_heads=12, q_seq=128, kv_seq=128, head_dim=64
+        ),
+        id="mha_prefill",
+    ),
+]
+
+ALL_SHAPES = DECODE_SHAPES + PREFILL_SHAPES
+
+
+# ---------------------------------------------------------------------------
+# Composable SDPA building blocks
+# ---------------------------------------------------------------------------
+
+
+def gqa_broadcast_kv(key, value, q_heads, builder, unit_attrs=None):
+    """Expand KV heads to match Q heads via reshape -> broadcast -> reshape."""
+    k_shape = builder.get_shape(key)
+    v_shape = builder.get_shape(value)
+    batch, kv_heads, kv_seq, head_dim = k_shape
+
+    if q_heads == kv_heads:
+        return key, value
+
+    assert q_heads % kv_heads == 0
+    num_repeats = q_heads // kv_heads
+
+    # Expand K
+    k_5d = builder.reshape(
+        key, [batch, kv_heads, 1, kv_seq, head_dim], unit_attrs=unit_attrs
+    )
+    k_broadcast = builder.broadcast(
+        k_5d, [1, 1, num_repeats, 1, 1], unit_attrs=unit_attrs
+    )
+    key = builder.reshape(
+        k_broadcast, [batch, q_heads, kv_seq, head_dim], unit_attrs=unit_attrs
+    )
+
+    # Expand V
+    v_5d = builder.reshape(
+        value, [batch, kv_heads, 1, kv_seq, head_dim], unit_attrs=unit_attrs
+    )
+    v_broadcast = builder.broadcast(
+        v_5d, [1, 1, num_repeats, 1, 1], unit_attrs=unit_attrs
+    )
+    value = builder.reshape(
+        v_broadcast, [batch, q_heads, kv_seq, head_dim], unit_attrs=unit_attrs
+    )
+
+    return key, value
+
+
+def pre_scale(tensor, scale, builder, dtype=torch.float32, unit_attrs=None):
+    """Typecast to dtype and multiply by scalar constant."""
+    tensor_f = builder.typecast(tensor, dtype, unit_attrs=unit_attrs)
+    shape = builder.get_shape(tensor_f)
+    scale_shape = [1] * len(shape)
+    scale_data = torch.full(scale_shape, scale, dtype=dtype)
+    scale_tensor = builder.constant(scale_data, unit_attrs=unit_attrs)
+    return builder.multiply(tensor_f, scale_tensor, unit_attrs=unit_attrs)
+
+
+def post_scale_scores(scores, scale, builder, unit_attrs=None):
+    """Multiply QK^T scores by scalar (via full op)."""
+    scores_shape = builder.get_shape(scores)
+    scale_shape = [1] * len(scores_shape)
+    scale_tensor = builder.full(
+        scale_shape, torch.bfloat16, scale, unit_attrs=unit_attrs
+    )
+    return builder.multiply(scores, scale_tensor, unit_attrs=unit_attrs)
+
+
+def compute_scores(query, key, builder, mask=None, unit_attrs=None):
+    """Transpose K, compute Q @ K^T, optionally add mask."""
+    key_t = builder.transpose(key, dim0=-2, dim1=-1)
+    scores = builder.matmul(query, key_t, unit_attrs=unit_attrs)
+    if mask is not None:
+        scores = builder.add(scores, mask, unit_attrs=unit_attrs)
+    return scores
+
+
+def simple_softmax(
+    scores, builder, in_dtype=torch.float32, out_dtype=torch.bfloat16, unit_attrs=None
+):
+    """typecast -> max -> sub -> exp -> sum -> div -> typecast"""
+    scores_f = builder.typecast(scores, in_dtype, unit_attrs=unit_attrs)
+    scores_shape = builder.get_shape(scores_f)
+    last_dim = scores_shape[-1]
+
+    # max along last dim
+    s_max = builder.max(scores_f, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
+    s_max_shape = builder.get_shape(s_max)
+    s_max_4d = builder.reshape(s_max, list(s_max_shape) + [1], unit_attrs=unit_attrs)
+    s_max_bc = builder.broadcast(s_max_4d, [1, 1, 1, last_dim], unit_attrs=unit_attrs)
+
+    shifted = builder.subtract(scores_f, s_max_bc, unit_attrs=unit_attrs)
+    exp_vals = builder.exp(shifted, unit_attrs=unit_attrs)
+
+    # sum along last dim
+    s_sum = builder.sum(exp_vals, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
+    s_sum_shape = builder.get_shape(s_sum)
+    s_sum_4d = builder.reshape(s_sum, list(s_sum_shape) + [1], unit_attrs=unit_attrs)
+    s_sum_bc = builder.broadcast(s_sum_4d, [1, 1, 1, last_dim], unit_attrs=unit_attrs)
+
+    softmax_out = builder.div(exp_vals, s_sum_bc, unit_attrs=unit_attrs)
+    return builder.typecast(softmax_out, out_dtype, unit_attrs=unit_attrs)
+
+
+def nan_safe_softmax(
+    scores, builder, in_dtype=torch.float32, out_dtype=torch.bfloat16, unit_attrs=None
+):
+    """Simple softmax + eq/-inf -> logical_not -> reduce_or -> where(zeros) for masked rows."""
+    scores_f = builder.typecast(scores, in_dtype, unit_attrs=unit_attrs)
+    scores_shape = builder.get_shape(scores_f)
+    last_dim = scores_shape[-1]
+
+    # Detect all-masked rows (all -inf)
+    neg_inf_data = torch.full(scores_shape, float("-inf"), dtype=in_dtype)
+    neg_inf = builder.constant(neg_inf_data, unit_attrs=unit_attrs)
+    is_neg_inf = builder.eq(scores_f, neg_inf, unit_attrs=unit_attrs)
+    is_valid = builder.logical_not(is_neg_inf, unit_attrs=unit_attrs)
+    any_valid = builder.reduce_or(
+        is_valid, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs
+    )
+    any_valid_shape = builder.get_shape(any_valid)
+    any_valid_4d = builder.reshape(
+        any_valid, any_valid_shape + [1], unit_attrs=unit_attrs
+    )
+    all_masked = builder.logical_not(any_valid_4d, unit_attrs=unit_attrs)
+    all_masked_bc = builder.broadcast(
+        all_masked, [1, 1, 1, last_dim], unit_attrs=unit_attrs
+    )
+
+    # Standard softmax: max -> sub -> exp -> sum -> div
+    s_max = builder.max(scores_f, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
+    s_max_shape = builder.get_shape(s_max)
+    s_max_4d = builder.reshape(s_max, list(s_max_shape) + [1], unit_attrs=unit_attrs)
+    s_max_bc = builder.broadcast(s_max_4d, [1, 1, 1, last_dim], unit_attrs=unit_attrs)
+
+    shifted = builder.subtract(scores_f, s_max_bc, unit_attrs=unit_attrs)
+    exp_vals = builder.exp(shifted, unit_attrs=unit_attrs)
+
+    s_sum = builder.sum(exp_vals, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
+    s_sum_shape = builder.get_shape(s_sum)
+    s_sum_4d = builder.reshape(s_sum, list(s_sum_shape) + [1], unit_attrs=unit_attrs)
+    s_sum_bc = builder.broadcast(s_sum_4d, [1, 1, 1, last_dim], unit_attrs=unit_attrs)
+
+    softmax_out = builder.div(exp_vals, s_sum_bc, unit_attrs=unit_attrs)
+
+    # Replace all-masked rows with zeros
+    zeros_data = torch.zeros(scores_shape, dtype=in_dtype)
+    zeros = builder.constant(zeros_data, unit_attrs=unit_attrs)
+    softmax_out = builder.where(
+        all_masked_bc, zeros, softmax_out, unit_attrs=unit_attrs
+    )
+
+    return builder.typecast(softmax_out, out_dtype, unit_attrs=unit_attrs)
+
+
+# ---------------------------------------------------------------------------
+# Golden computation
+# ---------------------------------------------------------------------------
+
+
+def build_torch_golden(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    scale: Optional[float] = None,
+    attention_mask: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+    enable_gqa = q_heads != kv_heads
+    return torch.nn.functional.scaled_dot_product_attention(
+        query, key, value, attn_mask=attention_mask, scale=scale, enable_gqa=enable_gqa
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test helpers
+# ---------------------------------------------------------------------------
 
 
 def check_op(mlir_file: str, op_name: str) -> bool:
@@ -23,628 +294,333 @@ def check_op(mlir_file: str, op_name: str) -> bool:
     return False
 
 
-def build_torch_golden(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    scale: Optional[float] = None,
-    attention_mask: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    """
-    Build golden output using PyTorch's scaled_dot_product_attention.
-    Supports standard attention and Grouped-Query Attention (GQA).
-    """
-    q_heads = query.shape[1]
-    kv_heads = key.shape[1]
-    enable_gqa = q_heads != kv_heads
+def assert_sdpa_fused(mlir_path: str, q_seq: int):
+    if q_seq == 1:
+        assert check_op(mlir_path, "scaled_dot_product_attention_decode")
+    else:
+        assert check_op(mlir_path, "scaled_dot_product_attention")
 
-    return torch.nn.functional.scaled_dot_product_attention(
-        query, key, value, attn_mask=attention_mask, scale=scale, enable_gqa=enable_gqa
+
+def compile_and_run_sdpa(module_fn, target, request):
+    return compile_and_execute_ttir(
+        module_fn,
+        target=target,
+        **get_request_kwargs(request),
+        device=DeferredDevice(request),
+        pipeline_options=["enable-optimizer=true"],
+        save_artifacts=True,
     )
 
 
-def build_ttir_single_scale_simple_softmax(
-    query: Operand,
-    key: Operand,
-    value: Operand,
-    builder: TTIRBuilder,
-    scale: Optional[float] = None,
-    attention_mask: Optional[Operand] = None,
-    unit_attrs: Optional[List[str]] = None,
-):
-    """
-    Build TTIR representation of SDPA with single scaling and simple softmax.
-
-    Pattern: Q @ K^T → scale → [mask] → softmax → @ V
-
-    Key characteristics:
-    - Single scaling: scale applied to QK^T result (not split across Q and K)
-    - GQA broadcast pattern: reshape → broadcast → reshape
-    - Simple softmax: typecast → max → subtract → exp → sum → div → typecast
-    - No all-masked row handling
-    """
-    q_shape = builder.get_shape(query)
-    k_shape = builder.get_shape(key)
-    v_shape = builder.get_shape(value)
-
-    batch = q_shape[0]
-    q_heads = q_shape[1]
-    q_seq = q_shape[2]
-    head_dim = q_shape[3]
-    kv_heads = k_shape[1]
-    kv_seq = k_shape[2]
-
-    # Handle GQA: broadcast K/V heads to match Q heads using reshape → broadcast → reshape
-    if q_heads != kv_heads:
-        assert (
-            q_heads % kv_heads == 0
-        ), f"Q heads ({q_heads}) must be divisible by KV heads ({kv_heads})"
-        num_repeats = q_heads // kv_heads
-
-        # For K: reshape to [batch, kv_heads, 1, kv_seq, head_dim]
-        k_5d_shape = [batch, kv_heads, 1, kv_seq, head_dim]
-        key_5d = builder.reshape(key, k_5d_shape, unit_attrs=unit_attrs)
-
-        k_broadcast_factors = [1, 1, num_repeats, 1, 1]
-        key_broadcast = builder.broadcast(
-            key_5d, k_broadcast_factors, unit_attrs=unit_attrs
-        )
-
-        # Reshape back to [batch, q_heads, kv_seq, head_dim]
-        k_final_shape = [batch, q_heads, kv_seq, head_dim]
-        key = builder.reshape(key_broadcast, k_final_shape, unit_attrs=unit_attrs)
-
-        # Same for V
-        v_5d_shape = [batch, kv_heads, 1, kv_seq, head_dim]
-        value_5d = builder.reshape(value, v_5d_shape, unit_attrs=unit_attrs)
-
-        v_broadcast_factors = [1, 1, num_repeats, 1, 1]
-        value_broadcast = builder.broadcast(
-            value_5d, v_broadcast_factors, unit_attrs=unit_attrs
-        )
-
-        v_final_shape = [batch, q_heads, kv_seq, head_dim]
-        value = builder.reshape(value_broadcast, v_final_shape, unit_attrs=unit_attrs)
-
-    # Transpose key: [batch, num_heads, seq_len, head_dim] -> [batch, num_heads, head_dim, seq_len]
-    key_transposed = builder.transpose(key, dim0=-2, dim1=-1)
-
-    # Q @ K^T
-    qk = builder.matmul(query, key_transposed, unit_attrs=unit_attrs)
-
-    # Scale if provided (single scaling on QK^T result)
-    if scale is not None:
-        qk_shape = builder.get_shape(qk)
-        scale_shape = [1] * len(qk_shape)
-        scale_tensor = builder.full(
-            scale_shape, torch.bfloat16, scale, unit_attrs=unit_attrs
-        )
-        qk = builder.multiply(qk, scale_tensor, unit_attrs=unit_attrs)
-
-    # Add attention mask if provided
-    if attention_mask is not None:
-        qk = builder.add(qk, attention_mask, unit_attrs=unit_attrs)
-
-    # Manual softmax with f32 intermediate (matching llama_3_2_1b.mlir pattern)
-    qk_shape = builder.get_shape(qk)
-
-    # Typecast to f32
-    qk_f32 = builder.typecast(qk, torch.float32, unit_attrs=unit_attrs)
-
-    # Max along last dimension
-    qk_max = builder.max(qk_f32, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
-    qk_max_shape = builder.get_shape(qk_max)
-    qk_max_4d = builder.reshape(qk_max, list(qk_max_shape) + [1], unit_attrs=unit_attrs)
-    qk_max_broadcast_factors = [1, 1, 1, qk_shape[-1]]
-    qk_max_broadcast = builder.broadcast(
-        qk_max_4d, qk_max_broadcast_factors, unit_attrs=unit_attrs
-    )
-
-    # Subtract max for numerical stability
-    qk_shifted = builder.subtract(qk_f32, qk_max_broadcast, unit_attrs=unit_attrs)
-
-    # Exp
-    qk_exp = builder.exp(qk_shifted, unit_attrs=unit_attrs)
-
-    # Sum along last dimension
-    qk_sum = builder.sum(qk_exp, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
-    qk_sum_shape = builder.get_shape(qk_sum)
-    qk_sum_4d = builder.reshape(qk_sum, list(qk_sum_shape) + [1], unit_attrs=unit_attrs)
-    qk_sum_broadcast_factors = [1, 1, 1, qk_shape[-1]]
-    qk_sum_broadcast = builder.broadcast(
-        qk_sum_4d, qk_sum_broadcast_factors, unit_attrs=unit_attrs
-    )
-
-    # Divide
-    softmax_f32 = builder.div(qk_exp, qk_sum_broadcast, unit_attrs=unit_attrs)
-
-    # Typecast back to bf16
-    softmax_out = builder.typecast(softmax_f32, torch.bfloat16, unit_attrs=unit_attrs)
-
-    # @ V
-    output = builder.matmul(softmax_out, value, unit_attrs=unit_attrs)
-
-    return output
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 
-def build_ttir_split_scale_robust_softmax(
-    query: Operand,
-    key: Operand,
-    value: Operand,
-    builder: TTIRBuilder,
-    attention_mask: Operand,
-    scale: Optional[float] = None,
-    unit_attrs: Optional[List[str]] = None,
-):
-    """
-    Build TTIR representation of SDPA with split scaling and robust softmax.
-
-    Pattern: (Q * scale) @ (K^T * scale) → mask → robust_softmax → @ V
-
-    Key characteristics:
-    - Split scaling: scale applied to both Q and K^T separately
-    - GQA broadcast pattern: reshape → broadcast → reshape
-    - Robust softmax with all-masked row handling (eq, logical_not, reduce_or, where)
-    - Full f32 intermediate computation throughout
-    - Requires attention mask (robust softmax is designed for masked scenarios)
-    """
-    assert attention_mask is not None, "Robust softmax pattern requires attention mask"
-    q_shape = builder.get_shape(query)
-    k_shape = builder.get_shape(key)
-    v_shape = builder.get_shape(value)
-
-    batch = q_shape[0]
-    q_heads = q_shape[1]
-    q_seq = q_shape[2]
-    head_dim = q_shape[3]
-    kv_heads = k_shape[1]
-    kv_seq = k_shape[2]
-
-    # Cast Q to f32 and apply scale
-    query_f32 = builder.typecast(query, torch.float32, unit_attrs=unit_attrs)
-    if scale is not None:
-        scale_q_shape = [1] * len(q_shape)
-        scale_q_data = torch.full(scale_q_shape, scale, dtype=torch.float32)
-        scale_q_tensor = builder.constant(scale_q_data, unit_attrs=unit_attrs)
-        query_f32 = builder.multiply(query_f32, scale_q_tensor, unit_attrs=unit_attrs)
-
-    # Handle GQA: broadcast K/V heads to match Q heads using reshape → broadcast → reshape
-    if q_heads != kv_heads:
-        assert (
-            q_heads % kv_heads == 0
-        ), f"Q heads ({q_heads}) must be divisible by KV heads ({kv_heads})"
-        num_repeats = q_heads // kv_heads
-
-        # For K: reshape to [batch, kv_heads, 1, kv_seq, head_dim]
-        k_5d_shape = [batch, kv_heads, 1, kv_seq, head_dim]
-        key_5d = builder.reshape(key, k_5d_shape, unit_attrs=unit_attrs)
-
-        k_broadcast_factors = [1, 1, num_repeats, 1, 1]
-        key_broadcast = builder.broadcast(
-            key_5d, k_broadcast_factors, unit_attrs=unit_attrs
-        )
-
-        # Reshape back to [batch, q_heads, kv_seq, head_dim]
-        k_final_shape = [batch, q_heads, kv_seq, head_dim]
-        key = builder.reshape(key_broadcast, k_final_shape, unit_attrs=unit_attrs)
-
-        # Same for V
-        v_5d_shape = [batch, kv_heads, 1, kv_seq, head_dim]
-        value_5d = builder.reshape(value, v_5d_shape, unit_attrs=unit_attrs)
-
-        v_broadcast_factors = [1, 1, num_repeats, 1, 1]
-        value_broadcast = builder.broadcast(
-            value_5d, v_broadcast_factors, unit_attrs=unit_attrs
-        )
-
-        v_final_shape = [batch, q_heads, kv_seq, head_dim]
-        value = builder.reshape(value_broadcast, v_final_shape, unit_attrs=unit_attrs)
-
-    # Cast K to f32, transpose, and apply scale
-    key_f32 = builder.typecast(key, torch.float32, unit_attrs=unit_attrs)
-    key_transposed = builder.transpose(key_f32, dim0=-2, dim1=-1)
-
-    if scale is not None:
-        kt_shape = builder.get_shape(key_transposed)
-        scale_k_shape = [1] * len(kt_shape)
-        scale_k_data = torch.full(scale_k_shape, scale, dtype=torch.float32)
-        scale_k_tensor = builder.constant(scale_k_data, unit_attrs=unit_attrs)
-        key_transposed = builder.multiply(
-            key_transposed, scale_k_tensor, unit_attrs=unit_attrs
-        )
-
-    # Q @ K^T in f32
-    qk = builder.matmul(query_f32, key_transposed, unit_attrs=unit_attrs)
-
-    # Add attention mask
-    mask_f32 = builder.typecast(attention_mask, torch.float32, unit_attrs=unit_attrs)
-    qk = builder.add(qk, mask_f32, unit_attrs=unit_attrs)
-
-    # Softmax with all-masked row handling
-    # Check for all -inf rows (all-masked)
-    qk_shape = builder.get_shape(qk)
-    neg_inf_data = torch.full(qk_shape, float("-inf"), dtype=torch.float32)
-    neg_inf_tensor = builder.constant(neg_inf_data, unit_attrs=unit_attrs)
-    is_neg_inf = builder.eq(qk, neg_inf_tensor, unit_attrs=unit_attrs)
-    is_not_neg_inf = builder.logical_not(is_neg_inf, unit_attrs=unit_attrs)
-
-    # Check if any element in each row is not -inf
-    any_valid = builder.reduce_or(
-        is_not_neg_inf, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs
-    )
-    any_valid_shape = builder.get_shape(any_valid)
-    any_valid_4d = builder.reshape(
-        any_valid, any_valid_shape + [1], unit_attrs=unit_attrs
-    )
-
-    all_masked = builder.logical_not(any_valid_4d, unit_attrs=unit_attrs)
-    all_masked_broadcast_factors = [1, 1, 1, qk_shape[-1]]
-    all_masked_broadcast = builder.broadcast(
-        all_masked, all_masked_broadcast_factors, unit_attrs=unit_attrs
-    )
-
-    # Standard softmax: max → subtract → exp → sum → div
-    qk_max = builder.max(qk, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
-    qk_max_shape = builder.get_shape(qk_max)
-    qk_max_4d = builder.reshape(qk_max, list(qk_max_shape) + [1], unit_attrs=unit_attrs)
-    qk_max_broadcast_factors = [1, 1, 1, qk_shape[-1]]
-    qk_max_broadcast = builder.broadcast(
-        qk_max_4d, qk_max_broadcast_factors, unit_attrs=unit_attrs
-    )
-
-    qk_shifted = builder.subtract(qk, qk_max_broadcast, unit_attrs=unit_attrs)
-    qk_exp = builder.exp(qk_shifted, unit_attrs=unit_attrs)
-
-    qk_sum = builder.sum(qk_exp, dim_arg=[-1], keep_dim=False, unit_attrs=unit_attrs)
-    qk_sum_shape = builder.get_shape(qk_sum)
-    qk_sum_4d = builder.reshape(qk_sum, list(qk_sum_shape) + [1], unit_attrs=unit_attrs)
-    qk_sum_broadcast_factors = [1, 1, 1, qk_shape[-1]]
-    qk_sum_broadcast = builder.broadcast(
-        qk_sum_4d, qk_sum_broadcast_factors, unit_attrs=unit_attrs
-    )
-
-    softmax_out = builder.div(qk_exp, qk_sum_broadcast, unit_attrs=unit_attrs)
-
-    # Replace all-masked rows with zeros
-    zeros_data = torch.zeros(qk_shape, dtype=torch.float32)
-    zeros = builder.constant(zeros_data, unit_attrs=unit_attrs)
-    softmax_out = builder.where(
-        all_masked_broadcast, zeros, softmax_out, unit_attrs=unit_attrs
-    )
-
-    # Cast V to f32 and compute @ V
-    value_f32 = builder.typecast(value, torch.float32, unit_attrs=unit_attrs)
-    output_f32 = builder.matmul(softmax_out, value_f32, unit_attrs=unit_attrs)
-
-    # Cast back to bf16
-    output = builder.typecast(output_f32, torch.bfloat16, unit_attrs=unit_attrs)
-
-    return output
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # GQA decode: batch=32, q_heads=32, kv_heads=8, q_seq=1, kv_seq=128, head_dim=64
-        [
-            (32, 32, 1, 64),  # Q: [batch, q_heads, q_seq, head_dim]
-            (32, 8, 128, 64),  # K: [batch, kv_heads, kv_seq, head_dim]
-            (32, 8, 128, 64),  # V: [batch, kv_heads, kv_seq, head_dim]
-        ],
-        # GQA decode with smaller batch
-        [
-            (1, 32, 1, 64),
-            (1, 8, 128, 64),
-            (1, 8, 128, 64),
-        ],
-        # GQA decode with longer kv_seq
-        [
-            (8, 32, 1, 64),
-            (8, 8, 512, 64),
-            (8, 8, 512, 64),
-        ],
-        # Non-GQA / MHA variant (same heads for Q/K/V)
-        [
-            (1, 32, 1, 64),
-            (1, 32, 128, 64),
-            (1, 32, 128, 64),
-        ],
-        # MQA decode (kv_heads=1, used in Falcon-style models)
-        [
-            (8, 32, 1, 64),
-            (8, 1, 128, 64),
-            (8, 1, 128, 64),
-        ],
-        # GQA with larger head_dim=128 (common in larger models)
-        [
-            (4, 64, 1, 128),
-            (4, 8, 256, 128),
-            (4, 8, 256, 128),
-        ],
-        # Prefill mode: q_seq > 1 (initial prompt processing)
-        [
-            (1, 32, 128, 64),  # Q: [batch, q_heads, q_seq=128, head_dim]
-            (1, 8, 128, 64),  # K: [batch, kv_heads, kv_seq=128, head_dim]
-            (1, 8, 128, 64),  # V: [batch, kv_heads, kv_seq=128, head_dim]
-        ],
-        # Prefill mode with longer sequence
-        [
-            (1, 32, 512, 64),
-            (1, 8, 512, 64),
-            (1, 8, 512, 64),
-        ],
-        # MHA prefill (non-GQA)
-        [
-            (1, 32, 128, 64),
-            (1, 32, 128, 64),
-            (1, 32, 128, 64),
-        ],
-    ],
-)
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="The SDPA fusing pattern is only executed when the optimizer is enabled, but then the golden test fails: https://github.com/tenstorrent/tt-mlir/issues/5283"
-)
-def test_sdpa_split_scale_robust_softmax(
-    shapes: List[Shape], target: str, request, device
-):
+def test_sdpa_split_scale_nan_safe(sdpa_shapes: SDPAShapes, target: str, request):
     """
-    Test SDPA pattern fusion with split scaling and robust softmax.
-
-    Pattern: (Q * scale) @ (K^T * scale) → mask → robust_softmax → @ V
-
-    Key characteristics:
-    - Split scaling: scale applied to both Q and K^T (sqrt(1/head_dim) each)
-    - GQA using reshape → broadcast → reshape pattern
-    - Robust softmax with all-masked row handling
-    - Always uses attention mask (robust softmax is designed for masked scenarios)
-
-    Expected to fuse into ttnn.scaled_dot_product_attention_decode
+    Qwen / Phi / BERT / ViT pattern.
+    Pattern: (Q * scale) @ (K^T * scale) -> mask -> nan_safe_softmax -> @ V
     """
-    query_shape, key_shape, value_shape = shapes
-    mask_shape = (query_shape[0], 1, query_shape[2], key_shape[2])
-    input_shapes = shapes + [mask_shape]
-    dtypes = [torch.bfloat16] * len(input_shapes)
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
+    dtypes = [torch.bfloat16] * 4
 
-    def module_sdpa(builder: TTIRBuilder):
+    def module(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
-        def sdpa_split_scale_robust(
-            query: Operand,
-            key: Operand,
-            value: Operand,
-            attention_mask: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            query_data = torch.randn(query_shape, dtype=torch.bfloat16)
-            key_data = torch.randn(key_shape, dtype=torch.bfloat16)
-            value_data = torch.randn(value_shape, dtype=torch.bfloat16)
-            mask_data = torch.zeros(mask_shape, dtype=torch.bfloat16)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
 
-            head_dim = query_shape[-1]
-            # Split scale: sqrt(1/head_dim) applied to both Q and K
-            scale = 1.0 / math.sqrt(math.sqrt(head_dim))
-
-            # For golden, use the combined scale (1/sqrt(head_dim))
-            combined_scale = 1.0 / math.sqrt(head_dim)
-            golden_output = build_torch_golden(
-                query_data,
-                key_data,
-                value_data,
-                scale=combined_scale,
-                attention_mask=mask_data,
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
-            result = build_ttir_split_scale_robust_softmax(
-                query,
-                key,
-                value,
+            # Build TTIR: split pre-scale Q and K, GQA expand, compute scores, nan-safe softmax
+            q_scaled = pre_scale(
+                query, sdpa_shapes.split_scale, builder, unit_attrs=unit_attrs
+            )
+            key_exp, value_exp = gqa_broadcast_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            k_scaled = pre_scale(
+                key_exp,
+                sdpa_shapes.split_scale,
                 builder,
-                attention_mask,
-                scale=scale,
+                dtype=torch.float32,
                 unit_attrs=unit_attrs,
             )
+            k_t = builder.transpose(k_scaled, dim0=-2, dim1=-1)
+            scores = builder.matmul(q_scaled, k_t, unit_attrs=unit_attrs)
+            mask_f32 = builder.typecast(mask, torch.float32, unit_attrs=unit_attrs)
+            scores = builder.add(scores, mask_f32, unit_attrs=unit_attrs)
+            attn = nan_safe_softmax(
+                scores,
+                builder,
+                in_dtype=torch.float32,
+                out_dtype=torch.float32,
+                unit_attrs=unit_attrs,
+            )
+            v_f32 = builder.typecast(value_exp, torch.float32, unit_attrs=unit_attrs)
+            output = builder.matmul(attn, v_f32, unit_attrs=unit_attrs)
+            result = builder.typecast(output, torch.bfloat16, unit_attrs=unit_attrs)
 
             builder.set_goldens(
-                {
-                    query: query_data,
-                    key: key_data,
-                    value: value_data,
-                    attention_mask: mask_data,
-                },
-                {result: golden_output},
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
             )
             return result
 
-    output = compile_and_execute_ttir(
-        module_sdpa,
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        compile_options=["enable-optimizer=true"],
-    )
-
-    # Check for appropriate fused op based on q_seq
-    q_seq = query_shape[2]
-    if q_seq == 1:
-        assert check_op(output, "scaled_dot_product_attention_decode")
-    else:
-        assert check_op(output, "scaled_dot_product_attention")
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
 
 
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # GQA decode: batch=32, q_heads=32, kv_heads=8, q_seq=1, kv_seq=128, head_dim=64
-        [
-            (32, 32, 1, 64),  # Q: [batch, q_heads, q_seq, head_dim]
-            (32, 8, 128, 64),  # K: [batch, kv_heads, kv_seq, head_dim]
-            (32, 8, 128, 64),  # V: [batch, kv_heads, kv_seq, head_dim]
-        ],
-        # GQA decode with smaller batch
-        [
-            (1, 32, 1, 64),
-            (1, 8, 128, 64),
-            (1, 8, 128, 64),
-        ],
-        # GQA decode with longer kv_seq
-        [
-            (8, 32, 1, 64),
-            (8, 8, 512, 64),
-            (8, 8, 512, 64),
-        ],
-        # Non-GQA / MHA variant (same heads for Q/K/V)
-        [
-            (1, 32, 1, 64),
-            (1, 32, 128, 64),
-            (1, 32, 128, 64),
-        ],
-        # MQA decode (kv_heads=1, used in Falcon-style models)
-        [
-            (8, 32, 1, 64),
-            (8, 1, 128, 64),
-            (8, 1, 128, 64),
-        ],
-        # GQA with larger head_dim=128 (common in larger models)
-        [
-            (4, 64, 1, 128),
-            (4, 8, 256, 128),
-            (4, 8, 256, 128),
-        ],
-        # Prefill mode: q_seq > 1 (initial prompt processing)
-        [
-            (1, 32, 128, 64),  # Q: [batch, q_heads, q_seq=128, head_dim]
-            (1, 8, 128, 64),  # K: [batch, kv_heads, kv_seq=128, head_dim]
-            (1, 8, 128, 64),  # V: [batch, kv_heads, kv_seq=128, head_dim]
-        ],
-        # Prefill mode with longer sequence
-        [
-            (1, 32, 512, 64),
-            (1, 8, 512, 64),
-            (1, 8, 512, 64),
-        ],
-        # MHA prefill (non-GQA)
-        [
-            (1, 32, 128, 64),
-            (1, 32, 128, 64),
-            (1, 32, 128, 64),
-        ],
-    ],
-)
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
 @pytest.mark.parametrize("use_mask", [False, True])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="The SDPA fusing pattern is only executed when the optimizer is enabled, but then the golden test fails: https://github.com/tenstorrent/tt-mlir/issues/5283"
-)
-def test_sdpa_single_scale_simple_softmax(
-    shapes: List[Shape], use_mask: bool, target: str, request, device
+def test_sdpa_post_scale_simple(
+    sdpa_shapes: SDPAShapes, use_mask: bool, target: str, request
 ):
     """
-    Test SDPA pattern fusion with single scaling and simple softmax.
-
-    Pattern: Q @ K^T → scale → [mask] → softmax → @ V
-
-    Key characteristics:
-    - Single scaling: scale applied to QK^T result (1/sqrt(head_dim))
-    - GQA using reshape → broadcast → reshape pattern
-    - Simple softmax: typecast → max → subtract → exp → sum → div → typecast
-    - No all-masked row handling
-    - Supports both decode (q_seq=1) and prefill (q_seq>1) modes
-
-    Expected to fuse into:
-    - ttnn.scaled_dot_product_attention_decode (when q_seq=1)
-    - ttnn.scaled_dot_product_attention (when q_seq>1)
+    SegFormer-like / simple pattern.
+    Pattern: Q @ K^T -> scale -> [mask] -> simple_softmax -> @ V
     """
-    query_shape, key_shape, value_shape = shapes
-    mask_shape = (query_shape[0], 1, query_shape[2], key_shape[2])
-    input_shapes = shapes + [mask_shape] if use_mask else shapes
+    input_shapes = [sdpa_shapes.query, sdpa_shapes.key, sdpa_shapes.value]
+    if use_mask:
+        input_shapes.append(sdpa_shapes.mask)
     dtypes = [torch.bfloat16] * len(input_shapes)
 
-    def module_sdpa_no_mask(builder: TTIRBuilder):
+    def module_no_mask(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
-        def sdpa_single_scale_simple_no_mask(
-            query: Operand,
-            key: Operand,
-            value: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            query_data = torch.randn(query_shape, dtype=torch.bfloat16)
-            key_data = torch.randn(key_shape, dtype=torch.bfloat16)
-            value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+        def sdpa(query, key, value, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
 
-            head_dim = query_shape[-1]
-            scale = 1.0 / math.sqrt(head_dim)
+            golden = build_torch_golden(q_data, k_data, v_data, scale=sdpa_shapes.scale)
 
-            golden_output = build_torch_golden(
-                query_data, key_data, value_data, scale=scale
+            key_exp, value_exp = gqa_broadcast_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
             )
-
-            result = build_ttir_single_scale_simple_softmax(
-                query, key, value, builder, scale=scale, unit_attrs=unit_attrs
+            scores = compute_scores(query, key_exp, builder, unit_attrs=unit_attrs)
+            scores = post_scale_scores(
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
             )
+            attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
 
             builder.set_goldens(
-                {query: query_data, key: key_data, value: value_data},
-                {result: golden_output},
+                {query: q_data, key: k_data, value: v_data},
+                {result: golden},
             )
             return result
 
-    def module_sdpa_with_mask(builder: TTIRBuilder):
+    def module_with_mask(builder: TTIRBuilder):
         @builder.func(input_shapes, dtypes)
-        def sdpa_single_scale_simple_with_mask(
-            query: Operand,
-            key: Operand,
-            value: Operand,
-            attention_mask: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            query_data = torch.randn(query_shape, dtype=torch.bfloat16)
-            key_data = torch.randn(key_shape, dtype=torch.bfloat16)
-            value_data = torch.randn(value_shape, dtype=torch.bfloat16)
-            # Causal mask for decode: positions after current are masked
-            mask_data = torch.zeros(mask_shape, dtype=torch.bfloat16)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
 
-            head_dim = query_shape[-1]
-            scale = 1.0 / math.sqrt(head_dim)
-
-            golden_output = build_torch_golden(
-                query_data, key_data, value_data, scale=scale, attention_mask=mask_data
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
             )
 
-            result = build_ttir_single_scale_simple_softmax(
-                query,
-                key,
-                value,
+            key_exp, value_exp = gqa_broadcast_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            scores = compute_scores(query, key_exp, builder, unit_attrs=unit_attrs)
+            scores = post_scale_scores(
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
+            scores = builder.add(scores, mask, unit_attrs=unit_attrs)
+            attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
+
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
+
+    mlir_path = compile_and_run_sdpa(
+        module_with_mask if use_mask else module_no_mask, target, request
+    )
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+
+
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_pre_scale_q_nan_safe(sdpa_shapes: SDPAShapes, target: str, request):
+    """
+    LLaMA decode pattern.
+    Pattern: (Q * scale) @ K^T -> mask -> nan_safe_softmax -> @ V
+    """
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
+    dtypes = [torch.bfloat16] * 4
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
+
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
+            )
+
+            # Pre-scale Q only, then GQA expand K/V
+            q_scaled = pre_scale(
+                query, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
+            key_exp, value_exp = gqa_broadcast_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            k_f32 = builder.typecast(key_exp, torch.float32, unit_attrs=unit_attrs)
+            k_t = builder.transpose(k_f32, dim0=-2, dim1=-1)
+            scores = builder.matmul(q_scaled, k_t, unit_attrs=unit_attrs)
+            mask_f32 = builder.typecast(mask, torch.float32, unit_attrs=unit_attrs)
+            scores = builder.add(scores, mask_f32, unit_attrs=unit_attrs)
+            attn = nan_safe_softmax(
+                scores,
                 builder,
-                scale=scale,
-                attention_mask=attention_mask,
+                in_dtype=torch.float32,
+                out_dtype=torch.float32,
                 unit_attrs=unit_attrs,
             )
+            v_f32 = builder.typecast(value_exp, torch.float32, unit_attrs=unit_attrs)
+            output = builder.matmul(attn, v_f32, unit_attrs=unit_attrs)
+            result = builder.typecast(output, torch.bfloat16, unit_attrs=unit_attrs)
 
             builder.set_goldens(
-                {
-                    query: query_data,
-                    key: key_data,
-                    value: value_data,
-                    attention_mask: mask_data,
-                },
-                {result: golden_output},
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
             )
             return result
 
-    output = compile_and_execute_ttir(
-        module_sdpa_with_mask if use_mask else module_sdpa_no_mask,
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        compile_options=["enable-optimizer=true"],
-    )
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
 
-    # Check for appropriate fused op based on q_seq
-    q_seq = query_shape[2]
-    if q_seq == 1:
-        assert check_op(output, "scaled_dot_product_attention_decode")
-    else:
-        assert check_op(output, "scaled_dot_product_attention")
+
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_pre_scale_k_nan_safe(sdpa_shapes: SDPAShapes, target: str, request):
+    """
+    LLaMA prefill / Falcon / Gemma / Mistral pattern.
+    Pattern: Q @ (K^T * scale) -> mask -> nan_safe_softmax -> @ V
+    """
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
+    dtypes = [torch.bfloat16] * 4
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
+
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
+            )
+
+            # GQA expand, then pre-scale K only
+            key_exp, value_exp = gqa_broadcast_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            k_scaled = pre_scale(
+                key_exp, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
+            k_t = builder.transpose(k_scaled, dim0=-2, dim1=-1)
+            q_f32 = builder.typecast(query, torch.float32, unit_attrs=unit_attrs)
+            scores = builder.matmul(q_f32, k_t, unit_attrs=unit_attrs)
+            mask_f32 = builder.typecast(mask, torch.float32, unit_attrs=unit_attrs)
+            scores = builder.add(scores, mask_f32, unit_attrs=unit_attrs)
+            attn = nan_safe_softmax(
+                scores,
+                builder,
+                in_dtype=torch.float32,
+                out_dtype=torch.float32,
+                unit_attrs=unit_attrs,
+            )
+            v_f32 = builder.typecast(value_exp, torch.float32, unit_attrs=unit_attrs)
+            output = builder.matmul(attn, v_f32, unit_attrs=unit_attrs)
+            result = builder.typecast(output, torch.bfloat16, unit_attrs=unit_attrs)
+
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
+
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+
+
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_simple_softmax(sdpa_shapes: SDPAShapes, target: str, request):
+    """
+    Swin-like pattern: simple softmax, no NaN handling.
+    Pattern: Q @ K^T -> scale -> mask -> simple_softmax -> @ V
+    """
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
+    dtypes = [torch.bfloat16] * 4
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
+
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
+            )
+
+            key_exp, value_exp = gqa_broadcast_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            scores = compute_scores(query, key_exp, builder, unit_attrs=unit_attrs)
+            scores = post_scale_scores(
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
+            scores = builder.add(scores, mask, unit_attrs=unit_attrs)
+            attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
+
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
+
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
