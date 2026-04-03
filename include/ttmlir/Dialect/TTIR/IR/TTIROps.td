@@ -5331,7 +5331,7 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
 // TTIR ccl ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
+def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather", [TTIR_CCL]> {
     let summary = "All gather operation.";
     let description = [{
       All gather op.
@@ -5346,7 +5346,7 @@ def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
+def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce", [TTIR_CCL]> {
     let summary = "AllReduce operation.";
     let description = [{
       AllReduce op.
@@ -5361,7 +5361,7 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async"> {
+def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async", [TTIR_CCL]> {
     let summary = "Asynchronous AllReduce operation.";
     let description = [{
       Asynchronous all-reduce collective communication operation. Performs a
@@ -5379,7 +5379,7 @@ def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
+def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter", [TTIR_CCL]> {
     let summary = "Reduce scatter operation.";
     let description = [{
       Reduce scatter op.
@@ -5393,7 +5393,7 @@ def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
+def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute", [TTIR_CCL]> {
     let summary = "Collective permute operation.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
@@ -5649,7 +5649,7 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let hasVerifier = 1;
 }
 
-def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
+def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all", [TTIR_CCL]> {
     let summary = "All to All operation.";
     let description = [{
       The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends
@@ -5677,7 +5677,7 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
 }
 
 
-def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
+def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast", [TTIR_CCL]> {
   let summary = "Collective Broadcast op";
   let description = [{
     The collective_broadcast operation distributes a tensor from a single source device to all
@@ -6022,7 +6022,7 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
+def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch", [TTIR_CCL]> {
     let summary = "Dispatch tokens to expert devices for MoE computation.";
     let description = [{
       Routes tokens to devices holding their selected experts via all-to-all
@@ -6049,7 +6049,7 @@ def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
+def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine", [TTIR_CCL]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
       Inverse of dispatch: gathers expert computation results from expert devices

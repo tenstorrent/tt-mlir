@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 
@@ -14,17 +15,24 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-// Trace the weight operand backward through TM ops to find the originating
+// Trace the weight operand backward through allowed ops (TM, CCL, Broadcast,
+// MeshShard, MeshPartition, Typecast, RepeatInterleave) to find the originating
 // func arg. If it carries "ttcore.weight_dtype", set it on the consumer op.
 static void resolveAndSetWeightDtype(mlir::Value weight,
                                      mlir::Operation *consumerOp) {
-  // Trace backward through TM ops, BroadcastOp, and MeshShardOp.
+  // Trace backward through allowed ops to find the originating func arg.
   mlir::Value source = weight;
   while (auto *op = source.getDefiningOp()) {
     if (op->hasTrait<TensorManipulation::Trait>() ||
-        mlir::isa<BroadcastOp, MeshShardOp>(op)) {
+        op->hasTrait<CCL::Trait>() ||
+        mlir::isa<BroadcastOp, MeshShardOp, MeshPartitionOp, TypecastOp,
+                  RepeatInterleaveOp>(op)) {
       source = op->getOperand(0);
     } else {
+      TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                   "PropagateWeightDtype: unable to trace through op '{0}', "
+                   "stopping backward walk",
+                   op->getName().getStringRef());
       break;
     }
   }

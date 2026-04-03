@@ -111,6 +111,10 @@ LogicalResult LinearOpOutputShapeRewritePattern::matchAndRewrite(
       /*matmul_program_config=*/nullptr, srcOp.getActivationAttr(),
       /*compute_config=*/srcOp.getComputeConfigAttr());
 
+  if (auto weightDtype = srcOp->getAttr("ttcore.weight_dtype")) {
+    newLinearOp->setAttr("ttcore.weight_dtype", weightDtype);
+  }
+
   // Reshape back to the original broadcasted shape.
   ttnn::ReshapeOp reshapeOp = ttir_to_ttnn::utils::generateReshape(
       newLinearOp.getResult(), currentOutputShape, rewriter,
