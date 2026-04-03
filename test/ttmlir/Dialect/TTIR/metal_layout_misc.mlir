@@ -28,14 +28,14 @@ func.func @add_3d(%arg0: tensor<2x32x128xf32>, %arg1: tensor<2x32x128xf32>) -> t
 
 // For 3D tensors with shape 2x33x128:
 // - Logical shape: 2x33x128
-// - After collapse [[0,2], [2,3]] and tile-alignment: dims 0,1 -> 2 * alignUp(33, 32) -> 128, dim 2 -> alignUp(128, 32) -> 128
-// - Tiled shape: 4x4 tiles
-// - Physical buffer shape: 4x4x1x1
+// - After collapse [[0,2], [2,3]]: dims 0,1 -> alignUp(2*33, 32) = 96, dim 2 -> alignUp(128, 32) = 128
+// - Tiled shape: 3x4 tiles
+// - Physical buffer shape: 3x4x1x1
 // CHECK-LABEL: func.func @add_3d_unaligned
 func.func @add_3d_unaligned(%arg0: tensor<2x33x128xf32>, %arg1: tensor<2x33x128xf32>) -> tensor<2x33x128xf32> {
-    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<4x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<3x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<3x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<3x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     // CHECK: "ttmetal.enqueue_program"
     %1 = "ttir.add"(%arg0, %arg1) : (tensor<2x33x128xf32>, tensor<2x33x128xf32>) -> tensor<2x33x128xf32>
     // CHECK: "ttmetal.enqueue_read_buffer"
@@ -84,16 +84,16 @@ func.func @add_3d_unaligned_last_dim(%arg0: tensor<2x32x130xf32>, %arg1: tensor<
 // Test 4D tensor that is not aligned in any of the dimensions
 //  - Logical shape: 2x3x5x193
 //  - After collapse [[0, 3], [3, 4]]:
-//    - Alignments will be 1x1x32x256
-//    - dims 0,1,2 -> alignUp(alignUp(alignUp(5, 32) * 3, 1) * 2, 32) -> 192
-//    - dim 2 -> alignUp(193, 256) -> 224
-//  - Tile shape: 6x7
-//  - Physical buffer shape: 6x7x1x1
+//    - Alignments will be 1x1x32x32
+//    - dims 0,1,2 -> alignUp(2*3*5, lcm(1,1,32)) = alignUp(30, 32) = 32
+//    - dim 3 -> alignUp(193, 32) = 224
+//  - Tile shape: 1x7
+//  - Physical buffer shape: 1x7x1x1
 // CHECK-LABEL: func.func @add_4d_all_unaligned
 func.func @add_4d_all_unaligned(%arg0: tensor<2x3x5x193xf32>, %arg1: tensor<2x3x5x193xf32>) -> tensor<2x3x5x193xf32> {
-    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<6x7x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<6x7x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
-    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<6x7x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<1x7x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<1x7x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-DAG: = "ttmetal.create_buffer"{{.*}} : () -> memref<1x7x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
     // CHECK: "ttmetal.enqueue_program"
     %1 = "ttir.add"(%arg0, %arg1) : (tensor<2x3x5x193xf32>, tensor<2x3x5x193xf32>) -> tensor<2x3x5x193xf32>
     // CHECK: "ttmetal.enqueue_read_buffer"

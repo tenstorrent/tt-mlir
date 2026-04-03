@@ -264,12 +264,39 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         // Bounce virtual grids through interleaved DRAM on the unit grid.
         tensorGridShape.assign(targetGridShape.size(), 1);
 
-        // Keep old dimAlignments but use new collapsedIntervals to collapse the
-        // DRAM tensor to 2D.
+        // The DRAM bounce uses collapsed intervals (2D) while the L1 target
+        // may use uncollapsed intervals (>2D). The new padding logic
+        // (flatten-then-align) can produce different physical volumes for
+        // different collapse configurations of the same logical shape.
+        // Fix: for each multi-dim collapsed interval, set the outermost
+        // dim's alignment to the product of per-dim aligned extents, and set
+        // the rest to 1. This guarantees:
+        //   alignUp(rawProduct, product) = product  (rawProduct <= product)
+        // so the collapsed extent equals the uncollapsed volume.
         TT_assert(collapsedIntervals.getType().getDimSize(0) == 2);
+        auto logicalShape = referenceLayout.getLogicalShape();
+        auto refDimAlignments = referenceLayout.getDimAlignments();
+        SmallVector<int64_t> bounceDimAlignments(refDimAlignments.begin(),
+                                                 refDimAlignments.end());
+        auto normalizedCollapsed =
+            ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
+                collapsedIntervals, logicalShape.size());
+        for (size_t i = 0; i < normalizedCollapsed.size(); i += 2) {
+          int64_t start = normalizedCollapsed[i];
+          int64_t end = normalizedCollapsed[i + 1];
+          if (end - start > 1) {
+            int64_t alignedProduct = 1;
+            for (int64_t j = start; j < end; ++j) {
+              alignedProduct *=
+                  ttmlir::utils::alignUp(logicalShape[j], refDimAlignments[j]);
+            }
+            for (int64_t j = start; j < end; ++j) {
+              bounceDimAlignments[j] = (j == start) ? alignedProduct : 1;
+            }
+          }
+        }
         layout = ttcore::MetalLayoutAttr::get(
-            ctx, referenceLayout.getLogicalShape(),
-            referenceLayout.getDimAlignments(), collapsedIntervals,
+            ctx, logicalShape, bounceDimAlignments, collapsedIntervals,
             referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
             ttcore::TensorMemoryLayout::Interleaved);
       } else {
