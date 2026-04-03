@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
+#include "ttmlir/Conversion/TTIRToEmitPy/TTIRToEmitPy.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
@@ -288,6 +289,7 @@ void createTTIRToTTNNDevicePipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
+    devicePm.addPass(createTTNNDecomposition());
 
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());
@@ -536,29 +538,16 @@ void createTTNNToEmitPyDevicePipeline(
   devicePm.addPass(createEmitPyNameVarsPass());
 }
 
-// Pipeline which lowers the CPU module from TTIR to EmitPy using
-// TTNN golden functions.
+// Pipeline which lowers the CPU module from TTIR to EmitPy.
+//
+// TTIR ops are converted directly to ttir_cpu.<op> calls, bypassing
+// TTNN lowering entirely.
 //
 void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
-  // Prepare CPU module TTIR ops for TTNN lowering.
-  //
-  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
-  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
-  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
-  cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
-
-  // Lower CPU module to TTNN.
-  //
-  createTTNNPipelineLoweringPasses(cpuPm);
-
-  // Lower CPU module to EmitPy.
-  //
-  ConvertTTNNToEmitPyOptions options;
-  options.enableGoldenMode = true;
-  options.targetModule = false;
-  cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
+  // Lower TTIR directly to EmitPy (ttir_cpu).
+  cpuPm.addPass(createConvertTTIRCPUToEmitPyPass());
 
   cpuPm.addPass(createEmitPyNameVarsPass());
 }

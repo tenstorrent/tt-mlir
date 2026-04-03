@@ -50,7 +50,6 @@ struct TTIRToTTIRDecompositionPass
       // All other ops are legal (won't be decomposed).
       target.addLegalOp<ttir::IndexOp>();
       target.addLegalOp<ttir::GetDimensionSizeOp>();
-      target.addLegalOp<ttir::GatherOp>();
       target.addLegalOp<ttir::IndexSelectOp>();
       target.addLegalOp<ttir::QuantizeOp>();
       target.addLegalOp<ttir::RequantizeOp>();
@@ -68,7 +67,6 @@ struct TTIRToTTIRDecompositionPass
       // TTNN and TTMetal decompose all ops
       target.addIllegalOp<ttir::IndexOp>();
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
-      target.addIllegalOp<ttir::GatherOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::IndexSelectOp>();
       target.addIllegalOp<ttir::ReduceAndOp>();
