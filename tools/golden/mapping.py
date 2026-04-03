@@ -6565,21 +6565,22 @@ def _parse_composer_config_dims(composer_config) -> list:
 
 def ttnn_distribute_tensor_golden(
     input: GoldenMapTensor,
-    mapper_config,
+    mapper_config_attr,
     output_type_mlir: Type,
+    cq_id_attr=None,
 ) -> GoldenMapTensor:
     mesh_shape = input.mesh_shape
-    shard_dims = _parse_mapper_config_shard_dims(mapper_config)
+    shard_dims = _parse_mapper_config_shard_dims(mapper_config_attr)
     return apply_sharding(input, mesh_shape, shard_dims)
 
 
 def ttnn_aggregate_tensor_golden(
     input: GoldenMapTensor,
-    composer_config,
+    composer_config_attr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     mesh_shape = input.mesh_shape
-    shard_dims = _parse_composer_config_dims(composer_config)
+    shard_dims = _parse_composer_config_dims(composer_config_attr)
     return apply_unsharding(input, mesh_shape, shard_dims)
 
 
@@ -6588,6 +6589,10 @@ def ttnn_all_gather_golden(
     all_gather_dim_attr: IntegerAttr,
     cluster_axis_attr: IntegerAttr,
     output_type_mlir: Type,
+    sub_device_id_attr=None,
+    memory_config_attr=None,
+    num_links_attr=None,
+    topology_attr=None,
 ) -> GoldenMapTensor:
     all_gather_dim = unpack_mlir_attr(all_gather_dim_attr)
     cluster_axis = unpack_mlir_attr(cluster_axis_attr)
@@ -6608,7 +6613,11 @@ def ttnn_all_gather_golden(
 
 
 def ttnn_to_layout_golden(
-    input_tensor: GoldenMapTensor, output_ranked_tensor_type: RankedTensorType
+    input_tensor: GoldenMapTensor,
+    output_ranked_tensor_type: RankedTensorType,
+    layout_attr,
+    dtype_attr=None,
+    memory_config_attr=None,
 ) -> GoldenMapTensor:
     casted_type = ttcore.ir.TileType.maybe_downcast(
         output_ranked_tensor_type.element_type
@@ -6623,11 +6632,14 @@ def ttnn_to_layout_golden(
     return output_tensor.to(output_dtype)
 
 
-def ttnn_to_device_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+def ttnn_to_device_golden(
+    input_tensor: GoldenMapTensor,
+    memory_config_attr=None,
+) -> GoldenMapTensor:
     return input_tensor.clone()
 
 
-def ttnn_from_device_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+def ttnn_from_device_golden(input_tensor: GoldenMapTensor) -> GoldenMapTensor:
     return input_tensor.clone()
 
 

@@ -7889,7 +7889,7 @@ class TTNNBuilder(Builder):
         op_golden_function = get_golden_function(
             self.get_opview_from_method(TTNNBuilder.to_layout)
         )
-        golden_output = op_golden_function(input_golden, output_type)
+        golden_output = op_golden_function(input_golden, output_type, layout_attr)
         self._set_golden_tensor(op.result, golden_output)
         return op.result
 
@@ -7907,7 +7907,9 @@ class TTNNBuilder(Builder):
         new_op_result = new_op.result
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input0, result)
+        golden_output = op_golden_function(
+            input0, result, layout_attr, old_op.dtype, old_op.memory_config
+        )
         self._set_golden_tensor(new_op_result, golden_output)
         return new_op, {old_op.result: new_op_result}
 
@@ -7943,7 +7945,7 @@ class TTNNBuilder(Builder):
             op_golden_function = get_golden_function(
                 self.get_opview_from_method(TTNNBuilder.to_device)
             )
-            golden_output = op_golden_function(input_golden)
+            golden_output = op_golden_function(input_golden, memory_config)
             self._set_golden_tensor(op.result, golden_output)
             return op.result
 
@@ -7967,7 +7969,7 @@ class TTNNBuilder(Builder):
         new_op_result = new_op.result
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input0)
+        golden_output = op_golden_function(input0, old_op.memory_config)
         self._set_golden_tensor(new_op_result, golden_output)
         return new_op, {old_op.result: new_op_result}
 
@@ -8217,7 +8219,9 @@ class TTNNBuilder(Builder):
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input0, config_attr, result.element_type)
+        golden_output = op_golden_function(
+            input0, config_attr, result.element_type, old_op.cq_id
+        )
         self._set_golden_tensor(new_op_result, golden_output)
 
         return new_op, {old_op.result: new_op_result}
@@ -8535,6 +8539,10 @@ class TTNNBuilder(Builder):
             all_gather_dim_attr,
             cluster_axis_attr,
             result.element_type,
+            old_op.sub_device_id,
+            old_op.memory_config,
+            old_op.num_links,
+            old_op.topology,
         )
         self._set_golden_tensor(new_op_result, golden_output)
 
