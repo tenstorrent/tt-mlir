@@ -58,6 +58,7 @@ set(ttmlir_export_targets
   TTMLIRArithToD2MTileOps
   TTMLIRMathToD2MTileOps
   TTMLIRTTNNToEmitC
+  TTMLIRTTIRToEmitPy
   TTMLIRTTNNToEmitPy
   TTMLIRTTIRToLinalg
   TTMLIRTTIRToTTNN

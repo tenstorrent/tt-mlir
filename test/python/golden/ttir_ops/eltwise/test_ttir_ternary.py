@@ -301,7 +301,7 @@ def test_clamp_scalar(
 @x86_only
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_clamp_scalar(
     shape: Shape, max_arg: float, min_arg: float, target: str, request, device
 ):
