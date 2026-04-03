@@ -433,8 +433,10 @@ memrefTypeToCircularBufferConfigFlatbuffer(
       toFlatbuffer(cache, workerGridShape, extendedMapping);
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
-  uint64_t shardSize =
-      device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
+  uint64_t rawShardSize =
+      device.getShardSizeInBytes(memref, 1, /*includeBuffers=*/true);
+  pageSize = std::min(pageSize, rawShardSize);
+  uint64_t shardSize = ttmlir::utils::alignUp(rawShardSize, pageSize);
   uint64_t numBuffers = shardLayout.getBuffers();
   return target::metal::CreateCircularBufferConfigDirect(
       *cache.fbb, &coreRangeSet, /*total_size=*/shardSize,

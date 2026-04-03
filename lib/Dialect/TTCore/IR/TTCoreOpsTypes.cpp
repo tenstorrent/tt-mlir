@@ -827,20 +827,23 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
       resultShape.push_back(
           ttmlir::utils::alignUp(shape[start], alignments[start]));
     } else if (end > start) {
-      // Start by aligning the innermost dimension.
-      int64_t collapsedDim =
-          ttmlir::utils::alignUp(shape[end - 1], alignments[end - 1]);
-
-      // Process remaining dimensions from inner to outer w/ multiplication.
-      for (int64_t j = end - 2; j >= start; --j) {
-        // Multiply and then align up means that the alignment is in fact, the
-        // intentionally imposed alignment for the current collapse stage of the
-        // current collapsed interval.
-        collapsedDim =
-            ttmlir::utils::alignUp(shape[j] * collapsedDim, alignments[j]);
+      // Collapse logical dimensions first (raw product), then round the
+      // combined extent up to a multiple of the LCM of per-dim alignments.
+      // Padding each logical dim before multiplying (the old behavior) can
+      // over-pad (e.g. 32x18 with 1x32x32 becomes 32*32 instead of alignUp of
+      // 32*18 to 32).
+      int64_t rawProduct = 1;
+      for (int64_t j = start; j < end; ++j) {
+        rawProduct *= shape[j];
       }
-
-      resultShape.push_back(collapsedDim);
+      int64_t combinedAlignment = 1;
+      for (int64_t j = start; j < end; ++j) {
+        const int64_t a = alignments[j];
+        assert(a > 0 && "dim alignment must be positive");
+        combinedAlignment = std::lcm(combinedAlignment, a);
+      }
+      resultShape.push_back(
+          ttmlir::utils::alignUp(rawProduct, combinedAlignment));
     }
     currentIdx = end;
   }
@@ -1295,29 +1298,31 @@ MetalLayoutAttr::getHostStrideAndVolume() const {
   int64_t currentStride = 1;
 
   // Process intervals from innermost (last) to outermost (first).
+  // Within each collapsed interval, dimensions are stored contiguously in
+  // row-major order (no per-dim alignment padding). Only the total collapsed
+  // extent is rounded up to the LCM of per-dim alignments, matching the
+  // physical shape produced by applyCollapsedIntervalsAndAlignments.
   for (int64_t i = numIntervals - 1; i >= 0; i--) {
-    // Get interval bounds (end is exclusive in normalized form, so subtract 1).
     const int64_t intervalStart = normalizedIntervals[i * 2];
     const int64_t intervalEnd = normalizedIntervals[i * 2 + 1] - 1;
 
-    int64_t collapsedSize = 1;
-    // Both the alignments and the collapsed sizes are "cumulative" relative to
-    // the current collapse interval. But to update the current stride we need
-    // the true per-dim alignment, which is difficult to obtain, especially when
-    // the aligned up new collapsed size is not a multiple of the old collapsed
-    // size.
-    // Solution: revert the current stride to before the current collapse
-    // interval, and then update it straight to the current collapse stage.
-
+    // Assign raw row-major strides within the interval (inner→outer).
     for (int64_t j = intervalEnd; j >= intervalStart; j--) {
       strides[j] = currentStride;
-
-      // Update stride calculation.
-      currentStride /= collapsedSize;
-      collapsedSize = ttmlir::utils::alignUp(collapsedSize * logicalShape[j],
-                                             alignments[j]);
-      currentStride *= collapsedSize;
+      currentStride *= logicalShape[j];
     }
+
+    // currentStride now includes the raw product of this interval's dims.
+    // Replace that raw product with the aligned (padded) collapsed extent.
+    int64_t rawProduct = 1;
+    int64_t combinedAlignment = 1;
+    for (int64_t j = intervalStart; j <= intervalEnd; j++) {
+      rawProduct *= logicalShape[j];
+      assert(alignments[j] > 0 && "dim alignment must be positive");
+      combinedAlignment = std::lcm(combinedAlignment, alignments[j]);
+    }
+    currentStride /= rawProduct;
+    currentStride *= ttmlir::utils::alignUp(rawProduct, combinedAlignment);
   }
 
   // At this point, currentStride == 'stride' of the entire tensor, i.e. volume.

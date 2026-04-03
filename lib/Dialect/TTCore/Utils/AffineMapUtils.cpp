@@ -11,26 +11,22 @@
 
 namespace mlir::tt::ttcore::utils {
 
-// Compute aligned strides for a collapsed interval.
-// Returns strides from innermost to outermost.
-// E.g., for dims [7, 41, 43] with alignments [256, 1, 64]:
-//   aligned innermost = 64
-//   cumulative [0,1] = alignUp(41 * 64, 1) = 2624
-//   cumulative [0,2] = alignUp(7 * 2624, 256) = 18432
-//   strides = [2624, 64, 1] (for dims 0, 1, 2)
+// Compute contiguous (row-major) strides for a collapsed interval.
+// Within a collapsed interval, dimensions are packed densely — only the
+// total collapsed extent is aligned (by applyCollapsedIntervalsAndAlignments),
+// not individual rows.
+//
+// E.g., for dims [7, 41, 43]:
+//   strides = [41*43, 43, 1] = [1763, 43, 1]
 static SmallVector<int64_t>
-computeAlignedStrides(ArrayRef<int64_t> logicalShape,
-                      ArrayRef<int64_t> alignments, int64_t start,
-                      int64_t end) {
+computeContiguousStrides(ArrayRef<int64_t> logicalShape, int64_t start,
+                         int64_t end) {
   SmallVector<int64_t> strides(end - start);
 
-  // Compute cumulative aligned products from innermost outward.
   int64_t cumulative = 1;
   for (int64_t d = end - 1; d >= start; --d) {
     strides[d - start] = cumulative;
-    int64_t aligned =
-        ttmlir::utils::alignUp(logicalShape[d] * cumulative, alignments[d]);
-    cumulative = aligned;
+    cumulative *= logicalShape[d];
   }
 
   return strides;
@@ -38,7 +34,7 @@ computeAlignedStrides(ArrayRef<int64_t> logicalShape,
 
 // Build semi-affine map from logical indices to physical indices.
 // This handles dimension collapse specified by collapsed_intervals.
-// Uses aligned strides to correctly handle padding regions.
+// Uses contiguous (row-major) strides within each collapsed interval.
 //
 // Example:
 //   logical shape: [4, 8, 16]
@@ -69,10 +65,10 @@ mlir::AffineMap buildLogicalToPhysicalMap(
       // Single dimension maps directly.
       physExprs.push_back(getAffineDimExpr(start, context));
     } else {
-      // Multiple dimensions collapse to a linear index using aligned strides.
-      // Form: d_start * stride_{start} + d_{start+1} * stride_{start+1} + ...
-      auto strides =
-          computeAlignedStrides(logicalShape, alignments, start, end);
+      // Multiple dimensions collapse to a linear index using contiguous
+      // strides. Form: d_start * stride_{start} + d_{start+1} *
+      // stride_{start+1} + ...
+      auto strides = computeContiguousStrides(logicalShape, start, end);
 
       mlir::AffineExpr collapsed = getAffineConstantExpr(0, context);
       for (int64_t d = end - 1; d >= start; --d) {
@@ -89,7 +85,7 @@ mlir::AffineMap buildLogicalToPhysicalMap(
 
 // Build semi-affine map from physical indices to logical indices (inverse of
 // collapse). This expands collapsed physical dimensions back to logical
-// dimensions. Uses aligned strides to correctly handle padding regions.
+// dimensions using contiguous (row-major) strides.
 //
 // Example:
 //   logical shape: [32, 64]
@@ -118,25 +114,20 @@ mlir::AffineMap buildPhysicalToLogicalMap(
       // Single dimension maps directly.
       logicalExprs[start] = getAffineDimExpr(i, context);
     } else {
-      // Multiple collapsed dimensions expand using modulo and floor division.
-      // Use aligned strides to handle padding correctly.
+      // Multiple collapsed dimensions expand using modulo and floor division
+      // with contiguous (row-major) strides. Padding only exists at the tail
+      // of the collapsed extent and produces out-of-bounds logical indices
+      // that are never accessed.
       mlir::AffineExpr physDim = getAffineDimExpr(i, context);
-      auto strides =
-          computeAlignedStrides(logicalShape, alignments, start, end);
+      auto strides = computeContiguousStrides(logicalShape, start, end);
 
       for (int64_t d = end - 1; d >= start; --d) {
         int64_t stride = strides[d - start];
         if (d == end - 1) {
-          // Innermost dimension: use aligned stride for modulo.
-          int64_t alignedDim =
-              ttmlir::utils::alignUp(logicalShape[d], alignments[d]);
-          logicalExprs[d] = physDim % alignedDim;
+          logicalExprs[d] = physDim % logicalShape[d];
         } else if (d == start) {
-          // Outermost dimension: just divide by stride, no modulo needed.
           logicalExprs[d] = physDim.floorDiv(stride);
         } else {
-          // Middle dimensions: divide by stride, then modulo by range.
-          // Range = stride[d-1] / stride[d] = how many values this dim spans.
           int64_t outerStride = strides[d - start - 1];
           int64_t range = outerStride / stride;
           logicalExprs[d] = (physDim.floorDiv(stride)) % range;
@@ -222,25 +213,18 @@ mlir::AffineMap buildDeviceToLogicalMap(MetalLayoutAttr layout,
       // Single dimension maps directly.
       logicalExprs[start] = getAffineDimExpr(i, context);
     } else {
-      // Multiple dimensions collapsed; expand using mod/floordiv.
-      // Use aligned strides to correctly handle padding.
+      // Multiple dimensions collapsed; expand using mod/floordiv with
+      // contiguous (row-major) strides.
       mlir::AffineExpr physDim = getAffineDimExpr(i, context);
-      auto alignments = layout.getDimAlignments();
-      auto strides =
-          computeAlignedStrides(logicalShapeInUnits, alignments, start, end);
+      auto strides = computeContiguousStrides(logicalShapeInUnits, start, end);
 
       for (int64_t d = end - 1; d >= start; --d) {
         int64_t stride = strides[d - start];
         if (d == end - 1) {
-          // Innermost dimension: use aligned stride for modulo.
-          int64_t alignedDim =
-              ttmlir::utils::alignUp(logicalShapeInUnits[d], alignments[d]);
-          logicalExprs[d] = physDim % alignedDim;
+          logicalExprs[d] = physDim % logicalShapeInUnits[d];
         } else if (d == start) {
-          // Outermost dimension: just divide by stride, no modulo needed.
           logicalExprs[d] = physDim.floorDiv(stride);
         } else {
-          // Middle dimensions: divide by stride, then modulo by range.
           int64_t outerStride = strides[d - start - 1];
           int64_t range = outerStride / stride;
           logicalExprs[d] = (physDim.floorDiv(stride)) % range;
