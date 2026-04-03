@@ -46,44 +46,6 @@ from builder.d2m.d2m_builder import D2MBuilder
 # ----- Private APIs -----
 
 
-class DeferredDevice:
-    """Device that opens after compilation, not before.
-
-    The optimizer pipeline uses OpModel's internal mock device during
-    compilation. If a real device is already open, mock device creation
-    fails. Pass ``DeferredDevice(request)`` as the ``device`` argument to
-    ``compile_and_execute_ttir`` so the real device is opened only for
-    execution.
-    """
-
-    def __init__(self, request):
-        self._request = request
-
-    def prepare(self):
-        """Close any cached device from prior tests so compilation can use
-        the mock device without conflict."""
-        from conftest import _current_device, clear_device_cache
-
-        if _current_device is not None:
-            tt_runtime.runtime.close_mesh_device(_current_device)
-            tt_runtime.runtime.set_fabric_config(
-                tt_runtime.runtime.FabricConfig.DISABLED
-            )
-            clear_device_cache()
-
-    def open(self):
-        return self._request.getfixturevalue("device")
-
-    def close(self, device):
-        """Close the device and clear the fixture cache so the next test
-        can compile with a mock device."""
-        tt_runtime.runtime.close_mesh_device(device)
-        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
-        from conftest import clear_device_cache
-
-        clear_device_cache()
-
-
 def _compile_and_execute(
     compile_fn: Callable,
     target: Literal["ttnn", "ttmetal", "emitc", "emitpy"],
@@ -103,6 +65,8 @@ def _compile_and_execute(
     # Support deferred device: resolve after compilation so the optimizer
     # pipeline can use OpModel's mock device without conflicting with a
     # real device. Only supported for ttnn/ttmetal targets.
+    from conftest import DeferredDevice
+
     is_deferred = isinstance(device, DeferredDevice)
     if is_deferred:
         assert target in [
