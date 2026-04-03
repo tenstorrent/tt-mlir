@@ -227,4 +227,28 @@ module {
         return %13 : tensor<32x1x32x128xbf16>
     }
 
+    // Test: scalar full -> reshape pattern (produced by broadcast_in_dim conversion of scalar constants)
+    // CHECK-LABEL: func.func @rms_norm_scalar_reshape
+    func.func @rms_norm_scalar_reshape(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x2048xbf16> {
+        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%arg0, %arg1)
+        // CHECK-SAME: (tensor<32x2048xbf16>, tensor<2048xbf16>) -> tensor<32x2048xbf16>
+        // CHECK: return %[[RESULT]]
+        %0 = "ttir.full"() <{fill_value = 9.99999974E-6 : f32, shape = array<i32>}> : () -> tensor<f32>
+        %1 = "ttir.full"() <{fill_value = 4.8828125E-4 : f32, shape = array<i32>}> : () -> tensor<f32>
+        %2 = "ttir.typecast"(%arg0) <{conservative_folding = false}> : (tensor<32x2048xbf16>) -> tensor<32x2048xf32>
+        %3 = "ttir.multiply"(%2, %2) : (tensor<32x2048xf32>, tensor<32x2048xf32>) -> tensor<32x2048xf32>
+        %4 = "ttir.sum"(%3) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<32x2048xf32>) -> tensor<32xf32>
+        %5 = "ttir.reshape"(%1) <{shape = [1 : i32]}> : (tensor<f32>) -> tensor<1xf32>
+        %6 = "ttir.multiply"(%4, %5) : (tensor<32xf32>, tensor<1xf32>) -> tensor<32xf32>
+        %7 = "ttir.reshape"(%0) <{shape = [1 : i32]}> : (tensor<f32>) -> tensor<1xf32>
+        %8 = "ttir.add"(%6, %7) : (tensor<32xf32>, tensor<1xf32>) -> tensor<32xf32>
+        %9 = "ttir.rsqrt"(%8) : (tensor<32xf32>) -> tensor<32xf32>
+        %10 = "ttir.reshape"(%9) <{shape = [32 : i32, 1 : i32]}> : (tensor<32xf32>) -> tensor<32x1xf32>
+        %11 = "ttir.multiply"(%2, %10) : (tensor<32x2048xf32>, tensor<32x1xf32>) -> tensor<32x2048xf32>
+        %12 = "ttir.typecast"(%11) <{conservative_folding = false}> : (tensor<32x2048xf32>) -> tensor<32x2048xbf16>
+        %13 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 2048 : i32]}> : (tensor<2048xbf16>) -> tensor<1x2048xbf16>
+        %14 = "ttir.multiply"(%13, %12) : (tensor<1x2048xbf16>, tensor<32x2048xbf16>) -> tensor<32x2048xbf16>
+        return %14 : tensor<32x2048xbf16>
+    }
+
 }
