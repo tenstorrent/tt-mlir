@@ -249,124 +249,61 @@ const std::initializer_list<
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
                                BufferType::L1},
-            detail::ExpectedResult{false}),
-        std::make_tuple(
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::Interleaved,
-                               BufferType::L1},
-            detail::ExpectedResult{false})};
-
-// tt-metal uplift: https://github.com/tenstorrent/tt-mlir/pull/7739
-// Certain ops now accept mixed memory layouts, while others still enforce
-// matching layouts.
-const auto unaryEltwiseAllowedMixedLayoutParams = []() {
-  using Params = std::tuple<detail::TestTensor, detail::TestTensor,
-                            detail::ExpectedResult>;
-  std::vector<Params> params(unaryEltwiseParams);
-  std::get<2>(params[5]).expectedLegal = true;
-  std::get<2>(params[6]).expectedLegal = true;
-  return params;
-}();
-
-const std::initializer_list<
-    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
-    tanhParams = {
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
             detail::ExpectedResult{true}),
         std::make_tuple(
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::Interleaved,
-                               BufferType::L1},
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
-            detail::ExpectedResult{false}),
-        std::make_tuple(
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
                                BufferType::L1},
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::Interleaved,
                                BufferType::L1},
-            detail::ExpectedResult{false})};
+            detail::ExpectedResult{true})};
 
-INSTANTIATE_TEST_SUITE_P(
-    ReluTests, OpModelReluParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelReluParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    Relu6Tests, OpModelRelu6Param,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
-INSTANTIATE_TEST_SUITE_P(
-    SiluTests, OpModelSiluParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(Relu6Tests, OpModelRelu6Param,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+INSTANTIATE_TEST_SUITE_P(SiluTests, OpModelSiluParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SqrtTests, OpModelSqrtParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(SigmoidTests, OpModelSigmoidParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
-INSTANTIATE_TEST_SUITE_P(
-    HardsigmoidTests, OpModelHardsigmoidParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(HardsigmoidTests, OpModelHardsigmoidParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    SinTests, OpModelSinParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(SinTests, OpModelSinParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    AsinTests, OpModelAsinParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(AsinTests, OpModelAsinParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    CosTests, OpModelCosParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(CosTests, OpModelCosParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    AcosTests, OpModelAcosParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(AcosTests, OpModelAcosParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ExpTests, OpModelExpParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelTanhParam,
-                         ::testing::ValuesIn(tanhParams));
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogTests, OpModelLogParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    AbsTests, OpModelAbsParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(AbsTests, OpModelAbsParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    CeilTests, OpModelCeilParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(CeilTests, OpModelCeilParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    SignTests, OpModelSignParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(SignTests, OpModelSignParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(ErfTests, OpModelErfParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
@@ -374,32 +311,26 @@ INSTANTIATE_TEST_SUITE_P(ErfTests, OpModelErfParam,
 INSTANTIATE_TEST_SUITE_P(ErfcTests, OpModelErfcParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    FloorTests, OpModelFloorParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(FloorTests, OpModelFloorParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(GeluTests, OpModelGeluParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    IsFiniteTests, OpModelIsFiniteParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(IsFiniteTests, OpModelIsFiniteParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    LogicalNotTests, OpModelLogicalNotParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(LogicalNotTests, OpModelLogicalNotParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    NegTests, OpModelNegParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(NegTests, OpModelNegParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    TanTests, OpModelTanParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(TanTests, OpModelTanParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    AtanTests, OpModelAtanParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(AtanTests, OpModelAtanParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(RsqrtTests, OpModelRsqrtParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
@@ -407,21 +338,17 @@ INSTANTIATE_TEST_SUITE_P(RsqrtTests, OpModelRsqrtParam,
 INSTANTIATE_TEST_SUITE_P(Log1pTests, OpModelLog1pParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    Expm1Tests, OpModelExpm1Param,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(Expm1Tests, OpModelExpm1Param,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    ReciprocalTests, OpModelReciprocalParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(ReciprocalTests, OpModelReciprocalParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    CbrtTests, OpModelCbrtParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(CbrtTests, OpModelCbrtParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
-INSTANTIATE_TEST_SUITE_P(
-    BitwiseNotTests, OpModelBitwiseNotParam,
-    ::testing::ValuesIn(unaryEltwiseAllowedMixedLayoutParams));
+INSTANTIATE_TEST_SUITE_P(BitwiseNotTests, OpModelBitwiseNotParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 // ==== Unary Eltwise Ops Ends ====
 
@@ -2131,14 +2058,14 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         llvm::SmallVector<int64_t>{8, 1}},
      detail::ExpectedResult{true}}};
 
-// Power and Remainder tests are mostly similar to other binary ops, but they
-// have subtle differences in terms of their memory footprint after metal
+// Power, Remainder, Atan2 tests are mostly similar to other binary ops, but
+// they have subtle differences in terms of their memory footprint after metal
 // uplift. As a workaround, we generate separate test parameters for these two
 // ops. However, this will be completely resolved when we change the way we test
 // OpModelLib (See this issue:
 // https://github.com/tenstorrent/tt-mlir/issues/4288).
 const std::initializer_list<BinaryEltwiseParam>
-    binaryEltwiseParamsForRemainderAndPow = {
+    binaryEltwiseParamsForRemainderAndPowAndAtan2 = {
         {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
          detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
         {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
@@ -2245,15 +2172,15 @@ INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
 
 INSTANTIATE_TEST_SUITE_P(
     PowTests, OpModelPowParam,
-    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPow));
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPowAndAtan2));
 
 INSTANTIATE_TEST_SUITE_P(
     RemainderTests, OpModelRemainderParam,
-    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPow));
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPowAndAtan2));
 
 INSTANTIATE_TEST_SUITE_P(
     Atan2Tests, OpModelAtan2Param,
-    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPowAndAtan2));
 
 class OpModelPowScalarParam
     : public OpModelTest,
