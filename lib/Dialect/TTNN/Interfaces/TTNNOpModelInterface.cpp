@@ -4168,6 +4168,26 @@ DistributedRMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedLayerNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+// DistributedLayerNormOp is a fused CCL operation that requires multi-device
+// support and is not supported in the op model.
+
+llvm::Expected<op_model::OpConstraints>
+DistributedLayerNormOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
+}
+
+llvm::Expected<size_t>
+DistributedLayerNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

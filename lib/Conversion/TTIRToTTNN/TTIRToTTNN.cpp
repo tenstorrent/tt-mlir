@@ -1296,6 +1296,26 @@ public:
 } // namespace
 
 namespace {
+class DistributedLayerNormOpConversionPattern
+    : public OpConversionPattern<ttir::DistributedLayerNormOp> {
+public:
+  using OpConversionPattern<ttir::DistributedLayerNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DistributedLayerNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    rewriter.replaceOpWithNewOp<ttnn::DistributedLayerNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getResidual(), device,
+        static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class LayerNormOpConversionPattern
     : public OpConversionPattern<ttir::LayerNormOp> {
 public:
@@ -3660,6 +3680,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
+           DistributedLayerNormOpConversionPattern,
            LayerNormOpConversionPattern,
            GroupNormOpConversionPattern,
            MatmulOpConversionPattern,

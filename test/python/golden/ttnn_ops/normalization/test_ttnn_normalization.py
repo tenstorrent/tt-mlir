@@ -48,6 +48,7 @@ def build_stats_golden(input_golden: GoldenMapTensor) -> GoldenMapTensor:
     [
         (1, 1, 32, 128),
         (1, 1, 32, 512),
+        (1, 1, 37, 72),
     ],
     ids=shape_str,
 )
@@ -84,6 +85,7 @@ def test_layer_norm_pre_all_gather(
         **get_request_kwargs(request),
         device=device,
         target=target,
+        save_artifacts=True,
     )
 
 

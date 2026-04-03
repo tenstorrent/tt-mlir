@@ -2353,6 +2353,45 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     let hasVerifier = 1;
 }
 
+def TTNN_DistributedLayerNormOp : TTNN_Op<"distributed_layer_norm",
+    [AttrSizedOperandSegments]> {
+    let summary = "Distributed layer normalization with all-gather op.";
+    let description = [{
+      Intermediate TTNN op for distributed layer normalization across mesh devices.
+
+      Always decomposes into:
+        layer_norm_pre_all_gather + all_gather + layer_norm_post_all_gather.
+
+      Does not reach serialization — no flatbuffer/runtime/EmitC needed.
+
+      Inputs:
+        - input: Input tensor, width-sharded across mesh devices along the
+            normalized (last) dimension.
+        - weight: Optional gamma (scale) tensor applied after normalization.
+        - bias: Optional beta (shift) tensor applied after normalization.
+        - residual: Optional residual tensor to add to input before
+            normalization. norm_input = input + residual.
+
+      Attributes:
+        - cluster_axis: Mesh dimension (0 or 1) along which to all-gather
+            the partial statistics across devices.
+        - epsilon: Small constant added to the denominator for numerical
+            stability. Defaults to 1e-05.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$residual,
+                         TTNN_Device:$device,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 0;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{
