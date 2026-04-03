@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-// ConvertTTIRToEmitPyCPU pass
+// ConvertTTIRCPUToEmitPy pass
 // ===========================
 //
 // Lowers TTIR ops inside CPU-hoisted functions to EmitPy CallOpaqueOp calls
@@ -38,7 +38,7 @@ using namespace mlir::tt;
 
 namespace mlir::tt::ttir {
 
-#define GEN_PASS_DEF_CONVERTTTIRTOEMITPYCPU
+#define GEN_PASS_DEF_CONVERTTTIRCPUTOEMITPY
 #include "ttmlir/Conversion/Passes.h.inc"
 
 } // namespace mlir::tt::ttir
@@ -1111,12 +1111,12 @@ public:
 // Pass definition
 // ============================================================================
 
-struct ConvertTTIRToEmitPyCPUPass
-    : public ::mlir::tt::ttir::impl::ConvertTTIRToEmitPyCPUBase<
-          ConvertTTIRToEmitPyCPUPass> {
+struct ConvertTTIRCPUToEmitPyPass
+    : public ::mlir::tt::ttir::impl::ConvertTTIRCPUToEmitPyBase<
+          ConvertTTIRCPUToEmitPyPass> {
 
-  using ::mlir::tt::ttir::impl::ConvertTTIRToEmitPyCPUBase<
-      ConvertTTIRToEmitPyCPUPass>::ConvertTTIRToEmitPyCPUBase;
+  using ::mlir::tt::ttir::impl::ConvertTTIRCPUToEmitPyBase<
+      ConvertTTIRCPUToEmitPyPass>::ConvertTTIRCPUToEmitPyBase;
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
@@ -1249,8 +1249,8 @@ struct ConvertTTIRToEmitPyCPUPass
 
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRToEmitPyCPUPass() {
-  return std::make_unique<ConvertTTIRToEmitPyCPUPass>();
+std::unique_ptr<OperationPass<ModuleOp>> createConvertTTIRCPUToEmitPyPass() {
+  return std::make_unique<ConvertTTIRCPUToEmitPyPass>();
 }
 
 } // namespace mlir::tt

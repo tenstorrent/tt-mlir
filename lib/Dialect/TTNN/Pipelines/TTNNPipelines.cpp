@@ -547,7 +547,7 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
   // Lower TTIR directly to EmitPy (ttir_cpu).
-  cpuPm.addPass(createConvertTTIRToEmitPyCPUPass());
+  cpuPm.addPass(createConvertTTIRCPUToEmitPyPass());
 
   cpuPm.addPass(createEmitPyNameVarsPass());
 }

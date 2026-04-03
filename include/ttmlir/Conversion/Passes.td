@@ -193,14 +193,14 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
-def ConvertTTIRToEmitPyCPU : Pass<"convert-ttir-to-emitpy-cpu", "::mlir::ModuleOp"> {
-  let summary = "Convert TTIR dialect to EmitPy dialect for CPU-hoisted ops.";
+def ConvertTTIRCPUToEmitPy : Pass<"convert-ttir-cpu-to-emitpy", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR CPU-hoisted ops to EmitPy dialect.";
   let description = [{
     Lowers TTIR ops to EmitPy CallOpaqueOp calls targeting
     `ttir_cpu.<mnemonic>` functions — pure-torch implementations that run
     on the host CPU.
   }];
-  let constructor = "createConvertTTIRToEmitPyCPUPass()";
+  let constructor = "createConvertTTIRCPUToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect",
                            "mlir::tt::ttir::TTIRDialect"];
 }

@@ -1,5 +1,5 @@
 add_mlir_conversion_library(TTMLIRTTIRToEmitPy
-  TTIRToEmitPyCPUPass.cpp
+  TTIRCPUToEmitPyPass.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/ttmlir/Conversion/TTIRToEmitPy
