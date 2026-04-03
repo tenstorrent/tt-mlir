@@ -8,14 +8,14 @@
 #include "ttmlir/Utils.h"
 // #include "tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 #include "llvm/ADT/SmallVector.h"
-#include <ttnn/graph/graph_query_op_runtime.hpp>
 #include <tuple>
 // #include "ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 // #include "../runtime/include/tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
-#include "conv/unifiedConv2dOp.h"
+
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-
+#include <ttnn/graph/graph_query_op_runtime.hpp>
+#include "conv/unifiedConv2dOp.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
