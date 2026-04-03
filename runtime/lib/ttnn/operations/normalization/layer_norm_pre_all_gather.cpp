@@ -22,7 +22,7 @@ void run(const ::tt::target::ttnn::LayerNormPreAllGatherOp *op,
   }
 
   ::ttnn::DataType dtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+      unifiedOpLib::operations::utils::toTTNNDataType(op->dtype());
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
   if (op->compute_config()) {

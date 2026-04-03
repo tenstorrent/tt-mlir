@@ -20,6 +20,7 @@ set_property(TARGET TTMLIRRuntime PROPERTY CXX_STANDARD 20)
 target_include_directories(TTMLIRRuntime
   PUBLIC
     ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_SOURCE_DIR}/unified_op_lib/include
     ${PROJECT_BINARY_DIR}/runtime/include
     ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
