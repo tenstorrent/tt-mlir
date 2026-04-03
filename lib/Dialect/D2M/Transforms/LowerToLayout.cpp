@@ -15,6 +15,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
 #include <string>
@@ -857,21 +858,35 @@ public:
     // Each step emits lowered ops and updates currentValue/currentInfo.
 
     // Helper to create empty ops for intermediate types. If the type matches
-    // the final target, reuse the original output.
-    auto createEmpty = [&](RankedTensorType type,
-                           bool inheritExplicitVgm = true) -> Value {
-      // If this type matches the final target, reuse the original output
+    // the final target, reuse the original output. Otherwise, copy explicit VGM
+    // from the ToLayout output only when this type's logical grid matches the
+    // output's (maps are tied to that grid in createCoreVirtMaps); otherwise
+    // let EmptyOp build compute maps from targetGridShape when needed.
+    auto createEmpty = [&](RankedTensorType type) -> Value {
       if (type == op.getOutput().getType()) {
         return op.getOutput();
       }
-      if (inheritExplicitVgm) {
-        auto inv = utils::getVirtualGridInverseMapping(op.getOutput());
-        auto fwd = utils::getVirtualGridForwardMapping(op.getOutput());
-        if (inv && fwd) {
-          return rewriter
-              .create<d2m::EmptyOp>(op.getLoc(), type, AffineMapAttr::get(*inv),
-                                    AffineMapAttr::get(*fwd))
-              .getResult();
+      auto inv = utils::getVirtualGridInverseMapping(op.getOutput());
+      auto fwd = utils::getVirtualGridForwardMapping(op.getOutput());
+      if (inv && fwd) {
+        auto outTensorType =
+            mlir::dyn_cast<RankedTensorType>(op.getOutput().getType());
+        auto typeLayout =
+            mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
+        auto outLayout = outTensorType
+                             ? mlir::dyn_cast<ttcore::MetalLayoutAttr>(
+                                   outTensorType.getEncoding())
+                             : nullptr;
+        if (typeLayout && outLayout) {
+          auto typeGrid = typeLayout.getGridShape(type);
+          auto outGrid = outLayout.getGridShape(outTensorType);
+          if (llvm::equal(typeGrid, outGrid)) {
+            return rewriter
+                .create<d2m::EmptyOp>(op.getLoc(), type,
+                                      AffineMapAttr::get(*inv),
+                                      AffineMapAttr::get(*fwd))
+                .getResult();
+          }
         }
       }
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
@@ -1136,8 +1151,7 @@ public:
             existingRemapping, ttcore::MemorySpace::DeviceL1,
             /*newTensorGrid=*/{}, /*newElementType=*/{},
             /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
-        auto reblockedEmpty =
-            createEmpty(reblocked, /*inheritExplicitVgm=*/false);
+        auto reblockedEmpty = createEmpty(reblocked);
         currentValue = lowerMappingChange(rewriter, currentValue,
                                           reblockedEmpty, op.getLoc());
         currentInfo = TensorInfo::from(currentValue);
