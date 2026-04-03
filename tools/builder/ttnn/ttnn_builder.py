@@ -361,7 +361,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             add_module = Module.create()
             add_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -479,7 +479,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             abs_module = Module.create()
             abs_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -590,7 +590,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             cbrt_module = Module.create()
             cbrt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -701,7 +701,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             ceil_module = Module.create()
             ceil_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -812,7 +812,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             cos_module = Module.create()
             cos_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -923,7 +923,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             acos_module = Module.create()
             acos_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1033,7 +1033,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             erf_module = Module.create()
             erf_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1144,7 +1144,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             erfc_module = Module.create()
             erfc_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1255,7 +1255,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             exp_module = Module.create()
             exp_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1365,7 +1365,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             floor_module = Module.create()
             floor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1475,7 +1475,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             gelu_module = Module.create()
             gelu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1585,7 +1585,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             isfinite_module = Module.create()
             isfinite_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1694,7 +1694,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_not_module = Module.create()
             logical_not_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1804,7 +1804,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_not_module = Module.create()
             bitwise_not_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -1914,7 +1914,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             neg_module = Module.create()
             neg_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2024,7 +2024,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             tan_module = Module.create()
             tan_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2134,7 +2134,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             atan_module = Module.create()
             atan_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2244,7 +2244,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             tanh_module = Module.create()
             tanh_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2354,7 +2354,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             reciprocal_module = Module.create()
             reciprocal_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2464,7 +2464,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             relu_module = Module.create()
             relu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2574,7 +2574,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             relu6_module = Module.create()
             relu6_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2684,7 +2684,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             rsqrt_module = Module.create()
             rsqrt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2794,7 +2794,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sigmoid_module = Module.create()
             sigmoid_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -2904,7 +2904,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             silu_module = Module.create()
             silu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3014,7 +3014,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sign_module = Module.create()
             sign_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3124,7 +3124,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sin_module = Module.create()
             sin_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3234,7 +3234,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             asin_module = Module.create()
             asin_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3344,7 +3344,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             sqrt_module = Module.create()
             sqrt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3451,7 +3451,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             typecast_module = Module.create()
             typecast_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3561,7 +3561,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             log_module = Module.create()
             log_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3671,7 +3671,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             log1p_module = Module.create()
             log1p_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3781,7 +3781,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             expm1_module = Module.create()
             expm1_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -3898,7 +3898,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             eq_module = Module.create()
             eq_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4020,7 +4020,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             ne_module = Module.create()
             ne_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4142,7 +4142,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             ge_module = Module.create()
             ge_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4264,7 +4264,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             gt_module = Module.create()
             gt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4386,7 +4386,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             le_module = Module.create()
             le_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4508,7 +4508,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             lt_module = Module.create()
             lt_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4630,7 +4630,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_and_module = Module.create()
             logical_and_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4752,7 +4752,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_left_shift_module = Module.create()
             logical_left_shift_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -4876,7 +4876,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_or_module = Module.create()
             logical_or_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5000,7 +5000,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_right_shift_module = Module.create()
             logical_right_shift_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5126,7 +5126,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             logical_xor_module = Module.create()
             logical_xor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5249,7 +5249,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_and_module = Module.create()
             bitwise_and_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5370,7 +5370,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_or_module = Module.create()
             bitwise_or_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5491,7 +5491,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             bitwise_xor_module = Module.create()
             bitwise_xor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5611,7 +5611,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             minimum_module = Module.create()
             minimum_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5733,7 +5733,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             maximum_module = Module.create()
             maximum_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5855,7 +5855,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             subtract_module = Module.create()
             subtract_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -5977,7 +5977,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             remainder_module = Module.create()
             remainder_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6097,7 +6097,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             pow_tensor_module = Module.create()
             pow_tensor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6217,7 +6217,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             atan2_module = Module.create()
             atan2_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6339,7 +6339,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             multiply_module = Module.create()
             multiply_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6463,7 +6463,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             divide_module = Module.create()
             divide_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
@@ -6600,7 +6600,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             clamp_tensor_module = Module.create()
             clamp_tensor_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [
                 old_op.input.type,
@@ -6738,7 +6738,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             concat_module = Module.create()
             concat_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [inp.type for inp in old_op.inputs]
 
@@ -6864,7 +6864,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             repeat_module = Module.create()
             repeat_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7011,7 +7011,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             where_module = Module.create()
             where_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [
                 old_op.first.type,
@@ -7170,7 +7170,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             matmul_module = Module.create()
             matmul_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.a.type, old_op.b.type]
 
@@ -7329,7 +7329,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             linear_module = Module.create()
             linear_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.a.type, old_op.b.type]
             has_bias = old_op.bias is not None
@@ -7462,7 +7462,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             clamp_scalar_module = Module.create()
             clamp_scalar_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7582,7 +7582,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             repeat_interleave_module = Module.create()
             repeat_interleave_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7698,7 +7698,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             leaky_relu_module = Module.create()
             leaky_relu_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -7802,7 +7802,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             mish_module = Module.create()
             mish_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
@@ -8271,7 +8271,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             deallocate_module = Module.create()
             deallocate_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 

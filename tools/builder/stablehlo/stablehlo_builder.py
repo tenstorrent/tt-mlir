@@ -807,12 +807,12 @@ class StableHLOBuilder(Builder):
             StableHLOBuilder.dynamic_update_slice_split
         )
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             dynamic_update_slice_module = Module.create()
             dynamic_update_slice_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -947,12 +947,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.add_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             add_module = Module.create()
             add_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -1064,12 +1064,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.logical_and_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             and_module = Module.create()
             and_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -1173,12 +1173,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.abs_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             abs_module = Module.create()
             abs_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -1386,12 +1386,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.sort_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             sort_module = Module.create()
             sort_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [inp.type for inp in old_op.inputs]
 
@@ -1569,12 +1569,12 @@ class StableHLOBuilder(Builder):
             StableHLOBuilder.get_dimension_size_split
         )
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             get_dimension_size_module = Module.create()
             get_dimension_size_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -1682,12 +1682,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.ceil_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             ceil_module = Module.create()
             ceil_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -1794,12 +1794,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.divide_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             divide_module = Module.create()
             divide_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -1903,12 +1903,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.cosine_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             cosine_module = Module.create()
             cosine_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -2007,12 +2007,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.exp_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             exp_module = Module.create()
             exp_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -2111,12 +2111,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.floor_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             floor_module = Module.create()
             floor_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -2287,7 +2287,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             log_module = Module.create()
             log_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -2401,7 +2401,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             neg_module = Module.create()
             neg_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -2515,7 +2515,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             rsqrt_module = Module.create()
             rsqrt_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -2628,7 +2628,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             sine_module = Module.create()
             sine_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -2742,7 +2742,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             sqrt_module = Module.create()
             sqrt_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -2850,7 +2850,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             tan_module = Module.create()
             tan_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -2964,7 +2964,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             tanh_module = Module.create()
             tanh_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -3078,7 +3078,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             log1p_module = Module.create()
             log1p_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -3192,7 +3192,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             logistic_module = Module.create()
             logistic_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -3333,7 +3333,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             slice_module = Module.create()
             slice_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -3492,12 +3492,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.dynamic_slice_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             dynamic_slice_module = Module.create()
             dynamic_slice_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
 
             op_input_types = [old_op.operand.type] + [
@@ -3636,7 +3636,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             transpose_module = Module.create()
             transpose_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -3790,7 +3790,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             pad_module = Module.create()
             pad_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type, old_op.padding_value.type]
 
@@ -3923,7 +3923,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             reshape_module = Module.create()
             reshape_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -4041,12 +4041,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.max_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             max_module = Module.create()
             max_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -4169,12 +4169,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.min_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             min_module = Module.create()
             min_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -4346,12 +4346,12 @@ class StableHLOBuilder(Builder):
         if old_compare_type is None:
             old_compare_type = old_op.operation.attributes.get("compare_type")
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             compare_module = Module.create()
             compare_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -4493,12 +4493,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.mul_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             mul_module = Module.create()
             mul_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -4621,12 +4621,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.subtract_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             sub_module = Module.create()
             sub_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -4749,12 +4749,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.pow_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             pow_module = Module.create()
             pow_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -4881,12 +4881,12 @@ class StableHLOBuilder(Builder):
             StableHLOBuilder.shift_right_logical_split
         )
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             srl_module = Module.create()
             srl_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.lhs.type,
@@ -5015,7 +5015,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             reverse_module = Module.create()
             reverse_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.operand.type]
 
@@ -5147,7 +5147,7 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             sel_module = Module.create()
             sel_builder = StableHLOBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [
                 old_op.pred.type,
@@ -5264,12 +5264,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.clamp_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             clamp_module = Module.create()
             clamp_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.min.type,
@@ -5390,13 +5390,13 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.concatenate_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
 
-        with old_context, old_loc:
+        with old_ctx, old_loc:
             concatenate_module = Module.create()
             concatenate_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [inp.type for inp in old_op.inputs]
 
@@ -5497,14 +5497,14 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.constant_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
         value_attr = old_op.value
 
-        with old_context, old_loc:
+        with old_ctx, old_loc:
             constant_module = Module.create()
             constant_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
 
             with InsertionPoint(constant_module.body):
@@ -5618,15 +5618,15 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.iota_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
         iota_dimension_attr = old_op.iota_dimension
         result = old_op.result.type
 
-        with old_context, old_loc:
+        with old_ctx, old_loc:
             iota_module = Module.create()
             iota_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
 
             with InsertionPoint(iota_module.body):
@@ -5750,16 +5750,16 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.dynamic_iota_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
         iota_dimension_attr = old_op.iota_dimension
         result = old_op.result.type
         old_output_shape = old_op.output_shape
 
-        with old_context, old_loc:
+        with old_ctx, old_loc:
             dynamic_iota_module = Module.create()
             dynamic_iota_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
 
             with InsertionPoint(dynamic_iota_module.body):
@@ -5954,13 +5954,13 @@ class StableHLOBuilder(Builder):
             StableHLOBuilder.batch_norm_grad_split
         )
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
 
-        with old_context, old_loc:
+        with old_ctx, old_loc:
             batch_norm_grad_module = Module.create()
             batch_norm_grad_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -6165,13 +6165,13 @@ class StableHLOBuilder(Builder):
             StableHLOBuilder.batch_norm_training_split
         )
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
 
-        with old_context, old_loc:
+        with old_ctx, old_loc:
             batch_norm_training_module = Module.create()
             batch_norm_training_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -6358,12 +6358,12 @@ class StableHLOBuilder(Builder):
         stablehlo_op = self.get_opview_from_split(
             StableHLOBuilder.batch_norm_inference_split
         )
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
-        with old_context, old_loc:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
             batch_norm_inference_module = Module.create()
             batch_norm_inference_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.operand.type,
@@ -7255,8 +7255,8 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.reduce_window_split)
 
-        old_context = old_op.context
-        old_loc = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
 
         body = "add"
         for op in old_op.body.blocks[0].operations:
@@ -7267,10 +7267,10 @@ class StableHLOBuilder(Builder):
                 body = "max"
                 break
 
-        with old_context, old_loc:
+        with old_ctx, old_loc:
             reduce_window_module = Module.create()
             reduce_window_builder = StableHLOBuilder(
-                old_context, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [
                 old_op.inputs[0].type,
@@ -7536,12 +7536,12 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.convolution_split)
 
-        old_context = old_op.context
-        old_location = Location.unknown(old_context)
-        with old_context, old_location:
+        old_ctx = old_op.context
+        old_location = Location.unknown(old_ctx)
+        with old_ctx, old_location:
 
             convolution_module = Module.create()
-            convolution_builder = StableHLOBuilder(old_context, old_location)
+            convolution_builder = StableHLOBuilder(old_ctx, old_location)
             op_input_types = []
 
             conv_input = old_op.lhs
@@ -7715,13 +7715,13 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Module, StableHLOBuilder]:
         stablehlo_op = self.get_opview_from_split(StableHLOBuilder.gather_split)
 
-        old_context = old_op.context
-        old_location = Location.unknown(old_context)
+        old_ctx = old_op.context
+        old_location = Location.unknown(old_ctx)
         dimension_numbers = stablehlo.GatherDimensionNumbers(old_op.dimension_numbers)
-        with old_context, old_location:
+        with old_ctx, old_location:
 
             gather_module = Module.create()
-            gather_builder = StableHLOBuilder(old_context, old_location)
+            gather_builder = StableHLOBuilder(old_ctx, old_location)
             op_input_types = [
                 self._get_type(old_op.operand),
                 self._get_type(old_op.start_indices),
