@@ -7,8 +7,7 @@
 
 module {
   // CHECK: emitpy.file "main" {
-  // CHECK:   emitpy.import from "consteval" import "cpu_hoisted_const_eval_{{.*}}", "consteval_forward"
-  // CHECK:   func.func private @cpu_hoisted_const_eval_{{.*}}
+  // CHECK:   emitpy.import from "consteval" import "consteval_forward"
   // CHECK:   func.func private @consteval_forward
   // CHECK:   emitpy.global @_cached_forward = #emitpy.opaque<"{}">
   // CHECK:   func.func @forward(
