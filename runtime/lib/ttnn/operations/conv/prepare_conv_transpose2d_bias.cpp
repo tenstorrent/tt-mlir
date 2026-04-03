@@ -75,7 +75,8 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
   ::ttnn::Tensor out =
       ::ttnn::operations::conv::conv_transpose2d::prepare_conv_transpose2d_bias(
           biasTensor, *inputMemoryConfig,
-          ::unifiedOpLib::operations::utils::toTTNNLayout(op->input_tensor_layout()),
+          ::unifiedOpLib::operations::utils::toTTNNLayout(
+              op->input_tensor_layout()),
           op->in_channels(), op->out_channels(), op->batch_size(),
           op->input_height(), op->input_width(), kernelSize, stride, padding,
           dilation, op->groups(), &targetDevice, inputDtype, outputDtype,

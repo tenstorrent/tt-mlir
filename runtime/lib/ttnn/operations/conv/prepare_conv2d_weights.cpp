@@ -75,7 +75,8 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
 
   ::ttnn::Tensor out = ::ttnn::operations::conv::conv2d::prepare_conv_weights(
       weightTensor, *inputMemoryConfig,
-      ::unifiedOpLib::operations::utils::toTTNNLayout(op->input_tensor_layout()),
+      ::unifiedOpLib::operations::utils::toTTNNLayout(
+          op->input_tensor_layout()),
       op->weights_format()->str(), op->in_channels(), op->out_channels(),
       op->batch_size(), op->input_height(), op->input_width(), kernelSize,
       stride, padding, dilation, op->has_bias(), op->groups(), &targetDevice,
