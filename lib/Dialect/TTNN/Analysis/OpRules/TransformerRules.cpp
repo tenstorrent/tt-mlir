@@ -54,4 +54,11 @@ LayoutFilterFn RotaryEmbeddingRuleBook::getInputLayoutFilter() const {
       TensorMemoryLayout::HeightSharded);
 }
 
+bool RotaryEmbeddingRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints RotaryEmbeddingRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
 } // namespace mlir::tt::ttnn
