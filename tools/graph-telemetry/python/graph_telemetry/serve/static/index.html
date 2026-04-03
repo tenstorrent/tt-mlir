@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<!--
+  SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+  SPDX-License-Identifier: Apache-2.0
+
+  A small, dependency-free dashboard for the graph-telemetry DB. It is a thin
+  read-only view over the mlir-graph-serve HTTP endpoints (the same ones a
+  coding agent queries via curl).
+
+  Landing page: a hierarchical CI run -> test -> graph browser. The CI-run list
+  (/ci-runs) loads up front; expanding a CI run lazily fetches just its graphs
+  (/runs?ciRunId=...). The search box queries the backend (/search) so it spans
+  every graph, not only the ones already expanded. Selecting a graph drills into
+  a detail view (snapshots + raw MLIR); navigation uses the history API, so the
+  browser back/forward buttons work.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MLIR Graph Telemetry</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2b303b;
+    --fg: #e6e8ec; --muted: #8b93a1; --accent: #4f9dde; --accent2: #7bd88f;
+    --warn: #e0a458; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex;
+           align-items: center; gap: 12px; background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  button { background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+           border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  button:hover { border-color: var(--accent); }
+  .main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+  /* Browser (landing page). */
+  .search { width: 100%; padding: 9px 12px; background: var(--panel); color: var(--fg);
+            border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+            font-family: var(--mono); margin-bottom: 14px; }
+  .search:focus { outline: none; border-color: var(--accent); }
+  .tree { display: flex; flex-direction: column; gap: 8px; }
+  .ci { border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+        overflow: hidden; }
+  .ci-head, .test-head { display: flex; align-items: center; gap: 8px; user-select: none; }
+  .ci-head { padding: 10px 14px; background: var(--panel2); font-weight: 600; }
+  .ci-head:not(.static), .test-head:not(.static) { cursor: pointer; }
+  .ci-head:not(.static):hover, .test-head:not(.static):hover { color: var(--accent); }
+  .tri { display: inline-block; width: 10px; color: var(--muted); transition: transform .12s; }
+  .collapsed .tri { transform: rotate(-90deg); }
+  .collapsed > .ci-body { display: none; }
+  .ci-label { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .ci-label .wf { font-weight: 400; font-size: 11px; color: var(--accent2);
+                  border: 1px solid var(--border); border-radius: 4px; padding: 0 6px;
+                  background: var(--bg); white-space: nowrap; }
+  .ci-label .ci-title { font-weight: 600; }
+  .ci-label .ci-sub { color: var(--muted); font-family: var(--mono); font-weight: 400;
+                      font-size: 11px; }
+  .job { border-top: 1px solid var(--border); }
+  .job-head { display: flex; align-items: baseline; gap: 8px; padding: 7px 14px 7px 18px;
+              background: var(--bg); }
+  .job-name { font-family: var(--mono); font-size: 11px; color: var(--accent2);
+              word-break: break-word; }
+  .test { border-top: 1px solid var(--border); }
+  .test-head { padding: 8px 14px 8px 26px; }
+  .test-name { font-family: var(--mono); font-size: 12px; }
+  .graphs { padding: 4px 12px 10px 30px; display: flex; flex-direction: column; gap: 4px; }
+  .graph { display: flex; align-items: baseline; gap: 10px; padding: 6px 10px;
+           border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+           background: var(--bg); }
+  .graph:hover { border-color: var(--accent); background: var(--panel2); }
+  .graph .model { font-weight: 600; }
+  .when { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .graph .when { margin-left: auto; }
+  .loading { color: var(--muted); padding: 10px 14px; }
+
+  .section-title { color: var(--muted); text-transform: uppercase; font-size: 11px;
+                   letter-spacing: .06em; margin: 18px 0 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 5px 10px; border: 1px solid var(--border); border-radius: 14px;
+          cursor: pointer; background: var(--panel); font-size: 12px; white-space: nowrap; }
+  .chip:hover { border-color: var(--accent); }
+  .chip.active { background: var(--accent); color: #06121d; border-color: var(--accent); font-weight: 600; }
+  .chip .idx { color: var(--muted); margin-right: 4px; }
+  .chip.active .idx { color: #06121d; }
+  .meta-grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px;
+               background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+               padding: 12px 14px; }
+  .meta-grid dt { color: var(--muted); }
+  .meta-grid dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+  /* Identifiers stay selectable even inside click-to-toggle headers. */
+  .test-name, .job-name, .ci-label, .meta-grid dd { user-select: text; }
+  .copy { background: none; border: 0; color: var(--muted); cursor: pointer;
+          font: inherit; font-size: 11px; padding: 0 4px; margin-left: 2px;
+          opacity: .35; vertical-align: baseline; }
+  .copy:hover { opacity: 1; color: var(--accent); }
+  .copy.ok { opacity: 1; color: var(--accent2); }
+  pre.mlir { background: #0b0d11; border: 1px solid var(--border); border-radius: 8px;
+             padding: 12px; overflow: auto; max-height: 60vh; font-family: var(--mono);
+             font-size: 12px; white-space: pre; }
+  pre.mlir .ln { display: block; padding: 0 6px; margin: 0 -6px; }
+  pre.mlir .ln.hl { background: rgba(224, 164, 88, .28);
+                    box-shadow: inset 3px 0 0 var(--warn); }
+  .mlir-wrap { position: relative; }
+  .mlir-wrap.fs { position: fixed; inset: 0; z-index: 1000; background: var(--bg);
+                  padding: 14px; }
+  .mlir-wrap.fs pre.mlir { max-height: calc(100vh - 28px); }
+  .mlir-fs { position: absolute; top: 6px; right: 12px; z-index: 2; padding: 2px 9px;
+             background: var(--panel2); border: 1px solid var(--border);
+             border-radius: 6px; color: var(--fg); cursor: pointer; opacity: .8; }
+  .mlir-fs:hover { opacity: 1; border-color: var(--accent); }
+  .spinner { position: absolute; top: 18px; left: 50%; width: 22px; height: 22px;
+             margin-left: -11px; border: 3px solid var(--border);
+             border-top-color: var(--accent); border-radius: 50%;
+             animation: spin .8s linear infinite; z-index: 1; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  .badge { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px;
+           padding: 1px 6px; font-size: 11px; color: var(--muted); }
+  .crumb { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MLIR Graph Telemetry</h1>
+  <span id="status" class="badge"></span>
+  <span class="spacer"></span>
+  <button id="back" style="display:none" onclick="goBrowse()">← All graphs</button>
+  <button onclick="refresh()">Refresh</button>
+</header>
+<div class="main">
+  <div id="browse">
+    <input id="q" class="search" autocomplete="off" spellcheck="false"
+           placeholder="Search by test, model, job, workflow, branch, sha…" />
+    <div id="results"></div>
+  </div>
+  <div id="detail" style="display:none"></div>
+</div>
+
+<script>
+// Default repo for building GitHub links from a CI run id / commit sha. Runs are
+// produced by tt-xla CI; override here if graphs come from another repo.
+const GH_REPO = "tenstorrent/tt-xla";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// Safe to embed inside a single-quoted JS string literal in a double-quoted
+// HTML attribute, e.g. onclick="toggleCi('<sq(id)>')".
+const sq = (s) => esc(String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
+const setStatus = (t) => { $("status").textContent = t; };
+const fmtTime = (t) => t ? new Date(Number(t)).toLocaleString() : "";
+
+// Render text followed by a copy-to-clipboard button. The text is also plain
+// (selectable) so manual select still works; the button is the reliable path.
+const copyable = (s) => {
+  const t = s == null ? "" : String(s);
+  return `${esc(t)}<button class="copy" data-copy="${esc(t)}" title="Copy" `
+    + `aria-label="Copy">⧉</button>`;
+};
+
+// One delegated handler for every .copy button. stopPropagation so copying
+// inside a click-to-toggle header doesn't also toggle it. Falls back to
+// execCommand for non-secure (plain http) contexts.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); } finally { document.body.removeChild(ta); }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".copy");
+  if (!b) return;
+  e.stopPropagation();
+  copyText(b.dataset.copy || "").then(() => {
+    b.classList.add("ok"); b.textContent = "✓";
+    setTimeout(() => { b.classList.remove("ok"); b.textContent = "⧉"; }, 1000);
+  });
+});
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+  return r.json();
+}
+
+let state = {
+  ciRuns: [],          // /ci-runs rollup rows
+  graphCache: {},      // ciRunId ("" = local) -> [graph record], lazily filled
+  expanded: new Set(), // ciRunIds the user has expanded
+  runMeta: {},         // runId -> Run record, so detail needs no refetch
+  query: "",
+  searchResults: null, // matching graphs, or null before the first search
+  searching: false,
+  // detail view
+  runId: null, run: null, snapshots: [], snapIdx: null, mlirToken: 0,
+};
+
+// ---------------------------------------------------------------------------
+// History-API router: browse at no hash, detail at
+//   #graph=<graphId>[&snapshot=<snapshotIndex>][&line=<n>]
+// `snapshot` selects a snapshot by its (stable) snapshotIndex; `line` highlights
+// and scrolls to a 1-based line in that snapshot's printed MLIR. Navigation
+// pushes state; popstate (and the initial load) just renders, so back/forward
+// work. The legacy #run=<id> form is still accepted for old links.
+// ---------------------------------------------------------------------------
+
+window.addEventListener("popstate", route);
+
+// Build the detail-view hash. snapshotIndex/line are omitted when null.
+function graphHash(graphId, snapshotIndex, line) {
+  let h = "#graph=" + encodeURIComponent(graphId);
+  if (snapshotIndex != null) h += "&snapshot=" + encodeURIComponent(snapshotIndex);
+  if (line) h += "&line=" + encodeURIComponent(line);
+  return h;
+}
+
+function parseHash() {
+  const h = location.hash;
+  const m = h.match(/^#graph=([^&]+)(?:&snapshot=([^&]+))?(?:&line=([^&]+))?$/);
+  if (m) return {
+    graphId: decodeURIComponent(m[1]),
+    snapshot: m[2] != null ? Number(decodeURIComponent(m[2])) : null,
+    line: m[3] != null ? Number(decodeURIComponent(m[3])) : null,
+  };
+  const legacy = h.match(/^#run=(.+)$/);  // back-compat
+  if (legacy) return { graphId: decodeURIComponent(legacy[1]), snapshot: null, line: null };
+  return null;
+}
+
+function route() {
+  const r = parseHash();
+  if (r) openRun(r.graphId, { snapshot: r.snapshot, line: r.line });
+  else showBrowse();
+}
+
+function selectGraph(graphId) {
+  history.pushState(null, "", graphHash(graphId));
+  openRun(graphId, {});
+}
+
+function goBrowse() {
+  history.pushState(null, "", location.pathname + location.search);
+  showBrowse();
+}
+
+function showBrowse() {
+  state.runId = null;
+  $("detail").style.display = "none";
+  $("back").style.display = "none";
+  $("browse").style.display = "";
+}
+
+// ---------------------------------------------------------------------------
+// Browser: lazy CI run -> test -> graph tree, plus backend search.
+// ---------------------------------------------------------------------------
+
+async function loadCiRuns() {
+  setStatus("loading…");
+  try { state.ciRuns = await api("/runs"); }
+  catch (e) { setStatus("error: " + e.message); return; }
+  browseStatus();
+  renderResults();
+}
+
+function browseStatus() {
+  const graphs = state.ciRuns.reduce((a, c) => a + Number(c.numGraphs || 0), 0);
+  setStatus(`${graphs} graph(s) · ${state.ciRuns.length} CI run(s)`);
+}
+
+function refresh() {
+  state.graphCache = {};
+  state.searchResults = null;
+  loadCiRuns();
+  if (state.query.trim()) onSearchInput(state.query);
+}
+
+function renderResults() {
+  if (state.query.trim()) renderSearch();
+  else renderTree();
+}
+
+// A CI run's header label, built from a Run or /ci-runs rollup row (both carry
+// ciRunId/workflowName/workflowTitle/branch). Falls back to the run id, then to
+// "local" for graphs ingested without CI provenance.
+function ciTitle(c) {
+  const ci = c.runId || "";
+  const title = esc(c.workflowTitle || (ci ? "CI run " + ci : "local"));
+  const wf = c.workflowName ? `<span class="wf">${esc(c.workflowName)}</span>` : "";
+  const sub = [];
+  if (ci) sub.push(`<a href="https://github.com/${GH_REPO}/actions/runs/${esc(ci)}"
+      target="_blank" onclick="event.stopPropagation()">run ${esc(ci)} ↗</a>`);
+  if (c.branch) sub.push(esc(c.branch));
+  const subHtml = sub.length ? `<span class="ci-sub">${sub.join(" · ")}</span>` : "";
+  return `<span class="ci-label">${wf}<span class="ci-title">${title}</span>${subHtml}</span>`;
+}
+
+function renderTree() {
+  if (!state.ciRuns.length) {
+    $("results").innerHTML = `<div class="empty">No graphs ingested.</div>`;
+    return;
+  }
+  let html = `<div class="tree">`;
+  for (const c of state.ciRuns) {
+    const ci = c.runId || "";
+    const open = state.expanded.has(ci);
+    const body = !open ? ""
+      : state.graphCache[ci]
+        ? groupByJob(state.graphCache[ci])
+        : `<div class="loading">loading…</div>`;
+    html += `<div class="ci ${open ? "" : "collapsed"}">
+      <div class="ci-head" onclick="toggleCi('${sq(ci)}')">
+        <span class="tri">▾</span>${ciTitle(c)}
+        <span class="spacer" style="flex:1"></span>
+        <span class="when">${esc(fmtTime(c.latestCreatedAt))}</span>
+        <span class="badge">${esc(c.numTests)} test${c.numTests == 1 ? "" : "s"}</span>
+        <span class="badge">${esc(c.numGraphs)} graph${c.numGraphs == 1 ? "" : "s"}</span>
+      </div>
+      <div class="ci-body">${body}</div>
+    </div>`;
+  }
+  $("results").innerHTML = html + `</div>`;
+}
+
+async function toggleCi(ci) {
+  if (state.expanded.has(ci)) { state.expanded.delete(ci); renderTree(); return; }
+  state.expanded.add(ci);
+  renderTree();  // paints the "loading…" placeholder immediately
+  if (!state.graphCache[ci]) {
+    let gs;
+    try { gs = await api("/graphs?runId=" + encodeURIComponent(ci)); }
+    catch (e) { gs = []; }
+    gs.forEach(r => { state.runMeta[r.graphId] = r; });
+    state.graphCache[ci] = gs;
+    // Only repaint if the tree is still on screen and this run still open.
+    if (!state.query.trim() && state.expanded.has(ci)) renderTree();
+  }
+}
+
+// Group a flat graph list into CI-job sections (run -> job -> test -> graph),
+// each job then grouped into tests. A job is one matrix leg (its name carries
+// the device/arch, runner and category). Graphs with no job provenance (local
+// pushes) skip the job level entirely.
+function groupByJob(graphs) {
+  const byJob = {};
+  for (const r of graphs) (byJob[r.jobName || ""] ??= []).push(r);
+  const names = Object.keys(byJob);
+  if (names.length === 1 && names[0] === "") return groupByTest(graphs);
+  let html = "";
+  for (const [job, rs] of Object.entries(byJob)) {
+    html += `<div class="job">
+      <div class="job-head static">
+        <span class="job-name">${job ? copyable(job) : "(no job)"}</span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="badge">${rs.length}</span>
+      </div>
+      <div class="job-body">${groupByTest(rs)}</div>
+    </div>`;
+  }
+  return html;
+}
+
+// Group a flat graph list into test sections. Each test's graphs are sorted
+// oldest-first, regardless of how the source list was ordered (the tree and
+// search endpoints order differently).
+function groupByTest(graphs) {
+  const byTest = {};
+  for (const r of graphs)
+    (byTest[r.testName || "(unknown test)"] ??= []).push(r);
+  let html = "";
+  for (const [test, rs] of Object.entries(byTest)) {
+    rs.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+    html += `<div class="test">
+      <div class="test-head static">
+        <span class="test-name">${copyable(test)}</span>
+        <span class="badge">${rs.length}</span>
+      </div>
+      <div class="graphs">${rs.map(graphRow).join("")}</div>
+    </div>`;
+  }
+  return html;
+}
+
+// Graphs are identified by model + time; the auto-generated runId is internal
+// and intentionally not shown here (it appears in the detail view as "graph id").
+function graphRow(r) {
+  return `<div class="graph" onclick='selectGraph(${JSON.stringify(r.graphId)})'>
+    <span class="model">${esc(r.modelName || "(unnamed)")}</span>
+    <span class="when">${esc(fmtTime(r.createdAt))}</span>
+  </div>`;
+}
+
+// Debounced backend search: spans all graphs, not just the expanded ones.
+let searchTimer;
+function onSearchInput(v) {
+  state.query = v;
+  clearTimeout(searchTimer);
+  const q = v.trim();
+  if (!q) {
+    state.searchResults = null; state.searching = false;
+    browseStatus(); renderResults();
+    return;
+  }
+  state.searching = true; state.searchResults = null;
+  renderSearch();  // "searching…"
+  searchTimer = setTimeout(() => runSearch(q), 200);
+}
+
+async function runSearch(q) {
+  if (state.query.trim() !== q) return;  // superseded while debouncing
+  let res;
+  try { res = await api("/search?q=" + encodeURIComponent(q)); }
+  catch (e) { setStatus("error: " + e.message); return; }
+  if (state.query.trim() !== q) return;  // a newer query won the race
+  res.forEach(r => { state.runMeta[r.graphId] = r; });
+  state.searchResults = res;
+  state.searching = false;
+  setStatus(`${res.length} graph(s) match`);
+  renderSearch();
+}
+
+function renderSearch() {
+  if (state.searching && state.searchResults === null) {
+    $("results").innerHTML = `<div class="loading">searching…</div>`;
+    return;
+  }
+  const res = state.searchResults || [];
+  if (!res.length) {
+    $("results").innerHTML =
+      `<div class="empty">No graphs match “${esc(state.query.trim())}”.</div>`;
+    return;
+  }
+  const byCi = {};
+  for (const r of res) (byCi[r.runId || ""] ??= []).push(r);
+
+  let html = `<div class="tree">`;
+  for (const [ci, rs] of Object.entries(byCi)) {
+    html += `<div class="ci">
+      <div class="ci-head static">${ciTitle(rs[0])}
+        <span class="spacer" style="flex:1"></span>
+        <span class="badge">${rs.length} graph${rs.length == 1 ? "" : "s"}</span>
+      </div>
+      <div class="ci-body">${groupByJob(rs)}</div>
+    </div>`;
+  }
+  $("results").innerHTML = html + `</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Detail view: one graph's snapshots + raw MLIR.
+// ---------------------------------------------------------------------------
+
+async function openRun(runId, opts = {}) {
+  state.runId = runId;
+  $("browse").style.display = "none";
+  $("detail").style.display = "";
+  $("back").style.display = "";
+  $("detail").innerHTML = `<div class="loading">loading…</div>`;
+
+  // Metadata is cached when arriving from the tree/search; on a cold deep link
+  // (#graph=… loaded directly) fetch it.
+  if (!state.runMeta[runId]) {
+    try { state.runMeta[runId] = await api("/graphs/" + encodeURIComponent(runId)); }
+    catch (e) { state.runMeta[runId] = { graphId: runId }; }
+  }
+  state.run = state.runMeta[runId];
+
+  try { state.snapshots = await api(`/graphs/${encodeURIComponent(runId)}/snapshots`); }
+  catch (e) { state.snapshots = []; }
+  if (state.runId !== runId) return;  // navigated away while loading
+  renderRun();
+  if (state.snapshots.length) {
+    // Resolve the optional snapshot=<snapshotIndex> to its position; default
+    // to the first snapshot.
+    let i = 0;
+    if (opts.snapshot != null) {
+      const found = state.snapshots.findIndex(s => s.snapshotIndex === opts.snapshot);
+      if (found >= 0) i = found;
+    }
+    selectSnapshot(i, opts.line);
+  }
+}
+
+function ghLinks(run) {
+  const out = [];
+  if (run.runId)
+    out.push(`<a href="https://github.com/${GH_REPO}/actions/runs/${esc(run.runId)}" target="_blank">CI run ↗</a>`);
+  if (run.gitSha)
+    out.push(`<a href="https://github.com/${GH_REPO}/commit/${esc(run.gitSha)}" target="_blank">commit ↗</a>`);
+  if (run.branch)
+    out.push(`<a href="https://github.com/${GH_REPO}/tree/${esc(run.branch)}" target="_blank">branch ↗</a>`);
+  return out.join(" · ") || "—";
+}
+
+function renderRun() {
+  const r = state.run || {};
+  $("detail").innerHTML = `
+    <div class="crumb">${esc(r.testName || "(unknown test)")} ·
+      ${r.runId ? "CI run " + esc(r.runId) : "local"}</div>
+    <h2 style="margin:0 0 4px">${esc(r.modelName || "(unnamed)")}</h2>
+    <dl class="meta-grid">
+      <dt>graph id</dt><dd>${r.graphId ? copyable(r.graphId) : "—"}</dd>
+      <dt>test</dt><dd>${r.testName ? copyable(r.testName) : "—"}</dd>
+      <dt>job</dt><dd>${r.jobName ? copyable(r.jobName) : "—"}</dd>
+      <dt>workflow</dt><dd>${r.workflowName ? copyable(r.workflowName) : "—"}</dd>
+      <dt>run title</dt><dd>${r.workflowTitle ? copyable(r.workflowTitle) : "—"}</dd>
+      <dt>links</dt><dd>${ghLinks(r)}</dd>
+      <dt>tt-xla sha</dt><dd>${r.gitSha ? copyable(r.gitSha) : "—"}</dd>
+      <dt>ci run id</dt><dd>${r.runId ? copyable(r.runId) : "—"}</dd>
+      <dt>branch</dt><dd>${r.branch ? copyable(r.branch) : "—"}</dd>
+      <dt>created</dt><dd>${esc(fmtTime(r.createdAt) || "—")}</dd>
+    </dl>
+    <div class="section-title">Snapshots (${state.snapshots.length})</div>
+    <div class="chips" id="chips">${state.snapshots.map((s, i) => `
+      <div class="chip" id="chip-${i}" onclick="selectSnapshot(${i})">
+        <span class="idx">${s.snapshotIndex}</span>${esc(s.tag)}
+      </div>`).join("")}</div>
+    <div id="snapdetail"></div>`;
+}
+
+async function selectSnapshot(i, line) {
+  state.snapIdx = i;
+  document.querySelectorAll(".chip").forEach((el, j) => el.classList.toggle("active", j === i));
+  // The /graphs/<id>/snapshots summary already carries every field shown here
+  // plus mlirPath, so we never fetch the multi-MB structured /snapshots/<id>
+  // payload — only the raw MLIR text below.
+  const s = state.snapshots[i];
+
+  // Keep the URL in sync so the current snapshot (and an optional line) is
+  // shareable. replaceState, not push: chip clicks shouldn't spam history.
+  history.replaceState(null, "", graphHash(state.runId, s.snapshotIndex, line));
+
+  $("snapdetail").innerHTML = `
+    <div class="section-title">Snapshot · ${esc(s.tag)}</div>
+    <dl class="meta-grid">
+      <dt>tag</dt><dd>${esc(s.tag)}</dd>
+      <dt>pass</dt><dd>${s.passName ? copyable(s.passName) : "—"}</dd>
+      <dt>index</dt><dd>${esc(s.snapshotIndex)}</dd>
+      <dt>graph index</dt><dd>${esc(s.graphIndex ?? "—")}</dd>
+      <dt>source path</dt><dd>${s.sourcePath ? copyable(s.sourcePath) : "—"}</dd>
+      <dt>mlir file</dt><dd>${s.mlirPath ? `<a href="/files/${encodeURI(s.mlirPath)}" target="_blank">${esc(s.mlirPath)} ↗</a>` : "—"}</dd>
+      <dt>snapshot id</dt><dd>${copyable(s.snapshotId)}</dd>
+    </dl>
+    <div class="section-title">Raw MLIR</div>
+    <div class="mlir-wrap" id="mlir-wrap">
+      <button class="mlir-fs" id="mlir-fs" title="Toggle full screen (Esc to exit)"
+              onclick="toggleMlirFs()">⛶</button>
+      <div class="spinner" id="mlir-spin"></div>
+      <pre class="mlir" id="mlir"></pre>
+    </div>`;
+
+  const pre = $("mlir"), spin = $("mlir-spin");
+  // Guard against a slow fetch landing after the user clicked another snapshot.
+  const token = ++state.mlirToken;
+  if (!s.mlirPath) {
+    spin.remove();
+    pre.textContent = "(no mlirPath recorded for this snapshot)";
+    return;
+  }
+  try {
+    const txt = await (await fetch(`/files/${encodeURI(s.mlirPath)}`)).text();
+    if (token !== state.mlirToken) return;  // superseded by a newer selection
+    // Render one addressable element per line (id="L<n>", 1-based) so a node's
+    // mlirLine can be highlighted and scrolled to.
+    pre.innerHTML = txt.split("\n")
+      .map((l, n) => `<span class="ln" id="L${n + 1}">${esc(l) || "&nbsp;"}</span>`)
+      .join("");
+    if (line) highlightLine(line);
+  } catch (e) {
+    if (token === state.mlirToken) pre.textContent = "failed to load MLIR: " + e.message;
+  } finally {
+    if (token === state.mlirToken) spin.remove();
+  }
+}
+
+// Toggle the MLIR view between inline and full-screen. Esc also exits.
+function toggleMlirFs() {
+  const w = $("mlir-wrap");
+  if (w) w.classList.toggle("fs");
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const w = $("mlir-wrap");
+  if (w && w.classList.contains("fs")) w.classList.remove("fs");
+});
+
+// Highlight and scroll to a 1-based line in the MLIR view (clears any prior).
+function highlightLine(n) {
+  document.querySelectorAll("pre.mlir .ln.hl").forEach(el => el.classList.remove("hl"));
+  if (!n) return;
+  const el = document.getElementById("L" + n);
+  if (el) {
+    el.classList.add("hl");
+    el.scrollIntoView({ block: "center" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+$("q").oninput = (e) => onSearchInput(e.target.value);
+loadCiRuns().then(route);
+</script>
+</body>
+</html>

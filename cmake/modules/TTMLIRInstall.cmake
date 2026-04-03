@@ -82,6 +82,9 @@ set(ttmlir_export_targets
 
   # Utilities and support
   TTMLIRSupport
+  # Graph telemetry (public deps of TTMLIRSupport, so they must be exported too)
+  MLIRGraphTelemetry
+  MLIRGraphTelemetryVisitors
   coverage_config
   TTNNOpModelLib
   MLIRScheduler

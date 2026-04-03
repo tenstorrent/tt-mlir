@@ -12,6 +12,7 @@ add_subdirectory(Conversion)
 add_subdirectory(Dialect)
 add_subdirectory(Target)
 add_subdirectory(Scheduler)
+add_subdirectory(Telemetry)
 add_subdirectory(Support)
 add_subdirectory(Transforms)
 

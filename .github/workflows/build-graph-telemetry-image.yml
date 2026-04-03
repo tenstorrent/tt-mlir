@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Builds the mlir-graph-serve image and pushes it to GHCR. The serve is pure
+# Python with no dependency on the compiler build, so this is independent of
+# the main CI build matrix and only runs when the tool sources change.
+#
+# The deployment compose pulls ghcr.io/tenstorrent/tt-mlir/graph-telemetry by
+# tag; see tools/graph-telemetry/docker-compose.yml.
+
+name: Build graph-telemetry image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "tools/graph-telemetry/python/**"
+      - "tools/graph-telemetry/Dockerfile"
+      - ".github/workflows/build-graph-telemetry-image.yml"
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/graph-telemetry
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute tags
+        id: tags
+        shell: bash
+        run: |
+          # Always tag the immutable short SHA; tag latest only on main so the
+          # compose default (:latest) tracks the tip of main.
+          sha="${IMAGE}:sha-${GITHUB_SHA::12}"
+          tags="$sha"
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            tags="${tags},${IMAGE}:latest"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          # Matches the local build contract: `docker build -f Dockerfile python/`
+          context: tools/graph-telemetry/python
+          file: tools/graph-telemetry/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

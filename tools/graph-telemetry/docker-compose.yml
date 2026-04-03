@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Single-instance deployment of mlir-graph-serve. Kuzu is embedded and
+# single-writer, so this must never be scaled past one replica; reads scale
+# inside the process via the connection pool instead.
+#
+# All state (DB, artifacts) is on the ./data bind mount, so image upgrades
+# keep the DB. The DB is a derived index of ./data/files -- only the artifacts
+# strictly need backing up. Schema changes require a fresh DB + re-ingest from
+# those artifacts.
+#
+# Reads are open (internal, non-confidential data); mutating endpoints require
+# the shared write secret, e.g. GRAPH_TELEMETRY_TOKEN=$(openssl rand -hex 16)
+# in .env, with the same value in the CI push secret.
+#
+# By default this pulls the image published to GHCR by the
+# build-graph-telemetry-image workflow:
+#
+#   docker compose pull && docker compose up -d        # deploy published image
+#   GT_IMAGE_TAG=sha-abc123def456 docker compose up -d  # pin a specific build
+#
+# The build: stanza stays as a local fallback for development:
+#
+#   docker compose up -d --build
+
+services:
+  serve:
+    image: ghcr.io/tenstorrent/tt-mlir/graph-telemetry:${GT_IMAGE_TAG:-latest}
+    build:
+      context: ./python
+      dockerfile: ../Dockerfile
+    container_name: graph-telemetry
+    restart: unless-stopped
+    ports:
+      - "8321:8321"
+    volumes:
+      - ./data:/data
+    environment:
+      GRAPH_TELEMETRY_TOKEN: ${GRAPH_TELEMETRY_TOKEN:-}
+    command: >
+      mlir-graph-serve
+      --db kuzu:/data/db/telemetry.kuzu
+      --files-dir /data/files
+      --query-log /data/query_log.jsonl
+      --host 0.0.0.0 --port 8321
+      --read-pool-size ${GT_READ_POOL_SIZE:-8}
