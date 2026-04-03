@@ -47,7 +47,7 @@ void run(const ::tt::target::ttnn::LayerNormPostAllGatherOp *op,
 
   std::optional<::ttnn::DataType> dtype = std::nullopt;
   if (op->dtype()) {
-    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*op->dtype());
+    dtype = unifiedOpLib::operations::utils::toTTNNDataType(*op->dtype());
   }
 
   ::ttnn::Tensor output = ::ttnn::layer_norm_post_all_gather(
