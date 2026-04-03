@@ -45,10 +45,15 @@ struct SDPARuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// RotaryEmbedding: only height-sharded inputs (width/block rejected by
-/// tt-metal), reshards allowed.
+/// RotaryEmbedding / RotaryEmbeddingLlama:
+/// NULL hint only, no reshards. Only height-sharded inputs accepted.
+/// Cache tensors are DRAM-interleaved; resharding them is wasteful.
 struct RotaryEmbeddingRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter() const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
 };
 
 } // namespace mlir::tt::ttnn
