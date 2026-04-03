@@ -45,6 +45,15 @@ struct SDPARuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// RotaryEmbedding / RotaryEmbeddingLlama:
+/// NULL hint only, no reshards. Cache tensors are DRAM-interleaved.
+struct RotaryEmbeddingRuleBook : OpRuleBook {
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_TRANSFORMERRULES_H
