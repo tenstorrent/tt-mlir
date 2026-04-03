@@ -6503,27 +6503,27 @@ def ttnn_reduce_scatter_golden(
 
 
 def ttnn_to_layout_golden(
-    input_tensor: GoldenMapTensor, output_ranked_tensor_type: RankedTensorType
+    input_tensor: GoldenMapTensor,
+    layout_attr: Attribute,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    casted_type = ttcore.ir.TileType.maybe_downcast(
-        output_ranked_tensor_type.element_type
-    )
-
-    if casted_type:
-        output_dtype = mlir_datatype_to_torch_dtype(casted_type.data_type)
-    else:
-        output_dtype = mlir_type_to_torch_dtype(output_ranked_tensor_type.element_type)
-
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     output_tensor = input_tensor.clone()
     return output_tensor.to(output_dtype)
 
 
-def ttnn_to_device_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    return input_tensor.clone()
+def ttnn_to_device_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.clone().to(output_dtype)
 
 
-def ttnn_from_device_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    return input_tensor.clone()
+def ttnn_from_device_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.clone().to(output_dtype)
 
 
 ################ Debug Op Golden Functions ###############

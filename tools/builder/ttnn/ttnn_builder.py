@@ -8076,27 +8076,37 @@ class TTNNBuilder(Builder):
         self,
         input: Operand,
         layout,
+        output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
-        shape = input.type.shape
-        element_type = input.type.element_type
-        if layout == ttnn.Layout.Tile:
-            output_type = self._create_host_ttnn_tensor(shape, element_type)
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.to_layout)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
         else:
-            output_type = self._create_host_row_major_ttnn_tensor(shape, element_type)
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input_golden, layout_attr, mlir_output_type)
+        shape = input.type.shape
+        if layout == ttnn.Layout.Tile:
+            result = self._create_host_ttnn_tensor(shape, mlir_output_type)
+        else:
+            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
+
         if loc is None:
             loc = self._get_location()
         else:
             loc = Location.name(loc)
-        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
-        op = ttnn.ToLayoutOp(output_type, input, layout=layout_attr, loc=loc)
-        input_golden = self._get_golden_tensor(input)
-        op_golden_function = get_golden_function(
-            self.get_opview_from_method(TTNNBuilder.to_layout)
-        )
-        golden_output = op_golden_function(input_golden, output_type)
-        self._set_golden_tensor(op.result, golden_output)
-        return op.result
+
+        op = ttnn_op(result, input, layout=layout_attr, loc=loc)
+        op_result = op.result
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     @parse(ttnn.ToLayoutOp)
     def to_layout_parser(
@@ -8108,12 +8118,15 @@ class TTNNBuilder(Builder):
         in0 = global_dict[old_op.input]
         result = old_op.result.type
         layout_attr = old_op.layout
+
         new_op = ttnn_op(result, in0, layout=layout_attr, loc=old_op.location)
         new_op_result = new_op.result
+
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input0, result)
+        golden_output = op_golden_function(input0, layout_attr, result.element_type)
         self._set_golden_tensor(new_op_result, golden_output)
+
         return new_op, {old_op.result: new_op_result}
 
     ############### ttnn.ToDeviceOp ###############
@@ -8124,6 +8137,7 @@ class TTNNBuilder(Builder):
         input: Operand,
         device: Operand,
         memory_config=None,
+        output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
         """Move a tensor to device memory.
@@ -8131,26 +8145,32 @@ class TTNNBuilder(Builder):
         If *memory_config* is ``None`` (the default), a DRAM Interleaved
         memory configuration is used.
         """
-        with self._ctx, self._loc:
-            shape = input.type.shape
-            element_type = input.type.element_type
-            output_type = self._create_dram_tiled_ttnn_tensor(shape, element_type)
-            if memory_config is None:
-                memory_config = self._create_dram_memory_config()
-            if loc is None:
-                loc = self._get_location()
-            else:
-                loc = Location.name(loc)
-            op = ttnn.ToDeviceOp(
-                output_type, input, device, memory_config=memory_config, loc=loc
-            )
-            input_golden = self._get_golden_tensor(input)
-            op_golden_function = get_golden_function(
-                self.get_opview_from_method(TTNNBuilder.to_device)
-            )
-            golden_output = op_golden_function(input_golden)
-            self._set_golden_tensor(op.result, golden_output)
-            return op.result
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.to_device)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input_golden, mlir_output_type)
+        shape = input.type.shape
+        result = self._create_dram_tiled_ttnn_tensor(shape, mlir_output_type)
+
+        if memory_config is None:
+            memory_config = self._create_dram_memory_config()
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(result, input, device, memory_config=memory_config, loc=loc)
+        op_result = op.result
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     @parse(ttnn.ToDeviceOp)
     def to_device_parser(
@@ -8162,6 +8182,7 @@ class TTNNBuilder(Builder):
         in0 = global_dict[old_op.input]
         device = global_dict[old_op.device]
         result = old_op.result.type
+
         new_op = ttnn_op(
             result,
             in0,
@@ -8170,10 +8191,12 @@ class TTNNBuilder(Builder):
             loc=old_op.location,
         )
         new_op_result = new_op.result
+
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input0)
+        golden_output = op_golden_function(input0, result.element_type)
         self._set_golden_tensor(new_op_result, golden_output)
+
         return new_op, {old_op.result: new_op_result}
 
     ############### ttnn.FromDeviceOp ###############
@@ -8182,24 +8205,33 @@ class TTNNBuilder(Builder):
     def from_device(
         self,
         input: Operand,
+        output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
-        with self._ctx, self._loc:
-            shape = input.type.shape
-            element_type = input.type.element_type
-            output_type = self._create_host_ttnn_tensor(shape, element_type)
-            if loc is None:
-                loc = self._get_location()
-            else:
-                loc = Location.name(loc)
-            op = ttnn.FromDeviceOp(output_type, input, loc=loc)
-            input_golden = self._get_golden_tensor(input)
-            op_golden_function = get_golden_function(
-                self.get_opview_from_method(TTNNBuilder.from_device)
-            )
-            golden_output = op_golden_function(input_golden)
-            self._set_golden_tensor(op.result, golden_output)
-            return op.result
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.from_device)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input_golden, mlir_output_type)
+        shape = input.type.shape
+        result = self._create_host_ttnn_tensor(shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(result, input, loc=loc)
+        op_result = op.result
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     @parse(ttnn.FromDeviceOp)
     def from_device_parser(
@@ -8210,12 +8242,15 @@ class TTNNBuilder(Builder):
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.from_device_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
+
         new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
+
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input0)
+        golden_output = op_golden_function(input0, result.element_type)
         self._set_golden_tensor(new_op_result, golden_output)
+
         return new_op, {old_op.result: new_op_result}
 
     ############### ttnn.DeallocateOp ###############
