@@ -165,7 +165,8 @@ public:
     auto wrapperFunc = builder.create<func::FuncOp>(
         forwardFunc.getLoc(), wrapperName, wrapperFuncType);
     wrapperFunc.addEntryBlock();
-    wrapperFunc->setDiscardableAttr(kWrapperAttr, builder.getUnitAttr());
+    ttmlir::utils::setFunctionType(
+        wrapperFunc, ttmlir::utils::FunctionType::ConstEvalWrapper);
 
     Block &forwardBody = forwardFunc.getBody().front();
     Block &wrapperBody = wrapperFunc.getBody().front();

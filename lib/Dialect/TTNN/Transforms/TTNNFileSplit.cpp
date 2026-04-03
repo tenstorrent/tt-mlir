@@ -99,7 +99,7 @@ private:
     for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
       if (ttmlir::utils::isConstEvalFunc(funcOp)) {
         constevalFuncs.push_back(funcOp);
-      } else if (funcOp->hasAttr(kWrapperAttr)) {
+      } else if (ttmlir::utils::isConstEvalWrapperFunc(funcOp)) {
         wrapperFuncs.push_back(funcOp);
         constevalFuncs.push_back(funcOp);
       }
