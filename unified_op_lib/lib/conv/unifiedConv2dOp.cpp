@@ -8,10 +8,10 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
+#include "utils/utils.h"
 #include <operations/conv/conv2d/conv2d.hpp>
 #include <operations/functions.hpp>
 #include <variant>
-#include "utils/utils.h"
 
 namespace unifiedOpLib {
 
@@ -72,17 +72,18 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
   }
 
   if (conv2dOpT.conv2d_config) {
-    params.conv2dConfig = operations::utils::createConv2dConfig(*conv2dOpT.conv2d_config);
+    params.conv2dConfig =
+        operations::utils::createConv2dConfig(*conv2dOpT.conv2d_config);
   }
 
   if (conv2dOpT.compute_config) {
-    params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*conv2dOpT.compute_config);
+    params.computeConfig = operations::utils::createDeviceComputeKernelConfig(
+        *conv2dOpT.compute_config);
   }
 
   if (conv2dOpT.conv2d_slice_config) {
-    params.sliceConfig =
-        operations::utils::createConv2dSliceConfig(*conv2dOpT.conv2d_slice_config);
+    params.sliceConfig = operations::utils::createConv2dSliceConfig(
+        *conv2dOpT.conv2d_slice_config);
   }
 
   // std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -93,10 +94,8 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
   //            "Memory config must exist for device tensors");
   if (conv2dOpT.out) {
     // params.outputMemoryConfig = getOutputMemoryConfig(*conv2dOpT.out);
-    params.outputMemoryConfig =
-        operations::utils::createMemoryConfigIfNeeded(
-            operations::utils::getTensorRefMemoryConfig(
-                *conv2dOpT.out));
+    params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
+        operations::utils::getTensorRefMemoryConfig(*conv2dOpT.out));
     LOG_ASSERT(operations::utils::inSystemMemory(*conv2dOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
@@ -105,11 +104,11 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
   return params;
 }
 
-Conv2dOpResult callConv2d(
-    CallType callType, const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
-    TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
-    ::ttnn::MeshDevice &targetDevice,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig) {
+Conv2dOpResult
+callConv2d(CallType callType, const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
+           TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
+           ::ttnn::MeshDevice &targetDevice,
+           std::optional<::ttnn::MemoryConfig> outputMemoryConfig) {
 
   Conv2dResolvedParams params = resolveConv2dParams(conv2dOpT);
   if (outputMemoryConfig.has_value()) {
@@ -118,7 +117,7 @@ Conv2dOpResult callConv2d(
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
-    return ::ttnn::graph::query_op_constraints(
+    return QUERY_OP_CONSTRAINTS(
         ::ttnn::conv2d, &targetDevice, std::get<::ttnn::TensorSpec>(input),
         std::get<::ttnn::TensorSpec>(weight), &targetDevice,
         conv2dOpT.in_channels, conv2dOpT.out_channels, conv2dOpT.batch_size,
@@ -133,7 +132,7 @@ Conv2dOpResult callConv2d(
         /*return_output_dim=*/false,
         /*return_weights_and_bias=*/false);
   case CallType::QUERY_OP_RUNTIME:
-    return ::ttnn::graph::query_op_runtime(
+    return QUERY_OP_RUNTIME(
         ::ttnn::conv2d, &targetDevice, std::get<::ttnn::TensorSpec>(input),
         std::get<::ttnn::TensorSpec>(weight), &targetDevice,
         conv2dOpT.in_channels, conv2dOpT.out_channels, conv2dOpT.batch_size,
