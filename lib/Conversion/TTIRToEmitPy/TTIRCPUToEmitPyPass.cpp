@@ -510,6 +510,7 @@ public:
   }
 };
 
+// --- Unsqueeze ---
 class TTIRUnsqueezeToEmitPy : public OpConversionPattern<ttir::UnsqueezeOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
