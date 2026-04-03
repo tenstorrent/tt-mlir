@@ -115,7 +115,7 @@ void createTTNNPipelineAnalysisPasses(
 
     if (options.enableGreedyOptimizer) {
       // Greedy optimizer: two new passes replace TTNNOptimizer.
-      TTNNGreedyLayoutPropagationPipelineOptions propagationOptions;
+      TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
       propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
       propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
       propagationOptions.beamWidth = 8;
@@ -138,7 +138,7 @@ void createTTNNPipelineAnalysisPasses(
            memLayoutEnabled](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-            innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyLayoutPropagation(
+            innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
                 propagationOptions));
             if (memLayoutEnabled) {
               innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(

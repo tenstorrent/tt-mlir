@@ -42,7 +42,6 @@ enum class LogComponent {
   General,
   D2MFusion,
   FusionValidator,
-  ValidationFallback,
   GreedyOptimizer
 };
 
@@ -78,8 +77,6 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "d2m-fusion";
   case LogComponent::FusionValidator:
     return "fusion-validator";
-  case LogComponent::ValidationFallback:
-    return "validation-fallback";
   case LogComponent::GreedyOptimizer:
     return "greedy-optimizer";
   }
