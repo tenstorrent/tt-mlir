@@ -45,23 +45,6 @@ namespace mlir::tt::ttnn::op_model {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-// Macros to wrap overloaded functions for use with
-// query_op_constraints/runtime. These create a generic lambda that forwards
-// arguments, letting the compiler resolve the correct overload based on the
-// actual argument types.
-// clang-format off
-#define WRAP_OP(op)                                                         \
-  [](auto &&...args) -> decltype(op(std::forward<decltype(args)>(args)...)) {  \
-    return op(std::forward<decltype(args)>(args)...);                          \
-  }
-
-#define QUERY_OP_CONSTRAINTS(op, device, ...)                                  \
-  ::ttnn::graph::query_op_constraints(WRAP_OP(op), device, __VA_ARGS__)
-
-#define QUERY_OP_RUNTIME(op, device, ...)                                      \
-  ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
-// clang-format on
-
 namespace operation {
 
 /// RAII helper to preserve and restore the program cache state.
