@@ -34,7 +34,8 @@ namespace mlir::tt::ttnn {
 //
 // This pass effectively does the following:
 //   - Moves the consteval functions to the consteval file.
-//   - Moves the cpu-hoisted declarations to the consteval file.
+//   - Moves the cpu-hoisted declarations to whichever file they get invoked
+//   from.
 //   - For each forward function that has a consteval wrapper, creates a
 //   declaration in the main file so that func.call ops can resolve the symbols.
 //
@@ -69,8 +70,7 @@ private:
     // If there is no consteval logic, do not perform file split.
     bool hasConstevalLogic =
         llvm::any_of(moduleOp.getOps<func::FuncOp>(), [](func::FuncOp funcOp) {
-          return ttmlir::utils::isConstEvalFunc(funcOp) ||
-                 ttmlir::utils::isForwardCPUDeclarationFunc(funcOp);
+          return ttmlir::utils::isConstEvalFunc(funcOp);
         });
     if (!hasConstevalLogic) {
       return;
@@ -93,11 +93,8 @@ private:
       deviceOp->erase();
     }
 
-    // Move const-eval functions to the consteval file. Clone
-    // CPU-hoisted declarations into both files so that func.call ops
-    // in both files can resolve the symbol.
+    // Move const-eval and wrapper functions to the consteval file.
     llvm::SmallVector<func::FuncOp> constevalFuncs;
-    llvm::SmallVector<func::FuncOp> cpuDecls;
     llvm::SmallVector<func::FuncOp> wrapperFuncs;
     for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
       if (ttmlir::utils::isConstEvalFunc(funcOp)) {
@@ -105,21 +102,12 @@ private:
       } else if (funcOp->hasAttr(kWrapperAttr)) {
         wrapperFuncs.push_back(funcOp);
         constevalFuncs.push_back(funcOp);
-      } else if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
-        cpuDecls.push_back(funcOp);
       }
     }
 
     for (auto constevalOp : constevalFuncs) {
       constevalOp->moveBefore(&constevalFile.getBodyRegion().front(),
                               constevalFile.getBodyRegion().front().end());
-    }
-    for (auto cpuDecl : cpuDecls) {
-      builder.setInsertionPointToStart(&constevalFile.getBodyRegion().front());
-      builder.clone(*cpuDecl.getOperation());
-      builder.setInsertionPointToStart(&mainFile.getBodyRegion().front());
-      builder.clone(*cpuDecl.getOperation());
-      cpuDecl->erase();
     }
 
     // Create a declaration in the main file for each consteval wrapper function
@@ -130,6 +118,42 @@ private:
           wrapperFunc.getLoc(), wrapperFunc.getName().str(),
           wrapperFunc.getFunctionType());
       privateDecl.setPrivate();
+    }
+
+    // Move CPU-hoisted declarations into the file that contains their
+    // call site. Each declaration is called from exactly one file.
+    llvm::SmallVector<func::FuncOp> cpuDecls;
+    for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
+      if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+        cpuDecls.push_back(funcOp);
+      }
+    }
+
+    auto fileContainsCallTo = [](auto fileOp, StringRef symbol) {
+      bool found = false;
+      fileOp.walk([&](func::CallOp callOp) {
+        if (callOp.getCallee() == symbol) {
+          found = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      return found;
+    };
+
+    for (auto cpuDecl : cpuDecls) {
+      FileOpTy targetFile;
+      if (fileContainsCallTo(mainFile, cpuDecl.getSymName())) {
+        targetFile = mainFile;
+      } else if (fileContainsCallTo(constevalFile, cpuDecl.getSymName())) {
+        assert(!targetFile &&
+               "CPU-hoisted declaration is called from both files");
+        targetFile = constevalFile;
+      }
+      assert(targetFile &&
+             "CPU-hoisted declaration is not called from any file");
+      cpuDecl->moveBefore(&targetFile.getBodyRegion().front(),
+                          targetFile.getBodyRegion().front().begin());
     }
 
     // Move remaining top-level operations to the main file.
