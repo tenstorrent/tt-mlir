@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITPY_EMITPYCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITPY_EMITPYCONVERSION_H
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -2312,10 +2313,7 @@ public:
   ttnn::MemoryConfigAttr getMemoryConfig(mlir::Value val) {
     auto deviceOp = ttcore::lookupDeviceOp(op);
 
-    if (!deviceOp) {
-      // We're inside a CPU module, so no memory config is needed.
-      return ttnn::MemoryConfigAttr{};
-    }
+    TT_assertv(deviceOp, "ttcore.device must exist in the enclosing scope");
 
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
