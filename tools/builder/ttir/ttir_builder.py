@@ -3416,6 +3416,450 @@ class TTIRBuilder(Builder):
 
         return bitwise_and_module, bitwise_and_builder
 
+    ############### ttir.BitwiseNotOp ###############
+
+    @tag(ttir.BitwiseNotOp)
+    def bitwise_not(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.bitwise_not``.
+
+        *Elementwise bitwise NOT operation.*
+
+        Computes the bitwise NOT (one's complement) of each element in the input tensor.
+        For each element, flips all the bits in the binary representation of the value.
+
+        This operation is typically used with integer data types and has the involution property,
+        meaning that applying it twice returns the original value: bitwise_not(bitwise_not(x)) = x.
+
+        .. code-block:: mlir
+
+            // Bitwise NOT with integer tensors
+            %result = ttir.bitwise_not(%input, %output) : tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
+            // Input tensor:
+            // [[1, 2],
+            //  [3, 4]]
+            // Output tensor:
+            // [[-2, -3],
+            //  [-4, -5]]
+
+            // Example with 8-bit integers
+            %result = ttir.bitwise_not(%input, %output) : tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+            // Input: [0, 5, 255] (binary: [00000000, 00000101, 11111111])
+            // Output: [255, 250, 0] (binary: [11111111, 11111010, 00000000])
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        output_type : *Optional[torch.dtype]*, optional
+            Output data type. If None, uses input type.
+        loc : *Optional[str]*, optional
+            Optional location name for the operation
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_not)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.BitwiseNotOp)
+    def bitwise_not_parser(
+        self,
+        old_op: ttir.BitwiseNotOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.bitwise_not_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.BitwiseOrOp ###############
+
+    @tag(ttir.BitwiseOrOp)
+    def bitwise_or(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.bitwise_or``.
+
+        *Elementwise bitwise OR operation.*
+
+        Performs elementwise bitwise OR operation between two tensors.
+        For each pair of corresponding elements, performs a bitwise OR on their binary representations.
+
+        This operation is typically used with integer data types and has the following properties:
+        - Commutative: bitwise_or(x, y) = bitwise_or(y, x)
+        - Associative: bitwise_or(x, bitwise_or(y, z)) = bitwise_or(bitwise_or(x, y), z)
+        - Identity: bitwise_or(x, 0) = x
+        - One: bitwise_or(x, -1) = -1
+
+        .. code-block:: mlir
+
+            // Bitwise OR with integer tensors
+            %result = ttir.bitwise_or(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+            // Input tensors:
+            // lhs: [5, 3, 255]  (binary: [00000101, 00000011, 11111111])
+            // rhs: [3, 6, 129]   (binary: [00000011, 00000110, 10000001])
+            // Output tensor:
+            // [7, 7, 255]    (binary: [00000111, 00000111, 11111111])
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        output_type : *Optional[torch.dtype]*, optional
+            Output data type. If None, uses input type.
+        loc : *Optional[str]*, optional
+            Optional location name for the operation
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_or)
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(lhs, rhs, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, in1, loc=loc)
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.BitwiseOrOp)
+    def bitwise_or_parser(
+        self,
+        old_op: ttir.BitwiseOrOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.bitwise_or_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.BitwiseXorOp ###############
+
+    @tag(ttir.BitwiseXorOp)
+    def bitwise_xor(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.bitwise_xor``.
+
+        *Elementwise bitwise XOR operation.*
+
+        Performs elementwise bitwise XOR (exclusive OR) operation between two tensors.
+        For each pair of corresponding elements, performs a bitwise XOR on their binary representations.
+
+        .. code-block:: mlir
+
+            // Bitwise XOR with integer tensors
+            %result = ttir.bitwise_xor(%input1, %input2, %output) : tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
+            // Input1 tensor:
+            // [[1, 3],  // binary: [[0001, 0011],
+            //  [5, 7]]  //         [0101, 0111]]
+            // Input2 tensor:
+            // [[2, 3],  // binary: [[0010, 0011],
+            //  [6, 7]]  //         [0110, 0111]]
+            // Output tensor:
+            // [[3, 0],  // binary: [[0011, 0000],
+            //  [3, 0]]  //         [0011, 0000]]
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        output_type : *Optional[torch.dtype]*, optional
+            Output data type. If None, uses input type.
+        loc : *Optional[str]*, optional
+            Optional location name for the operation
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+            A tensor containing the bitwise XOR of corresponding elements
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.bitwise_xor)
+        lhs = self._get_golden_tensor(in0)
+        rhs = self._get_golden_tensor(in1)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(lhs, rhs, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, in1, loc=loc)
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.BitwiseXorOp)
+    def bitwise_xor_parser(
+        self,
+        old_op: ttir.BitwiseXorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.bitwise_xor_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.LogicalLeftShiftOp ###############
+
+    def logical_left_shift(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.logical_shift_left``.
+
+        *Elementwise logical shift left operation.*
+
+        Performs elementwise logical shift left operation between two tensors.
+        For each pair of corresponding elements, shifts the bits of the first element to the left
+        by the number of positions specified by the second element.
+
+        .. code-block:: mlir
+
+            // Logical shift left operation
+            %result = ttir.logical_shift_left(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+            // Input tensors:
+            // lhs: [2, 4, 8]  (binary: [00000010, 00000100, 00001000])
+            // rhs: [1, 2, 3]  (shift amounts)
+            // Output tensor:
+            // [4, 16, 64]    (binary: [00000100, 00010000, 01000000])
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor (shift amounts)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        return self._op_proxy(
+            ttir.LogicalLeftShiftOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    @parse(ttir.LogicalLeftShiftOp)
+    def logical_left_shift_parser(
+        self,
+        old_op: ttir.LogicalLeftShiftOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_left_shift_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.LogicalLeftShiftOp)
+    def logical_left_shift_split(
+        self,
+        old_op: ttir.LogicalLeftShiftOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.logical_left_shift_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            lls_module = Module.create()
+            lls_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
+
+            with InsertionPoint(lls_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="logical_left_shift_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, in1, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    lls_builder._set_golden_tensor(new_op_result, old_op_result)
+                    lls_builder._set_golden_tensor(in0, input0)
+                    lls_builder._set_golden_tensor(in1, input1)
+                    ordered_inputs.extend([in0, in1])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                lls_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return lls_module, lls_builder
+
     ############### ttir.PowOp ###############
 
     @tag(ttir.PowOp)
@@ -5676,6 +6120,83 @@ class TTIRBuilder(Builder):
                 ]
 
         return logical_not_module, logical_not_builder
+
+    ############### ttir.LogicalOrOp ###############
+
+    def logical_or(
+        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        """
+        Creates ``ttir.logical_or``.
+
+        *Elementwise logical OR operation.*
+
+        Performs elementwise logical OR operation between two tensors.
+        For each pair of corresponding elements, returns:
+        - 1 (true) if at least one element is 1 (true)
+        - 0 (false) if both elements are 0 (false)
+
+        This operation is idempotent, meaning logical_or(x, x) = x.
+
+        Mathematical definition: logical_or(x, y) = x || y
+
+        .. code-block:: mlir
+
+            // Logical OR operation
+            %result = ttir.logical_or(%lhs, %rhs, %output) : tensor<4xi1>, tensor<4xi1>, tensor<4xi1> -> tensor<4xi1>
+            // Input tensors:
+            // lhs: [1, 0, 1, 0]
+            // rhs: [1, 1, 0, 1]
+            // Output tensor:
+            // [1, 1, 1, 1]
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor
+        in1 : Operand
+            Second input tensor
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        return self._op_proxy(
+            ttir.LogicalOrOp,
+            [in0, in1],
+            unit_attrs=unit_attrs,
+        )
+
+    @parse(ttir.LogicalOrOp)
+    def logical_or_parser(
+        self,
+        old_op: ttir.LogicalOrOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_or_parser)
+        in0 = global_dict[old_op.lhs]
+        in1 = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, input1)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
     ############### ttir.LogOp ###############
 
@@ -10305,53 +10826,6 @@ class TTIRBuilder(Builder):
 
         return is_finite_module, is_finite_builder
 
-    def bitwise_not(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.bitwise_not``.
-
-        *Elementwise bitwise NOT operation.*
-
-        Computes the bitwise NOT (one's complement) of each element in the input tensor.
-        For each element, flips all the bits in the binary representation of the value.
-
-        This operation is typically used with integer data types and has the involution property,
-        meaning that applying it twice returns the original value: bitwise_not(bitwise_not(x)) = x.
-
-        .. code-block:: mlir
-
-            // Bitwise NOT with integer tensors
-            %result = ttir.bitwise_not(%input, %output) : tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
-            // Input tensor:
-            // [[1, 2],
-            //  [3, 4]]
-            // Output tensor:
-            // [[-2, -3],
-            //  [-4, -5]]
-
-            // Example with 8-bit integers
-            %result = ttir.bitwise_not(%input, %output) : tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
-            // Input: [0, 5, 255] (binary: [00000000, 00000101, 11111111])
-            // Output: [255, 250, 0] (binary: [11111111, 11111010, 00000000])
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttir.BitwiseNotOp,
-            [in0],
-            unit_attrs,
-        )
-
     def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.tan``.
@@ -10735,93 +11209,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def logical_left_shift(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.logical_shift_left``.
-
-        *Elementwise logical shift left operation.*
-
-        Performs elementwise logical shift left operation between two tensors.
-        For each pair of corresponding elements, shifts the bits of the first element to the left
-        by the number of positions specified by the second element.
-
-        .. code-block:: mlir
-
-            // Logical shift left operation
-            %result = ttir.logical_shift_left(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
-            // Input tensors:
-            // lhs: [2, 4, 8]  (binary: [00000010, 00000100, 00001000])
-            // rhs: [1, 2, 3]  (shift amounts)
-            // Output tensor:
-            // [4, 16, 64]    (binary: [00000100, 00010000, 01000000])
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor (shift amounts)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttir.LogicalLeftShiftOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
-    def logical_or(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.logical_or``.
-
-        *Elementwise logical OR operation.*
-
-        Performs elementwise logical OR operation between two tensors.
-        For each pair of corresponding elements, returns:
-        - 1 (true) if at least one element is 1 (true)
-        - 0 (false) if both elements are 0 (false)
-
-        This operation is idempotent, meaning logical_or(x, x) = x.
-
-        Mathematical definition: logical_or(x, y) = x || y
-
-        .. code-block:: mlir
-
-            // Logical OR operation
-            %result = ttir.logical_or(%lhs, %rhs, %output) : tensor<4xi1>, tensor<4xi1>, tensor<4xi1> -> tensor<4xi1>
-            // Input tensors:
-            // lhs: [1, 0, 1, 0]
-            // rhs: [1, 1, 0, 1]
-            // Output tensor:
-            // [1, 1, 1, 1]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttir.LogicalOrOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
     def logical_xor(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -10862,97 +11249,6 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(
             ttir.LogicalXorOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
-    def bitwise_or(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.bitwise_or``.
-
-        *Elementwise bitwise OR operation.*
-
-        Performs elementwise bitwise OR operation between two tensors.
-        For each pair of corresponding elements, performs a bitwise OR on their binary representations.
-
-        This operation is typically used with integer data types and has the following properties:
-        - Commutative: bitwise_or(x, y) = bitwise_or(y, x)
-        - Associative: bitwise_or(x, bitwise_or(y, z)) = bitwise_or(bitwise_or(x, y), z)
-        - Identity: bitwise_or(x, 0) = x
-        - One: bitwise_or(x, -1) = -1
-
-        .. code-block:: mlir
-
-            // Bitwise OR with integer tensors
-            %result = ttir.bitwise_or(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
-            // Input tensors:
-            // lhs: [5, 3, 255]  (binary: [00000101, 00000011, 11111111])
-            // rhs: [3, 6, 129]   (binary: [00000011, 00000110, 10000001])
-            // Output tensor:
-            // [7, 7, 255]    (binary: [00000111, 00000111, 11111111])
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttir.BitwiseOrOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
-        )
-
-    def bitwise_xor(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.bitwise_xor``.
-
-        *Elementwise bitwise XOR operation.*
-
-        Performs elementwise bitwise XOR (exclusive OR) operation between two tensors.
-        For each pair of corresponding elements, performs a bitwise XOR on their binary representations.
-
-        .. code-block:: mlir
-
-            // Bitwise XOR with integer tensors
-            %result = ttir.bitwise_xor(%input1, %input2, %output) : tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
-            // Input1 tensor:
-            // [[1, 3],  // binary: [[0001, 0011],
-            //  [5, 7]]  //         [0101, 0111]]
-            // Input2 tensor:
-            // [[2, 3],  // binary: [[0010, 0011],
-            //  [6, 7]]  //         [0110, 0111]]
-            // Output tensor:
-            // [[3, 0],  // binary: [[0011, 0000],
-            //  [3, 0]]  //         [0011, 0000]]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the bitwise XOR of corresponding elements
-        """
-        return self._op_proxy(
-            ttir.BitwiseXorOp,
             [in0, in1],
             unit_attrs=unit_attrs,
         )
