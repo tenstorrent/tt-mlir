@@ -150,3 +150,85 @@ def test_layer_norm_post_all_gather(
         device=device,
         target=target,
     )
+
+
+def build_rms_stats_golden(input_golden: GoldenMapTensor) -> GoldenMapTensor:
+    """Build a valid stats tensor from the input, matching tt-metal's expected format.
+
+    For single-device rmsnorm the stats tensor is 1 tile wide (32 elements):
+      tile 0 [0:32]:  sum(x^2) at position 0, zeros elsewhere
+    """
+
+    def compute_stats(shard):
+        shard_float = shard.float()
+        sum_x2 = shard_float.pow(2).sum(dim=-1, keepdim=True)
+        output_shape = list(shard_float.shape)
+        output_shape[-1] = TILE_WIDTH
+        stats = torch.zeros(output_shape, dtype=shard.dtype)
+        stats[..., :1] = sum_x2
+        return stats
+
+    return GoldenMapTensor.apply_shardwise(input_golden, compute_stats)
+
+
+# RMSNormPostAllGather tests
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 32, 128),
+        (1, 1, 32, 512),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("has_weight_bias", [False, True])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_rms_norm_post_all_gather(
+    shape: Shape,
+    has_weight: bool,
+    target: str,
+    request,
+    device,
+):
+    # Stats tensor shape: same leading dims as input, last dim = TILE_WIDTH (32)
+    stats_shape = shape[:-1] + (32,)
+    shapes = [shape, stats_shape]
+    dtypes = [torch.bfloat16, torch.bfloat16]
+
+    if has_weight:  # Test without bias as torch.rms_norm does not support bias
+        weight_shape = (shape[-1],)
+        shapes.append(weight_shape)
+        dtypes.extend([torch.bfloat16, torch.bfloat16])
+
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, dtypes)
+        def rms_norm_post_all_gather(*inputs, unit_attrs: Optional[List[str]] = None):
+            builder = inputs[-1]
+            in0 = inputs[0]
+            stats = inputs[1]
+            weight = None
+            bias = None
+            if has_weight and len(inputs) > 2:
+                weight = inputs[2]
+
+            # Override the random stats golden with valid statistics
+            # derived from the input tensor, matching tt-metal's format.
+            input_golden = builder._get_golden_tensor(in0)
+            stats_golden = build_rms_stats_golden(input_golden)
+            builder._set_golden_tensor(stats, stats_golden)
+
+            return builder.rms_norm_post_all_gather(
+                in0,
+                stats,
+                weight=weight,
+                bias=bias,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )

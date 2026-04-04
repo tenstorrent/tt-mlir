@@ -6192,6 +6192,35 @@ def ttnn_linear_golden(
     return torch.add(output, bias_tensor).to(output_dtype)
 
 
+def ttnn_rms_norm_post_all_gather_golden(
+    input: GoldenMapTensor,
+    stats: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # The stats tensor is ignored for the golden reference. The hardware
+    # kernel reconstructs E(x^2) from the gathered statistics and
+    # then applies standard rms normalization.  Rather than replicating the
+    # kernel's tiled-reduce logic (which depends on tile width, device count
+    # and a bfloat16 scaler), we compute the reference output directly using
+    # the input tensor — exactly as tt-metal's own test does.
+    del stats
+
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    def compute_ln(shard):
+        shard_float = shard.float()
+        normalized_shape = shard_float.shape[-1:]
+        w = weight.shard_map[0].float() if weight is not None else None
+        out = torch.nn.functional.rms_norm(shard_float, normalized_shape, w, epsilon)
+        return out.to(output_dtype)
+
+    return GoldenMapTensor.apply_shardwise(input, compute_ln)
+
+
 def ttnn_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -6994,6 +7023,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.GatherOp: ttir_gather_dim_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
+    ttnn.RMSNormPostAllGatherOp: ttnn_rms_norm_post_all_gather_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,

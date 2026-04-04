@@ -82,6 +82,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
 #include "ttnn/operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
 #include "ttnn/operations/normalization/rmsnorm/rmsnorm.hpp"
+#include "ttnn/operations/normalization/rmsnorm_distributed/rmsnorm_post_all_gather.hpp"
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
 #include "ttnn/operations/rand/rand.hpp"

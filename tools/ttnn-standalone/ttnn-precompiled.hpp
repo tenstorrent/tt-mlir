@@ -43,6 +43,7 @@
 #include "operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
 #include "operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
+#include "operations/normalization/rmsnorm_distributed/rmsnorm_post_all_gather.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/global_avg_pool/global_avg_pool.hpp"

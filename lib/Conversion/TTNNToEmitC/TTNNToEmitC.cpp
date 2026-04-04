@@ -3608,6 +3608,45 @@ public:
 };
 } // namespace
 
+// RMSNormPostAllGatherOp conversion pattern
+namespace {
+class RMSNormPostAllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormPostAllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormPostAllGatherOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormPostAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RMSNormPostAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getStats()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getUse_2dCoreGrid()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // LayerNormOp conversion pattern
 //
 namespace {
@@ -5154,7 +5193,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
       CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
       BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-      LayerNormOpConversionPattern, LayerNormPreAllGatherOpConversionPattern,
+      RMSNormPostAllGatherOpConversionPattern, LayerNormOpConversionPattern,
+      LayerNormPreAllGatherOpConversionPattern,
       LayerNormPostAllGatherOpConversionPattern, GroupNormOpConversionPattern>(
       typeConverter, ctx);
 
