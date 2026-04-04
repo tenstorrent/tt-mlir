@@ -1641,6 +1641,7 @@ def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
                          I64Attr:$num_devices,
                          I64Attr:$cluster_axis,
                          I64Attr:$num_experts_per_tok,
+                         DefaultValuedAttr<I64Attr, "2">:$output_shard_dim,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);

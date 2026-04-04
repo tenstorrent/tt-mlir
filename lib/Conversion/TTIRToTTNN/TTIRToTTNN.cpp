@@ -1715,11 +1715,15 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto outputType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    // Pass through output_shard_dim from TTIR (set by frontend).
     rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getInputTensor(), adaptor.getExpertMetadata(),
+        op, outputType, adaptor.getInputTensor(), adaptor.getExpertMetadata(),
         adaptor.getExpertMapping(), op.getNumDevicesAttr(),
         op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
+        op.getOutputShardDimAttr(),
         /*memory_config=*/nullptr);
     return success();
   }

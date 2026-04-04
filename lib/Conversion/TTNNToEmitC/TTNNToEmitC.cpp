@@ -3917,7 +3917,7 @@ public:
         /*topology=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()),
         /*axis=*/emitter.emit(srcOp.getClusterAxis()),
-        /*output_shard_dim=*/emitter.emit(std::nullopt)};
+        /*output_shard_dim=*/emitter.emit(srcOp.getOutputShardDim())};
 
     emitter.replaceOp(*this, args);
     return success();

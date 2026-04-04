@@ -13304,6 +13304,7 @@ class TTIRBuilder(Builder):
         num_devices: int = 2,
         cluster_axis: int = 0,
         num_experts_per_tok: int = 4,
+        output_shard_dim: int = 2,
         output_shape: Optional[Shape] = None,
         output_type: Optional[torch.dtype] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -13323,6 +13324,9 @@ class TTIRBuilder(Builder):
         num_experts_per_tok_attr = IntegerAttr.get(
             IntegerType.get_signless(64), num_experts_per_tok
         )
+        output_shard_dim_attr = IntegerAttr.get(
+            IntegerType.get_signless(64), output_shard_dim
+        )
 
         loc = self._get_location()
 
@@ -13334,6 +13338,7 @@ class TTIRBuilder(Builder):
             num_devices_attr,
             cluster_axis_attr,
             num_experts_per_tok_attr,
+            output_shard_dim=output_shard_dim_attr,
             loc=loc,
         )
         op_result = op.result
