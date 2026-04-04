@@ -279,6 +279,29 @@ void shutdownDistributedRuntime() {
       });
 }
 
+Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
+                                const std::vector<std::uint32_t> &shape,
+                                const std::vector<std::uint32_t> &stride,
+                                std::uint32_t itemsize,
+                                ::tt::target::DataType dataType) {
+  using RetType = Tensor;
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createBorrowedHostTensor(
+            data, shape, stride, itemsize, dataType);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::createBorrowedHostTensor(
+            std::move(data), TensorDesc(shape, dataType, itemsize, stride));
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createBorrowedHostTensor",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
                                 const std::vector<std::uint32_t> &stride,

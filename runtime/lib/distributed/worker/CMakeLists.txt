@@ -7,6 +7,7 @@ add_library(TTRuntimeDistributedWorker
   STATIC
   response_factory.cpp
   command_executor.cpp
+  tensor_data_cache.cpp
 )
 
 set_target_properties(TTRuntimeDistributedWorker PROPERTIES CXX_STANDARD 20)

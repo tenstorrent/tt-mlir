@@ -12,6 +12,7 @@
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/detail/distributed/types/spsc_queue.h"
+#include "tt/runtime/detail/distributed/worker/tensor_data_cache.h"
 #include "tt/runtime/types.h"
 
 namespace tt::runtime::distributed::worker {
@@ -44,6 +45,7 @@ private:
   std::unordered_map<uint64_t, ::tt::runtime::Binary> binaryPool_;
   std::unordered_map<uint64_t, ::tt::runtime::Layout> layoutPool_;
   std::unordered_map<uint64_t, ::tt::runtime::Tensor> tensorPool_;
+  TensorDataCache tensorDataCache_;
 
   ::tt::runtime::Binary
   getOrCreateBinary(const flatbuffers::Vector<uint8_t> *binary,
