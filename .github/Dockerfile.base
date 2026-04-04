@@ -4,7 +4,7 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG TT_METAL_DEPENDENCIES_COMMIT=805f43d03a2d708ca36bacfb70d1deecf837dd9c
+ARG TT_METAL_DEPENDENCIES_COMMIT=2a7f3bb631478190be9fc8a735748a3c78af3b42
 
 # Install dependencies
 RUN <<EOT
