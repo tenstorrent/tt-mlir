@@ -711,16 +711,16 @@ void MemoryLayoutPropagation::addReshardCandidates(
   // reshard grids larger than the output tile count are wasteful — the op can't
   // produce a sharded output on more cores than it has tiles.
   int64_t maxGridVolume = std::numeric_limits<int64_t>::max();
-  auto outputType =
-      mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
   auto outputLayout =
       mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
   if (outputLayout &&
       mlir::isa<ttcore::TileType>(outputLayout.getElementType())) {
     auto shape = outputType.getShape();
     int64_t cols = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
-    int64_t rows = (outputType.getNumElements() / shape.back() +
-                    TILE_HEIGHT - 1) / TILE_HEIGHT;
+    int64_t rows =
+        (outputType.getNumElements() / shape.back() + TILE_HEIGHT - 1) /
+        TILE_HEIGHT;
     maxGridVolume = rows * cols;
   }
 
@@ -881,9 +881,10 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
   return result;
 }
 
-std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
-    RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
-    int64_t maxGridVolume) {
+std::vector<TTNNLayoutAttr>
+MemoryLayoutPropagation::generateReshardCandidates(RankedTensorType tensorType,
+                                                   TTNNLayoutAttr currentLayout,
+                                                   int64_t maxGridVolume) {
   // Only generate sharded-to-sharded reshard candidates. Resharding from
   // sharded to interleaved (DRAM or L1) almost always hurts performance.
   if (!tensorTypePossibleLayouts) {
@@ -966,8 +967,7 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
                "  generated {0} reshard candidates for {1}", deduped.size(),
                currentLayout);
   for ([[maybe_unused]] auto &layout : deduped) {
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                 "\t\t{}", layout);
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "\t\t{}", layout);
   }
 
   return deduped;
