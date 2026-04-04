@@ -23,11 +23,6 @@ pytestmark = pytest.mark.frontend("ttir")
 
 ttir_mlir_snippets = {}
 skip_split_ttir_tests = [
-    "ttir_reduce_scatter.mlir",
-    "ttir_all_to_all.mlir",
-    "ttir_collective_permute.mlir",
-    "ttir_all_gather.mlir",
-    "ttir_collective_broadcast.mlir",
     "ttir_device_module_nested_func.mlir",
     "ttir_nested_funcs.mlir",
 ]
