@@ -104,6 +104,13 @@ jobs:
         path: build
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Download tt-metal Artifacts
+      uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
+      with:
+        name: tt-metal-artifacts-${{ matrix.build.image }}
+        path: third_party
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
       shell: bash
