@@ -4127,11 +4127,17 @@ RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
 
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RMSNormOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout,
+      computeKernelConfig);
 }
 
 llvm::Expected<size_t>
@@ -4141,11 +4147,16 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
 
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RMSNormOp>::getOpRuntime, *this, inputShape, inputs[0],
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout);
+      opConfig.outputLayout, computeKernelConfig);
 }
 
 //===----------------------------------------------------------------------===//

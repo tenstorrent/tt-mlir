@@ -6434,7 +6434,8 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -6454,14 +6455,17 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
   // This information is not available in the op's definition in TTNNOps.td:
   std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
   // Create query closure
   auto rmsNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::rms_norm, device, inputSpec,
-                                epsilon.convertToFloat(), weightSpec, biasSpec,
-                                residualInputSpec,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                /*program_config=*/std::nullopt,
-                                /*compute_kernel_config=*/std::nullopt);
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
+        weightSpec, biasSpec, residualInputSpec,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt, computeKernelConfigConverted);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6477,7 +6481,8 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -6497,14 +6502,17 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
   // This information is not available in the op's definition in TTNNOps.td:
   std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
   // Create query closure
   auto rmsNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::rms_norm, device, inputSpec,
-                            epsilon.convertToFloat(), weightSpec, biasSpec,
-                            residualInputSpec,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            /*program_config=*/std::nullopt,
-                            /*compute_kernel_config=*/std::nullopt);
+    return QUERY_OP_RUNTIME(
+        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
+        weightSpec, biasSpec, residualInputSpec,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt, computeKernelConfigConverted);
   };
 
   return operation::getOpRuntime(rmsNormQuery);
