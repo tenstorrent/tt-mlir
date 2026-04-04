@@ -33,6 +33,7 @@
 #include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
+#include "operations/experimental/slice_write/slice_write.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
@@ -165,6 +166,17 @@ void constEvalFuncWrapperZeroArg(
   if (outputs->empty()) {
     *outputs = constEvalFunc();
   }
+}
+
+void sliceWriteFromTensors(ttnn::Tensor &operand, const ttnn::Tensor &input,
+                           const ttnn::Tensor &beginsTensor,
+                           const ttnn::Tensor &endsTensor) {
+  auto beginsVec = beginsTensor.to_vector<int32_t>();
+  auto endsVec = endsTensor.to_vector<int32_t>();
+  ttsl::SmallVector<uint32_t> begins(beginsVec.begin(), beginsVec.end());
+  ttsl::SmallVector<uint32_t> ends(endsVec.begin(), endsVec.end());
+  ttsl::SmallVector<uint32_t> step(begins.size(), 1);
+  ttnn::experimental::slice_write(input, operand, begins, ends, step);
 }
 
 uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {

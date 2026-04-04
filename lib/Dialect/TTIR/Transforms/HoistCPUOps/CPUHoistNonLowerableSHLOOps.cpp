@@ -21,7 +21,7 @@ namespace {
 // StableHLO to TOSA/Linalg conversion.
 static bool isNonLowerableSHLOOp([[maybe_unused]] mlir::Operation *op) {
 #ifdef TTMLIR_ENABLE_STABLEHLO
-  return llvm::isa<stablehlo::DynamicUpdateSliceOp, stablehlo::EinsumOp>(op);
+  return llvm::isa<stablehlo::EinsumOp>(op);
 #else
   return false;
 #endif
