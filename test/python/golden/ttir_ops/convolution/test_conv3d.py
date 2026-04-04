@@ -74,6 +74,8 @@ def clear_program_cache_after_test(device):
         ),
         # 3x1x1 kernel, stride=[2,1,1] (temporal downsampling)
         ((1, 5, 64, 64, 192), (192, 192, 3, 1, 1), None, [2, 1, 1], [0, 0, 0], 1),
+        # Causal-conv lowered padded input, no bias
+        ((1, 6, 62, 108, 768), (768, 768, 3, 3, 3), None, [1, 1, 1], [0, 0, 0], 1),
     ],
     ids=[
         "basic_3x3x3_no_bias",
@@ -84,6 +86,7 @@ def clear_program_cache_after_test(device):
         "stride2_downsample_no_bias",
         "pointwise_1x1x1",
         "temporal_downsampling_192ch_s211",
+        "causal_padded_input_768ch_no_bias",
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
