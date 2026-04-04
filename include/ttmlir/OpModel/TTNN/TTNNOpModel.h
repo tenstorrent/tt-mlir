@@ -1533,6 +1533,34 @@ struct OpModel<RMSNormOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// RMSNormPostAllGatherOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RMSNormPostAllGatherOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> statsShape,
+      TTNNLayoutAttr statsLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> statsShape, TTNNLayoutAttr statsLayout,
+               std::optional<llvm::ArrayRef<int64_t>> weightShape,
+               std::optional<TTNNLayoutAttr> weightLayout,
+               std::optional<llvm::ArrayRef<int64_t>> biasShape,
+               std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+               std::optional<ttcore::DataType> dtype,
+               std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 
