@@ -265,17 +265,18 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         tensorGridShape.assign(targetGridShape.size(), 1);
 
         // The DRAM bounce uses collapsed intervals (2D) while the L1 target
-        // may use uncollapsed intervals (>2D). The new padding logic
-        // (flatten-then-align) can produce different physical volumes for
-        // different collapse configurations of the same logical shape.
-        // Fix: for each multi-dim collapsed interval, set the outermost
-        // dim's alignment to the product of per-dim aligned extents, and set
-        // the rest to 1. This guarantees:
-        //   alignUp(rawProduct, product) = product  (rawProduct <= product)
-        // so the collapsed extent equals the uncollapsed volume.
-        TT_assert(collapsedIntervals.getType().getDimSize(0) == 2);
+        // uses uncollapsed intervals (>2D). The flatten-then-align stride
+        // computation packs data within collapsed intervals using raw logical
+        // dims, but calculateReblockMap assumes tile-aligned per-dim strides.
+        // Fix: pad the inner dims of multi-dim collapsed intervals to their
+        // tile-aligned sizes in the logical shape. This makes the packed
+        // strides match the reblock map's expectations (e.g. for logical
+        // [3,16,32] with tile 32x32, the inner dim 16 is padded to 32, so
+        // each batch occupies 32 rows instead of 16 in the DRAM buffer).
         auto logicalShape = referenceLayout.getLogicalShape();
         auto refDimAlignments = referenceLayout.getDimAlignments();
+        SmallVector<int64_t> bounceLogicalShape(logicalShape.begin(),
+                                                logicalShape.end());
         SmallVector<int64_t> bounceDimAlignments(refDimAlignments.begin(),
                                                  refDimAlignments.end());
         auto normalizedCollapsed =
@@ -287,16 +288,19 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
           if (end - start > 1) {
             int64_t alignedProduct = 1;
             for (int64_t j = start; j < end; ++j) {
-              alignedProduct *=
+              int64_t aligned =
                   ttmlir::utils::alignUp(logicalShape[j], refDimAlignments[j]);
+              alignedProduct *= aligned;
+              bounceLogicalShape[j] = aligned;
             }
-            for (int64_t j = start; j < end; ++j) {
-              bounceDimAlignments[j] = (j == start) ? alignedProduct : 1;
+            bounceDimAlignments[start] = alignedProduct;
+            for (int64_t j = start + 1; j < end; ++j) {
+              bounceDimAlignments[j] = 1;
             }
           }
         }
         layout = ttcore::MetalLayoutAttr::get(
-            ctx, logicalShape, bounceDimAlignments, collapsedIntervals,
+            ctx, bounceLogicalShape, bounceDimAlignments, collapsedIntervals,
             referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
             ttcore::TensorMemoryLayout::Interleaved);
       } else {
@@ -373,6 +377,35 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
                                               dimAlignments, collapsedIntervals,
                                               baseLayout.getOobVal(), memSpace,
                                               baseLayout.getMemoryLayout());
+
+        // Verify the bounce grid is compatible with the tile-aligned physical
+        // shape. When the collapsed+aligned dimension is not evenly divisible
+        // by the bounce grid dimension (e.g. logical [3,16,32] collapses to
+        // physical row dim 64 which is indivisible by bounce grid dim 3),
+        // fall back to a unit grid to avoid incorrect data distribution.
+        ArrayRef<int64_t> earlyTileShape;
+        if (mlir::isa<ttcore::TileType>(elementType)) {
+          earlyTileShape = newTileShape.value_or(
+              ttcore::getTensorTileShapeOrEmpty(baseType));
+        }
+        auto physicalShape = layout.getPhysicalShape(earlyTileShape);
+        bool gridIncompatible = false;
+        for (size_t i = 0; i < physicalShape.size(); ++i) {
+          if (physicalShape[i] % tensorGrid[i] != 0) {
+            gridIncompatible = true;
+            break;
+          }
+        }
+        if (gridIncompatible) {
+          tensorGrid.assign(tensorGrid.size(), 1);
+          std::tie(collapsedIntervals, dimAlignments) =
+              computeGridAwareCollapsedIntervalsAndDimAlignments(baseLayout,
+                                                                 tensorGrid);
+          layout = ttcore::MetalLayoutAttr::get(
+              ctx, baseLayout.getLogicalShape(), dimAlignments,
+              collapsedIntervals, baseLayout.getOobVal(), memSpace,
+              baseLayout.getMemoryLayout());
+        }
       } else {
         // Otherwise, preserve dim alignments and collapsed intervals.
         layout = ttcore::MetalLayoutAttr::get(
