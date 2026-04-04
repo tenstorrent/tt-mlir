@@ -24,8 +24,8 @@ module attributes {} {
       // CHECK: else
       // CHECK: d2m.dma_read
       // CHECK: d2m.dma_wait
-      %tx = d2m.dma_read %0[%core0, %core1], %2, <0> : (memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
-      d2m.dma_wait %tx
+      %tx = d2m.dma_read %0[%core0, %core1], %2, <0> : (memref<1x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+      d2m.dma_wait %tx : !d2m.mem_tx<read>
       // CHECK: d2m.push
       d2m.push %1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
     }
@@ -58,8 +58,8 @@ module attributes {} {
       // CHECK: else
       // CHECK: d2m.dma_read
       // CHECK: d2m.dma_wait
-      %tx = d2m.dma_read %0[%core0, %core1], %2, <0> : (memref<1x8x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
-      d2m.dma_wait %tx
+      %tx = d2m.dma_read %0[%core0, %core1], %2, <0> : (memref<1x8x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+      d2m.dma_wait %tx : !d2m.mem_tx<read>
       // CHECK: d2m.push
       d2m.push %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
     }
