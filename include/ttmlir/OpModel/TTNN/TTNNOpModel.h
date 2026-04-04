@@ -1533,6 +1533,28 @@ struct OpModel<RMSNormOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RMSNormPreAllGatherOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+               std::optional<TTNNLayoutAttr> residualInputLayout,
+               std::optional<ttcore::DataType> dtype,
+               std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 
