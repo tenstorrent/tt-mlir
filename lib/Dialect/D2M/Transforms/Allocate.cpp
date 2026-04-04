@@ -215,7 +215,7 @@ struct GenericOpContext {
 };
 
 struct SequenceMapping {
-  // Within a func body scope, maps logical time (preorder) positions
+  // Within a func body scope, maps logical time (postorder) positions
   // to their `Operation`s.
   llvm::SmallVector<Operation *> positionMap;
   // Inverse of `positionMap`.
@@ -527,7 +527,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     mlir::Liveness liveness(funcOp.getOperation());
     const mlir::LivenessBlockInfo *li = liveness.getLiveness(&funcBody);
 
-    // (a) Build `Operation` <-> preorder position mappings for the
+    // (a) Build `Operation` <-> postorder position mappings for the
     //  (unmodified) `funcOp` IR.
     // (b) Collect a separate set of "ops of interest", which are
     // `memref.alloc`s as well as certain ops that we imbue with semantics
@@ -535,7 +535,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     LivenessClosureGraph livenessJoinGraph;
 
-    funcBody.walk<WalkOrder::PreOrder>([&](Operation *op) {
+    funcBody.walk<WalkOrder::PostOrder>([&](Operation *op) {
       const SequenceT position = analysis.sequencing.size();
 
       analysis.sequencing.operationMap[op] = position;
