@@ -342,6 +342,19 @@ public:
       memref::AllocOp allocOp = findAllocOp(localBuffer);
 
       if (!allocOp) {
+        // Local buffer may be a WaitOp after reserve+push+wait conversion of a
+        // paired remote_load. If that CB is the store target, the buffer
+        // already aliases shard memory—erase the redundant store to avoid a
+        // later double-push and a DM/compute race after SplitUnifiedThread.
+        if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
+          if (waitOp.getCb() == assocCb) {
+            if (remoteStore.hasResultForm()) {
+              rewriter.replaceAllUsesWith(remoteStore.getResult(), localBuffer);
+            }
+            rewriter.eraseOp(remoteStore);
+            continue;
+          }
+        }
         remoteStore.emitWarning(
             "could not find memref.alloc for local buffer operand, skipping "
             "conversion");

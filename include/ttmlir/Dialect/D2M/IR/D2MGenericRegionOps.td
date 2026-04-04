@@ -1207,7 +1207,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       "bufferize",
       "getAliasingValues",
       "getBufferType",
-      "hasTensorSemantics"
+      "hasTensorSemantics",
+      "isNotConflicting"
     ]>
   ]> {
     let summary = "D2M Remote/Aliased Load Op";
