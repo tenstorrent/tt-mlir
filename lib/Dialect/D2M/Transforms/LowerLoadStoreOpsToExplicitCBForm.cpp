@@ -44,6 +44,36 @@ static bool isRemoteOperand(Value operand, Operation *op) {
   return false;
 }
 
+// Returns true if val is a scratch buffer: it traces back
+// to a d2m.reserve.
+static Value findScratchCB(Value val) {
+  while (val) {
+    if (auto reserveOp = val.getDefiningOp<ReserveOp>()) {
+      return reserveOp.getCb();
+    }
+    Operation *defOp = val.getDefiningOp();
+    if (!defOp) {
+      break;
+    }
+    if (isa<memref::SubViewOp, memref::ExpandShapeOp, memref::CollapseShapeOp>(
+            defOp)) {
+      val = defOp->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return Value();
+}
+
+// If all consumers of the WaitOp result are DM ops, the CB lifecycle (pop) is
+// managed by the DM ops themselves; no consumer-side pop is needed here.
+static bool hasOnlyDMConsumers(WaitOp waitOp) {
+  return !waitOp.getResult().use_empty() &&
+         llvm::all_of(waitOp.getResult().getUsers(), [](Operation *user) {
+           return isa<LocalCopyOp, RemoteStoreOp>(user);
+         });
+}
+
 // Helper function to find the ReserveOp that produces a given value,
 // potentially through a chain of operations.
 static ReserveOp findReserveOp(Value value) {
@@ -291,10 +321,13 @@ static void rewriteImplicitRemoteLoadOpsToExplicitCBForm(
     // Replace uses of the local buffer with the wait result.
     // Only replace uses inside the generic's regions — the local buffer may
     // be an additionalArg (hoisted CB alloc) whose operand on the generic op
-    // itself must not be touched.
+    // itself must not be touched. Also exclude the remote_load op itself,
+    // which is being erased and would otherwise appear as a spurious user of
+    // the wait result (confusing the hasOnlyDMConsumers check below).
     rewriter.replaceUsesWithIf(
         localBuffer, waitOp.getResult(), [&](OpOperand &use) {
-          return generic && generic->isProperAncestor(use.getOwner());
+          return use.getOwner() != remoteLoad.getOperation() && generic &&
+                 generic->isProperAncestor(use.getOwner());
         });
 
     // Replace all uses of remote_load result with wait result
@@ -302,9 +335,12 @@ static void rewriteImplicitRemoteLoadOpsToExplicitCBForm(
       rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
     }
 
-    // Insert a d2m.pop at the end of the region to release the CB slot
-    // acquired by the wait, signalling to producers that space is available.
-    ensurePopForWait(rewriter, waitOp);
+    // Insert a d2m.pop to release the CB slot when the wait result is consumed
+    // by compute ops. When all consumers are DM ops (e.g. remote_store), the
+    // DM ops manage CB lifecycle themselves so no pop is needed here.
+    if (!hasOnlyDMConsumers(waitOp)) {
+      ensurePopForWait(rewriter, waitOp);
+    }
 
     // Erase the original remote_load operation
     rewriter.eraseOp(remoteLoad);
@@ -315,10 +351,62 @@ static void rewriteImplicitRemoteLoadOpsToExplicitCBForm(
   }
 }
 
-static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
-                                                  IRRewriter &rewriter,
-                                                  CBCache &cache,
-                                                  PortCounter &portCounters) {
+static void rewriteImplicitLocalCopyOpsToExplicitCBForm(
+    ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
+    PortCounter &portCounters) {
+  SmallVector<LocalCopyOp> dmaCopiesToConvert;
+  moduleOp->walk([&](LocalCopyOp dmaCopy) {
+    if (!dmaCopy.isImplicitForm()) {
+      return;
+    }
+    dmaCopiesToConvert.push_back(dmaCopy);
+  });
+
+  for (LocalCopyOp localCopy : dmaCopiesToConvert) {
+    Location loc = localCopy.getLoc();
+
+    GenericOp generic = localCopy->getParentOfType<GenericOp>();
+    TT_assertv(generic,
+               "expected local_copy to be nested inside a d2m.generic");
+
+    Value dst = localCopy.getDst();
+
+    // Find the CB for the local_copy destination.
+    // Case 1: scratch intermediate — trace through subview/expand/collapse
+    //         to the d2m.reserve and use its scratch CB.
+    // Case 2: operand-backed — the dst is a direct generic operand.
+    Value cb = findScratchCB(dst);
+    if (!cb) {
+      cb = findAssociatedCB(localCopy.getOperation(), dst, rewriter, cache,
+                            portCounters);
+    }
+    TT_assertv(
+        cb,
+        "expected local_copy dst to be a scratch buffer or a generic operand");
+
+    rewriter.setInsertionPoint(localCopy);
+    rewriter.create<LocalCopyOp>(loc, TypeRange{}, localCopy.getSrc(),
+                                 /*dst=*/Value{}, cb,
+                                 localCopy.getIndexingMaps());
+    auto waitOp = rewriter.create<WaitOp>(loc, cb);
+
+    // Replace in-region uses of the dst with the wait result.
+    rewriter.replaceUsesWithIf(dst, waitOp.getResult(), [&](OpOperand &use) {
+      return use.getOwner() != localCopy.getOperation() && generic &&
+             generic->isProperAncestor(use.getOwner());
+    });
+
+    rewriter.eraseOp(localCopy);
+
+    if (!hasOnlyDMConsumers(waitOp)) {
+      ensurePopForWait(rewriter, waitOp);
+    }
+  }
+}
+
+static void rewriteImplicitRemoteStoreOpsToExplicitCBForm(
+    ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
+    PortCounter &portCounters) {
   // Rewrite RemoteStoreOps, converting implicit form to explicit CB form.
   SmallVector<RemoteStoreOp> remoteStoresToConvert;
   moduleOp->walk([&](RemoteStoreOp remoteStore) {
@@ -340,9 +428,6 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
       if (reserveOp) {
         assocCb = reserveOp.getCb();
       } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
-        // When a load-store pair was not simplified (e.g., L1-to-L1 layout
-        // conversion), the load conversion replaced the shared alloc with a
-        // WaitOp result. Extract the CB from the WaitOp.
         assocCb = waitOp.getCb();
       } else {
         // The localBuffer may be a hoisted additionalArg (external alloc).
@@ -417,8 +502,10 @@ static void rewriteRemoteOpsToExplicitCB(ModuleOp moduleOp,
 
   rewriteImplicitRemoteLoadOpsToExplicitCBForm(moduleOp, rewriter, cache,
                                                portCounters);
-  rewriteRemoteStoreOpsToExplicitCBForm(moduleOp, rewriter, cache,
-                                        portCounters);
+  rewriteImplicitLocalCopyOpsToExplicitCBForm(moduleOp, rewriter, cache,
+                                              portCounters);
+  rewriteImplicitRemoteStoreOpsToExplicitCBForm(moduleOp, rewriter, cache,
+                                                portCounters);
 }
 
 class D2MLowerLoadStoreOpsToExplicitCBForm

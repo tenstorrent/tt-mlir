@@ -123,7 +123,7 @@ public:
             }
 
             bool isDatamovementOnlyOp =
-                isa<RemoteLoadOp, RemoteStoreOp, DeviceSynchronizeOp>(opPtr);
+                isa<ShardDMAOpInterface, DeviceSynchronizeOp>(opPtr);
             // Semaphore waits are replicated: preserved in both threads.
             bool isReplicatedOp = isa<SemaphoreWaitOp>(opPtr);
             if (isDatamovementThread) {
