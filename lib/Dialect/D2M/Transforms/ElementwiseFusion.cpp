@@ -16,6 +16,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <tuple>
 
@@ -41,52 +42,8 @@ static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
   cbRemaining -= numConsOperands + numProdOperands - 2;
 
   if (cbRemaining < 0) {
-    return false;
-  }
-
-  return true;
-}
-
-// A fused op with 31 inputs and 1 output (all 16b) can be fully dst fused over
-// sub-blocks of size 1xTile. Hence, if a 16b fused op meets the CB limit, it
-// will automatically meet the dst limit as well (at least for now, when we're
-// forcing sub-blocks of size 1xTile). In the case where one or more operands
-// are >16b, we must be conservative for now and set a limit of 7 inputs (8
-// total operands, including output), as that is the largest number of inputs
-// that we can reduce down with a maximum of 4 DST tiles available. A lot of
-// ways to increase this limit or use the resources more intelligently but we'll
-// save that for later revisions.
-static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer) {
-  bool has32bit = false;
-
-  Type largestDstType =
-      utils::getRegionLargestDstElemType(producer.getRegion(0));
-  if (largestDstType.getIntOrFloatBitWidth() > 16) {
-    has32bit = true;
-  }
-
-  largestDstType = utils::getRegionLargestDstElemType(consumer.getRegion(0));
-  if (largestDstType.getIntOrFloatBitWidth() > 16) {
-    has32bit = true;
-  }
-
-  if (!has32bit) {
-    return true;
-  }
-
-  int operandLimit32b = 8;
-
-  int operandsRemaining = operandLimit32b;
-
-  // Account for number of CBs needed to store input/output operands after
-  // fusion. -2 accounts for removal of producer init (output) operand and
-  // consumer input operand since we're fusing over them.
-  int numConsOperands = static_cast<int>(consumer.getNumOperands());
-  int numProdOperands = static_cast<int>(producer.getNumOperands());
-
-  operandsRemaining -= numConsOperands + numProdOperands - 2;
-
-  if (operandsRemaining < 0) {
+    llvm::errs()
+        << "[D2MElementwiseFusion]   failed: would exceed L1 CB limit (32)\n";
     return false;
   }
 
@@ -95,22 +52,28 @@ static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer) {
 
 static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   if (!gOp.isComputeOnlyForm()) {
+    llvm::errs() << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
+                 << " is not a valid target: not compute-only form\n";
     return false;
   }
 
   if (!gOp.hasPureTensorSemantics()) {
+    llvm::errs()
+        << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
+        << " is not a valid target: does not have pure tensor semantics\n";
     return false;
   }
 
   if (!gOp.isAllParallel()) {
+    llvm::errs() << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
+                 << " is not a valid target: not all parallel\n";
     return false;
   }
 
   if (gOp.hasSkipOpEltwiseFusionTrait()) {
-    return false;
-  }
-
-  if (gOp.hasMultiUseInputOperand()) {
+    llvm::errs()
+        << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
+        << " is not a valid target: has skip elementwise fusion trait\n";
     return false;
   }
 
@@ -129,43 +92,46 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   auto consumer = dyn_cast<GenericOp>(fusionTargetOperand->getOwner());
 
   if (!producer || !consumer) {
+    llvm::errs() << "[D2MElementwiseFusion] Attempting fusion (input operand "
+                 << fusionTargetOperand->getOperandNumber() << " of op at "
+                 << fusionTargetOperand->getOwner()->getLoc()
+                 << "): failed: defining op or owner not d2m.generic\n";
     return false;
   }
+
+  llvm::errs() << "[D2MElementwiseFusion] Attempting fusion: consumer at "
+               << consumer->getLoc() << ", producer at " << producer->getLoc()
+               << ", consumer input index "
+               << fusionTargetOperand->getOperandNumber() << "\n";
 
   // Check that the producer's result is only used by the consumer
   // Count external users (users outside producer's own regions and outside
   // consumer's regions).
   for (auto result : producer->getResults()) {
-    unsigned numExternalUsers = 0;
+    Operation *soleExternalUser = nullptr;
+    bool allSameOp = true;
     for (auto *user : result.getUsers()) {
-      // Skip users inside the producer's own regions.
       if (producer.getOperation()->isProperAncestor(user)) {
         continue;
       }
-      // Skip users inside the consumer's regions (e.g., remote_load
-      // operations).
       if (consumer.getOperation()->isProperAncestor(user)) {
         continue;
       }
-      numExternalUsers++;
-    }
-    // Producer result should only be used by the consumer.
-    if (numExternalUsers != 1) {
-      return false;
-    }
-    // Verify the single external user is indeed the consumer operation itself.
-    bool foundConsumerAsUser = false;
-    for (auto *user : result.getUsers()) {
-      if (!producer.getOperation()->isProperAncestor(user) &&
-          !consumer.getOperation()->isProperAncestor(user)) {
-        if (user == consumer.getOperation()) {
-          foundConsumerAsUser = true;
-        } else {
-          return false;
-        }
+      if (!soleExternalUser) {
+        soleExternalUser = user;
+      } else if (user != soleExternalUser) {
+        allSameOp = false;
+        break;
       }
     }
-    if (!foundConsumerAsUser) {
+    if (!soleExternalUser || !allSameOp) {
+      llvm::errs() << "[D2MElementwiseFusion]   failed: producer result has "
+                      "multiple distinct external users\n";
+      return false;
+    }
+    if (soleExternalUser != consumer.getOperation()) {
+      llvm::errs() << "[D2MElementwiseFusion]   failed: external user is not "
+                      "the consumer\n";
       return false;
     }
   }
@@ -179,6 +145,8 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   }
 
   if (!producer.hasCompatibleBlocking(consumer)) {
+    llvm::errs() << "[D2MElementwiseFusion]   failed: producer and consumer "
+                    "have incompatible blocking\n";
     return false;
   }
 
@@ -186,14 +154,14 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  if (!fitsInDstPostFusion(producer, consumer)) {
-    return false;
-  }
-
   // Rank/perm checks
   AffineMap consMap =
       consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
   if (consMap.getNumResults() != producer.getNumDims()) {
+    llvm::errs()
+        << "[D2MElementwiseFusion]   failed: consumer indexing map results ("
+        << consMap.getNumResults() << ") != producer dims ("
+        << producer.getNumDims() << ")\n";
     return false;
   }
 
@@ -202,9 +170,12 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   AffineMap prodResMap = producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
   if (!prodResMap.isPermutation()) {
+    llvm::errs() << "[D2MElementwiseFusion]   failed: producer result indexing "
+                    "map is not a permutation\n";
     return false;
   }
 
+  llvm::errs() << "[D2MElementwiseFusion]   fusion check passed\n";
   return true;
 }
 
@@ -219,22 +190,29 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
 }
 
 static std::tuple<SmallVector<Value>, SmallVector<Value>,
-                  SmallVector<AffineMap>>
+                  SmallVector<AffineMap>, SmallVector<unsigned>>
 getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
                  GenericOp consumer) {
   SmallVector<Value> fusedInputs;
   SmallVector<Value> fusedOutputs;
   SmallVector<Type> fusedResultTypes;
   SmallVector<AffineMap> fusedMaps;
+  SmallVector<unsigned> skippedDuplicatePositions;
 
+  Value producerResult = fusedOperand->get();
   AffineMap prodResMap = producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
   AffineMap consMap = consumer.getIndexingMap(fusedOperand->getOperandNumber());
 
-  // consumer inputs before fused
   auto inputs = consumer.getInputs();
   size_t fusedIdx = fusedOperand->getOperandNumber();
+
+  // consumer inputs before fused
   for (size_t i = 0; i < fusedIdx; ++i) {
+    if (inputs[i] == producerResult) {
+      skippedDuplicatePositions.push_back(static_cast<unsigned>(i));
+      continue;
+    }
     fusedInputs.push_back(inputs[i]);
     fusedMaps.push_back(consumer.getIndexingMap(i));
   }
@@ -245,6 +223,10 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
   }
   // remaining consumer inputs after fused
   for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
+    if (inputs[i] == producerResult) {
+      skippedDuplicatePositions.push_back(static_cast<unsigned>(i));
+      continue;
+    }
     fusedInputs.push_back(inputs[i]);
     fusedMaps.push_back(consumer.getIndexingMap(i));
   }
@@ -258,16 +240,15 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
   }
 
   return std::make_tuple(std::move(fusedInputs), std::move(fusedOutputs),
-                         std::move(fusedMaps));
+                         std::move(fusedMaps),
+                         std::move(skippedDuplicatePositions));
 }
 
-static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
-                                    GenericOp consumer,
-                                    SmallVector<Value> &fusedInputs,
-                                    SmallVector<Value> &fusedOutputs,
-                                    SmallVector<Value> &mergedAdditionalArgs,
-                                    SmallVector<AffineMap> &fusedMaps,
-                                    PatternRewriter &rewriter) {
+static GenericOp createFusedGeneric(
+    OpOperand *fusedOperand, GenericOp producer, GenericOp consumer,
+    SmallVector<Value> &fusedInputs, SmallVector<Value> &fusedOutputs,
+    SmallVector<Value> &mergedAdditionalArgs, SmallVector<AffineMap> &fusedMaps,
+    const SmallVector<unsigned> &skippedDups, PatternRewriter &rewriter) {
   /////////////////////////////////////////////////////////////////////////////
   // Create fused op
   /////////////////////////////////////////////////////////////////////////////
@@ -304,17 +285,25 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   auto inputs = consumer.getInputs();
   size_t fusedIdx = fusedOperand->getOperandNumber();
 
+  DenseSet<unsigned> skippedSet(skippedDups.begin(), skippedDups.end());
+
   // Reconstruct argSources in the same order as fused operands.
-  // consumer inputs before fused
+  // consumer inputs before fused (skip duplicates of producer result)
   for (size_t i = 0; i < fusedIdx; ++i) {
+    if (skippedSet.contains(static_cast<unsigned>(i))) {
+      continue;
+    }
     appendSource(consumer.getOperation(), /*operandNumber=*/i);
   }
   // producer inputs
   for (OpOperand *pi : producer.getDpsInputOperands()) {
     appendSource(producer.getOperation(), pi->getOperandNumber());
   }
-  // remaining consumer inputs after fused
+  // remaining consumer inputs after fused (skip duplicates of producer result)
   for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
+    if (skippedSet.contains(static_cast<unsigned>(i))) {
+      continue;
+    }
     appendSource(consumer.getOperation(), /*operandNumber=*/i);
   }
   // consumer outputs
@@ -430,6 +419,14 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // remote_load specially below (skip it and map its result to repl).
   // Storing repl for later use when we skip the consumer's remote_load:
   Value producerYieldedValue = repl;
+
+  // Map skipped duplicate consumer tensor.empty values to the producer's
+  // yielded value. These positions reference the same producer result as
+  // fusedOperand and were excluded from the fused op's operand list.
+  for (unsigned skippedIdx : skippedDups) {
+    Value origEmpty = GenericOp::getOperandAlloc(*cb.getParent(), skippedIdx);
+    irMap.map(origEmpty, producerYieldedValue);
+  }
 
   // Clone remaining consumer body ops (except terminator). Treat nested
   // operations opaquely; cloning preserves dominance as long as operands
@@ -556,6 +553,9 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
     if (!isValidElementwiseFusionTarget(consumer)) {
+      llvm::errs() << "[D2MElementwiseFusion] Skipping consumer at "
+                   << consumer->getLoc()
+                   << ": not a valid elementwise fusion target\n";
       return failure();
     }
 
@@ -581,6 +581,9 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     OpOperand *fusedOperand = findFusableOperand();
 
     if (!fusedOperand) {
+      llvm::errs()
+          << "[D2MElementwiseFusion] No fusable operand found for consumer at "
+          << consumer->getLoc() << "\n";
       return failure();
     }
 
@@ -590,14 +593,14 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     assert(producer);
 
     // Build fused op operands, maps, results
-    auto [fusedInputs, fusedOutputs, fusedMaps] =
+    auto [fusedInputs, fusedOutputs, fusedMaps, skippedDups] =
         getFusedOperands(fusedOperand, producer, consumer);
     auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
         consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
 
-    auto fusedOp =
-        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
-                           fusedOutputs, mergedCaptures, fusedMaps, rewriter);
+    auto fusedOp = createFusedGeneric(fusedOperand, producer, consumer,
+                                      fusedInputs, fusedOutputs, mergedCaptures,
+                                      fusedMaps, skippedDups, rewriter);
 
     // Replace uses: from producer and consumer results to fused results.
     int resIdx = 0;
@@ -606,9 +609,12 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
     }
 
+    llvm::errs()
+        << "[D2MElementwiseFusion] Fusion succeeded: fused producer at "
+        << producer->getLoc() << " into consumer at " << consumer->getLoc()
+        << "\n";
     rewriter.eraseOp(consumer);
     rewriter.eraseOp(producer);
-
     return success();
   }
 
