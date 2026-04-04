@@ -146,54 +146,6 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   return builder.build();
 }
 
-static mlir::sdy::OpShardingRuleAttr
-getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
-  auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
-  auto kType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
-  auto vType = llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
-  auto outType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
-
-  // SDPA requires Q/K/V and output to have identical shapes.
-  if (qType.getShape() != kType.getShape() ||
-      qType.getShape() != vType.getShape() ||
-      qType.getShape() != outType.getShape()) {
-    return mlir::sdy::OpShardingRuleAttr();
-  }
-
-  ArrayRef<int64_t> shape = qType.getShape();
-
-  // SDPA is assumed to operate on 4D tensors: [B, H, S, D]
-  // If the shape does not match, conservatively fallback to a pointwise rule.
-  if (shape.size() != 4) {
-    return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
-  }
-
-  // SDPA can shard batch (B) and head (H) dimensions freely.
-  // Sequence (S) and hidden (D) dimensions generally require replication,
-  // unless a more advanced distributed attention algorithm is implemented.
-  //
-  // Dimension assignment:
-  // dim 0 -> Batch
-  // dim 1 -> Head
-  // dim 2 -> Sequence length
-  // dim 3 -> Hidden size
-  auto getFactorType = [&](int64_t dim) -> mlir::sdy::FactorType {
-    if (dim == 0 || dim == 1) {
-      // Allow sharding
-      return mlir::sdy::FactorType::kPassThrough;
-    }
-    // Disallow sharding, require replication
-    return mlir::sdy::FactorType::kNeedReplication;
-  };
-
-  // Build the final sharding rule:
-  // - Pass-through on B/H dims
-  // - Replication on S/D dims
-  return mlir::sdy::OpShardingRuleBuilder(op)
-      .addPointwise(shape, getFactorType)
-      .build();
-}
-
 static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
     mlir::stablehlo::CustomCallOp op, llvm::ArrayRef<int64_t> operandHeadDims,
     llvm::ArrayRef<int64_t> resultHeadDims, int64_t headSize) {
@@ -212,6 +164,82 @@ static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
   builder.addFactor(resolvedOperandDims, resolvedResultDims, headSize,
                     mlir::sdy::FactorType::kPassThrough);
   return builder.build();
+}
+
+static mlir::sdy::OpShardingRuleAttr
+getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
+  // Validate minimum required operands (Q, K, V) and result
+  if (op.getNumOperands() < 3 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "SDPA expects at least 3 operands (Q, K, V) and 1 result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto kType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto vType = llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto outType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (!qType || !kType || !vType || !outType) {
+    op.getOperation()->emitWarning() << "SDPA requires ranked tensor types";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // SDPA is assumed to operate on 4D tensors: [B, H, S, D]
+  if (qType.getRank() != 4 || kType.getRank() != 4 || vType.getRank() != 4 ||
+      outType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "SDPA requires 4D tensors [B, H, S, D]";
+    return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
+  }
+
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kShape = kType.getShape();
+  ArrayRef<int64_t> vShape = vType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  // Multi-Query/Grouped-Query Attention support:
+  // - Query and output should have the same shape (output follows query)
+  // - Key and Value should have the same shape
+  // - Batch, sequence, and hidden dimensions must match across all tensors
+  // - Head dimensions can differ (Q: num_q_heads, K/V: num_kv_heads)
+  if (qShape[0] != kShape[0] || qShape[0] != vShape[0] ||
+      qShape[0] != outShape[0] || // Batch
+      qShape[2] != kShape[2] || qShape[2] != vShape[2] ||
+      qShape[2] != outShape[2] || // Sequence
+      qShape[3] != kShape[3] || qShape[3] != vShape[3] ||
+      qShape[3] != outShape[3] || // Hidden
+      kShape != vShape ||         // Key and Value must have same shape
+      qShape != outShape) {       // Output must match Query
+    op.getOperation()->emitWarning()
+        << "SDPA shape validation failed: incompatible Q/K/V/Out dimensions";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Head dimensions: Query and output should match, Key/Value should match
+  const int64_t queryHeadDim = 1;
+  const int64_t kvHeadDim = 1;
+  const int64_t outputHeadDim = 1;
+
+  int64_t queryHeadSize = qShape[queryHeadDim];
+
+  // Build head-sharded rule using the existing helper function
+  SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
+                                       mlir::sdy::kNullDim);
+  SmallVector<int64_t> resultHeadDims(op.getNumResults(), mlir::sdy::kNullDim);
+
+  operandHeadDims[0] = queryHeadDim; // Query head dimension
+  operandHeadDims[1] = kvHeadDim;    // Key head dimension
+  operandHeadDims[2] = kvHeadDim;    // Value head dimension
+
+  // Handle optional attention mask and attention sink (4th operand)
+  // These should not participate in head sharding (use kNullDim)
+  // operandHeadDims[3] = mlir::sdy::kNullDim;  // Already initialized to
+  // kNullDim
+
+  resultHeadDims[0] = outputHeadDim; // Output head dimension
+
+  return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
+                                        queryHeadSize);
 }
 
 // Dispatch function for paged attention CustomCall sharding rules.
