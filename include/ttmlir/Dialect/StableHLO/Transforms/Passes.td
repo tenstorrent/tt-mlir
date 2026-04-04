@@ -248,6 +248,38 @@ def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
   ];
 }
 
+def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
+  let summary = "Automatically search for optimal sharding configuration by evaluating CCL costs";
+  let description = [{
+    This pass enumerates possible sharding configurations for function arguments,
+    runs the remaining StableHLO passes (propagation, reshard-to-collectives,
+    canonicalization) on each variant, evaluates a cost function based on the
+    resulting Shardy CCL operations, and selects the configuration with the
+    lowest cost.
+
+    The pass runs after AnalyzeMesh and before shardy propagation passes.
+    For each candidate sharding, it clones the module, applies sharding hints,
+    runs the remaining StableHLO passes, and counts/costs the Shardy CCL ops
+    (sdy.all_gather, sdy.reduce_scatter, sdy.all_reduce, etc.) in the result.
+
+    The winning sharding configuration is applied to the original module, which
+    then continues through the normal pipeline.
+  }];
+
+  let options = [
+    Option<"dumpVariants", "dump-variants", "bool",
+           /*default=*/"false",
+           "Dump each sharding variant IR to disk for inspection">,
+    Option<"dumpDir", "dump-dir", "std::string",
+           /*default=*/"\"\"",
+           "Directory to dump variants into (default: current directory)">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def DecoupleConstFanoutPass : Pass<
     "decouple-const-fanout", "::mlir::ModuleOp"> {
   let summary = "Duplicate const-fed, value-preserving ops per-use to decouple propagation";

@@ -1,6 +1,7 @@
 add_mlir_dialect_library(TTMLIRStableHLOUtils
-  ShardyUtils.cpp
   GSPMDUtils.cpp
+  ShardingCostModel.cpp
+  ShardyUtils.cpp
   StableHLOUtils.cpp
 
   ADDITIONAL_HEADER_DIRS

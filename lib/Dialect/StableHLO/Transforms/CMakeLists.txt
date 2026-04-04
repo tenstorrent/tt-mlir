@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   AnalyzeMesh.cpp
   AnnotateLocalShapes.cpp
   ApplyArgumentShardStatus.cpp
+  AutoSharding.cpp
   ComplexDataTypeConversion.cpp
   ConvertXlaSdyToSdy.cpp
   DecomposeCustomCallTuples.cpp
