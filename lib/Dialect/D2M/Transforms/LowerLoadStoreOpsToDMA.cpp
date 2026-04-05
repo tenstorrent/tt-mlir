@@ -161,11 +161,11 @@ public:
           DMAWaitOp::create(builder, loc, mcastTx);
 
           // Signal receivers that sender is finished.
-          builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                         remoteLoad.getMcastStartIndex(),
-                                         remoteLoad.getMcastShape(),
-                                         /*startDevice=*/ValueRange(),
-                                         /*deviceMcastShape=*/ValueRange());
+          SemaphoreSetOp::create(builder, loc, senderFinishedSemaphore, one,
+                                 remoteLoad.getMcastStartIndex(),
+                                 remoteLoad.getMcastShape(),
+                                 /*startDevice=*/ValueRange(),
+                                 /*deviceMcastShape=*/ValueRange());
 
           scf::YieldOp::create(builder, loc);
         },
@@ -285,16 +285,16 @@ public:
     ValueRange deviceMcastShape = remoteStore.getDeviceMcastShape();
 
     // Wait on CB, emit shard-level dma_write, wait, pop
-    Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
+    Value localMemref = WaitOp::create(rewriter, loc, cb).getResult();
     Value dmaTx =
-        rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
-                                    startDevice, deviceMcastShape);
+        DMAWriteOp::create(rewriter, loc, localMemref, remoteMemref,
+                           gridIndices, startDevice, deviceMcastShape);
 
     if (remoteStore.getSemaphore()) {
-      auto incr = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-      rewriter.create<SemaphoreIncOp>(loc, remoteStore.getSemaphore(), incr,
-                                      remoteStore.getSemaphoreIndices(),
-                                      startDevice, deviceMcastShape);
+      auto incr = arith::ConstantIndexOp::create(rewriter, loc, 1);
+      SemaphoreIncOp::create(rewriter, loc, remoteStore.getSemaphore(), incr,
+                             remoteStore.getSemaphoreIndices(), startDevice,
+                             deviceMcastShape);
     }
 
     rewriter.eraseOp(remoteStore);

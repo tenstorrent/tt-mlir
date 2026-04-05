@@ -210,7 +210,7 @@ static Value generateFullyIndexedDMAOps(
         Value dmaTx =
             createDMAOp(thenBuilder, innerLoc, remoteIndices, localIndices,
                         coalescingFactor, startDevice, deviceMcastShape);
-        thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
+        scf::YieldOp::create(thenBuilder, innerLoc, dmaTx);
 
         auto elseBuilder = ifExpr.getElseBodyBuilder();
         scf::YieldOp::create(elseBuilder, innerLoc, args[0]);
@@ -277,8 +277,8 @@ public:
             SmallVector<Value> &localIdx, size_t cf,
             SmallVector<Value> &startDevice,
             SmallVector<Value> &deviceMcastShape) {
-          return b.create<DMAReadOp>(l, remoteMemref, remoteIdx, localMemref,
-                                     localIdx, b.getI64IntegerAttr(cf));
+          return DMAReadOp::create(b, l, remoteMemref, remoteIdx, localMemref,
+                                   localIdx, b.getI64IntegerAttr(cf));
         });
 
     rewriter.replaceOp(op, newTx);
@@ -370,9 +370,9 @@ public:
             SmallVector<Value> &localIdx, size_t cf,
             SmallVector<Value> &startDevice,
             SmallVector<Value> &deviceMcastShape) {
-          return b.create<DMAWriteOp>(l, localMemref, localIdx, dstMemref,
-                                      remoteIdx, cf, startDevice,
-                                      deviceMcastShape);
+          return DMAWriteOp::create(b, l, localMemref, localIdx, dstMemref,
+                                    remoteIdx, cf, startDevice,
+                                    deviceMcastShape);
         });
 
     rewriter.replaceOp(op, newTx);

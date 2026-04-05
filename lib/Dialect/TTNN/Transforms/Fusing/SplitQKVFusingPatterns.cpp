@@ -345,9 +345,10 @@ Value reorderTensorViaSliceConcat(mlir::PatternRewriter &rewriter,
     auto sliceTy =
         utils::RankedTensorTypeFactory::create(tensorType, sliceShape);
 
-    auto sliceOp = rewriter.create<SliceStaticOp>(
-        matmulOp.getLoc(), sliceTy, tensor, rewriter.getI32ArrayAttr(begins),
-        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(step));
+    auto sliceOp = SliceStaticOp::create(
+        rewriter, matmulOp.getLoc(), sliceTy, tensor,
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(step));
 
     size_t targetIdx;
     switch (heads[i].role) {
@@ -378,9 +379,10 @@ Value reorderTensorViaSliceConcat(mlir::PatternRewriter &rewriter,
     auto sliceTy =
         utils::RankedTensorTypeFactory::create(tensorType, sliceShape);
 
-    auto sliceOp = rewriter.create<SliceStaticOp>(
-        matmulOp.getLoc(), sliceTy, tensor, rewriter.getI32ArrayAttr(begins),
-        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(step));
+    auto sliceOp = SliceStaticOp::create(
+        rewriter, matmulOp.getLoc(), sliceTy, tensor,
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(step));
     slices.push_back(sliceOp.getResult());
   }
 
@@ -393,9 +395,9 @@ Value reorderTensorViaSliceConcat(mlir::PatternRewriter &rewriter,
   auto concatTy =
       utils::RankedTensorTypeFactory::create(tensorType, concatShape);
 
-  auto concatOp = rewriter.create<ConcatOp>(matmulOp.getLoc(), concatTy, slices,
-                                            static_cast<int32_t>(sliceDim),
-                                            MemoryConfigAttr());
+  auto concatOp =
+      ConcatOp::create(rewriter, matmulOp.getLoc(), concatTy, slices,
+                       static_cast<int32_t>(sliceDim), MemoryConfigAttr());
 
   return concatOp.getResult();
 }
@@ -609,8 +611,8 @@ createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
     RankedTensorType sliceTy =
         utils::RankedTensorTypeFactory::create(matmulOp.getType(), sliceShape);
 
-    auto sliceOp = rewriter.create<SliceStaticOp>(
-        matmulOp.getLoc(), sliceTy, splitInput,
+    auto sliceOp = SliceStaticOp::create(
+        rewriter, matmulOp.getLoc(), sliceTy, splitInput,
         rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
         rewriter.getI32ArrayAttr(step));
     splitInput = sliceOp.getResult();
@@ -623,8 +625,8 @@ createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
   RankedTensorType reshapeInputTy = utils::RankedTensorTypeFactory::create(
       matmulOp.getType(), inputReshapeShape);
 
-  auto inputReshape = rewriter.create<ReshapeOp>(
-      matmulOp.getLoc(), reshapeInputTy, splitInput,
+  auto inputReshape = ReshapeOp::create(
+      rewriter, matmulOp.getLoc(), reshapeInputTy, splitInput,
       rewriter.getI32ArrayAttr(inputReshapeShapeI32), MemoryConfigAttr());
 
   // Build split op output types in the matmul's element type. If the
@@ -658,8 +660,8 @@ createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
     return mlir::failure();
   }
 
-  auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
-      matmulOp.getLoc(), TypeRange{qSplitTy, kSplitTy, vSplitTy},
+  auto splitOp = SplitQueryKeyValueAndSplitHeadsOp::create(
+      rewriter, matmulOp.getLoc(), TypeRange{qSplitTy, kSplitTy, vSplitTy},
       inputReshape.getResult(),
       Value(), // no separate KV input
       numHeadsAttr, numKVHeadsAttr, transposeKeyAttr, MemoryConfigAttr());
@@ -674,8 +676,8 @@ createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
     auto dtype = ttcore::DataTypeAttr::get(
         rewriter.getContext(),
         ttcore::elementTypeToDataType(finalType.getElementType()));
-    return rewriter
-        .create<TypecastOp>(matmulOp.getLoc(), finalType, splitResult, dtype)
+    return TypecastOp::create(rewriter, matmulOp.getLoc(), finalType,
+                              splitResult, dtype)
         .getResult();
   };
 
@@ -868,8 +870,8 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
                                        reshapeShape.end());
   RankedTensorType reshapeType =
       utils::RankedTensorTypeFactory::create(inputType, reshapeShape);
-  auto reshapeOp = rewriter.create<ReshapeOp>(
-      splitOp.getLoc(), reshapeType, splitOp.getInputTensor(),
+  auto reshapeOp = ReshapeOp::create(
+      rewriter, splitOp.getLoc(), reshapeType, splitOp.getInputTensor(),
       rewriter.getI32ArrayAttr(reshapeShapeI32), MemoryConfigAttr());
 
   bool isGQA = (numHeads != numKVHeads);
@@ -893,8 +895,8 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
     return mlir::failure();
   }
 
-  auto decodeOp = rewriter.create<NLPCreateQKVHeadsDecodeOp>(
-      splitOp.getLoc(), resultTypes, reshapeOp.getResult(),
+  auto decodeOp = NLPCreateQKVHeadsDecodeOp::create(
+      rewriter, splitOp.getLoc(), resultTypes, reshapeOp.getResult(),
       /*batch_offset=*/Value(), numHeadsAttr, numKVHeadsAttr,
       /*overlap_qk_coregrid=*/BoolAttr(),
       /*slice_size=*/IntegerAttr(), MemoryConfigAttr());

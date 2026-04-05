@@ -604,14 +604,13 @@ protected:
             d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
         Value genericOperand = generic->getOperand(operandIdx);
         Value storeResult =
-            rewriter
-                .create<d2m::RemoteStoreOp>(loc, genericOperand.getType(),
-                                            genericOperand, indices,
-                                            computedResults[outputIdx])
+            d2m::RemoteStoreOp::create(rewriter, loc, genericOperand.getType(),
+                                       genericOperand, indices,
+                                       computedResults[outputIdx])
                 .getResult();
         storeResults.push_back(storeResult);
       }
-      rewriter.create<d2m::YieldOp>(loc, storeResults);
+      d2m::YieldOp::create(rewriter, loc, storeResults);
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
@@ -656,8 +655,8 @@ protected:
         rewriter.getContext(), ttcore::IteratorType::Parallel);
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -669,8 +668,8 @@ protected:
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-              loc,
+          auto linalgGeneric = mlir::linalg::GenericOp::create(
+              rewriter, loc,
               llvm::to_vector(
                   mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
               /*inputs=*/ValueRange{},
@@ -697,12 +696,12 @@ protected:
                                          .getValue()
                                          .getSExtValue());
                 }
-                Value fillScalar = bbBuilder.create<mlir::arith::ConstantOp>(
-                    bbLoc, scalarAttr.getType(), scalarAttr);
+                Value fillScalar = mlir::arith::ConstantOp::create(
+                    bbBuilder, bbLoc, scalarAttr.getType(), scalarAttr);
                 mlir::Value yieldTile =
-                    bbBuilder.create<d2m::TileFillOp>(bbLoc, tType, fillScalar)
+                    d2m::TileFillOp::create(bbBuilder, bbLoc, tType, fillScalar)
                         .getResult();
-                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yieldTile);
+                mlir::linalg::YieldOp::create(bbBuilder, bbLoc, yieldTile);
               });
 
           return {linalgGeneric.getResult(0)};
@@ -2650,12 +2649,12 @@ public:
         workerGridShape);
     llvm::SmallVector<int64_t> deviceShape =
         layout.getDeviceShape(optimalGrid, ttcore::TileType::getDefaultShape());
-    auto emptyOp = rewriter.create<d2m::EmptyOp>(
-        originalValue.getLoc(), deviceShape, tiledElementType, layout);
-    auto toLayoutResult = rewriter
-                              .create<d2m::ToLayoutOp>(originalValue.getLoc(),
-                                                       originalValue, emptyOp)
-                              ->getResult(0);
+    auto emptyOp = d2m::EmptyOp::create(rewriter, originalValue.getLoc(),
+                                        deviceShape, tiledElementType, layout);
+    auto toLayoutResult =
+        d2m::ToLayoutOp::create(rewriter, originalValue.getLoc(), originalValue,
+                                emptyOp)
+            ->getResult(0);
     return toLayoutResult;
   }
 
@@ -2674,12 +2673,11 @@ public:
     llvm::SmallVector<int64_t> deviceShape =
         layout.getDeviceShape(workerGridShape, {});
     auto emptyOp =
-        rewriter.create<d2m::EmptyOp>(loc, deviceShape, elementType, layout);
-    auto createGlobalSemaphoreOp =
-        rewriter.create<d2m::CreateGlobalSemaphoreOp>(
-            loc, d2m::GlobalSemaphoreType::get(rewriter.getContext()),
-            emptyOp.getResult(),
-            rewriter.getIntegerAttr(elementType, initialValue));
+        d2m::EmptyOp::create(rewriter, loc, deviceShape, elementType, layout);
+    auto createGlobalSemaphoreOp = d2m::CreateGlobalSemaphoreOp::create(
+        rewriter, loc, d2m::GlobalSemaphoreType::get(rewriter.getContext()),
+        emptyOp.getResult(),
+        rewriter.getIntegerAttr(elementType, initialValue));
     return createGlobalSemaphoreOp.getResult();
   }
 
@@ -2760,9 +2758,8 @@ public:
         inputTensorType.getShape(), inputStreamTensorType.getShape(),
         rewriter.getContext());
     Value inputStreamResult =
-        rewriter
-            .create<d2m::ViewLayoutOp>(op.getLoc(), inputStreamTensorType,
-                                       input, inputStreamReblockMap)
+        d2m::ViewLayoutOp::create(rewriter, op.getLoc(), inputStreamTensorType,
+                                  input, inputStreamReblockMap)
             ->getResult(0);
 
     auto outputTensorType =
@@ -2773,9 +2770,8 @@ public:
         outputTensorType.getShape(), outputStreamTensorType.getShape(),
         rewriter.getContext());
     Value outputStreamResult =
-        rewriter
-            .create<d2m::ViewLayoutOp>(op.getLoc(), outputStreamTensorType,
-                                       output, outputStreamReblockMap)
+        d2m::ViewLayoutOp::create(rewriter, op.getLoc(), outputStreamTensorType,
+                                  output, outputStreamReblockMap)
             ->getResult(0);
 
     // Create generic in explicit form: block factors, indexing maps, and
@@ -2788,8 +2784,8 @@ public:
     auto fabricConnectionConfig = ttcore::FabricConnectionConfigAttr::get(
         rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
         ttcore::RoutingMode::UnidirRingTorus, num_links);
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, TypeRange(outputStreamResult), inputStreamResult,
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, TypeRange(outputStreamResult), inputStreamResult,
         outputStreamResult, ValueRange({startSemaphore, endSemaphore}),
         ttcore::GridAttr::get(rewriter.getContext(), genericGridShape),
         rewriter.getI64ArrayAttr(emptyBlockFactors),
@@ -2815,35 +2811,35 @@ public:
         for (uint32_t dim = 0; dim < meshShape.size(); dim++) {
           if (dim == clusterAxis) {
             startDevice.push_back(
-                rewriter.create<arith::ConstantIndexOp>(loc, 0));
-            deviceMcastShape.push_back(rewriter.create<arith::ConstantIndexOp>(
-                loc, meshShape[clusterAxis]));
+                arith::ConstantIndexOp::create(rewriter, loc, 0));
+            deviceMcastShape.push_back(arith::ConstantIndexOp::create(
+                rewriter, loc, meshShape[clusterAxis]));
           } else {
             startDevice.push_back(
-                rewriter.create<d2m::MeshPositionOp>(loc, dim));
+                d2m::MeshPositionOp::create(rewriter, loc, dim));
             deviceMcastShape.push_back(
-                rewriter.create<arith::ConstantIndexOp>(loc, 1));
+                arith::ConstantIndexOp::create(rewriter, loc, 1));
           }
         }
 
         SmallVector<Value> coreIndices;
         for (uint32_t i = 0; i < inputRank; i++) {
-          coreIndices.push_back(rewriter.create<d2m::CoreIndexOp>(loc, i));
+          coreIndices.push_back(d2m::CoreIndexOp::create(rewriter, loc, i));
         }
 
         // Synchronize: fabric semaphore increment mcast to all devices in
         // cluster axis then wait till value is (num devices - 1)
-        rewriter.create<d2m::DeviceSynchronizeOp>(loc, startSemaphore,
-                                                  startDevice, deviceMcastShape,
-                                                  num_devices - 1, coreIndices);
+        d2m::DeviceSynchronizeOp::create(rewriter, loc, startSemaphore,
+                                         startDevice, deviceMcastShape,
+                                         num_devices - 1, coreIndices);
 
         SmallVector<Value> inputIndices;
         for (uint32_t i = 0; i < inputRank; i++) {
           if (i == workerCoreSplitDim) {
-            inputIndices.push_back(rewriter.create<d2m::CoreIndexOp>(loc, i));
+            inputIndices.push_back(d2m::CoreIndexOp::create(rewriter, loc, i));
           } else {
             inputIndices.push_back(
-                rewriter.create<arith::ConstantIndexOp>(loc, 0));
+                arith::ConstantIndexOp::create(rewriter, loc, 0));
           }
         }
 
@@ -2872,7 +2868,7 @@ public:
         auto outputIndexingMap = mlir::AffineMap::get(inputRank + 1, 0, results,
                                                       rewriter.getContext());
         auto meshPosition =
-            rewriter.create<d2m::MeshPositionOp>(loc, clusterAxis);
+            d2m::MeshPositionOp::create(rewriter, loc, clusterAxis);
         SmallVector<Value> inputIndicesWithMeshPosition = inputIndices;
         inputIndicesWithMeshPosition.insert(
             inputIndicesWithMeshPosition.begin(), meshPosition);
@@ -2880,18 +2876,18 @@ public:
             rewriter, loc, outputIndexingMap, inputIndicesWithMeshPosition);
 
         SmallVector<Value> storeResults;
-        auto remoteStoreOp = rewriter.create<d2m::RemoteStoreOp>(
-            loc, outputStreamResult.getType(), outputStreamResult,
+        auto remoteStoreOp = d2m::RemoteStoreOp::create(
+            rewriter, loc, outputStreamResult.getType(), outputStreamResult,
             outputIndices, loadResult, startDevice, deviceMcastShape,
             endSemaphore, inputIndices);
         Value storeResult = remoteStoreOp.getResult();
         storeResults.push_back(storeResult);
 
-        rewriter.create<d2m::SemaphoreWaitOp>(
-            loc, endSemaphore,
-            rewriter.create<arith::ConstantIndexOp>(loc, num_devices - 1));
+        d2m::SemaphoreWaitOp::create(
+            rewriter, loc, endSemaphore,
+            arith::ConstantIndexOp::create(rewriter, loc, num_devices - 1));
 
-        rewriter.create<d2m::YieldOp>(loc, storeResults);
+        d2m::YieldOp::create(rewriter, loc, storeResults);
       }
     }
     rewriter.finalizeOpModification(generic);
