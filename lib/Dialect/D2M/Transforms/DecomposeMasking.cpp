@@ -213,7 +213,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
 
     // === Tile operation helpers ===
     auto createTileFill = [&]() {
-      return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
+      return TileFillOp::create(rewriter, loc, tileType, fillScalar)
+          .getResult();
     };
 
     auto emitPassthrough = [&](Value localRowIdx, Value localColIdx) {
@@ -224,54 +225,54 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     };
 
     auto emitRowMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto inputTile = memref::LoadOp::create(
+          rewriter, loc, input, ValueRange{localRowIdx, localColIdx});
       auto tileFill = createTileFill();
-      auto rowMaskTile = rewriter.create<memref::LoadOp>(
-          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto rowMaskTile = memref::LoadOp::create(rewriter, loc, rowMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto result =
-          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), tileFill);
-      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+          TileWhereOp::create(rewriter, loc, tileType, rowMaskTile.getResult(),
+                              inputTile.getResult(), tileFill);
+      memref::StoreOp::create(rewriter, loc, result.getResult(), output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto inputTile = memref::LoadOp::create(
+          rewriter, loc, input, ValueRange{localRowIdx, localColIdx});
       auto tileFill = createTileFill();
-      auto colMaskTile = rewriter.create<memref::LoadOp>(
-          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto colMaskTile = memref::LoadOp::create(rewriter, loc, colMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto result =
-          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       inputTile.getResult(), tileFill);
-      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+          TileWhereOp::create(rewriter, loc, tileType, colMaskTile.getResult(),
+                              inputTile.getResult(), tileFill);
+      memref::StoreOp::create(rewriter, loc, result.getResult(), output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
-      auto inputTile = rewriter.create<memref::LoadOp>(
-          loc, input, ValueRange{localRowIdx, localColIdx});
+      auto inputTile = memref::LoadOp::create(
+          rewriter, loc, input, ValueRange{localRowIdx, localColIdx});
       auto tileFill1 = createTileFill();
-      auto rowMaskTile = rewriter.create<memref::LoadOp>(
-          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto rowMaskTile = memref::LoadOp::create(rewriter, loc, rowMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto rowMaskedResult =
-          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), tileFill1);
+          TileWhereOp::create(rewriter, loc, tileType, rowMaskTile.getResult(),
+                              inputTile.getResult(), tileFill1);
       auto tileFill2 = createTileFill();
-      auto colMaskTile = rewriter.create<memref::LoadOp>(
-          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto colMaskTile = memref::LoadOp::create(rewriter, loc, colMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto finalResult =
-          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                       rowMaskedResult.getResult(), tileFill2);
-      rewriter.create<memref::StoreOp>(loc, finalResult.getResult(), output,
-                                       ValueRange{localRowIdx, localColIdx});
+          TileWhereOp::create(rewriter, loc, tileType, colMaskTile.getResult(),
+                              rowMaskedResult.getResult(), tileFill2);
+      memref::StoreOp::create(rewriter, loc, finalResult.getResult(), output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitFill = [&](Value localRowIdx, Value localColIdx) {
       auto tileFill = createTileFill();
-      rewriter.create<memref::StoreOp>(loc, tileFill, output,
-                                       ValueRange{localRowIdx, localColIdx});
+      memref::StoreOp::create(rewriter, loc, tileFill, output,
+                              ValueRange{localRowIdx, localColIdx});
     };
 
     // Helper to create a nested loop over local coordinates.

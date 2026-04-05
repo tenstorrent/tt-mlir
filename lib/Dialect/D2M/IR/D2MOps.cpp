@@ -2809,10 +2809,11 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
-  auto bufferGeneric = rewriter.create<d2m::GenericOp>(
-      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getAdditionalArgs(),
-      getGrid(), getBlockFactors(), getIndexingMaps(), getIteratorTypes(),
-      getThreads(), getScratchInputsAttr(), getFabricConnectionConfigAttr(),
+  auto bufferGeneric = d2m::GenericOp::create(
+      rewriter, getLoc(), ValueRange(), bufferInputs, bufferOutputs,
+      getAdditionalArgs(), getGrid(), getBlockFactors(), getIndexingMaps(),
+      getIteratorTypes(), getThreads(), getScratchInputsAttr(),
+      getFabricConnectionConfigAttr(),
       /*numRegions=*/getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));

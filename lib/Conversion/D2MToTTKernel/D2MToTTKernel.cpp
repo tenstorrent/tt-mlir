@@ -35,9 +35,8 @@ namespace mlir::tt::ttkernel {
 namespace {
 
 static Value i16(OpBuilder &rewriter, Location loc, int16_t value) {
-  return rewriter
-      .create<arith::ConstantOp>(loc, rewriter.getI16Type(),
-                                 rewriter.getI16IntegerAttr(value))
+  return arith::ConstantOp::create(rewriter, loc, rewriter.getI16Type(),
+                                   rewriter.getI16IntegerAttr(value))
       .getResult();
 }
 
@@ -101,7 +100,7 @@ static SmallVector<Value> getMeshPositionIndices(OpBuilder &rewriter,
   SmallVector<Value> indices;
   for (size_t i = 0; i < meshShape.size(); i++) {
     indices.push_back(
-        rewriter.create<ttkernel::GetMyLogicalMeshPositionOp>(loc, fcm, i));
+        ttkernel::GetMyLogicalMeshPositionOp::create(rewriter, loc, fcm, i));
   }
   return indices;
 }
@@ -114,9 +113,9 @@ getDeviceMcastEndPosition(OpBuilder &rewriter, OperandRange startDevice,
   SmallVector<Value> endDevice;
   endDevice.reserve(startDevice.size());
   for (auto [start, shape] : llvm::zip(startDevice, deviceMcastShape)) {
-    Value sum = rewriter.create<arith::AddIOp>(start.getLoc(), start, shape);
-    Value end = rewriter.create<arith::SubIOp>(
-        start.getLoc(), sum, index(rewriter, start.getLoc(), 1));
+    Value sum = arith::AddIOp::create(rewriter, start.getLoc(), start, shape);
+    Value end = arith::SubIOp::create(rewriter, start.getLoc(), sum,
+                                      index(rewriter, start.getLoc(), 1));
     endDevice.push_back(end);
   }
   return endDevice;
@@ -129,16 +128,16 @@ static Value getDeviceInMcastRange(OpBuilder &rewriter, Location loc,
   assert(startIndices.size() == endIndices.size() &&
          startIndices.size() == deviceIndices.size() &&
          "startIndices, endIndices, and deviceIndices must have the same size");
-  Value result = rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getIntegerAttr(rewriter.getI1Type(), 1));
+  Value result = arith::ConstantOp::create(
+      rewriter, loc, rewriter.getIntegerAttr(rewriter.getI1Type(), 1));
   for (auto [start, end, device] :
        llvm::zip(startIndices, endIndices, deviceIndices)) {
-    Value lowerBoundCheck = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::ule, start, device);
-    result = rewriter.create<arith::AndIOp>(loc, result, lowerBoundCheck);
-    Value upperBoundCheck = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::ule, device, end);
-    result = rewriter.create<arith::AndIOp>(loc, result, upperBoundCheck);
+    Value lowerBoundCheck = arith::CmpIOp::create(
+        rewriter, loc, arith::CmpIPredicate::ule, start, device);
+    result = arith::AndIOp::create(rewriter, loc, result, lowerBoundCheck);
+    Value upperBoundCheck = arith::CmpIOp::create(
+        rewriter, loc, arith::CmpIPredicate::ule, device, end);
+    result = arith::AndIOp::create(rewriter, loc, result, upperBoundCheck);
   }
   return result;
 }
@@ -1919,25 +1918,24 @@ public:
 
       // fabric unicast
       if (op.getDeviceMcastShape().size() == 0) {
-        auto deviceId =
-            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, op.getStartDevice());
-        rewriter.create<ttkernel::FabricWriteOp>(
-            op.getLoc(), fcm, meshId, deviceId, dstNocAddr, srcL1Addr, size);
+        auto deviceId = ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+            rewriter, op.getLoc(), fcm, op.getStartDevice());
+        ttkernel::FabricWriteOp::create(rewriter, op.getLoc(), fcm, meshId,
+                                        deviceId, dstNocAddr, srcL1Addr, size);
       }
       // fabric multicast
       else {
         auto startDeviceId =
-            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, op.getStartDevice());
+            ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+                rewriter, op.getLoc(), fcm, op.getStartDevice());
         auto endDevice = getDeviceMcastEndPosition(
             rewriter, op.getStartDevice(), op.getDeviceMcastShape());
         auto endDeviceId =
-            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, endDevice);
-        rewriter.create<ttkernel::FabricMulticastWriteOp>(
-            op.getLoc(), fcm, meshId, startDeviceId, endDeviceId, dstNocAddr,
-            srcL1Addr, size);
+            ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+                rewriter, op.getLoc(), fcm, endDevice);
+        ttkernel::FabricMulticastWriteOp::create(
+            rewriter, op.getLoc(), fcm, meshId, startDeviceId, endDeviceId,
+            dstNocAddr, srcL1Addr, size);
 
         // Add noc async write if device is contained within mcast region
         auto meshPositionIndices =
@@ -1945,15 +1943,15 @@ public:
         Value isDeviceInMcastRange =
             getDeviceInMcastRange(rewriter, op.getLoc(), meshPositionIndices,
                                   op.getStartDevice(), endDevice);
-        auto ifOp = rewriter.create<scf::IfOp>(
-            op.getLoc(), TypeRange{}, isDeviceInMcastRange,
+        auto ifOp = scf::IfOp::create(
+            rewriter, op.getLoc(), TypeRange{}, isDeviceInMcastRange,
             true /*addThenBlock*/, false /*addElseBlock*/);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-          rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
-                                                     dstNocAddr, size);
-          rewriter.create<scf::YieldOp>(op.getLoc());
+          ttkernel::NocAsyncWriteOp::create(rewriter, op.getLoc(), srcL1Addr,
+                                            dstNocAddr, size);
+          scf::YieldOp::create(rewriter, op.getLoc());
         }
       }
     } else if (op.isDstLocal()) {
@@ -2383,29 +2381,28 @@ public:
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
           op.getDstCoreIndex());
-      auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, semaphoreAddr);
+      auto nocAddr = ttkernel::GetNocAddrOp::create(
+          rewriter, op.getLoc(), virtX, virtY, semaphoreAddr);
       auto meshId = i16(rewriter, op->getLoc(), 0);
       auto fcm = getFabricConnectionManager(op);
 
       // fabric unicast
       if (op.getDeviceMcastShape().size() == 0) {
-        auto deviceId =
-            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, op.getStartDevice());
+        auto deviceId = ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+            rewriter, op.getLoc(), fcm, op.getStartDevice());
         rewriter.replaceOpWithNewOp<ttkernel::FabricSemIncOp>(
             op, fcm, meshId, deviceId, nocAddr, value);
       }
       // fabric multicast
       else {
         auto startDeviceId =
-            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, op.getStartDevice());
+            ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+                rewriter, op.getLoc(), fcm, op.getStartDevice());
         auto endDevice = getDeviceMcastEndPosition(
             rewriter, op.getStartDevice(), op.getDeviceMcastShape());
         auto endDeviceId =
-            rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-                op.getLoc(), fcm, endDevice);
+            ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+                rewriter, op.getLoc(), fcm, endDevice);
         rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
             op, fcm, meshId, startDeviceId, endDeviceId, nocAddr, value);
 
@@ -2415,16 +2412,16 @@ public:
         Value isDeviceInMcastRange =
             getDeviceInMcastRange(rewriter, op.getLoc(), meshPositionIndices,
                                   op.getStartDevice(), endDevice);
-        auto ifOp = rewriter.create<scf::IfOp>(
-            op.getLoc(), TypeRange{}, isDeviceInMcastRange,
+        auto ifOp = scf::IfOp::create(
+            rewriter, op.getLoc(), TypeRange{}, isDeviceInMcastRange,
             true /*addThenBlock*/, false /*addElseBlock*/);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-          rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
-                                                       value,
-                                                       /*noc_id=*/nullptr);
-          rewriter.create<scf::YieldOp>(op.getLoc());
+          ttkernel::NocSemaphoreIncOp::create(rewriter, op.getLoc(), nocAddr,
+                                              value,
+                                              /*noc_id=*/nullptr);
+          scf::YieldOp::create(rewriter, op.getLoc());
         }
       }
     } else if (op.getDstCoreIndex().empty()) {
@@ -2526,10 +2523,10 @@ public:
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
         op.getCoreIndices());
-    auto globalSemAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
-    auto globalSemPtr = rewriter.create<ttkernel::CastToL1PtrOp>(
-        op.getLoc(), adaptor.getSyncSemaphore());
+    auto globalSemAddr = ttkernel::GetNocAddrOp::create(
+        rewriter, op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
+    auto globalSemPtr = ttkernel::CastToL1PtrOp::create(
+        rewriter, op.getLoc(), adaptor.getSyncSemaphore());
 
     assert(op.getSenderStartDevice().size() > 0 && "start device must be set");
     auto fcm = getFabricConnectionManager(op);
@@ -2540,27 +2537,26 @@ public:
     // fabric unicast
     if (op.getSenderDeviceMcastShape().size()) {
       auto startDeviceId =
-          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-              op.getLoc(), fcm, op.getSenderStartDevice());
+          ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+              rewriter, op.getLoc(), fcm, op.getSenderStartDevice());
       auto endDevice = getDeviceMcastEndPosition(
           rewriter, op.getSenderStartDevice(), op.getSenderDeviceMcastShape());
-      auto endDeviceId =
-          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-              op.getLoc(), fcm, endDevice);
+      auto endDeviceId = ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+          rewriter, op.getLoc(), fcm, endDevice);
       rewriter.replaceOpWithNewOp<ttkernel::FabricMulticastSemIncOp>(
           op, fcm, meshId, startDeviceId, endDeviceId, globalSemAddr, incr);
     }
     // fabric multicast
     else {
       auto startDeviceId =
-          rewriter.create<ttkernel::GetDeviceIdFromLogicalMeshPositionOp>(
-              op.getLoc(), fcm, op.getSenderStartDevice());
+          ttkernel::GetDeviceIdFromLogicalMeshPositionOp::create(
+              rewriter, op.getLoc(), fcm, op.getSenderStartDevice());
       rewriter.replaceOpWithNewOp<ttkernel::FabricSemIncOp>(
           op, fcm, meshId, startDeviceId, globalSemAddr, incr);
     }
 
-    rewriter.create<ttkernel::SemaphoreWaitOp>(op.getLoc(), globalSemPtr,
-                                               numReceivers);
+    ttkernel::SemaphoreWaitOp::create(rewriter, op.getLoc(), globalSemPtr,
+                                      numReceivers);
 
     return success();
   }

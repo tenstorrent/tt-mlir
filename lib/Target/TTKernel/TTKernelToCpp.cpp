@@ -295,7 +295,7 @@ void dprint(Arg &&arg, ArgV&&... argv) {
       auto experimentalSemaphoreLLKs =
           StringRef(experimental_semaphore_generated,
                     experimental_semaphore_generated_len);
-      builder->create<emitc::VerbatimOp>(loc, experimentalSemaphoreLLKs);
+      emitc::VerbatimOp::create(*builder, loc, experimentalSemaphoreLLKs);
     }
 
     if (hasCall("experimental::convert_logical_x_to_translated") ||

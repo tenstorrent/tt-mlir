@@ -4645,9 +4645,9 @@ TEST_F(OpModelBase, layerNormPostAllGatherOp) {
 
   llvm::APFloat epsilon(1e-12f);
 
-  LayerNormPostAllGatherOp op = builder.create<LayerNormPostAllGatherOp>(
-      builder.getUnknownLoc(), outputType, input, stats, weight, bias, epsilon,
-      nullptr, nullptr, nullptr, nullptr);
+  LayerNormPostAllGatherOp op = LayerNormPostAllGatherOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, stats, weight, bias,
+      epsilon, nullptr, nullptr, nullptr, nullptr);
   op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(op.getOperation());
@@ -4681,9 +4681,9 @@ TEST_F(OpModelBase, layerNormPostAllGatherOpMinimal) {
 
   llvm::APFloat epsilon(1e-12f);
 
-  LayerNormPostAllGatherOp op = builder.create<LayerNormPostAllGatherOp>(
-      builder.getUnknownLoc(), outputType, input, stats, nullptr, nullptr,
-      epsilon, nullptr, nullptr, nullptr, nullptr);
+  LayerNormPostAllGatherOp op = LayerNormPostAllGatherOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, stats, nullptr,
+      nullptr, epsilon, nullptr, nullptr, nullptr, nullptr);
   op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(op.getOperation());
@@ -4732,9 +4732,9 @@ TEST_F(OpModelBase, layerNormPostAllGatherOpL1Memory) {
 
   llvm::APFloat epsilon(1e-12f);
 
-  LayerNormPostAllGatherOp op = builder.create<LayerNormPostAllGatherOp>(
-      builder.getUnknownLoc(), outputType, input, stats, weight, bias, epsilon,
-      nullptr, nullptr, nullptr, nullptr);
+  LayerNormPostAllGatherOp op = LayerNormPostAllGatherOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, stats, weight, bias,
+      epsilon, nullptr, nullptr, nullptr, nullptr);
   op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(op.getOperation());
@@ -6159,10 +6159,9 @@ TEST_F(OpModelBase, GatherOpInterface) {
   auto index = createEmptyTensor(indexShape, tiledUint32Type, indexLayout);
   auto outputType = createRankedTensorType(outputShape);
 
-  auto gatherOp =
-      builder.create<GatherOp>(builder.getUnknownLoc(), outputType, input,
-                               index, builder.getI32IntegerAttr(0),
-                               /*memory_config=*/nullptr);
+  auto gatherOp = GatherOp::create(builder, builder.getUnknownLoc(), outputType,
+                                   input, index, builder.getI32IntegerAttr(0),
+                                   /*memory_config=*/nullptr);
 
   gatherOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
@@ -6237,8 +6236,8 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
   auto outputType =
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
-  auto mlaOp = builder.create<PagedFlashMultiLatentAttentionDecodeOp>(
-      builder.getUnknownLoc(), outputType, query, key,
+  auto mlaOp = PagedFlashMultiLatentAttentionDecodeOp::create(
+      builder, builder.getUnknownLoc(), outputType, query, key,
       /*value=*/nullptr,
       /*head_dim_v=*/headDimV, pageTable,
       /*is_causal=*/true,
