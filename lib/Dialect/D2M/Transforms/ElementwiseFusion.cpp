@@ -273,8 +273,8 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   /////////////////////////////////////////////////////////////////////////////
   auto fusedResultTypes = TypeRange(fusedOutputs);
 
-  auto fusedOp = GenericOp::create(
-      rewriter, consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
+  auto fusedOp = rewriter.create<GenericOp>(
+      consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
       mergedAdditionalArgs, consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
       consumer.getThreads(), consumer.getScratchInputsAttr(),
@@ -327,9 +327,8 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   SmallVector<Value> fusedTensorEmpties;
   for (Type emptyType : fusedEmptyTypes) {
     auto shapedType = mlir::cast<ShapedType>(emptyType);
-    auto emptyOp = mlir::tensor::EmptyOp::create(rewriter, fusedOp.getLoc(),
-                                                 shapedType.getShape(),
-                                                 shapedType.getElementType());
+    auto emptyOp = rewriter.create<mlir::tensor::EmptyOp>(
+        fusedOp.getLoc(), shapedType.getShape(), shapedType.getElementType());
     fusedTensorEmpties.push_back(emptyOp.getResult());
   }
 
@@ -542,7 +541,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     fusedYields.push_back(irMap.lookupOrDefault(y));
   }
   rewriter.setInsertionPointToEnd(&fusedBlock);
-  YieldOp::create(rewriter, fusedOp.getLoc(), fusedYields);
+  rewriter.create<YieldOp>(fusedOp.getLoc(), fusedYields);
 
   return fusedOp;
 }

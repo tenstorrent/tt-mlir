@@ -67,19 +67,19 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
     // ::mlir::TypeRange resultTypes, ::mlir::ValueRange operands,
     // ::llvm::ArrayRef<::mlir::NamedAttribute> attributes = {})`.
     if constexpr (sizeof...(Js) == 0) {
-      return OpTy::create(builder, loc, output.getType(),
-                          ttmlir::utils::flatten<mlir::Value>(
-                              std::get<Is>(std::forward_as_tuple(
-                                  std::forward<ArgsTy>(args)...))...,
-                              output));
+      return builder.create<OpTy>(loc, output.getType(),
+                                  ttmlir::utils::flatten<mlir::Value>(
+                                      std::get<Is>(std::forward_as_tuple(
+                                          std::forward<ArgsTy>(args)...))...,
+                                      output));
     } else if constexpr (sizeof...(Js) == 1 &&
                          std::is_convertible_v<
                              std::tuple_element_t<
                                  sizeof...(Is) + sizeof...(Js) - 1,
                                  std::tuple<llvm::remove_cvref_t<ArgsTy>...>>,
                              mlir::ArrayRef<mlir::NamedAttribute>>) {
-      return OpTy::create(
-          builder, loc, output.getType(),
+      return builder.create<OpTy>(
+          loc, output.getType(),
           ttmlir::utils::flatten<mlir::Value>(
               std::get<Is>(
                   std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
@@ -89,8 +89,8 @@ struct SplitCaller<OpTy, std::index_sequence<Is...>,
       // Otherwise, call the op specific builder that provides positional
       // `Attribute` arguments.
     } else {
-      return OpTy::create(
-          builder, loc, output.getType(),
+      return builder.create<OpTy>(
+          loc, output.getType(),
           std::get<Is>(std::forward_as_tuple(std::forward<ArgsTy>(args)...))...,
           output,
           std::get<sizeof...(Is) + Js>(
@@ -132,17 +132,17 @@ constexpr bool has_dps_trait_v =
 // createDPSOp<OpTy>(rewriter, loc,  outputType, operand1, operand2, ...,
 // operandN, attribute1, attribute2, ..., attributeM);
 // is equivalent to:
-// auto output = ttir::EmptyOp::create(rewriter, loc, outputType.getShape(),
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
 // outputType.getElementType(), outputType.getEncoding());
-// OpTy::create(rewriter, loc, outputType, operand1, operand2, ..., operandN,
+// rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
 // output, attribute1, attribute2, ..., attributeM);
 template <typename OpTy, typename... ArgsTy>
 OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
                  mlir::RankedTensorType outputType, ArgsTy &&...args) {
   static_assert(has_dps_trait_v<OpTy>);
 
-  auto output = mlir::tt::ttir::EmptyOp::create(
-      builder, loc, outputType.getShape(), outputType.getElementType(),
+  auto output = builder.create<mlir::tt::ttir::EmptyOp>(
+      loc, outputType.getShape(), outputType.getElementType(),
       outputType.getEncoding());
 
   return detail::splitAndCall<OpTy>(builder, loc, output,
@@ -159,9 +159,9 @@ OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
 // is equivalent to:
 // auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
 // outputEncoding);
-// auto output = ttir::EmptyOp::create(rewriter, loc, outputShape,
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputShape,
 // outputElementType, outputEncoding);
-// OpTy::create(rewriter, loc, outputType, operand1, operand2, ..., operandN,
+// rewriter.create<OpTy>(loc, outputType, operand1, operand2, ..., operandN,
 // output, attribute1, attribute2, ..., attributeM);
 template <typename OpTy, typename... ArgsTy>
 OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
@@ -183,7 +183,7 @@ OpTy createDPSOp(mlir::OpBuilder &builder, mlir::Location loc,
 // replaceOpWithNewDPSOp<OpTy>(rewriter, op, outputType, operand1, operand2,
 // ..., operandN, attribute1, attribute2, ..., attributeM);
 // is equivalent to:
-// auto output = ttir::EmptyOp::create(rewriter, loc, outputType.getShape(),
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputType.getShape(),
 // outputType.getElementType(), outputType.getEncoding());
 // rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
 // operandN, output, attribute1, attribute2, ..., attributeM);
@@ -210,7 +210,7 @@ OpTy replaceOpWithNewDPSOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
 // is equivalent to:
 // auto outputType = mlir::RankedTensorType::get(outputShape, outputElementType,
 // outputEncoding);
-// auto output = ttir::EmptyOp::create(rewriter, loc, outputShape,
+// auto output = rewriter.create<ttir::EmptyOp>(loc, outputShape,
 // outputElementType, outputEncoding);
 // rewriter.replaceOpWithNewOp<OpTy>(op, outputType, operand1, operand2, ...,
 // operandN, output, attribute1, attribute2, ..., attributeM);
@@ -290,8 +290,8 @@ inline ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
   auto shapeAttr =
       rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
 
-  return ttir::ReshapeOp::create(
-      rewriter, loc,
+  return rewriter.create<ttir::ReshapeOp>(
+      loc,
       RankedTensorType::get(targetShape, inputType.getElementType(),
                             inputType.getEncoding()),
       input, shapeAttr);
@@ -407,13 +407,13 @@ inline mlir::Value reshapeAndCastToType(mlir::PatternRewriter &rewriter,
     auto reshapeOutputType = mlir::RankedTensorType::get(
         targetType.getShape(), valueType.getElementType(),
         valueType.getEncoding());
-    result = ReshapeOp::create(rewriter, loc, reshapeOutputType, result,
-                               rewriter.getI32ArrayAttr(targetShape));
+    result = rewriter.create<ReshapeOp>(loc, reshapeOutputType, result,
+                                        rewriter.getI32ArrayAttr(targetShape));
   }
 
   // If dtype differs, add a typecast
   if (valueType.getElementType() != targetType.getElementType()) {
-    result = TypecastOp::create(rewriter, loc, targetType, result);
+    result = rewriter.create<TypecastOp>(loc, targetType, result);
   }
 
   return result;

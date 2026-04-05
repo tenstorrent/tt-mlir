@@ -862,20 +862,20 @@ createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
     return failure();
   }
 
-  auto ropeOp = RotaryEmbeddingOp::create(rewriter, srcOp->getLoc(),
-                                          x.getType(), x, cos, sin,
-                                          /*token_index=*/nullptr,
-                                          /*memory_config=*/nullptr,
-                                          /*compute_config=*/computeConfig);
+  auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
+      srcOp->getLoc(), x.getType(), x, cos, sin,
+      /*token_index=*/nullptr,
+      /*memory_config=*/nullptr,
+      /*compute_config=*/computeConfig);
 
   Value result = ropeOp.getResult();
   if (!llvm::equal(outPermutation,
                    llvm::seq<int64_t>(0, outPermutation.size()))) {
     DenseI64ArrayAttr permutationAttr =
         rewriter.getDenseI64ArrayAttr(outPermutation);
-    auto permuted = ttnn::PermuteOp::create(
-        rewriter, srcOp->getLoc(), srcOp->getResult(0).getType(), result,
-        permutationAttr, ttnn::MemoryConfigAttr(), mlir::FloatAttr());
+    auto permuted = rewriter.create<ttnn::PermuteOp>(
+        srcOp->getLoc(), srcOp->getResult(0).getType(), result, permutationAttr,
+        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
     result = permuted.getResult();
   }
 
@@ -914,12 +914,12 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
   auto sinFullType = RankedTensorType::get(
       sinFullShape, sinType.getElementType(), sinEncoding);
 
-  auto cosFull = ConcatOp::create(rewriter, srcOp.getLoc(), cosFullType,
-                                  ValueRange{cosHalf, cosHalf}, concatDim,
-                                  /*memory_config=*/MemoryConfigAttr());
-  auto sinFull = ConcatOp::create(rewriter, srcOp.getLoc(), sinFullType,
-                                  ValueRange{sinHalf, sinHalf}, concatDim,
-                                  /*memory_config=*/MemoryConfigAttr());
+  auto cosFull = rewriter.create<ConcatOp>(
+      srcOp.getLoc(), cosFullType, ValueRange{cosHalf, cosHalf}, concatDim,
+      /*memory_config=*/MemoryConfigAttr());
+  auto sinFull = rewriter.create<ConcatOp>(
+      srcOp.getLoc(), sinFullType, ValueRange{sinHalf, sinHalf}, concatDim,
+      /*memory_config=*/MemoryConfigAttr());
 
   return {cosFull.getResult(), sinFull.getResult()};
 }
@@ -1041,8 +1041,8 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
   auto tokenIndex = rewriter.getIntegerAttr(
       rewriter.getIntegerType(32, /*isSigned=*/false), 0);
 
-  auto newRope = RotaryEmbeddingOp::create(
-      rewriter, ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
+  auto newRope = rewriter.create<RotaryEmbeddingOp>(
+      ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
       ropeOp.getMemoryConfigAttr(), ropeOp.getComputeConfigAttr());
 

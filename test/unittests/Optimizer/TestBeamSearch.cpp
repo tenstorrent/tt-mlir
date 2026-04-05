@@ -109,8 +109,8 @@ public:
                                   llvm::StringRef name = "test") {
     auto funcType = builder.getType<mlir::FunctionType>(
         mlir::TypeRange(inputTypes), mlir::TypeRange(outputTypes));
-    func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(), name,
-                                      funcType);
+    func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), name,
+                                              funcType);
     mlir::Block *block = func.addEntryBlock();
     builder.setInsertionPointToStart(block);
     return func;
@@ -131,15 +131,15 @@ public:
     mlir::Value arg1 = func.getBody().front().getArgument(1);
 
     auto addOp =
-        AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
-    auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
-                                 addOp.getResult());
-    auto mulOp = MultiplyOp::create(builder, builder.getUnknownLoc(),
-                                    tensorType, reluOp.getResult(), arg1);
-    auto add2Op = AddOp::create(builder, builder.getUnknownLoc(), tensorType,
-                                mulOp.getResult(), arg1);
-    mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
-                                 add2Op.getResult());
+        builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
+    auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
+                                         addOp.getResult());
+    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
+                                            reluOp.getResult(), arg1);
+    auto add2Op = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
+                                        mulOp.getResult(), arg1);
+    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                         add2Op.getResult());
 
     return {addOp, reluOp, mulOp, add2Op};
   }
@@ -161,15 +161,15 @@ public:
     mlir::Value arg2 = func.getBody().front().getArgument(2);
 
     auto addOp =
-        AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
-    auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
-                                 addOp.getResult());
-    auto mulOp = MultiplyOp::create(builder, builder.getUnknownLoc(),
-                                    tensorType, addOp.getResult(), arg2);
-    auto add2Op = AddOp::create(builder, builder.getUnknownLoc(), tensorType,
-                                reluOp.getResult(), mulOp.getResult());
-    mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
-                                 add2Op.getResult());
+        builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
+    auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
+                                         addOp.getResult());
+    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
+                                            addOp.getResult(), arg2);
+    auto add2Op = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
+                                        reluOp.getResult(), mulOp.getResult());
+    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                         add2Op.getResult());
 
     return {addOp, reluOp, mulOp, add2Op};
   }
@@ -400,19 +400,19 @@ TEST_F(BeamSearchTest, BeamWidthK8ComplexGraphDoesNotCrash) {
   //   relu2 = relu(add2)
   //   mul2 = multiply(relu2, arg0) -> return
   auto add1 =
-      AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
-  auto relu1 = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
-                              add1.getResult());
-  auto mul1 = MultiplyOp::create(builder, builder.getUnknownLoc(), tensorType,
-                                 add1.getResult(), arg2);
-  auto add2 = AddOp::create(builder, builder.getUnknownLoc(), tensorType,
-                            relu1.getResult(), mul1.getResult());
-  auto relu2 = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
-                              add2.getResult());
-  auto mul2 = MultiplyOp::create(builder, builder.getUnknownLoc(), tensorType,
-                                 relu2.getResult(), arg0);
-  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
-                               mul2.getResult());
+      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
+  auto relu1 = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
+                                      add1.getResult());
+  auto mul1 = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
+                                         add1.getResult(), arg2);
+  auto add2 = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
+                                    relu1.getResult(), mul1.getResult());
+  auto relu2 = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
+                                      add2.getResult());
+  auto mul2 = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
+                                         relu2.getResult(), arg0);
+  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                       mul2.getResult());
 
   llvm::SmallVector<mlir::Operation *> allOps = {add1, relu1, mul1,
                                                  add2, relu2, mul2};
@@ -449,12 +449,12 @@ TEST_F(BeamSearchTest, NoValidCandidateFallbackToDRAM) {
   mlir::Value arg1 = func.getBody().front().getArgument(1);
 
   auto addOp =
-      AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
+      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
   // Dummy op so addOp doesn't feed return directly.
-  auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
-                               addOp.getResult());
-  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
-                               reluOp.getResult());
+  auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
+                                       addOp.getResult());
+  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                       reluOp.getResult());
 
   // Provide empty legal configs -- no valid configs at all.
   llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;

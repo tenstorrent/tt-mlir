@@ -45,8 +45,8 @@ static bool addOutputBroadcastIfNeeded(Operation *op,
   rewriter.setInsertionPointAfter(op);
   auto broadcastDimensions = ttmlir::utils::getBroadcastDimensions<int64_t>(
       implicitShape, resultShape);
-  auto broadcastOp = ttir::BroadcastOp::create(
-      rewriter, op->getLoc(),
+  auto broadcastOp = rewriter.create<ttir::BroadcastOp>(
+      op->getLoc(),
       RankedTensorType::get(resultShape, newResultType.getElementType(),
                             newResultType.getEncoding()),
       op->getResult(0), broadcastDimensions);
@@ -170,8 +170,8 @@ class FullToScalarRewriter : public CreationToScalarRewriter<ttir::FullOp> {
 
   Value convertToScalar(ttir::FullOp op, RankedTensorType scalarType,
                         PatternRewriter &rewriter) const override {
-    return ttir::FullOp::create(rewriter, op.getLoc(), scalarType,
-                                op.getFillValueAttr())
+    return rewriter
+        .create<ttir::FullOp>(op.getLoc(), scalarType, op.getFillValueAttr())
         .getResult();
   }
 };
@@ -182,8 +182,9 @@ class NamedFullToScalarRewriter : public CreationToScalarRewriter<OpTy> {
 
   Value convertToScalar(OpTy op, RankedTensorType scalarType,
                         PatternRewriter &rewriter) const override {
-    return OpTy::create(rewriter, op.getLoc(), scalarType,
-                        SmallVector<int32_t>(scalarType.getRank(), 1))
+    return rewriter
+        .create<OpTy>(op.getLoc(), scalarType,
+                      SmallVector<int32_t>(scalarType.getRank(), 1))
         .getResult();
   }
 };

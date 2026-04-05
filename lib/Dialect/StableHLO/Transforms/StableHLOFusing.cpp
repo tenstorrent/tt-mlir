@@ -77,8 +77,8 @@ private:
     // Create broadcast_in_dim op with concatenate input and broadcast dims.
     // Replace reshape op with broadcast_in_dim op.
     ::mlir::stablehlo::BroadcastInDimOp broadcastInDimOp =
-        ::mlir::stablehlo::BroadcastInDimOp::create(
-            rewriter, concatOp.getLoc(), reshapeOp.getResult().getType(),
+        rewriter.create<::mlir::stablehlo::BroadcastInDimOp>(
+            concatOp.getLoc(), reshapeOp.getResult().getType(),
             concatOp.getInputs()[0], broadcastDims);
     rewriter.replaceOp(reshapeOp, broadcastInDimOp.getResult());
     return success();
@@ -112,9 +112,9 @@ private:
       broadcastDims.push_back(i);
     }
     ::mlir::stablehlo::BroadcastInDimOp broadcastInDimOp =
-        ::mlir::stablehlo::BroadcastInDimOp::create(
-            rewriter, concatOp.getLoc(), concatOp.getResult().getType(),
-            concatInput, broadcastDims);
+        rewriter.create<::mlir::stablehlo::BroadcastInDimOp>(
+            concatOp.getLoc(), concatOp.getResult().getType(), concatInput,
+            broadcastDims);
     rewriter.replaceOp(concatOp, broadcastInDimOp.getResult());
     return success();
   }
@@ -183,9 +183,9 @@ private:
           static_cast<int64_t>(i) < static_cast<int64_t>(dim) ? i : i + 1);
     }
     ::mlir::stablehlo::BroadcastInDimOp broadcastInDimOp =
-        ::mlir::stablehlo::BroadcastInDimOp::create(
-            rewriter, concatOp.getLoc(), concatOp.getResult().getType(),
-            reshapeInput, broadcastDims);
+        rewriter.create<::mlir::stablehlo::BroadcastInDimOp>(
+            concatOp.getLoc(), concatOp.getResult().getType(), reshapeInput,
+            broadcastDims);
     rewriter.replaceOp(concatOp, broadcastInDimOp.getResult());
     return success();
   }

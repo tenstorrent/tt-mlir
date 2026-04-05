@@ -221,16 +221,15 @@ public:
         RankedTensorType::get(newReshapeShape, tmResultType.getElementType(),
                               tmResultType.getEncoding());
 
-    auto newReshape = ttir::ReshapeOp::create(
-        rewriter, reshapeUser.getLoc(), newTMResultType, op.getInput(),
+    auto newReshape = rewriter.create<ttir::ReshapeOp>(
+        reshapeUser.getLoc(), newTMResultType, op.getInput(),
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(newReshapeShape.begin(),
                                                       newReshapeShape.end())));
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
-    auto newBroadcast =
-        ttir::BroadcastOp::create(rewriter, op->getLoc(), tmResultType,
-                                  newReshape, newBroadcastDimensions);
+    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
+        op->getLoc(), tmResultType, newReshape, newBroadcastDimensions);
 
     // All users must be identical TMs.
     // We must not reference `reshapeUser` during/after replacements, as it will
@@ -332,17 +331,16 @@ public:
         ttmlir::utils::applyPermutation(op.getBroadcastDimensions(),
                                         permutation);
 
-    auto newPermute = ttir::PermuteOp::create(
-        rewriter, permuteUser->getLoc(),
+    auto newPermute = rewriter.create<ttir::PermuteOp>(
+        permuteUser->getLoc(),
         RankedTensorType::get(newShape, tmResultType.getElementType(),
                               tmResultType.getEncoding()),
         operand, permutation);
 
     assert(newBroadcastDimensions.size() ==
            static_cast<size_t>(tmResultType.getRank()));
-    auto newBroadcast =
-        ttir::BroadcastOp::create(rewriter, op->getLoc(), tmResultType,
-                                  newPermute, newBroadcastDimensions);
+    auto newBroadcast = rewriter.create<ttir::BroadcastOp>(
+        op->getLoc(), tmResultType, newPermute, newBroadcastDimensions);
 
     // All users must be identical TMs.
     // We must not reference `permuteUser` during/after replacements, as it will

@@ -105,8 +105,8 @@ LogicalResult LinearOpOutputShapeRewritePattern::matchAndRewrite(
   auto matmulOutputType =
       utils::RankedTensorTypeFactory::create(currentOutputType, matmulShape);
 
-  auto newLinearOp = ttnn::LinearOp::create(
-      rewriter, srcOp.getLoc(), matmulOutputType, srcOp.getA(), srcOp.getB(),
+  auto newLinearOp = rewriter.create<ttnn::LinearOp>(
+      srcOp.getLoc(), matmulOutputType, srcOp.getA(), srcOp.getB(),
       srcOp.getBias(), srcOp.getTransposeA(), srcOp.getTransposeB(),
       /*matmul_program_config=*/nullptr, srcOp.getActivationAttr(),
       /*compute_config=*/srcOp.getComputeConfigAttr());

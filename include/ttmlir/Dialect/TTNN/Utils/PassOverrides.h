@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 
-#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/CommandLine.h"
 
 #include <optional>

@@ -572,8 +572,8 @@ private:
 
       // Create the new function.
       //
-      func::FuncOp newFunc = func::FuncOp::create(
-          rewriter, candidateFn.getLoc(), uniqueName, funcType);
+      func::FuncOp newFunc = rewriter.create<func::FuncOp>(
+          candidateFn.getLoc(), uniqueName, funcType);
 
       // Mark as private for now.
       //
@@ -651,7 +651,7 @@ private:
 
       // Add return statement.
       //
-      func::ReturnOp::create(rewriter, funcOp.getLoc(), returnValues);
+      rewriter.create<func::ReturnOp>(funcOp.getLoc(), returnValues);
     }
   }
 
@@ -841,8 +841,8 @@ private:
       // Create the call.
       //
       Operation *lastOp = opsInFunction.back();
-      func::CallOp callOp = func::CallOp::create(rewriter, lastOp->getLoc(),
-                                                 targetFunc, callOperands);
+      func::CallOp callOp = rewriter.create<func::CallOp>(
+          lastOp->getLoc(), targetFunc, callOperands);
 
       // Track this call for the next insertion.
       //

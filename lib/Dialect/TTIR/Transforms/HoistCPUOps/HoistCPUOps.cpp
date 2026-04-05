@@ -182,13 +182,12 @@ performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
 
     if (tensorType != convertedType) {
       // Create converted tensor value.
-      auto emptyTensor = mlir::tt::ttir::EmptyOp::create(
-          opBuilder, argument.getLoc(), tensorType.getShape(),
+      auto emptyTensor = opBuilder.create<mlir::tt::ttir::EmptyOp>(
+          argument.getLoc(), tensorType.getShape(),
           convertedType.getElementType());
-      auto convertedArgument = mlir::tt::ttir::ToLayoutOp::create(
-                                   opBuilder,
-
-                                   argument.getLoc(), argument, emptyTensor)
+      auto convertedArgument = opBuilder
+                                   .create<mlir::tt::ttir::ToLayoutOp>(
+                                       argument.getLoc(), argument, emptyTensor)
                                    ->getResult(0);
 
       convertedArguments.push_back(convertedArgument);
@@ -231,11 +230,11 @@ convertResultsBackToOriginalTypes(mlir::OpBuilder &opBuilder,
         llvm::dyn_cast_or_null<mlir::RankedTensorType>(callOpOutput.getType());
 
     if (originalResultType != convertedResultType) {
-      auto emptyTensor = mlir::tt::ttir::EmptyOp::create(
-          opBuilder, sourceModule->getLoc(), originalResultType.getShape(),
+      auto emptyTensor = opBuilder.create<mlir::tt::ttir::EmptyOp>(
+          sourceModule->getLoc(), originalResultType.getShape(),
           originalResultType.getElementType());
-      auto toOriginal = mlir::tt::ttir::ToLayoutOp::create(
-          opBuilder, sourceModule->getLoc(), callOpOutput, emptyTensor);
+      auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
+          sourceModule->getLoc(), callOpOutput, emptyTensor);
       // Replace all uses of the output value with the converted one.
       originalOutput.replaceAllUsesWith(toOriginal->getResult(0));
     } else {
@@ -356,7 +355,7 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
     returnValues.push_back(mapping.lookup(outputValue));
   }
 
-  mlir::func::ReturnOp::create(builder, loc, returnValues);
+  builder.create<mlir::func::ReturnOp>(loc, returnValues);
 
   // Add bufferization access attributes to function arguments.
   for (auto [index, argument] :
@@ -514,9 +513,8 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   }
 
   // Create the call using already converted inputs.
-  auto callOp =
-      mlir::func::CallOp::create(opBuilder, deviceModule->getLoc(),
-                                 funcDeclaration, convertedInputArguments);
+  auto callOp = opBuilder.create<mlir::func::CallOp>(
+      deviceModule->getLoc(), funcDeclaration, convertedInputArguments);
 
   // Add the hoisted_call attribute.
   callOp->setAttr(CPUHoistedCallAttr::name, UnitAttr::get(context));
@@ -594,7 +592,7 @@ bool canLowerTTIRToLinalg(mlir::Operation *op) {
 
   // Build the return op from the cloned op's results.
   llvm::SmallVector<mlir::Value> returnValues(clonedOp->getResults());
-  mlir::func::ReturnOp::create(builder, op->getLoc(), returnValues);
+  builder.create<mlir::func::ReturnOp>(op->getLoc(), returnValues);
 
   // Run TTIRToTTIRDecomposition (CPUFallback mode) followed by
   // TTIRToLinalg conversion on the temporary module, mirroring the
@@ -684,9 +682,9 @@ void runCPUHoist(mlir::ModuleOp rootModule,
   // If no CPU module exists, create one.
   if (!cpuModule) {
     rewriter.setInsertionPointToEnd(rootModule.getBody());
-    cpuModule = ttcore::CPUModuleOp::create(rewriter, loc);
+    cpuModule = rewriter.create<ttcore::CPUModuleOp>(loc);
     rewriter.setInsertionPointToStart(&cpuModule.getBodyRegion().front());
-    cpuInnerModule = mlir::ModuleOp::create(rewriter, loc);
+    cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
   }
 
   // Hoist each set of ops into a new function in the CPU module.

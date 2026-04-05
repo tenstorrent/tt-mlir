@@ -241,8 +241,8 @@ TopKFusing::matchAndRewrite(SortOp srcOp,
   }
 
   // Create the fused TopK operation (now that we know it's valid)
-  auto topkOp = TopKOp::create(
-      rewriter, srcOp.getLoc(), valuesResultType, indicesResultType,
+  auto topkOp = rewriter.create<TopKOp>(
+      srcOp.getLoc(), valuesResultType, indicesResultType,
       srcOp.getInput(),                           // input tensor
       rewriter.getI32IntegerAttr(sliceResult->k), // k value
       rewriter.getI32IntegerAttr(sortDim),        // dimension

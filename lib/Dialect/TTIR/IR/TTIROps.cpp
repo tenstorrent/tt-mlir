@@ -198,7 +198,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
         quantElemQ, quantType.getEncoding());
 
     auto quantizedInput =
-        ttir::QuantizeOp::create(rewriter, getLoc(), newType, dequantVal);
+        rewriter.create<ttir::QuantizeOp>(getLoc(), newType, dequantVal);
 
     // Update operands.
     if (lhsElemQ) {
@@ -214,8 +214,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
       oldType.getShape(), lhsElemQ, oldType.getEncoding());
 
   // Emit new AddOp with quantized types.
-  auto newAdd =
-      ttir::AddOp::create(rewriter, getLoc(), newResultType, lhs, rhs);
+  auto newAdd = rewriter.create<ttir::AddOp>(getLoc(), newResultType, lhs, rhs);
   return newAdd.getOperation();
 }
 
@@ -1042,12 +1041,12 @@ mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
     RankedTensorType quantBiasType = RankedTensorType::get(
         getBias().getType().getShape(), quantConvOutputType,
         getBias().getType().getEncoding());
-    quantBias = mlir::tt::ttir::QuantizeOp::create(rewriter, getLoc(),
-                                                   quantBiasType, quantBias);
+    quantBias = rewriter.create<mlir::tt::ttir::QuantizeOp>(
+        getLoc(), quantBiasType, quantBias);
   }
-  auto quantConv = mlir::tt::ttir::Conv2dOp::create(
-      rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
-      quantBias, getStrideAttr(), getPaddingAttr(), getDilationAttr(),
+  auto quantConv = rewriter.create<mlir::tt::ttir::Conv2dOp>(
+      getLoc(), newType, sourceOperands[0], sourceOperands[1], quantBias,
+      getStrideAttr(), getPaddingAttr(), getDilationAttr(),
       rewriter.getI32IntegerAttr(getGroups()), getBatchDimAttr(),
       getHeightDimAttr(), getWidthDimAttr(), getChannelDimAttr(),
       /*flattenedCompatInfo=*/nullptr);
@@ -1487,9 +1486,9 @@ mlir::Operation *mlir::tt::ttir::ConvTranspose2dOp::rewriteWithQuantizedInputs(
   RankedTensorType newType =
       RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
                             oldConvOutputType.getEncoding());
-  auto quantConv = mlir::tt::ttir::ConvTranspose2dOp::create(
-      rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
-      getBias(), getStrideAttr(), getPaddingAttr(), getOutputPaddingAttr(),
+  auto quantConv = rewriter.create<mlir::tt::ttir::ConvTranspose2dOp>(
+      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
+      getStrideAttr(), getPaddingAttr(), getOutputPaddingAttr(),
       getDilationAttr(), getGroupsAttr(), /*flattenedCompatInfo=*/nullptr);
 
   return quantConv.getOperation();
@@ -1825,11 +1824,10 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
       mlir::cast<RankedTensorType>(input.getType()).getElementType(),
       outType.getEncoding());
 
-  return mlir::tt::ttir::MaxPool2dOp::create(
-             rewriter,
-
-             getLoc(), newOutType, input, getKernelAttr(), getStrideAttr(),
-             getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
+  return rewriter
+      .create<mlir::tt::ttir::MaxPool2dOp>(
+          getLoc(), newOutType, input, getKernelAttr(), getStrideAttr(),
+          getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
       .getOperation();
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
@@ -2188,9 +2186,9 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
         RankedTensorType::get(newMidShape, permuteInType.getElementType(),
                               permuteInType.getEncoding());
     SmallVector<int32_t> midShapeAttr(newMidShape.begin(), newMidShape.end());
-    auto newReshape = mlir::tt::ttir::ReshapeOp::create(
-        rewriter, leadingReshape.getLoc(), newMidType,
-        leadingReshape.getInput(), rewriter.getI32ArrayAttr(midShapeAttr));
+    auto newReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
+        leadingReshape.getLoc(), newMidType, leadingReshape.getInput(),
+        rewriter.getI32ArrayAttr(midShapeAttr));
 
     // Create new permute at reduced rank.
     SmallVector<int64_t> newOutShape;
@@ -2200,9 +2198,8 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     auto trailingType = trailingReshape.getType();
     auto newOutType = RankedTensorType::get(
         newOutShape, trailingType.getElementType(), trailingType.getEncoding());
-    auto newPermute = mlir::tt::ttir::PermuteOp::create(
-        rewriter, permuteOp.getLoc(), newOutType, newReshape.getResult(),
-        newPerm);
+    auto newPermute = rewriter.create<mlir::tt::ttir::PermuteOp>(
+        permuteOp.getLoc(), newOutType, newReshape.getResult(), newPerm);
 
     rewriter.replaceOp(trailingReshape, newPermute.getResult());
     return success();
@@ -4986,9 +4983,9 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
           auto newInputType = RankedTensorType::get(
               newInputShape, newInput.getType().getElementType(),
               newInput.getType().getEncoding());
-          newInput =
-              PermuteOp::create(rewriter, op.getLoc(), newInputType, newInput,
-                                rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
+          newInput = rewriter.create<PermuteOp>(
+              op.getLoc(), newInputType, newInput,
+              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
         }
 
         // If the update index shape is [1] then repeat to num users
@@ -4999,9 +4996,8 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
               newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
               newUpdateIndex.getType().getEncoding());
           auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
-          newUpdateIndex =
-              RepeatOp::create(rewriter, op.getLoc(), newUpdateIndexType,
-                               newUpdateIndex, repeatDims);
+          newUpdateIndex = rewriter.create<RepeatOp>(
+              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
         }
 
         rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(

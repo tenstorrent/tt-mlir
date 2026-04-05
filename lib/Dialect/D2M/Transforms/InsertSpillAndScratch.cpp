@@ -404,9 +404,8 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
   SmallVector<scf::ForOp> shared;
   for (size_t level = 0; level < chainLen; ++level) {
     auto &ref = chains[0].chain[level];
-    auto newLoop =
-        scf::ForOp::create(rewriter, ref.getLoc(), ref.getLowerBound(),
-                           ref.getUpperBound(), ref.getStep());
+    auto newLoop = rewriter.create<scf::ForOp>(
+        ref.getLoc(), ref.getLowerBound(), ref.getUpperBound(), ref.getStep());
     shared.push_back(newLoop);
     rewriter.setInsertionPointToStart(newLoop.getBody());
   }
@@ -629,8 +628,8 @@ private:
 
       // Each intermediate gets a unique slot index. Sizes are inferred from
       // the memref type.
-      auto scratchOp = ScratchAllocateOp::create(
-          rewriter, loc, scratchMemRefType, slotIndex++);
+      auto scratchOp = rewriter.create<ScratchAllocateOp>(
+          loc, scratchMemRefType, slotIndex++);
       Value scratchBuf = scratchOp.getResult();
 
       // Step 5: Update stores in the producer loop.
@@ -642,9 +641,9 @@ private:
         rewriter.setInsertionPoint(storeOp);
         Value storedValue = storeOp.getValue();
 
-        affine::AffineStoreOp::create(rewriter, storeOp.getLoc(), storedValue,
-                                      scratchBuf, producerMap,
-                                      producerOperands);
+        rewriter.create<affine::AffineStoreOp>(storeOp.getLoc(), storedValue,
+                                               scratchBuf, producerMap,
+                                               producerOperands);
 
         rewriter.eraseOp(storeOp);
       }
@@ -664,9 +663,8 @@ private:
         for (auto loadOp : consumerEntry.loads) {
           rewriter.setInsertionPoint(loadOp);
 
-          Value reloaded = affine::AffineLoadOp::create(
-              rewriter, loadOp.getLoc(), scratchBuf, consumerMap,
-              consumerOperands);
+          Value reloaded = rewriter.create<affine::AffineLoadOp>(
+              loadOp.getLoc(), scratchBuf, consumerMap, consumerOperands);
 
           rewriter.replaceOp(loadOp, reloaded);
         }

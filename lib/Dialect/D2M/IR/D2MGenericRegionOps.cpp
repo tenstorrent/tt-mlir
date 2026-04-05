@@ -32,8 +32,8 @@ bufferizeCBOp(OpTy op, mlir::RewriterBase &rewriter,
       mlir::cast<bufferization::TensorLikeType>(op.getCbType())
           .getBufferType(options, [&]() { return op.emitOpError(); });
   assert(succeeded(cbBufferType));
-  auto toBuffer = bufferization::ToBufferOp::create(rewriter, op.getLoc(),
-                                                    *cbBufferType, op.getCb());
+  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
+      op.getLoc(), *cbBufferType, op.getCb());
   mlir::bufferization::replaceOpWithNewBufferizedOp<OpTy>(rewriter, op,
                                                           toBuffer.getResult());
   return mlir::success();
@@ -974,9 +974,9 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
   }
 
   // Create new op with memref operands.
-  auto newOp = ArangeBlockOp::create(rewriter, getLoc(), *maybeIndexTileBuffer,
-                                     *maybeOutputBuffer, getNumElements(),
-                                     getStart(), getStep());
+  auto newOp = rewriter.create<ArangeBlockOp>(
+      getLoc(), *maybeIndexTileBuffer, *maybeOutputBuffer, getNumElements(),
+      getStart(), getStep());
 
   // Replace uses and erase (DPS pattern - result aliases output buffer).
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
@@ -1081,13 +1081,13 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
   RemoteLoadOp newOp;
   if (isHighLevelMcast()) {
     // High-level mcast form: use mcastDims builder
-    newOp = RemoteLoadOp::create(rewriter, getLoc(), resultBufferType,
-                                 *localBufferBuffer, *memrefBuffer,
-                                 getIndices(), getMcastDims());
+    newOp = rewriter.create<RemoteLoadOp>(getLoc(), resultBufferType,
+                                          *localBufferBuffer, *memrefBuffer,
+                                          getIndices(), getMcastDims());
   } else {
     // Low-level mcast form or no mcast: use mcastStartIndex/mcastShape builder
-    newOp = RemoteLoadOp::create(
-        rewriter, getLoc(), resultBufferType, *localBufferBuffer, *memrefBuffer,
+    newOp = rewriter.create<RemoteLoadOp>(
+        getLoc(), resultBufferType, *localBufferBuffer, *memrefBuffer,
         getIndices(), getMcastStartIndex(), getMcastShape());
   }
 
@@ -1095,8 +1095,8 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
   // ops. This ensures that operations like linalg.generic still see tensors
   // until they are bufferized. When they call getBuffer() during bufferization,
   // they'll get the underlying memref (*localBufferBuffer).
-  auto toTensor = bufferization::ToTensorOp::create(
-      rewriter, getLoc(), result.getType(), *localBufferBuffer);
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *localBufferBuffer);
   rewriter.replaceAllUsesWith(result, toTensor.getResult());
   rewriter.eraseOp(*this);
 
@@ -1429,8 +1429,8 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  mlir::tt::d2m::TileTilizeBlockOp::create(rewriter, getLoc(), out.getType(),
-                                           in, out);
+  rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(getLoc(), out.getType(), in,
+                                                    out);
   // DPS-style op: replace uses of result with the output buffer, not the new
   // op's result. This ensures downstream ops correctly use the original buffer
   // allocation.
@@ -1538,8 +1538,8 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
     out = *maybe;
   }
 
-  mlir::tt::d2m::TileUntilizeBlockOp::create(rewriter, getLoc(), out.getType(),
-                                             in, out);
+  rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(getLoc(), out.getType(),
+                                                      in, out);
   // DPS-style op: replace uses of result with the output buffer, not the new
   // op's result. This ensures downstream ops correctly use the original buffer
   // allocation.
@@ -1760,9 +1760,9 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
     colMaskCb = *maybe;
   }
 
-  mlir::tt::d2m::BlockMaskOp::create(rewriter, getLoc(), out.getType(), in, out,
-                                     rowMaskCb, colMaskCb, getLogicalRows(),
-                                     getLogicalCols(), getFillValue());
+  rewriter.create<mlir::tt::d2m::BlockMaskOp>(
+      getLoc(), out.getType(), in, out, rowMaskCb, colMaskCb, getLogicalRows(),
+      getLogicalCols(), getFillValue());
   rewriter.replaceAllUsesWith(getResult(), out);
   rewriter.eraseOp(*this);
   return mlir::success();

@@ -163,8 +163,7 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
   auto dataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
       rewriter.getContext(), outputEncoding.getDataType());
 
-  MatmulOp matmulOp = ttnn::MatmulOp::create(
-      rewriter,
+  MatmulOp matmulOp = rewriter.create<ttnn::MatmulOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
       matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
       srcOp.getTransposeB(), /*matmul_program_config=*/nullptr,
@@ -182,8 +181,7 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
                                            addShape);
   auto addOutputType =
       utils::RankedTensorTypeFactory::create(outputType, addShape);
-  AddOp addOp = ttnn::AddOp::create(
-      rewriter,
+  AddOp addOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
       addOutputType, matmulOp.getResult(), srcOp.getBias(),
       /*dtype=*/dataTypeAttr,

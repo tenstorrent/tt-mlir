@@ -47,8 +47,8 @@ ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern::matchAndRewrite(
       maskType.getShape(), targetShape);
   auto shapeAttr = ShapeAttr::get(rewriter.getContext(), broadcastDims);
 
-  Value broadcastedMask = RepeatOp::create(rewriter, srcOp.getLoc(),
-                                           broadcastType, mask, shapeAttr);
+  Value broadcastedMask =
+      rewriter.create<RepeatOp>(srcOp.getLoc(), broadcastType, mask, shapeAttr);
 
   rewriter.replaceOpWithNewOp<ScaledDotProductAttentionDecodeOp>(
       srcOp, srcOp.getResult().getType(), srcOp.getQuery(), srcOp.getKey(),

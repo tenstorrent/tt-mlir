@@ -177,8 +177,8 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
     auto originalDataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
         constEvalFuncOp.getContext(), deviceTensorLayout.getDataType());
 
-    auto toLayoutOp = ttnn::ToLayoutOp::create(
-        builder, blockArgument.getLoc(), deviceTensorType, blockArgument,
+    auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
+        blockArgument.getLoc(), deviceTensorType, blockArgument,
         deviceTensorLayout.getLayout(), originalDataTypeAttr,
         MemoryConfigAttr::get(deviceTensorLayout, deviceGrid));
 

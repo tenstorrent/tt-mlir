@@ -82,8 +82,7 @@ TTNNScatterWorkarounds::matchAndRewrite(ttnn::ScatterOp op,
     // Slice index tensor for this chunk.
     RankedTensorType chunkIndexType =
         ttnn::utils::RankedTensorTypeFactory::create(indexType, chunkShape);
-    auto chunkIndex = ttnn::SliceStaticOp::create(
-        rewriter,
+    auto chunkIndex = rewriter.create<ttnn::SliceStaticOp>(
         ttmlir::utils::appendLocationSuffix(
             op.getLoc(), "_chunk_" + std::to_string(chunkIdx) + "_index"),
         chunkIndexType, op.getIndex(), rewriter.getI32ArrayAttr(begins),
@@ -97,16 +96,14 @@ TTNNScatterWorkarounds::matchAndRewrite(ttnn::ScatterOp op,
     RankedTensorType chunkSourceType =
         ttnn::utils::RankedTensorTypeFactory::create(sourceType,
                                                      chunkSourceShape);
-    auto chunkSource = ttnn::SliceStaticOp::create(
-        rewriter,
+    auto chunkSource = rewriter.create<ttnn::SliceStaticOp>(
         ttmlir::utils::appendLocationSuffix(
             op.getLoc(), "_chunk_" + std::to_string(chunkIdx) + "_source"),
         chunkSourceType, op.getSource(), rewriter.getI32ArrayAttr(begins),
         rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
 
     // Perform scatter operation for this chunk.
-    auto chunkScatter = ttnn::ScatterOp::create(
-        rewriter,
+    auto chunkScatter = rewriter.create<ttnn::ScatterOp>(
         ttmlir::utils::appendLocationSuffix(
             op.getLoc(), "_chunk_" + std::to_string(chunkIdx) + "_scatter"),
         currentResult.getType(), currentResult, chunkIndex.getResult(),

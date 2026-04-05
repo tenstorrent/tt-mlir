@@ -134,7 +134,6 @@ endif()
 # If there are multiple python env we need to explicitly set the python3 executable
 set(Python3_EXECUTABLE $ENV{TTMLIR_VENV_DIR}/bin/python3)
 
-list(PREPEND CMAKE_PREFIX_PATH $ENV{TTMLIR_TOOLCHAIN_DIR})
 include(FindMLIR)
 include(TTMLIRVersion)
 

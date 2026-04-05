@@ -90,15 +90,15 @@ public:
 
       // Create the global cache dictionary before the function.
       builder.setInsertionPoint(funcOp);
-      ttcore::GlobalOp::create(builder, funcOp.getLoc(),
-                               llvm::StringRef(cacheName), dictType,
-                               /*index=*/IntegerAttr());
+      builder.create<ttcore::GlobalOp>(funcOp.getLoc(),
+                                       llvm::StringRef(cacheName), dictType,
+                                       /*index=*/IntegerAttr());
 
       // Retrieve the cache dictionary at the top of the function body.
       Block &entryBlock = funcOp.getBody().front();
       builder.setInsertionPointToStart(&entryBlock);
-      auto dict = ttcore::GetGlobalOp::create(builder, funcOp.getLoc(),
-                                              dictType, cacheName);
+      auto dict = builder.create<ttcore::GetGlobalOp>(funcOp.getLoc(), dictType,
+                                                      cacheName);
       dict->setDiscardableAttr(kCacheDictAttr, builder.getUnitAttr());
 
       // Create the wrapper function that will encapsulate the complete
@@ -116,17 +116,16 @@ public:
       callArgs.push_back(dict.getResult());
       callArgs.append(forwardBody.getArguments().begin(),
                       forwardBody.getArguments().end());
-      auto cacheDict = func::CallOp::create(builder, funcOp.getLoc(),
-                                            kConstEvalWrapperNamePrefix +
-                                                funcOp.getName().str(),
-                                            TypeRange{dictType}, callArgs);
+      auto cacheDict = builder.create<func::CallOp>(
+          funcOp.getLoc(), kConstEvalWrapperNamePrefix + funcOp.getName().str(),
+          TypeRange{dictType}, callArgs);
 
       // Replace each LoadCachedOp with a dictionary lookup. The results of
       // the LoadCachedOp are stored under one key in the cache dictionary.
       for (auto loadCachedOp : loadCachedOps) {
         builder.setInsertionPointAfter(loadCachedOp);
-        auto getKVOp = ttcore::GetKeyValueOp::create(
-            builder, loadCachedOp.getLoc(), loadCachedOp.getResultTypes(),
+        auto getKVOp = builder.create<ttcore::GetKeyValueOp>(
+            loadCachedOp.getLoc(), loadCachedOp.getResultTypes(),
             cacheDict.getResult(0),
             builder.getStringAttr(loadCachedOp.getCallee()));
         for (unsigned i = 0; i < loadCachedOp->getNumResults(); ++i) {
@@ -163,8 +162,8 @@ public:
     auto wrapperFuncType = builder.getFunctionType(wrapperArgTypes, {dictType});
 
     builder.setInsertionPointAfter(forwardFunc);
-    auto wrapperFunc = func::FuncOp::create(builder, forwardFunc.getLoc(),
-                                            wrapperName, wrapperFuncType);
+    auto wrapperFunc = builder.create<func::FuncOp>(
+        forwardFunc.getLoc(), wrapperName, wrapperFuncType);
     wrapperFunc.addEntryBlock();
     ttmlir::utils::setFunctionType(
         wrapperFunc, ttmlir::utils::FunctionType::ConstEvalWrapper);
@@ -197,16 +196,16 @@ public:
     for (auto loadCachedOp : loadCachedOps) {
       auto *clonedLoadCachedOp = mapping.lookup(loadCachedOp);
       builder.setInsertionPointAfter(clonedLoadCachedOp);
-      ttcore::SetKeyValueOp::create(
-          builder, clonedLoadCachedOp->getLoc(), mapping.lookup(cacheDict),
+      builder.create<ttcore::SetKeyValueOp>(
+          clonedLoadCachedOp->getLoc(), mapping.lookup(cacheDict),
           builder.getStringAttr(loadCachedOp.getCallee()),
           clonedLoadCachedOp->getResults());
     }
 
     // Create the return operation in the wrapper function.
     builder.setInsertionPointToEnd(&wrapperBody);
-    func::ReturnOp::create(builder, forwardFunc.getLoc(),
-                           ValueRange{mapping.lookup(cacheDict)});
+    builder.create<func::ReturnOp>(forwardFunc.getLoc(),
+                                   ValueRange{mapping.lookup(cacheDict)});
 
     return success();
   }

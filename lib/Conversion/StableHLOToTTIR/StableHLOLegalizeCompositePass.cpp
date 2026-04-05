@@ -190,9 +190,9 @@ public:
     }
 
     auto input = adaptor.getOperands()[0];
-    auto topKOp =
-        ttir::TopKOp::create(rewriter, srcOp.getLoc(), valuesType, indicesType,
-                             input, kAttr, dimAttr, largestAttr, sortedAttr);
+    auto topKOp = rewriter.create<ttir::TopKOp>(
+        srcOp.getLoc(), valuesType, indicesType, input, kAttr, dimAttr,
+        largestAttr, sortedAttr);
 
     if (isTopKWithBoth) {
       rewriter.replaceOp(srcOp, {topKOp.getValues(), topKOp.getIndices()});
@@ -511,8 +511,8 @@ public:
       auto resultType =
           mlir::RankedTensorType::get(newShape, currInputType.getElementType(),
                                       currInputType.getEncoding());
-      currInput = ttir::MeshPartitionOp::create(
-          rewriter, srcOp->getLoc(), resultType, currInput,
+      currInput = rewriter.create<ttir::MeshPartitionOp>(
+          srcOp->getLoc(), resultType, currInput,
           rewriter.getSI32IntegerAttr(tensorDims[i]),
           rewriter.getUI32IntegerAttr(clusterAxes[i]));
     }

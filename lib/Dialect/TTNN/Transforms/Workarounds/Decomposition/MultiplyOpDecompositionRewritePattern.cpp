@@ -57,10 +57,9 @@ LogicalResult MultiplyOpDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType lhsPermutedType =
       utils::RankedTensorTypeFactory::create(lhsType, lhsPermutedShape);
 
-  PermuteOp lhsPermuted = ttnn::PermuteOp::create(
-      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_lhs_permute"),
-      lhsPermutedType, lhs, permutationAttr, ttnn::MemoryConfigAttr(),
-      mlir::FloatAttr());
+  PermuteOp lhsPermuted = rewriter.create<ttnn::PermuteOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_lhs_permute"), lhsPermutedType,
+      lhs, permutationAttr, ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 
   // Apply permutation to rhs input
   llvm::SmallVector<int64_t> rhsPermutedShape =
@@ -68,10 +67,9 @@ LogicalResult MultiplyOpDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType rhsPermutedType =
       utils::RankedTensorTypeFactory::create(rhsType, rhsPermutedShape);
 
-  PermuteOp rhsPermuted = ttnn::PermuteOp::create(
-      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_rhs_permute"),
-      rhsPermutedType, rhs, permutationAttr, ttnn::MemoryConfigAttr(),
-      mlir::FloatAttr());
+  PermuteOp rhsPermuted = rewriter.create<ttnn::PermuteOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_rhs_permute"), rhsPermutedType,
+      rhs, permutationAttr, ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 
   // Create the multiply operation on permuted inputs
   llvm::SmallVector<int64_t> permutedOutputShape =
@@ -79,8 +77,8 @@ LogicalResult MultiplyOpDecompositionRewritePattern::matchAndRewrite(
   RankedTensorType permutedOutputType =
       utils::RankedTensorTypeFactory::create(outputType, permutedOutputShape);
 
-  MultiplyOp permutedMultiply = ttnn::MultiplyOp::create(
-      rewriter, loc, permutedOutputType, lhsPermuted.getResult(),
+  MultiplyOp permutedMultiply = rewriter.create<ttnn::MultiplyOp>(
+      loc, permutedOutputType, lhsPermuted.getResult(),
       rhsPermuted.getResult());
 
   // Apply reverse permutation to output (which is the same as forward: (2, 3,

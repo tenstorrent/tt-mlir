@@ -144,7 +144,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRTestToLLVMIRTranslation
     MLIRVCIXToLLVMIRTranslation
     MLIRX86VectorTransforms
-
+  PYTHON_BINDINGS_LIBRARY nanobind
 )
 
 # Create a separate library for PassTracker compiled with -fno-rtti to match MLIR
@@ -211,6 +211,8 @@ if(TTMLIR_ENABLE_STABLEHLO)
     StablehloPythonExtensions
     SdyPythonSources
     SdyPythonExtensions
+    MpmdPythonSources
+    MpmdPythonExtensions
   )
 endif()
 
@@ -222,6 +224,7 @@ add_mlir_python_common_capi_library(TTMLIRPythonCAPI
   DECLARED_SOURCES ${TTMLIR_PYTHON_SOURCES}
 )
 
+
 add_mlir_python_modules(TTMLIRPythonModules
   ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir"
   INSTALL_PREFIX "python_packages/ttmlir"
@@ -229,19 +232,6 @@ add_mlir_python_modules(TTMLIRPythonModules
   COMMON_CAPI_LINK_LIBS
     TTMLIRPythonCAPI
 )
-
-# HACK: Force TTMLIRPythonCAPI to appear before static archives in the link
-# command for _ttmlir.so. This ensures TypeID symbols come from libTTMLIRPythonCAPI.so
-# rather than from embedded static archives, preventing MLIR TypeID uniquer conflicts
-# when the Python extension's nanobind bindings call ttmlir C++ functions directly.
-# Background: --exclude-libs ALL (applied by AddMLIRPython.cmake) makes all static
-# archive symbols LOCAL in _ttmlir.so. If static archive TypeID symbols (e.g.
-# DataTypeAttr::TypeIDResolver::id) are used instead of CAPI's exported instances,
-# the TypeID lookup in the MLIR context uniquer fails with an assertion error.
-if(UNIX AND NOT APPLE)
-  target_link_options(TTMLIRPythonModules.extension._ttmlir.dso BEFORE PRIVATE
-    "$<TARGET_FILE:TTMLIRPythonCAPI>")
-endif()
 
 # HACK: Use flat namespace on macOS to allow RTTI symbols from MLIRPass/LLVMSupport
 # to be found at runtime. This is needed because PassInstrumentation RTTI isn't

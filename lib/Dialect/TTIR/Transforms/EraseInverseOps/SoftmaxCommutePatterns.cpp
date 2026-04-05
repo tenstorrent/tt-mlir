@@ -104,15 +104,15 @@ public:
     SmallVector<int32_t> newReshapeShape(outputReshapeShape.begin(),
                                          outputReshapeShape.end());
 
-    auto newInputReshape = ReshapeOp::create(
-        rewriter, reshapeUser->getLoc(), newInputReshapeType, op.getInput(),
+    auto newInputReshape = rewriter.create<ReshapeOp>(
+        reshapeUser->getLoc(), newInputReshapeType, op.getInput(),
         rewriter.getI32ArrayAttr(newReshapeShape));
 
     auto newSoftmaxDimAttr = rewriter.getSI32IntegerAttr(newSoftmaxDim);
 
     // Create a new Softmax Op with updated dimension attribute
-    auto newSoftmaxOp = SoftmaxOp::create(
-        rewriter, op->getLoc(), outputReshapeType, newInputReshape.getResult(),
+    auto newSoftmaxOp = rewriter.create<SoftmaxOp>(
+        op->getLoc(), outputReshapeType, newInputReshape.getResult(),
         newSoftmaxDimAttr, op.getNumericStableAttr());
 
     // All users must be identical TMs.
@@ -159,8 +159,8 @@ public:
     auto newSoftmaxDimAttr = rewriter.getSI32IntegerAttr(newSoftmaxDim);
 
     // Create new Softmax Op with updated dimension attribute
-    auto newSoftmaxOp = SoftmaxOp::create(
-        rewriter, op->getLoc(), newSoftmaxInputType, reshapeOperand.getInput(),
+    auto newSoftmaxOp = rewriter.create<SoftmaxOp>(
+        op->getLoc(), newSoftmaxInputType, reshapeOperand.getInput(),
         newSoftmaxDimAttr, op.getNumericStableAttr());
 
     // Create new reshape Op
@@ -169,9 +169,9 @@ public:
     auto originalSoftmaxOpShape = originalSoftmaxOpType.getShape();
     SmallVector<int32_t> reshapeTargetShape(originalSoftmaxOpShape.begin(),
                                             originalSoftmaxOpShape.end());
-    auto newReshapeOp = ReshapeOp::create(
-        rewriter, reshapeOperand->getLoc(), op.getType(),
-        newSoftmaxOp.getResult(), rewriter.getI32ArrayAttr(reshapeTargetShape));
+    auto newReshapeOp = rewriter.create<ReshapeOp>(
+        reshapeOperand->getLoc(), op.getType(), newSoftmaxOp.getResult(),
+        rewriter.getI32ArrayAttr(reshapeTargetShape));
 
     rewriter.replaceOp(op, newReshapeOp.getResult());
   }

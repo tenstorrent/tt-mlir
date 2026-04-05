@@ -60,7 +60,7 @@ public:
 
     Value input = broadcastToShape(adaptor.getInput(), resultType.getShape(),
                                    op.getLoc(), rewriter);
-    auto result = TosaOpTy::create(rewriter, op.getLoc(), resultType, input);
+    auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType, input);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -94,8 +94,8 @@ public:
 
     Value input = broadcastToShape(adaptor.getInput(), resultType.getShape(),
                                    loc, rewriter);
-    auto output = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
-                                          resultType.getElementType());
+    auto output = rewriter.create<tensor::EmptyOp>(loc, resultType.getShape(),
+                                                   resultType.getElementType());
     rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultType, ValueRange{input},
                                             output.getResult());
     return success();
@@ -141,15 +141,15 @@ public:
     SmallVector<utils::IteratorType> iteratorTypes(
         rank, utils::IteratorType::parallel);
 
-    auto emptyTensor = tensor::EmptyOp::create(
-        rewriter, loc, resultType.getShape(), resultType.getElementType());
+    auto emptyTensor = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
 
-    auto genericOp = linalg::GenericOp::create(
-        rewriter, loc, resultType, ValueRange{input}, ValueRange{emptyTensor},
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, resultType, ValueRange{input}, ValueRange{emptyTensor},
         SmallVector<AffineMap>{indexingMap, indexingMap}, iteratorTypes,
         [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
           Value result = buildBody(b, nestedLoc, args, resultType);
-          linalg::YieldOp::create(b, nestedLoc, result);
+          b.create<linalg::YieldOp>(nestedLoc, result);
         });
 
     rewriter.replaceOp(op, genericOp.getResult(0));
@@ -174,7 +174,7 @@ public:
 protected:
   Value buildBody(OpBuilder &b, Location loc, ValueRange args,
                   RankedTensorType /*resultType*/) const override {
-    return MathOpTy::create(b, loc, args[0]);
+    return b.create<MathOpTy>(loc, args[0]);
   }
 };
 } // namespace
@@ -210,11 +210,10 @@ public:
     Value one = createTosaConst(rewriter, loc, elemTy, rank, 1.0);
     Value negOne = createTosaConst(rewriter, loc, elemTy, rank, -1.0);
 
-    Value gtZero =
-        tosa::GreaterOp::create(rewriter, loc, boolType, input, zero);
-    Value eqZero = tosa::EqualOp::create(rewriter, loc, boolType, input, zero);
+    Value gtZero = rewriter.create<tosa::GreaterOp>(loc, boolType, input, zero);
+    Value eqZero = rewriter.create<tosa::EqualOp>(loc, boolType, input, zero);
     Value posOrNeg =
-        tosa::SelectOp::create(rewriter, loc, resultType, gtZero, one, negOne);
+        rewriter.create<tosa::SelectOp>(loc, resultType, gtZero, one, negOne);
     rewriter.replaceOpWithNewOp<tosa::SelectOp>(op, resultType, eqZero, zero,
                                                 posOrNeg);
     return success();
@@ -238,13 +237,13 @@ protected:
     // isfinite(x) = (x - x) == 0.
     // If x is NaN, x - x is NaN and OEQ returns false.
     // If x is Inf, x - x is NaN and OEQ returns false.
-    Value diff = arith::SubFOp::create(b, loc, elem, elem);
+    Value diff = b.create<arith::SubFOp>(loc, elem, elem);
     Value zero =
-        arith::ConstantOp::create(b, loc, b.getFloatAttr(elem.getType(), 0.0));
+        b.create<arith::ConstantOp>(loc, b.getFloatAttr(elem.getType(), 0.0));
     Value isFinite =
-        arith::CmpFOp::create(b, loc, arith::CmpFPredicate::OEQ, diff, zero);
-    return arith::UIToFPOp::create(b, loc, resultType.getElementType(),
-                                   isFinite);
+        b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OEQ, diff, zero);
+    return b.create<arith::UIToFPOp>(loc, resultType.getElementType(),
+                                     isFinite);
   }
 };
 } // namespace
@@ -282,12 +281,12 @@ public:
     Value invSqrt2 = createTosaConst(rewriter, loc, elemTy, rank, kInvSqrt2);
 
     Value xScaled =
-        tosa::MulOp::create(rewriter, loc, resultType, input, invSqrt2, shift);
-    Value erfVal = tosa::ErfOp::create(rewriter, loc, resultType, xScaled);
+        rewriter.create<tosa::MulOp>(loc, resultType, input, invSqrt2, shift);
+    Value erfVal = rewriter.create<tosa::ErfOp>(loc, resultType, xScaled);
     Value onePlusErf =
-        tosa::AddOp::create(rewriter, loc, resultType, one, erfVal);
+        rewriter.create<tosa::AddOp>(loc, resultType, one, erfVal);
     Value halfX =
-        tosa::MulOp::create(rewriter, loc, resultType, half, input, shift);
+        rewriter.create<tosa::MulOp>(loc, resultType, half, input, shift);
     rewriter.replaceOpWithNewOp<tosa::MulOp>(op, resultType, halfX, onePlusErf,
                                              shift);
     return success();
@@ -319,7 +318,7 @@ public:
     input = broadcastToShape(input, resultType.getShape(), loc, rewriter);
     Value shift = createTosaMulShift(rewriter, loc);
 
-    Value sigm = tosa::SigmoidOp::create(rewriter, loc, resultType, input);
+    Value sigm = rewriter.create<tosa::SigmoidOp>(loc, resultType, input);
     rewriter.replaceOpWithNewOp<tosa::MulOp>(op, resultType, input, sigm,
                                              shift);
     return success();
@@ -360,9 +359,9 @@ public:
     Value zero = createTosaConst(rewriter, loc, elemTy, rank, 0.0);
     Value alphaC = createTosaConst(rewriter, loc, elemTy, rank, alpha);
     Value scaled =
-        tosa::MulOp::create(rewriter, loc, resultType, alphaC, input, shift);
+        rewriter.create<tosa::MulOp>(loc, resultType, alphaC, input, shift);
     Value positive =
-        tosa::GreaterOp::create(rewriter, loc, boolType, input, zero);
+        rewriter.create<tosa::GreaterOp>(loc, boolType, input, zero);
     rewriter.replaceOpWithNewOp<tosa::SelectOp>(op, resultType, positive, input,
                                                 scaled);
     return success();
@@ -400,9 +399,9 @@ public:
     Value three = createTosaConst(rewriter, loc, elemTy, rank, 3.0);
     Value sixth = createTosaConst(rewriter, loc, elemTy, rank, 1.0 / 6.0);
 
-    Value xPlus3 = tosa::AddOp::create(rewriter, loc, resultType, input, three);
+    Value xPlus3 = rewriter.create<tosa::AddOp>(loc, resultType, input, three);
     Value scaled =
-        tosa::MulOp::create(rewriter, loc, resultType, xPlus3, sixth, shift);
+        rewriter.create<tosa::MulOp>(loc, resultType, xPlus3, sixth, shift);
     rewriter.replaceOpWithNewOp<tosa::ClampOp>(
         op, resultType, scaled, rewriter.getFloatAttr(elemTy, 0.0),
         rewriter.getFloatAttr(elemTy, 1.0));
@@ -442,18 +441,18 @@ public:
     Value one = createTosaConst(rewriter, loc, elemTy, rank, 1.0);
 
     // softplus(x) = max(x, 0) + log(1 + exp(-|x|)).
-    Value absX = tosa::AbsOp::create(rewriter, loc, resultType, input);
-    Value negAbsX = tosa::NegateOp::create(rewriter, loc, resultType, absX);
-    Value expNegAbsX = tosa::ExpOp::create(rewriter, loc, resultType, negAbsX);
+    Value absX = rewriter.create<tosa::AbsOp>(loc, resultType, input);
+    Value negAbsX = rewriter.create<tosa::NegateOp>(loc, resultType, absX);
+    Value expNegAbsX = rewriter.create<tosa::ExpOp>(loc, resultType, negAbsX);
     Value onePlusExp =
-        tosa::AddOp::create(rewriter, loc, resultType, one, expNegAbsX);
-    Value logPart = tosa::LogOp::create(rewriter, loc, resultType, onePlusExp);
+        rewriter.create<tosa::AddOp>(loc, resultType, one, expNegAbsX);
+    Value logPart = rewriter.create<tosa::LogOp>(loc, resultType, onePlusExp);
     Value maxXZero =
-        tosa::MaximumOp::create(rewriter, loc, resultType, input, zero);
+        rewriter.create<tosa::MaximumOp>(loc, resultType, input, zero);
     Value softplus =
-        tosa::AddOp::create(rewriter, loc, resultType, maxXZero, logPart);
+        rewriter.create<tosa::AddOp>(loc, resultType, maxXZero, logPart);
 
-    Value tanhSP = tosa::TanhOp::create(rewriter, loc, resultType, softplus);
+    Value tanhSP = rewriter.create<tosa::TanhOp>(loc, resultType, softplus);
     rewriter.replaceOpWithNewOp<tosa::MulOp>(op, resultType, input, tanhSP,
                                              shift);
     return success();
@@ -494,10 +493,10 @@ public:
 
     // Apply logical not to the boolean tensor.
     auto notResult =
-        tosa::LogicalNotOp::create(rewriter, loc, boolType, boolInput);
+        rewriter.create<tosa::LogicalNotOp>(loc, boolType, boolInput);
 
     // Convert boolean result back to original type using cast.
-    auto result = tosa::CastOp::create(rewriter, loc, resultType, notResult);
+    auto result = rewriter.create<tosa::CastOp>(loc, resultType, notResult);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -530,11 +529,10 @@ public:
           op, "Unsupported element type for ReLU zero constant");
     }
 
-    auto zeroes =
-        arith::ConstantOp::create(rewriter, loc, resultType, zeroAttr);
+    auto zeroes = rewriter.create<arith::ConstantOp>(loc, resultType, zeroAttr);
 
-    auto output = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
-                                          resultType.getElementType());
+    auto output = rewriter.create<tensor::EmptyOp>(loc, resultType.getShape(),
+                                                   resultType.getElementType());
     rewriter.replaceOpWithNewOp<linalg::MaxOp>(
         op, resultType, ValueRange{input, zeroes.getResult()},
         ValueRange{output});
