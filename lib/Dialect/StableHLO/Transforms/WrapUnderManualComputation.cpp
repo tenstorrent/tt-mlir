@@ -32,10 +32,9 @@ static mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   mlir::Block &entryBlock = funcOp.getBody().front();
   builder.setInsertionPointToStart(&entryBlock);
   mlir::sdy::ManualComputationOp manualComputationOp =
-      mlir::sdy::ManualComputationOp::create(
-          builder, builder.getUnknownLoc(), funcType.getResults(),
-          funcOp.getArguments(), inShardings, outShardings,
-          llvm::SmallVector<mlir::StringAttr>());
+      builder.create<mlir::sdy::ManualComputationOp>(
+          builder.getUnknownLoc(), funcType.getResults(), funcOp.getArguments(),
+          inShardings, outShardings, llvm::SmallVector<mlir::StringAttr>());
 
   // Determine the argumentTypes and argumentLocations that need to get
   // added to the new region in manualComputationOp.
@@ -71,8 +70,8 @@ static mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
   // Create a new func.ReturnOp in the original func.funcOp that takes the
   // manualComputationOp as it's operand.
   builder.setInsertionPointAfter(manualComputationOp);
-  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
-                               manualComputationOp->getResults());
+  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                       manualComputationOp->getResults());
 
   // Update old arguments with new arguments inside of the
   // manualComputationBlock.
@@ -99,8 +98,8 @@ static mlir::LogicalResult wrapFunctionBodyInManualComputationOp(
 
     mlir::func::ReturnOp returnOp = mlir::cast<mlir::func::ReturnOp>(op);
     builder.setInsertionPoint(returnOp);
-    mlir::sdy::ReturnOp::create(builder, builder.getUnknownLoc(),
-                                returnOp->getOperands());
+    builder.create<mlir::sdy::ReturnOp>(builder.getUnknownLoc(),
+                                        returnOp->getOperands());
     returnOp->erase();
   }
 

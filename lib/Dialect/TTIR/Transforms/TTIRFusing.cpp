@@ -51,8 +51,7 @@ public:
     //  We can do it like this because we already checked that bias has valid
     //  shape.
     if (convOp.getBias()) {
-      bias = AddOp::create(
-          rewriter,
+      bias = rewriter.create<AddOp>(
           ttmlir::utils::appendLocationSuffix(bias.getLoc(), "_bias_add"),
           mlir::cast<RankedTensorType>(bias.getType()), convOp.getBias(), bias);
     }
@@ -523,7 +522,7 @@ public:
     }
 
     auto hardsigmoidOp =
-        HardsigmoidOp::create(rewriter, divOp.getLoc(), input.getType(), input);
+        rewriter.create<HardsigmoidOp>(divOp.getLoc(), input.getType(), input);
 
     rewriter.replaceAllOpUsesWith(divOp, hardsigmoidOp);
 
@@ -578,13 +577,13 @@ public:
     auto inputType = sigmoidInput.getType();
     auto outputType = multiplyOp.getResult().getType();
     auto siluOp =
-        SiluOp::create(rewriter, multiplyOp->getLoc(), inputType, otherOperand);
+        rewriter.create<SiluOp>(multiplyOp->getLoc(), inputType, otherOperand);
 
     // If multiply inputs and output are typecasted, we need to add a typecast
     // after silu to convert back to the multiply output type.
     if (inputType != outputType) {
-      auto typecastOp = TypecastOp::create(rewriter, multiplyOp->getLoc(),
-                                           outputType, siluOp.getResult());
+      auto typecastOp = rewriter.create<TypecastOp>(
+          multiplyOp->getLoc(), outputType, siluOp.getResult());
       rewriter.replaceAllOpUsesWith(multiplyOp, typecastOp);
     } else {
       rewriter.replaceAllOpUsesWith(multiplyOp, siluOp);
@@ -670,13 +669,13 @@ public:
     auto inputType = originalInput.getType();
     auto outputType = multiplyOp.getResult().getType();
     auto mishOp =
-        MishOp::create(rewriter, multiplyOp.getLoc(), inputType, originalInput);
+        rewriter.create<MishOp>(multiplyOp.getLoc(), inputType, originalInput);
 
     // If multiply inputs and output are typecasted, we need to add a typecast
     // after mish to convert it back to the original multiply Op's output type.
     if (inputType != outputType) {
-      auto typecastOp = TypecastOp::create(rewriter, multiplyOp->getLoc(),
-                                           outputType, mishOp.getResult());
+      auto typecastOp = rewriter.create<TypecastOp>(
+          multiplyOp->getLoc(), outputType, mishOp.getResult());
       rewriter.replaceOp(multiplyOp, typecastOp.getResult());
     } else {
       rewriter.replaceOp(multiplyOp, mishOp.getResult());
@@ -926,8 +925,8 @@ private:
     llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
 
     // Create the reshape operation.
-    auto reshapedScale = ttir::ReshapeOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+    auto reshapedScale = rewriter.create<ttir::ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
         RankedTensorType::get(newShape, scaleType.getElementType(),
                               scaleType.getEncoding()),
         reshapeInput, rewriter.getI32ArrayAttr(newShapeI32));
@@ -942,8 +941,8 @@ private:
     SmallVector<int64_t> broadcastDims =
         ttmlir::utils::getBroadcastDimensions<int64_t>(
             reshapedScale.getType().getShape(), weightType.getShape());
-    return ttir::BroadcastOp::create(rewriter, scaleValue.getLoc(), weightType,
-                                     reshapedScale, broadcastDims);
+    return rewriter.create<ttir::BroadcastOp>(scaleValue.getLoc(), weightType,
+                                              reshapedScale, broadcastDims);
   }
 
   /// Create pre-multiplied weights.
@@ -951,8 +950,8 @@ private:
                                    Location loc, Value weightValue,
                                    Value reshapedScale) {
     // Create a multiplication of the weights by the reshaped scale.
-    return MultiplyOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_multiply"),
+    return rewriter.create<MultiplyOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_multiply"),
         mlir::cast<RankedTensorType>(weightValue.getType()), weightValue,
         reshapedScale);
   }
@@ -961,11 +960,11 @@ private:
                                 Value biasValue, ConvOpType convOp,
                                 Value scaleValue) {
     // Create a multiplication of the bias by the scale.
-    return MultiplyOp::create(rewriter,
-                              ttmlir::utils::appendLocationSuffix(
-                                  biasValue.getLoc(), "_bias_multiply"),
-                              mlir::cast<RankedTensorType>(biasValue.getType()),
-                              biasValue, scaleValue);
+    return rewriter.create<MultiplyOp>(
+        ttmlir::utils::appendLocationSuffix(biasValue.getLoc(),
+                                            "_bias_multiply"),
+        mlir::cast<RankedTensorType>(biasValue.getType()), biasValue,
+        scaleValue);
   }
 };
 
@@ -1074,27 +1073,26 @@ public:
                               variance.getType().getEncoding());
 
     // Convert epsilon to a tensor
-    auto epsilonTensor =
-        FullOp::create(rewriter, loc, scalarType,
-                       rewriter.getF32FloatAttr(epsilon.convertToFloat()));
+    auto epsilonTensor = rewriter.create<FullOp>(
+        loc, scalarType, rewriter.getF32FloatAttr(epsilon.convertToFloat()));
 
     // variance + epsilon
-    auto variancePlusEpsilon = AddOp::create(rewriter, loc, variance.getType(),
-                                             variance, epsilonTensor);
+    auto variancePlusEpsilon = rewriter.create<AddOp>(loc, variance.getType(),
+                                                      variance, epsilonTensor);
 
     // std = sqrt(variance + epsilon)
     auto std =
-        SqrtOp::create(rewriter, loc, variance.getType(), variancePlusEpsilon);
+        rewriter.create<SqrtOp>(loc, variance.getType(), variancePlusEpsilon);
     // alpha = scale / std
-    auto alpha = DivOp::create(rewriter, loc, scale.getType(), scale, std);
+    auto alpha = rewriter.create<DivOp>(loc, scale.getType(), scale, std);
 
     // alphaMean = alpha * mean
     auto alphaMean =
-        MultiplyOp::create(rewriter, loc, mean.getType(), mean, alpha);
+        rewriter.create<MultiplyOp>(loc, mean.getType(), mean, alpha);
 
     // beta = offset - alphaMean
     auto beta =
-        SubtractOp::create(rewriter, loc, offset.getType(), offset, alphaMean);
+        rewriter.create<SubtractOp>(loc, offset.getType(), offset, alphaMean);
 
     // Reshape alpha and beta along the specified dimension to match the input
     // shape: for dimension = 3 and input shape (N, H, W, C), reshape from (C)
@@ -1109,8 +1107,8 @@ public:
       reshapeShape[dimension] = alpha.getType().getShape()[0];
       SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
                                            reshapeShape.end());
-      alphaReshaped = ReshapeOp::create(
-          rewriter, loc,
+      alphaReshaped = rewriter.create<ReshapeOp>(
+          loc,
           RankedTensorType::get(reshapeShape, alpha.getType().getElementType(),
                                 alpha.getType().getEncoding()),
           alpha, rewriter.getI32ArrayAttr(reshapeShapeI32));
@@ -1121,19 +1119,18 @@ public:
       reshapeShape[dimension] = beta.getType().getShape()[0];
       SmallVector<int32_t> reshapeShapeI32(reshapeShape.begin(),
                                            reshapeShape.end());
-      betaReshaped = ReshapeOp::create(
-          rewriter, loc,
+      betaReshaped = rewriter.create<ReshapeOp>(
+          loc,
           RankedTensorType::get(reshapeShape, beta.getType().getElementType(),
                                 beta.getType().getEncoding()),
           beta, rewriter.getI32ArrayAttr(reshapeShapeI32));
     }
 
     // alpha * x
-    auto scaled = MultiplyOp::create(rewriter, loc, input.getType(), input,
-                                     alphaReshaped);
+    auto scaled =
+        rewriter.create<MultiplyOp>(loc, input.getType(), input, alphaReshaped);
     // alpha * x + beta
-    auto result =
-        AddOp::create(rewriter, loc, resultType, scaled, betaReshaped);
+    auto result = rewriter.create<AddOp>(loc, resultType, scaled, betaReshaped);
 
     rewriter.replaceOp(batchNormOp, result);
 
@@ -1259,8 +1256,8 @@ private:
 
     // Pad the 1x1 weight to 3x3 by adding zeros around it
     SmallVector<int32_t> paddingValues = {0, 0, 0, 0, 1, 1, 1, 1};
-    return PadOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_pad"),
+    return rewriter.create<PadOp>(
+        ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_pad"),
         weight3x3Type, weight1x1, rewriter.getDenseI32ArrayAttr(paddingValues),
         rewriter.getF32FloatAttr(0.0));
   }
@@ -1276,8 +1273,7 @@ private:
     // Move additional weight UD chain before conv to ensure it is before addOp.
     utils::moveUDChainBefore(additionalWeight, conv);
 
-    auto combinedWeight = AddOp::create(
-        rewriter,
+    auto combinedWeight = rewriter.create<AddOp>(
         ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_weight_add"),
         existingWeight.getType(), additionalWeight, existingWeight);
     rewriter.modifyOpInPlace(
@@ -1297,8 +1293,7 @@ private:
       // Move bias2 UD chain before conv1 to ensure it is before addOp.
       utils::moveUDChainBefore(bias2, conv1);
 
-      auto combinedBias = AddOp::create(
-          rewriter,
+      auto combinedBias = rewriter.create<AddOp>(
           ttmlir::utils::appendLocationSuffix(conv1.getLoc(), "_bias_add"),
           bias1.getType(), bias1, bias2);
       rewriter.modifyOpInPlace(
@@ -1352,8 +1347,8 @@ public:
       auto scalarType = bias.getType();
       auto reshapedType = RankedTensorType::get(
           {1}, scalarType.getElementType(), scalarType.getEncoding());
-      bias = ttir::ReshapeOp::create(rewriter, bias.getLoc(), reshapedType,
-                                     bias, rewriter.getI32ArrayAttr({1}));
+      bias = rewriter.create<ttir::ReshapeOp>(bias.getLoc(), reshapedType, bias,
+                                              rewriter.getI32ArrayAttr({1}));
     }
 
     ArrayRef<int64_t> biasShape = bias.getType().getShape();
@@ -1382,19 +1377,18 @@ public:
         broadcastShape, matmulOp.getType().getElementType(),
         matmulOp.getType().getEncoding());
 
-    LinearOp linearOp = ttir::LinearOp::create(
-        rewriter, addOp.getLoc(), linearOutputType, matmulOp.getA(),
-        matmulOp.getB(), bias, matmulOp.getTransposeA(),
-        matmulOp.getTransposeB());
+    LinearOp linearOp = rewriter.create<ttir::LinearOp>(
+        addOp.getLoc(), linearOutputType, matmulOp.getA(), matmulOp.getB(),
+        bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
     Value result = linearOp.getResult();
 
     if (!llvm::equal(broadcastShape, addOutputShape)) {
       llvm::SmallVector<int32_t> addShapeI32(addOutputShape.begin(),
                                              addOutputShape.end());
-      result = ttir::ReshapeOp::create(rewriter, addOp.getLoc(),
-                                       addOp.getType(), result,
-                                       rewriter.getI32ArrayAttr(addShapeI32));
+      result = rewriter.create<ttir::ReshapeOp>(
+          addOp.getLoc(), addOp.getType(), result,
+          rewriter.getI32ArrayAttr(addShapeI32));
     }
 
     rewriter.replaceOp(addOp, result);
@@ -1629,16 +1623,16 @@ private:
                               rootOutputType.getEncoding());
 
     if constexpr (std::is_same_v<OpType, MatmulOp>) {
-      auto fusedMatmul = MatmulOp::create(
-          rewriter, rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS,
+      auto fusedMatmul = rewriter.create<MatmulOp>(
+          rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS,
           rootOp.getTransposeA(), candidates.getTargetTransposeB());
       return fusedMatmul.getResult();
     } else {
       Value fusedBias =
           createConcatenatedBias(rewriter, rootOp.getLoc(), candidates);
-      auto fusedLinear = LinearOp::create(
-          rewriter, rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS,
-          fusedBias, rootOp.getTransposeA(), candidates.getTargetTransposeB());
+      auto fusedLinear = rewriter.create<LinearOp>(
+          rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS, fusedBias,
+          rootOp.getTransposeA(), candidates.getTargetTransposeB());
       return fusedLinear.getResult();
     }
   }
@@ -1660,7 +1654,7 @@ private:
     auto permutedType = RankedTensorType::get(
         permutedShape, inputType.getElementType(), inputType.getEncoding());
 
-    return PermuteOp::create(rewriter, loc, permutedType, input, permutation);
+    return rewriter.create<PermuteOp>(loc, permutedType, input, permutation);
   }
 
   // Prepare RHS operands (inserting permutes if needed) and concatenate them.
@@ -1695,8 +1689,9 @@ private:
         RankedTensorType::get(concatShape, normalizedRhsType.getElementType(),
                               normalizedRhsType.getEncoding());
 
-    return ConcatOp::create(rewriter, loc, concatRhsType, rhsOperands,
-                            rewriter.getSI32IntegerAttr(weightConcatDim));
+    return rewriter.create<ConcatOp>(
+        loc, concatRhsType, rhsOperands,
+        rewriter.getSI32IntegerAttr(weightConcatDim));
   }
 
   // Concatenate biases for LinearOp fusion.
@@ -1728,8 +1723,8 @@ private:
                               firstBiasType.getEncoding());
 
     int64_t concatDim = firstBiasType.getRank() - 1;
-    return ConcatOp::create(rewriter, loc, concatType, biases,
-                            rewriter.getSI32IntegerAttr(concatDim));
+    return rewriter.create<ConcatOp>(loc, concatType, biases,
+                                     rewriter.getSI32IntegerAttr(concatDim));
   }
 
   // Collect all ops that share the same LHS operand and are compatible
@@ -1824,8 +1819,8 @@ private:
       begins[outputFusedDim] = static_cast<int32_t>(currentOffset);
       ends[outputFusedDim] = static_cast<int32_t>(currentOffset + sliceSize);
 
-      auto sliceOp = SliceStaticOp::create(
-          rewriter, candidate.getLoc(), originalType, fusedResult,
+      auto sliceOp = rewriter.create<SliceStaticOp>(
+          candidate.getLoc(), originalType, fusedResult,
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
           rewriter.getI32ArrayAttr(steps));
 
@@ -1949,8 +1944,8 @@ private:
 
     auto loc = sumOp.getLoc();
 
-    auto meanOp = MeanOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+    auto meanOp = rewriter.create<MeanOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
         sumOp.getInput(),
         /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
         /*dim_arg=*/reduceDims);
@@ -2074,9 +2069,9 @@ private:
     SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
     auto outputType = RankedTensorType::get(
         newShape, inputType.getElementType(), inputType.getEncoding());
-    return ReshapeOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_input_reshape"),
-        outputType, input, rewriter.getI32ArrayAttr(newShapeI32));
+    return rewriter.create<ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_input_reshape"), outputType,
+        input, rewriter.getI32ArrayAttr(newShapeI32));
   }
 
   static MeanOp createMean(mlir::PatternRewriter &rewriter, Location loc,
@@ -2090,9 +2085,8 @@ private:
     auto outputType = RankedTensorType::get(
         outputShape, reshapedType.getElementType(), reshapedType.getEncoding());
 
-    return MeanOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
-        reshaped,
+    return rewriter.create<MeanOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType, reshaped,
         /*keep_dim=*/rewriter.getBoolAttr(true),
         /*dim_arg=*/
         rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
@@ -2114,9 +2108,9 @@ private:
     SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
     auto outputType = RankedTensorType::get(newShape, meanType.getElementType(),
                                             meanType.getEncoding());
-    return ReshapeOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_output_reshape"),
-        outputType, meanResult, rewriter.getI32ArrayAttr(newShapeI32));
+    return rewriter.create<ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_output_reshape"), outputType,
+        meanResult, rewriter.getI32ArrayAttr(newShapeI32));
   }
 };
 
@@ -2149,8 +2143,8 @@ public:
       // input shape: [batch_size, num_heads, sequence_size, head_size]
       // output shape: [batch_size, sequence_size, num_heads * head_size
       // (hidden)].
-      Value concatHeadsOp = ConcatenateHeadsOp::create(
-          rewriter, reshapeOp.getLoc(), reshapeResultType, inputTensor);
+      Value concatHeadsOp = rewriter.create<ConcatenateHeadsOp>(
+          reshapeOp.getLoc(), reshapeResultType, inputTensor);
       rewriter.replaceOp(reshapeOp, concatHeadsOp);
       return mlir::success();
     }
@@ -2174,8 +2168,8 @@ public:
           newReshapeShape, reshapeResultType.getElementType());
 
       // Create ConcatenateHeadsOp with the new shape.
-      Value concatHeadsOp = ConcatenateHeadsOp::create(
-          rewriter, reshapeOp.getLoc(), newReshapeType, inputTensor);
+      Value concatHeadsOp = rewriter.create<ConcatenateHeadsOp>(
+          reshapeOp.getLoc(), newReshapeType, inputTensor);
 
       rewriter.modifyOpInPlace(reshapeOp, [&]() {
         reshapeOp.getInputMutable().assign(concatHeadsOp);
@@ -2799,8 +2793,9 @@ public:
           normalizedShape, gammaType.getElementType(), gammaType.getEncoding());
       llvm::SmallVector<int32_t> targetShape(normalizedShape.begin(),
                                              normalizedShape.end());
-      gamma = ReshapeOp::create(rewriter, outerMul.getLoc(), reshapedGammaType,
-                                gamma, rewriter.getI32ArrayAttr(targetShape));
+      gamma = rewriter.create<ReshapeOp>(outerMul.getLoc(), reshapedGammaType,
+                                         gamma,
+                                         rewriter.getI32ArrayAttr(targetShape));
     }
 
     // Although the op can work with different dtypes, this is
@@ -2814,8 +2809,8 @@ public:
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
                               inputType.getEncoding());
-    auto rmsNorm = RMSNormOp::create(
-        rewriter, outerMul.getLoc(), rmsNormOutputType, x, gamma,
+    auto rmsNorm = rewriter.create<RMSNormOp>(
+        outerMul.getLoc(), rmsNormOutputType, x, gamma,
         /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
 

@@ -906,8 +906,8 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
   RankedTensorType resultType = RankedTensorType::get(
       currentResultType.getShape(), scalarElementType, targetLayout);
 
-  return ToLayoutOp::create(
-      builder, loc, resultType, inputValue,
+  return builder.create<ToLayoutOp>(
+      loc, resultType, inputValue,
       LayoutAttr::get(builder.getContext(), targetLayout.getLayout()),
       ttcore::DataTypeAttr::get(builder.getContext(),
                                 targetLayout.getDataType()),

@@ -441,8 +441,7 @@ public:
       auto paddedType =
           ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedShape);
 
-      reduceScatterInput = ttnn::PadOp::create(
-          rewriter,
+      reduceScatterInput = rewriter.create<ttnn::PadOp>(
           ttmlir::utils::appendLocationSuffix(loc, "_pad_for_reduce_scatter"),
           paddedType, op.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
           /*use_multicore=*/false,
@@ -464,16 +463,18 @@ public:
         reduceScatterInputType, reduceScatterShape);
 
     // Create a new reducer scatter op.
-    ttnn::ReduceScatterOp reduceScatterOp = ttnn::ReduceScatterOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
-        reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
-        selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr, nullptr);
+    ttnn::ReduceScatterOp reduceScatterOp =
+        rewriter.create<ttnn::ReduceScatterOp>(
+            ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
+            reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
+            selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr,
+            nullptr);
 
     // all_gather restores the reduce_scatter input shape.
     auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
         reduceScatterInputType, reduceScatterInputType.getShape());
-    ttnn::AllGatherOp allGatherOp = ttnn::AllGatherOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
         allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
         clusterAxis, nullptr /*sub_device_id*/, nullptr /*memory_config*/,
         nullptr /*num_links*/, nullptr /*topology*/);
@@ -483,8 +484,7 @@ public:
       llvm::SmallVector<int32_t> begins(inputShape.size(), 0);
       llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
       llvm::SmallVector<int32_t> steps(inputShape.size(), 1);
-      auto sliceOp = ttnn::SliceStaticOp::create(
-          rewriter,
+      auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
           ttmlir::utils::appendLocationSuffix(loc,
                                               "_slice_for_reduce_scatter_pad"),
           op.getType(), allGatherOp.getResult(),
@@ -518,9 +518,9 @@ private:
         ttnn::utils::RankedTensorTypeFactory::create(inputType,
                                                      expandedInputShape);
 
-    ttnn::ReshapeOp leadingReshapeOp = ttnn::ReshapeOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
-        reshapedInputType, op.getInput(), reshapedInputShapeAttr,
+    ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
+        op.getInput(), reshapedInputShapeAttr,
         /* memory_config */ nullptr);
 
     // Create a new all gather op.
@@ -528,8 +528,8 @@ private:
     RankedTensorType allGatherOutputType =
         ttnn::utils::RankedTensorTypeFactory::create(reshapedInputType,
                                                      expandedInputShape);
-    ttnn::AllGatherOp allGatherOp = ttnn::AllGatherOp::create(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
         allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
         nullptr /*sub_device_id*/, nullptr /*memory_config*/,
         nullptr /*num_links*/, nullptr /*topology*/);

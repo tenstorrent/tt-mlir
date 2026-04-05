@@ -5,7 +5,6 @@
 # RUN: %python %s | FileCheck %s
 # REQUIRES: ttnn-jit
 
-import ttmlir.ir  # Ensure ttmlir is loaded before ttnn_jit to avoid TypeID conflicts
 import ttnn_jit
 import ttnn
 import torch

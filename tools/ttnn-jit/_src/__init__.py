@@ -22,7 +22,4 @@ from ttnn_jit._ttmlir_runtime.utils import (
     get_lowest_occupied_compute_l1_address,
     get_l1_size_per_core,
 )
-
-# Import ttmlir.ir before _ttnn_jit to ensure MLIR TypeIDs are initialized correctly
-import ttmlir.ir
 from ttnn_jit._ttnn_jit import JitCache

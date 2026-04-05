@@ -52,8 +52,8 @@ ArgMaxOpDimRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
       utils::RankedTensorTypeFactory::create(inputType, permutedShape);
 
   // Forward permute: move reduction dim to last position.
-  auto forwardPermute = ttnn::PermuteOp::create(
-      rewriter, ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
+  auto forwardPermute = rewriter.create<ttnn::PermuteOp>(
+      ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
       permutedInputType, srcOp.getInput(),
       rewriter.getDenseI64ArrayAttr(permutation),
       /*memory_config=*/ttnn::MemoryConfigAttr(),
@@ -87,9 +87,9 @@ ArgMaxOpDimRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
   // Create argmax on last dim of permuted tensor.
   mlir::IntegerAttr lastDimAttr = mlir::IntegerAttr::get(
       mlir::IntegerType::get(getContext(), 32), rank - 1);
-  auto argMaxOp = ttnn::ArgMaxOp::create(
-      rewriter, srcOp->getLoc(), permutedOutputType, forwardPermute,
-      lastDimAttr, srcOp.getKeepDimAttr(), srcOp.getUseMulticoreAttr(),
+  auto argMaxOp = rewriter.create<ttnn::ArgMaxOp>(
+      srcOp->getLoc(), permutedOutputType, forwardPermute, lastDimAttr,
+      srcOp.getKeepDimAttr(), srcOp.getUseMulticoreAttr(),
       srcOp.getMemoryConfigAttr());
 
   // Inverse permute to restore original dimension order.

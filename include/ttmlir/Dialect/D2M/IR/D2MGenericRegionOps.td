@@ -1961,7 +1961,7 @@ class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<m
         return this->emitOpError();
       });
       assert(succeeded(cbBufferType));
-      auto toBuffer = bufferization::ToBufferOp::create(rewriter,
+      auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
           this->getLoc(), *cbBufferType, getCb());
       mlir::bufferization::replaceOpWithNewBufferizedOp<$cppClass>(
           rewriter, *this, toBuffer.getResult());

@@ -11,7 +11,6 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
-#include "llvm/ADT/StringMap.h"
 
 namespace mlir::tt::ttnn {
 

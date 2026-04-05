@@ -337,7 +337,7 @@ public:
                                                               output);
     // Insert global barrier to ensure the read completes before subsequent
     // ops use it.
-    ttmetal::FinishOp::create(rewriter, op->getLoc());
+    rewriter.create<ttmetal::FinishOp>(op->getLoc());
     return success();
   }
 };

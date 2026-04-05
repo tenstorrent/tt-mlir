@@ -35,12 +35,12 @@ public:
       auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
 
       auto negInput =
-          NegOp::create(rewriter, op.getLoc(), inputType, op.getInput());
+          rewriter.create<NegOp>(op.getLoc(), inputType, op.getInput());
       auto maxOp =
-          MaxOp::create(rewriter, op.getLoc(), resultType, negInput.getResult(),
-                        op.getKeepDimAttr(), op.getDimArgAttr());
+          rewriter.create<MaxOp>(op.getLoc(), resultType, negInput.getResult(),
+                                 op.getKeepDimAttr(), op.getDimArgAttr());
       auto negResult =
-          NegOp::create(rewriter, op.getLoc(), resultType, maxOp.getResult());
+          rewriter.create<NegOp>(op.getLoc(), resultType, maxOp.getResult());
       rewriter.replaceOp(op, negResult);
     }
   }

@@ -132,9 +132,9 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
                                   layoutAttr.getBufferType()),
               utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
           Location loc = mainFunc.getLoc();
-          ToLayoutOp toLayoutOp = ToLayoutOp::create(
-              builder, loc, newTensorType, currentResultValue, newLayout,
-              dataType, memConfigAttr);
+          ToLayoutOp toLayoutOp =
+              builder.create<ToLayoutOp>(loc, newTensorType, currentResultValue,
+                                         newLayout, dataType, memConfigAttr);
           returnOp.setOperand(0, toLayoutOp.getResult());
         }
       }
@@ -922,8 +922,8 @@ private:
         OpBuilder builder(consumerOp);
         Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                            "_mem_reconfig");
-        ToLayoutOp memoryReconfigOp = ToLayoutOp::create(
-            builder, loc,
+        ToLayoutOp memoryReconfigOp = builder.create<ToLayoutOp>(
+            loc,
             newTensorType,                             // output type
             consumerOp->getOperand(edge.operandIndex), // input value
             LayoutAttr::get(consumerOp->getContext(),
@@ -999,9 +999,9 @@ private:
       }
 
       // Step 2: Insert spilling to DRAM.
-      Operation *spillToDRAMOp = ToLayoutOp::create(
-          builder, loc, newTensorType, spilledOp->getResult(0), newLayout,
-          dataType, memConfigAttr);
+      Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
+          memConfigAttr);
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {
@@ -1112,9 +1112,9 @@ private:
         uses.emplace_back(use.getOwner(), use.getOperandNumber());
       }
 
-      Operation *toLayoutOp = ToLayoutOp::create(
-          builder, loc, newTensorType, spilledOp->getResult(0), newLayout,
-          dataType, memConfigAttr);
+      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
+          memConfigAttr);
 
       for (auto &[useOp, operandIdx] : uses) {
         useOp->setOperand(operandIdx, toLayoutOp->getResult(0));

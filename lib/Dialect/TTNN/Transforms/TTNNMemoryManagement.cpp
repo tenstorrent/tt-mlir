@@ -143,14 +143,13 @@ public:
     RankedTensorType slicedType = utils::RankedTensorTypeFactory::create(
         prePermuteType, slicedPrePermuteShape);
 
-    auto newSliceOp = ttnn::SliceStaticOp::create(
-        rewriter, op.getLoc(), slicedType, permuteOp.getInput(),
+    auto newSliceOp = rewriter.create<ttnn::SliceStaticOp>(
+        op.getLoc(), slicedType, permuteOp.getInput(),
         rewriter.getI32ArrayAttr(newBegins), rewriter.getI32ArrayAttr(newEnds),
         rewriter.getI32ArrayAttr(newStep));
 
-    auto newPermuteOp = ttnn::PermuteOp::create(
-        rewriter, op.getLoc(), op.getType(), newSliceOp.getResult(),
-        permutation,
+    auto newPermuteOp = rewriter.create<ttnn::PermuteOp>(
+        op.getLoc(), op.getType(), newSliceOp.getResult(), permutation,
         /*memory_config=*/nullptr, /*pad_value=*/permuteOp.getPadValue());
 
     rewriter.replaceOp(op, newPermuteOp.getResult());
@@ -240,15 +239,15 @@ public:
     RankedTensorType slicedInputType =
         utils::RankedTensorTypeFactory::create(inputType, slicedInputShape);
 
-    auto newSliceOp = ttnn::SliceStaticOp::create(
-        rewriter, op.getLoc(), slicedInputType, reshapeOp.getInput(),
+    auto newSliceOp = rewriter.create<ttnn::SliceStaticOp>(
+        op.getLoc(), slicedInputType, reshapeOp.getInput(),
         rewriter.getI32ArrayAttr(newBegins), rewriter.getI32ArrayAttr(newEnds),
         rewriter.getI32ArrayAttr(newStep));
 
     SmallVector<int32_t> outShape32(slicedOutputShape.begin(),
                                     slicedOutputShape.end());
-    auto newReshapeOp = ttnn::ReshapeOp::create(
-        rewriter, op.getLoc(), slicedOutputType, newSliceOp.getResult(),
+    auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), slicedOutputType, newSliceOp.getResult(),
         rewriter.getI32ArrayAttr(outShape32),
         /*memory_config=*/nullptr);
 
@@ -325,8 +324,8 @@ public:
     RankedTensorType slicedType = utils::RankedTensorTypeFactory::create(
         repeatInputType, slicedInputShape);
 
-    auto newSliceOp = ttnn::SliceStaticOp::create(
-        rewriter, op.getLoc(), slicedType, repeatOp.getInput(),
+    auto newSliceOp = rewriter.create<ttnn::SliceStaticOp>(
+        op.getLoc(), slicedType, repeatOp.getInput(),
         rewriter.getI32ArrayAttr(newBegins), rewriter.getI32ArrayAttr(newEnds),
         rewriter.getI32ArrayAttr(newStep));
 
@@ -341,10 +340,9 @@ public:
     auto newRepeatDimsAttr =
         ttnn::ShapeAttr::get(rewriter.getContext(), repeatDims);
 
-    auto newRepeatOp =
-        ttnn::RepeatOp::create(rewriter, op.getLoc(), newRepeatType,
-                               newSliceOp.getResult(), newRepeatDimsAttr,
-                               /*memory_config=*/nullptr);
+    auto newRepeatOp = rewriter.create<ttnn::RepeatOp>(
+        op.getLoc(), newRepeatType, newSliceOp.getResult(), newRepeatDimsAttr,
+        /*memory_config=*/nullptr);
 
     rewriter.replaceOp(op, newRepeatOp.getResult());
     return success();
@@ -433,8 +431,8 @@ public:
             cast<RankedTensorType>(eltwiseOp->getOperand(i).getType());
         auto slicedType = utils::RankedTensorTypeFactory::create(
             operandType, infos[i].slicedShape);
-        auto sliceOp = ttnn::SliceStaticOp::create(
-            rewriter, op.getLoc(), slicedType, eltwiseOp->getOperand(i),
+        auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
+            op.getLoc(), slicedType, eltwiseOp->getOperand(i),
             rewriter.getI32ArrayAttr(infos[i].begins),
             rewriter.getI32ArrayAttr(infos[i].ends),
             rewriter.getI32ArrayAttr(infos[i].step));
@@ -530,8 +528,8 @@ public:
     auto newRepeatDimsAttr =
         ttnn::ShapeAttr::get(rewriter.getContext(), adjustedDims);
 
-    auto newRepeatOp = ttnn::RepeatOp::create(
-        rewriter, op.getLoc(), newRepeatType, op.getInput(), newRepeatDimsAttr,
+    auto newRepeatOp = rewriter.create<ttnn::RepeatOp>(
+        op.getLoc(), newRepeatType, op.getInput(), newRepeatDimsAttr,
         /*memory_config=*/nullptr);
 
     // The reshape stays the same — it takes the new repeat output
@@ -654,8 +652,8 @@ public:
                                          operandTargetShape.end());
       auto newOperandType = utils::RankedTensorTypeFactory::create(
           reshapeInputType, operandTargetShape);
-      auto newReshape = ttnn::ReshapeOp::create(
-          rewriter, op.getLoc(), newOperandType, reshapeInput,
+      auto newReshape = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), newOperandType, reshapeInput,
           rewriter.getI32ArrayAttr(targetShape32),
           /*memory_config=*/nullptr);
       newOperands.push_back(newReshape.getResult());

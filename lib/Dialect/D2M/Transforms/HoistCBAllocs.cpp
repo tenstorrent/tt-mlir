@@ -57,7 +57,7 @@ private:
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(genericOp);
       auto externalAlloc =
-          memref::AllocOp::create(rewriter, genericOp.getLoc(), allocType);
+          rewriter.create<memref::AllocOp>(genericOp.getLoc(), allocType);
 
       // Transfer address and alignment.
       if (auto addressAttr = allocOp->getAttrOfType<IntegerAttr>("address")) {
@@ -89,8 +89,8 @@ private:
       {
         OpBuilder::InsertionGuard deallocGuard(rewriter);
         rewriter.setInsertionPointAfter(genericOp);
-        memref::DeallocOp::create(rewriter, genericOp.getLoc(),
-                                  externalAlloc.getResult());
+        rewriter.create<memref::DeallocOp>(genericOp.getLoc(),
+                                           externalAlloc.getResult());
       }
     }
   }

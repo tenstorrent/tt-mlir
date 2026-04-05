@@ -75,8 +75,7 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
     auto reshapedType =
         utils::RankedTensorTypeFactory::create(inputType, effectiveShape);
 
-    rewrittenInput = ttnn::ReshapeOp::create(
-        rewriter,
+    rewrittenInput = rewriter.create<ttnn::ReshapeOp>(
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_to_2d"),
         reshapedType, rewrittenInput,
         rewriter.getI32ArrayAttr(reshapedShapeI32),
@@ -103,16 +102,15 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
 
   auto paddedInputType =
       utils::RankedTensorTypeFactory::create(inputType, paddedShape);
-  auto paddedInput = ttnn::PadOp::create(
-      rewriter,
+  auto paddedInput = rewriter.create<ttnn::PadOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_pad_for_prod"),
       paddedInputType, rewrittenInput, padding,
       /*pad_value=*/mlir::APFloat(1.0f),
       /*use_multicore=*/false,
       /*memory_config=*/nullptr);
 
-  auto prodOp = ttnn::ProdOp::create(
-      rewriter, srcOp.getLoc(), rewrittenResultType, paddedInput, newDimArgAttr,
+  auto prodOp = rewriter.create<ttnn::ProdOp>(
+      srcOp.getLoc(), rewrittenResultType, paddedInput, newDimArgAttr,
       srcOp.getKeepDimAttr(), srcOp.getMemoryConfigAttr());
 
   if (!needsResultReshape) {
@@ -122,8 +120,7 @@ ProdOpRewritePattern::matchAndRewrite(ProdOp srcOp,
 
   llvm::SmallVector<int32_t> resultShapeI32(resultType.getShape().begin(),
                                             resultType.getShape().end());
-  auto reshapeOp = ttnn::ReshapeOp::create(
-      rewriter,
+  auto reshapeOp = rewriter.create<ttnn::ReshapeOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_result"),
       resultType, prodOp, rewriter.getI32ArrayAttr(resultShapeI32),
       /*memory_config=*/nullptr);

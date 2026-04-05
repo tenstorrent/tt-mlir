@@ -71,8 +71,7 @@ private:
   static Value materializeCast(OpBuilder &builder, Type type, ValueRange inputs,
                                Location loc) {
     assert(inputs.size() == 1 && "Expected single input.");
-    return UnrealizedConversionCastOp::create(builder, loc, type,
-                                              inputs.front())
+    return builder.create<UnrealizedConversionCastOp>(loc, type, inputs.front())
         .getResult(0);
   }
 };

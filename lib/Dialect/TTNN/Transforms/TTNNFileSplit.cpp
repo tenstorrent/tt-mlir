@@ -78,9 +78,9 @@ private:
 
     // Create the file containers.
     builder.setInsertionPointToStart(&moduleOp.getBodyRegion().front());
-    auto mainFile = FileOpTy::create(builder, moduleOp.getLoc(), kMainFileName);
+    auto mainFile = builder.create<FileOpTy>(moduleOp.getLoc(), kMainFileName);
     auto constevalFile =
-        FileOpTy::create(builder, moduleOp.getLoc(), kConstevalFileName);
+        builder.create<FileOpTy>(moduleOp.getLoc(), kConstevalFileName);
 
     // Clone the device symbol into both files so that ops inside each
     // can resolve the device via lookupNearestSymbolFrom, then erase the
@@ -114,9 +114,9 @@ private:
     // function so that func.call ops can resolve the symbols.
     builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
     for (auto wrapperFunc : wrapperFuncs) {
-      auto privateDecl = func::FuncOp::create(builder, wrapperFunc.getLoc(),
-                                              wrapperFunc.getName().str(),
-                                              wrapperFunc.getFunctionType());
+      auto privateDecl = builder.create<func::FuncOp>(
+          wrapperFunc.getLoc(), wrapperFunc.getName().str(),
+          wrapperFunc.getFunctionType());
       privateDecl.setPrivate();
       ttmlir::utils::setFunctionType(
           privateDecl, ttmlir::utils::FunctionType::ImportedDeclaration);

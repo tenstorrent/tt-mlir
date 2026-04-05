@@ -12,7 +12,6 @@ This test directly uses the TracingCompiler to generate TTIR and verify
 the generated IR without going through the full JIT pass pipeline.
 """
 
-import ttmlir.ir  # Ensure ttmlir is loaded before ttnn_jit to avoid TypeID conflicts
 import ttnn
 import torch
 import inspect
