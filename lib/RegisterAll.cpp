@@ -60,6 +60,8 @@
 #include "ttmlir/Dialect/Linalg/Transforms/SynchronizableOpInterfaceImpl.h"
 
 #if TTMLIR_ENABLE_STABLEHLO
+#include "shardy/dialect/mpmd/ir/register.h"
+#include "shardy/dialect/mpmd/transforms/passes.h"
 #include "shardy/dialect/sdy/ir/register.h"
 #include "shardy/dialect/sdy/transforms/passes.h"
 #include "stablehlo/dialect/Register.h"
@@ -102,6 +104,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
   mlir::sdy::registerAllDialects(registry);
+  mlir::mpmd::registerAllDialects(registry);
 #endif
 }
 

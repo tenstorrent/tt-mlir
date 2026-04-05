@@ -43,8 +43,7 @@ public:
                       operandType.getShape().end());
 
       // Create a new reshape operation.
-      auto reshapeOp = ttir::ReshapeOp::create(
-          rewriter,
+      auto reshapeOp = rewriter.create<ttir::ReshapeOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape"),
           RankedTensorType::get(newShape, operandType.getElementType(),
                                 operandType.getEncoding()),
@@ -105,8 +104,7 @@ public:
       }
 
       // Create a new broadcast operation.
-      auto broadcastOp = ttir::BroadcastOp::create(
-          rewriter,
+      auto broadcastOp = rewriter.create<ttir::BroadcastOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_broadcast"),
           RankedTensorType::get(broadcastedShape, operandType.getElementType(),
                                 operandType.getEncoding()),

@@ -78,7 +78,7 @@ mlir::func::FuncOp createPrivateFunction(
     mlir::Value escVal = mapping.lookupOrNull(esc);
     retVals.push_back(escVal);
   }
-  mlir::func::ReturnOp::create(internalBuilder, func.getLoc(), retVals);
+  internalBuilder.create<mlir::func::ReturnOp>(func.getLoc(), retVals);
 
   return func;
 }

@@ -214,15 +214,15 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
         Value cfExpr = loopBuilder.create<arith::ConstantOp>(
             innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIndexAttr(coalescingFactor));
-        Value zero = arith::ConstantOp::create(
-            loopBuilder, innerLoc, loopBuilder.getIndexType(),
+        Value zero = loopBuilder.create<arith::ConstantOp>(
+            innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIntegerAttr(loopBuilder.getIndexType(), 0));
 
         auto totalIterCount = zero;
         size_t currStride = 1;
         for (int i = iters.size() - 1; i >= 0; i--) {
-          Value currStrideExpr = arith::ConstantOp::create(
-              loopBuilder, innerLoc, loopBuilder.getIndexType(),
+          Value currStrideExpr = loopBuilder.create<arith::ConstantOp>(
+              innerLoc, loopBuilder.getIndexType(),
               loopBuilder.getIndexAttr(currStride));
           auto scaledCount =
               loopBuilder
@@ -234,12 +234,11 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
                   .getResult();
           currStride *= iterShape[i];
         }
-        auto moduloIterCount = arith::RemSIOp::create(loopBuilder, innerLoc,
-                                                      totalIterCount, cfExpr)
-                                   .getResult();
-        auto predicate = arith::CmpIOp::create(loopBuilder, innerLoc,
-                                               arith::CmpIPredicate::eq,
-                                               moduloIterCount, zero);
+        auto moduloIterCount =
+            loopBuilder.create<arith::RemSIOp>(innerLoc, totalIterCount, cfExpr)
+                .getResult();
+        auto predicate = loopBuilder.create<arith::CmpIOp>(
+            innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
 
         auto nulltx = loopBuilder.create<NullTxOp>(innerLoc, txType);
 
@@ -252,7 +251,7 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
         thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
         auto elseBuilder = ifExpr.getElseBodyBuilder();
-        scf::YieldOp::create(elseBuilder, innerLoc, args[0]);
+        elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
 
         return SmallVector<Value>{ifExpr.getResult(0)};
       });
@@ -369,16 +368,16 @@ public:
       size_t shardVolume = ttmlir::utils::volume(shardShape);
 
       SmallVector<Value> localIndices;
-      Value zero = arith::ConstantOp::create(
-          rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+      Value zero = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
       for (size_t i = 0; i < shardShape.size(); ++i) {
         localIndices.push_back(zero);
       }
       localIndices =
           utils::applyMap(rewriter, loc, localMemoryMap, localIndices, false);
 
-      Value newTx = DMAWriteOp::create(
-          rewriter, loc, localMemref, localIndices, dstMemref, localIndices,
+      Value newTx = rewriter.create<DMAWriteOp>(
+          loc, localMemref, localIndices, dstMemref, localIndices,
           op.getMcastStartIndex(), op.getMcastShape(), shardVolume);
       rewriter.replaceOp(op, newTx);
       return success();

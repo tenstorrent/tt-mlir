@@ -61,11 +61,10 @@ Value sliceDimension(Value tensor, int64_t originalLen, int64_t dim,
   auto slicedType =
       utils::RankedTensorTypeFactory::create(tensorType, slicedShape);
 
-  return SliceStaticOp::create(
-             rewriter,
-
-             loc, slicedType, tensor, rewriter.getI32ArrayAttr(begins),
-             rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps))
+  return rewriter
+      .create<SliceStaticOp>(
+          loc, slicedType, tensor, rewriter.getI32ArrayAttr(begins),
+          rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps))
       .getResult();
 }
 
@@ -106,8 +105,8 @@ ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
                    rewriter, srcOp.getLoc());
 
   auto resultType = paddedQuery.getType();
-  auto sdpaOp = ScaledDotProductAttentionOp::create(
-      rewriter, srcOp.getLoc(), resultType, paddedQuery, paddedKey, paddedValue,
+  auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
+      srcOp.getLoc(), resultType, paddedQuery, paddedKey, paddedValue,
       srcOp.getAttentionMask(), srcOp.getIsCausal(), srcOp.getScaleAttr(),
       srcOp.getSlidingWindowSizeAttr(), srcOp.getAttentionSink());
 

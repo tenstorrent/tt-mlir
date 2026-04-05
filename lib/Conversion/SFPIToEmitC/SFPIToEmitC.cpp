@@ -58,8 +58,7 @@ public:
       if (inputs.size() != 1) {
         return nullptr;
       }
-      return UnrealizedConversionCastOp::create(builder, loc, resultType,
-                                                inputs)
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
           .getResult(0);
     });
 
@@ -68,8 +67,7 @@ public:
       if (inputs.size() != 1) {
         return nullptr;
       }
-      return UnrealizedConversionCastOp::create(builder, loc, resultType,
-                                                inputs)
+      return builder.create<UnrealizedConversionCastOp>(loc, resultType, inputs)
           .getResult(0);
     });
   }
@@ -112,8 +110,8 @@ protected:
         operands.push_back(*maybeValue);
       } else if (auto *maybeStr = std::get_if<std::string>(&valueOrStr);
                  maybeStr) {
-        auto literalAttribute = emitc::LiteralOp::create(
-            rewriter, op.getLoc(), rewriter.getI32Type(), *maybeStr);
+        auto literalAttribute = rewriter.create<emitc::LiteralOp>(
+            op.getLoc(), rewriter.getI32Type(), *maybeStr);
         operands.push_back(literalAttribute->getResult(0));
       } else {
         llvm_unreachable("Unsupported builtin operand variant");

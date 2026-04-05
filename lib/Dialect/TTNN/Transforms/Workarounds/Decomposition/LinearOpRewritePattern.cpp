@@ -176,8 +176,7 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
                                            addShape);
   auto addOutputType =
       utils::RankedTensorTypeFactory::create(outputType, addShape);
-  AddOp addOp = ttnn::AddOp::create(
-      rewriter,
+  AddOp addOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
       addOutputType, matmulOp.getResult(), srcOp.getBias());
 

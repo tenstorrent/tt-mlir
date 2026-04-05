@@ -24,8 +24,8 @@ llvm::SmallVector<int64_t> unsqueezeValue(mlir::PatternRewriter &rewriter,
                                         unsqueezeShape.end());
 
   auto reshapeDimAttr = rewriter.getI32ArrayAttr(reshapeDim);
-  input = ttir::ReshapeOp::create(
-      rewriter, loc,
+  input = rewriter.create<ttir::ReshapeOp>(
+      loc,
       RankedTensorType::get(unsqueezeShape, desiredType.getElementType(),
                             desiredType.getEncoding()),
       input, reshapeDimAttr);
@@ -59,8 +59,8 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
       ttmlir::utils::getBroadcastDimensions<int64_t>(inputShape,
                                                      desiredType.getShape());
 
-  output = ttir::BroadcastOp::create(rewriter, loc, desiredType, input,
-                                     broadcastDims);
+  output = rewriter.create<ttir::BroadcastOp>(loc, desiredType, input,
+                                              broadcastDims);
   return mlir::success();
 }
 

@@ -276,8 +276,8 @@ private:
 
     // Create the function
     builder.setInsertionPoint(funcOp);
-    auto traceFuncOp = func::FuncOp::create(builder, funcOp.getLoc(),
-                                            traceFuncName, traceFuncType);
+    auto traceFuncOp = builder.create<func::FuncOp>(
+        funcOp.getLoc(), traceFuncName, traceFuncType);
     ttmlir::utils::setFunctionType(traceFuncOp,
                                    ttmlir::utils::FunctionType::TraceMain);
 
@@ -336,7 +336,7 @@ private:
             "Could not map output value in hoisted function");
       }
     }
-    func::ReturnOp::create(builder, funcOp.getLoc(), returnValues);
+    builder.create<func::ReturnOp>(funcOp.getLoc(), returnValues);
 
     return mlir::success();
   }
@@ -441,8 +441,8 @@ private:
         getCaptureTraceFuncName(funcOp, traceFuncIndex);
 
     builder.setInsertionPoint(funcOp);
-    auto runAndCaptureTraceFunc = func::FuncOp::create(
-        builder, funcOp.getLoc(), runAndCaptureTraceFuncName,
+    auto runAndCaptureTraceFunc = builder.create<func::FuncOp>(
+        funcOp.getLoc(), runAndCaptureTraceFuncName,
         runAndCaptureTraceFuncType);
     ttmlir::utils::setFunctionType(
         runAndCaptureTraceFunc,
@@ -515,9 +515,9 @@ private:
                                  traceCallArgs);
 
     // Start capturing the trace.
-    auto beginTraceCaptureOp = ttnn::BeginTraceCaptureOp::create(
-        builder, runAndCaptureTraceFunc.getLoc(),
-        utils::getTraceIdType(context), deviceOp,
+    auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
+        runAndCaptureTraceFunc.getLoc(), utils::getTraceIdType(context),
+        deviceOp,
         /*cq_id=*/0);
 
     // Execute the trace on device and capture it.
@@ -525,9 +525,9 @@ private:
         runAndCaptureTraceFunc.getLoc(), traceFunc, traceCallArgs);
 
     // Complete the trace capture.
-    ttnn::EndTraceCaptureOp::create(builder, runAndCaptureTraceFunc.getLoc(),
-                                    deviceOp, beginTraceCaptureOp,
-                                    /*cq_id=*/0);
+    builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
+                                            deviceOp, beginTraceCaptureOp,
+                                            /*cq_id=*/0);
 
     // Execute the trace once to fill output slots with real computed values.
     builder.create<ttnn::ExecuteTraceOp>(runAndCaptureTraceFunc.getLoc(),
@@ -550,8 +550,8 @@ private:
       returnValues.push_back(outputSlot);
     }
 
-    func::ReturnOp::create(builder, runAndCaptureTraceFunc.getLoc(),
-                           returnValues);
+    builder.create<func::ReturnOp>(runAndCaptureTraceFunc.getLoc(),
+                                   returnValues);
 
     return mlir::success();
   }
@@ -583,8 +583,8 @@ private:
         getExecuteTraceFuncName(funcOp, traceFuncIndex);
 
     builder.setInsertionPoint(funcOp);
-    auto executeTraceFunc = func::FuncOp::create(
-        builder, funcOp.getLoc(), executeTraceFuncName, executeTraceFuncType);
+    auto executeTraceFunc = builder.create<func::FuncOp>(
+        funcOp.getLoc(), executeTraceFuncName, executeTraceFuncType);
     ttmlir::utils::setFunctionType(executeTraceFunc,
                                    ttmlir::utils::FunctionType::TraceExecute);
     executeTraceFunc.setPrivate();
@@ -596,10 +596,10 @@ private:
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, executeTraceFuncEntryBlock);
     mlir::Value traceId = executeTraceFunc.getArgument(0);
-    ttnn::ExecuteTraceOp::create(builder, funcOp.getLoc(), deviceOp, traceId,
-                                 /*cq_id=*/0, /*blocking=*/false);
+    builder.create<ttnn::ExecuteTraceOp>(funcOp.getLoc(), deviceOp, traceId,
+                                         /*cq_id=*/0, /*blocking=*/false);
 
-    func::ReturnOp::create(builder, funcOp.getLoc());
+    builder.create<func::ReturnOp>(funcOp.getLoc());
 
     return mlir::success();
   }

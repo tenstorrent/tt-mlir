@@ -112,9 +112,9 @@ public:
     auto newConstType = RankedTensorType::get(preReshapeType.getShape(),
                                               constType.getElementType());
 
-    auto constReshape =
-        ReshapeOp::create(rewriter, constOperand.getLoc(), newConstType,
-                          constOperand, rewriter.getI32ArrayAttr(newShape));
+    auto constReshape = rewriter.create<ReshapeOp>(
+        constOperand.getLoc(), newConstType, constOperand,
+        rewriter.getI32ArrayAttr(newShape));
 
     // Create the new elementwise op with the original activation and reshaped
     // constant. Preserve operand order from the original op.
@@ -134,9 +134,9 @@ public:
     // Replace the original op result with the new op result.
     // We need a reshape to match the original output shape for downstream
     // users.
-    auto outputReshape =
-        ReshapeOp::create(rewriter, op->getLoc(), op->getResult(0).getType(),
-                          newOp->getResult(0), reshapeOp.getShapeAttr());
+    auto outputReshape = rewriter.create<ReshapeOp>(
+        op->getLoc(), op->getResult(0).getType(), newOp->getResult(0),
+        reshapeOp.getShapeAttr());
 
     rewriter.replaceOp(op, outputReshape.getResult());
 

@@ -75,8 +75,8 @@ public:
 
     auto funcType = builder.getType<mlir::FunctionType>(
         mlir::TypeRange(input), mlir::TypeRange(output));
-    func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(), "test",
-                                      funcType);
+    func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), "test",
+                                              funcType);
 
     mlir::Block *block = func.addEntryBlock();
     block->addArgument(getTensorRankedType(), builder.getUnknownLoc());

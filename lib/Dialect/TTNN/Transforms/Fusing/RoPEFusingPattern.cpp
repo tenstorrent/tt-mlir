@@ -1080,8 +1080,8 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
   auto tokenIndex = rewriter.getIntegerAttr(
       rewriter.getIntegerType(32, /*isSigned=*/false), 0);
 
-  auto newRope = RotaryEmbeddingOp::create(
-      rewriter, ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
+  auto newRope = rewriter.create<RotaryEmbeddingOp>(
+      ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
       ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
       ropeOp.getComputeConfigAttr());
 

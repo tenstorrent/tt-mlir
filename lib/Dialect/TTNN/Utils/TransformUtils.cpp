@@ -25,8 +25,8 @@ static GetDeviceOp insertGetDeviceOp(RewriterBase &rewriter,
   // TODO (jnie): Currently hardcoding the mesh offset to 0x0
   // Need a proper plan to dynamically determine this.
   llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
-  return ttnn::GetDeviceOp::create(
-      rewriter, loc, rewriter.getType<DeviceType>(),
+  return rewriter.create<ttnn::GetDeviceOp>(
+      loc, rewriter.getType<DeviceType>(),
       ttnn::MeshShapeAttr::get(rewriter.getContext(), meshShape[0],
                                meshShape[1]),
       ttnn::MeshOffsetAttr::get(rewriter.getContext(), meshOffset[0],

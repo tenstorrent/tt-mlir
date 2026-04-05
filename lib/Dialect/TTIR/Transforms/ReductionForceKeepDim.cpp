@@ -54,8 +54,8 @@ public:
         RankedTensorType::get(keepDimShape, originalType.getElementType(),
                               originalType.getEncoding());
 
-    auto newReduction = ReductionOpTy::create(
-        rewriter, reductionOp.getLoc(), decomposedType, reductionOp.getInput(),
+    auto newReduction = rewriter.create<ReductionOpTy>(
+        reductionOp.getLoc(), decomposedType, reductionOp.getInput(),
         /*keep_dim=*/rewriter.getBoolAttr(true), reductionOp.getDimArgAttr());
 
     llvm::SmallVector<int32_t> outputShapeI32(originalType.getShape().begin(),

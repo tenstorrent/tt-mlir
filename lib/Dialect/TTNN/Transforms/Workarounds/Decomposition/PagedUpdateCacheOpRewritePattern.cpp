@@ -61,9 +61,9 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
 
   // Replace the original PagedUpdateCacheOp with one which takes our properly
   // configured input tensor.
-  auto pagedUpdateCacheOp = ttnn::PagedUpdateCacheOp::create(
-      rewriter, op.getLoc(), op.getCache(), toLayoutOp.getResult(),
-      op.getUpdateIndex(), op.getShareCache(), op.getPageTable());
+  auto pagedUpdateCacheOp = rewriter.create<ttnn::PagedUpdateCacheOp>(
+      op.getLoc(), op.getCache(), toLayoutOp.getResult(), op.getUpdateIndex(),
+      op.getShareCache(), op.getPageTable());
 
   rewriter.replaceOp(op, pagedUpdateCacheOp);
   return success();
