@@ -1617,16 +1617,16 @@ private:
                               rootOutputType.getEncoding());
 
     if constexpr (std::is_same_v<OpType, MatmulOp>) {
-      auto fusedMatmul = rewriter.create<MatmulOp>(
-          rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS,
+      auto fusedMatmul = MatmulOp::create(
+          rewriter, rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS,
           rootOp.getTransposeA(), candidates.getTargetTransposeB());
       return fusedMatmul.getResult();
     } else {
       Value fusedBias =
           createConcatenatedBias(rewriter, rootOp.getLoc(), candidates);
-      auto fusedLinear = rewriter.create<LinearOp>(
-          rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS, fusedBias,
-          rootOp.getTransposeA(), candidates.getTargetTransposeB());
+      auto fusedLinear = LinearOp::create(
+          rewriter, rootOp.getLoc(), fusedOutputType, rootOp.getA(), fusedRHS,
+          fusedBias, rootOp.getTransposeA(), candidates.getTargetTransposeB());
       return fusedLinear.getResult();
     }
   }
@@ -1648,7 +1648,7 @@ private:
     auto permutedType = RankedTensorType::get(
         permutedShape, inputType.getElementType(), inputType.getEncoding());
 
-    return rewriter.create<PermuteOp>(loc, permutedType, input, permutation);
+    return PermuteOp::create(rewriter, loc, permutedType, input, permutation);
   }
 
   // Prepare RHS operands (inserting permutes if needed) and concatenate them.
@@ -1683,9 +1683,8 @@ private:
         RankedTensorType::get(concatShape, normalizedRhsType.getElementType(),
                               normalizedRhsType.getEncoding());
 
-    return rewriter.create<ConcatOp>(
-        loc, concatRhsType, rhsOperands,
-        rewriter.getSI32IntegerAttr(weightConcatDim));
+    return ConcatOp::create(rewriter, loc, concatRhsType, rhsOperands,
+                            rewriter.getSI32IntegerAttr(weightConcatDim));
   }
 
   // Concatenate biases for LinearOp fusion.
@@ -1717,8 +1716,8 @@ private:
                               firstBiasType.getEncoding());
 
     int64_t concatDim = firstBiasType.getRank() - 1;
-    return rewriter.create<ConcatOp>(loc, concatType, biases,
-                                     rewriter.getSI32IntegerAttr(concatDim));
+    return ConcatOp::create(rewriter, loc, concatType, biases,
+                            rewriter.getSI32IntegerAttr(concatDim));
   }
 
   // Collect all ops that share the same LHS operand and are compatible
@@ -1813,8 +1812,8 @@ private:
       begins[outputFusedDim] = static_cast<int32_t>(currentOffset);
       ends[outputFusedDim] = static_cast<int32_t>(currentOffset + sliceSize);
 
-      auto sliceOp = rewriter.create<SliceStaticOp>(
-          candidate.getLoc(), originalType, fusedResult,
+      auto sliceOp = SliceStaticOp::create(
+          rewriter, candidate.getLoc(), originalType, fusedResult,
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
           rewriter.getI32ArrayAttr(steps));
 

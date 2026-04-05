@@ -284,7 +284,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
 
     // === Tile operation helpers ===
     auto createTileFill = [&]() {
-      return rewriter.create<TileFillOp>(loc, tileType, fillScalar).getResult();
+      return TileFillOp::create(rewriter, loc, tileType, fillScalar)
+          .getResult();
     };
 
     auto buildLocalIndices = [&](ArrayRef<Value> leadingIndices,
@@ -312,8 +313,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
       auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill = createTileFill();
-      auto rowMaskTile = rewriter.create<memref::LoadOp>(
-          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto rowMaskTile = memref::LoadOp::create(rewriter, loc, rowMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto result =
           rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
                                        inputTile.getResult(), tileFill);
@@ -327,8 +328,8 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
       auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill = createTileFill();
-      auto colMaskTile = rewriter.create<memref::LoadOp>(
-          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto colMaskTile = memref::LoadOp::create(rewriter, loc, colMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto result =
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
                                        inputTile.getResult(), tileFill);
@@ -342,14 +343,14 @@ struct DecomposeMaskPattern : OpRewritePattern<MaskOp> {
           buildLocalIndices(leadingIndices, localRowIdx, localColIdx);
       auto inputTile = rewriter.create<memref::LoadOp>(loc, input, indices);
       auto tileFill1 = createTileFill();
-      auto rowMaskTile = rewriter.create<memref::LoadOp>(
-          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto rowMaskTile = memref::LoadOp::create(rewriter, loc, rowMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto rowMaskedResult =
-          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                       inputTile.getResult(), tileFill1);
+          TileWhereOp::create(rewriter, loc, tileType, rowMaskTile.getResult(),
+                              inputTile.getResult(), tileFill1);
       auto tileFill2 = createTileFill();
-      auto colMaskTile = rewriter.create<memref::LoadOp>(
-          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto colMaskTile = memref::LoadOp::create(rewriter, loc, colMaskCB,
+                                                ValueRange{zeroIdx, zeroIdx});
       auto finalResult =
           rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
                                        rowMaskedResult.getResult(), tileFill2);

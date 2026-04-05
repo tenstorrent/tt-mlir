@@ -1275,11 +1275,10 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value> operands;
     operands.push_back(adaptor.getFcm());
-    operands.push_back(rewriter
-                           .create<emitc::LiteralOp>(
-                               op.getLoc(),
-                               rewriter.getType<emitc::OpaqueType>("uint64_t"),
-                               std::to_string(op.getDim()))
+    operands.push_back(emitc::LiteralOp::create(
+                           rewriter, op.getLoc(),
+                           rewriter.getType<emitc::OpaqueType>("uint64_t"),
+                           std::to_string(op.getDim()))
                            .getResult());
 
     auto opName = op.getOperation()->getName().getStringRef().drop_front(9);
@@ -1305,8 +1304,8 @@ public:
                                   std::string callee,
                                   SmallVector<Value> initializerList) const {
     // Create the variable
-    auto var = rewriter.create<emitc::VariableOp>(
-        loc, emitc::LValueType::get(type),
+    auto var = emitc::VariableOp::create(
+        rewriter, loc, emitc::LValueType::get(type),
         emitc::OpaqueAttr::get(rewriter.getContext(), ""));
 
     // Initialize it via VerbatimOp
@@ -1320,10 +1319,10 @@ public:
     }
     initStr += "};";
     initializerList.insert(initializerList.begin(), var.getResult());
-    rewriter.create<emitc::VerbatimOp>(loc, initStr, initializerList);
+    emitc::VerbatimOp::create(rewriter, loc, initStr, initializerList);
 
     // Load the value from the variable
-    auto loadOp = rewriter.create<emitc::LoadOp>(loc, type, var);
+    auto loadOp = emitc::LoadOp::create(rewriter, loc, type, var);
     return loadOp.getResult();
   }
 
