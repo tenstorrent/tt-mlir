@@ -422,8 +422,8 @@ public:
       auto paddedIndicesType = ttnn::utils::RankedTensorTypeFactory::create(
           indicesType, paddedIndicesShape);
 
-      inputIndices = ttnn::PadOp::create(
-          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
+      inputIndices = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
           paddedIndicesType, inputIndices,
           rewriter.getDenseI32ArrayAttr(indicesPadding),
           rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true));
@@ -438,8 +438,8 @@ public:
       auto paddedGradType = ttnn::utils::RankedTensorTypeFactory::create(
           gradTensor, paddedGradShape);
 
-      reshapedGrad = ttnn::PadOp::create(
-          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
+      reshapedGrad = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
           paddedGradType, adaptor.getInGradient(),
           rewriter.getDenseI32ArrayAttr(gradPadding),
           rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true));
@@ -721,9 +721,9 @@ public:
           op, "UpdateCacheOp cache argument must have exactly one user");
     }
 
-    ttnn::UpdateCacheOp::create(rewriter, op.getLoc(), adaptor.getCache(),
-                                adaptor.getInput(), adaptor.getUpdateIndex(),
-                                adaptor.getBatchOffset());
+    rewriter.create<ttnn::UpdateCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+        adaptor.getUpdateIndex(), adaptor.getBatchOffset());
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
@@ -747,8 +747,8 @@ public:
           op, "PagedUpdateCacheOp cache argument must have exactly one user");
     }
 
-    ttnn::PagedUpdateCacheOp::create(
-        rewriter, op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+    rewriter.create<ttnn::PagedUpdateCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
         adaptor.getUpdateIndex(), adaptor.getShareCache(),
         adaptor.getPageTable());
 
@@ -790,9 +790,9 @@ public:
           op, "PagedFillCacheOp cache argument must have exactly one user");
     }
 
-    ttnn::PagedFillCacheOp::create(rewriter, op.getLoc(), adaptor.getCache(),
-                                   adaptor.getInput(), adaptor.getPageTable(),
-                                   adaptor.getBatchIdxTensor());
+    rewriter.create<ttnn::PagedFillCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+        adaptor.getPageTable(), adaptor.getBatchIdxTensor());
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
@@ -828,8 +828,9 @@ public:
           op, "FillCacheOp must have exactly one user");
     }
 
-    ttnn::FillCacheOp::create(rewriter, op.getLoc(), adaptor.getCache(),
-                              adaptor.getInput(), adaptor.getBatchOffset());
+    rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
+                                       adaptor.getInput(),
+                                       adaptor.getBatchOffset());
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
@@ -1482,9 +1483,8 @@ public:
     }
 
     // Create the GroupNormOp.
-    Value groupNormResult = ttnn::GroupNormOp::create(
-        rewriter, loc,
-        this->getTypeConverter()->convertType(groupNormInputType), input,
+    Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
+        loc, this->getTypeConverter()->convertType(groupNormInputType), input,
         adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
         adaptor.getEpsilon());
 
@@ -1503,8 +1503,8 @@ public:
 
     // Permute back to the original dimension order if permuted.
     if (needsPermute) {
-      groupNormResult = ttnn::PermuteOp::create(
-          rewriter, loc, this->getTypeConverter()->convertType(op.getType()),
+      groupNormResult = rewriter.create<ttnn::PermuteOp>(
+          loc, this->getTypeConverter()->convertType(op.getType()),
           groupNormResult, rewriter.getDenseI64ArrayAttr(inversePermutation),
           /*pad_value=*/mlir::FloatAttr());
     }
@@ -2000,9 +2000,9 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
-    auto convOp = ttnn::Conv3dOp::create(
-        rewriter, op.getLoc(), outputType, input, reshapedWeight, reshapedBias,
-        device, inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+    auto convOp = rewriter.create<ttnn::Conv3dOp>(
+        op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
         *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
         nullptr);
@@ -2773,11 +2773,11 @@ public:
       DenseI64ArrayAttr receiveCoord = rewriter.getDenseI64ArrayAttr(
           ttmlir::utils::linearIdToCoord(targetDevice, meshShape));
       resultTensor =
-          ttnn::PointToPointOp::create(
-              rewriter,
-
-              op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-              adaptor.getInput(), sendCoord, receiveCoord, resultTensor)
+          rewriter
+              .create<ttnn::PointToPointOp>(
+                  op.getLoc(),
+                  this->getTypeConverter()->convertType(op.getType()),
+                  adaptor.getInput(), sendCoord, receiveCoord, resultTensor)
               .getResult();
     }
 
@@ -2796,13 +2796,13 @@ public:
             ttmlir::utils::linearIdToCoord(sourceDevice, meshShape));
         DenseI64ArrayAttr receiveCoord = rewriter.getDenseI64ArrayAttr(
             ttmlir::utils::linearIdToCoord(idx, meshShape));
-        resultTensor = ttnn::PointToPointOp::create(
-                           rewriter,
-
-                           op.getLoc(),
-                           this->getTypeConverter()->convertType(op.getType()),
-                           zerosTensor, sendCoord, receiveCoord, resultTensor)
-                           .getResult();
+        resultTensor =
+            rewriter
+                .create<ttnn::PointToPointOp>(
+                    op.getLoc(),
+                    this->getTypeConverter()->convertType(op.getType()),
+                    zerosTensor, sendCoord, receiveCoord, resultTensor)
+                .getResult();
       }
     }
 
@@ -3031,8 +3031,8 @@ public:
       for (size_t idx = 1; idx < group.size(); idx++) {
         // Skip the first device in the group because the buffer is already
         // cloned
-        finalValue = ttnn::PointToPointOp::create(
-            rewriter, op.getLoc(), inputType, adaptor.getInput(), sourceCoord,
+        finalValue = rewriter.create<ttnn::PointToPointOp>(
+            op.getLoc(), inputType, adaptor.getInput(), sourceCoord,
             rewriter.getDenseI64ArrayAttr(
                 ttmlir::utils::linearIdToCoord(group[idx], meshShape)),
             finalValue);
@@ -3132,8 +3132,8 @@ public:
         this->getTypeConverter()->convertType(op.getValue().getType());
 
     // Create the TTNN op with 3 results
-    auto ttnnOp = ttnn::SplitQueryKeyValueAndSplitHeadsOp::create(
-        rewriter, op.getLoc(), TypeRange{queryType, keyType, valueType},
+    auto ttnnOp = rewriter.create<ttnn::SplitQueryKeyValueAndSplitHeadsOp>(
+        op.getLoc(), TypeRange{queryType, keyType, valueType},
         adaptor.getInputTensor(), adaptor.getKvInputTensor(),
         adaptor.getNumHeadsAttr(), adaptor.getNumKvHeadsAttr(),
         adaptor.getTransposeKeyAttr());
@@ -3273,8 +3273,7 @@ private:
         maskType.getShape(), broadcastShape);
     auto shapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
 
-    return ttnn::RepeatOp::create(rewriter, loc, broadcastType, mask,
-                                  shapeAttr);
+    return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
   }
 
   // Lower to SDPA decode op. Operand layout transitions:
@@ -3305,9 +3304,9 @@ private:
                                              op.getLoc());
     }
 
-    auto decodeOp = ttnn::ScaledDotProductAttentionDecodeOp::create(
-        rewriter, op.getLoc(), permutedQuery.getType(), permutedQuery,
-        adaptor.getKey(), adaptor.getValue(), op.getIsCausal(), attentionMask,
+    auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
+        op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
+        adaptor.getValue(), op.getIsCausal(), attentionMask,
         /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
         adaptor.getScaleAttr(),
         /*program_config=*/nullptr);
@@ -3386,10 +3385,9 @@ public:
       ends[splitDim] = (sliceIdx + 1) * splitSize;
 
       // Create a slice for this range
-      ttnn::SliceStaticOp sliceOp = ttnn::SliceStaticOp::create(
-          rewriter, loc, sliceOutputType, op.getInput(),
-          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
-          rewriter.getI32ArrayAttr(steps));
+      ttnn::SliceStaticOp sliceOp = rewriter.create<ttnn::SliceStaticOp>(
+          loc, sliceOutputType, op.getInput(), rewriter.getI32ArrayAttr(begins),
+          rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
       sliceOpResults.push_back(sliceOp.getResult());
     }
     // Step 2: Reorganize sliced data using PointToPoint communication.
@@ -3425,8 +3423,8 @@ public:
           }
           auto receiverCoord = rewriter.getDenseI64ArrayAttr(
               ttmlir::utils::linearIdToCoord(group[receiverIdx], meshShape));
-          reorgBuffers[senderIdx] = ttnn::PointToPointOp::create(
-              rewriter, loc, sliceOpResults[senderIdx].getType(),
+          reorgBuffers[senderIdx] = rewriter.create<ttnn::PointToPointOp>(
+              loc, sliceOpResults[senderIdx].getType(),
               sliceOpResults[receiverIdx], senderCoord, receiverCoord,
               reorgBuffers[senderIdx]);
         }

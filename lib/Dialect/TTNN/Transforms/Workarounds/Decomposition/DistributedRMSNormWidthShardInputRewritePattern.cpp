@@ -104,8 +104,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
-  auto inputToLayoutOp = ttnn::ToLayoutOp::create(
-      rewriter, op.getLoc(), memoryConfigedInputType, op.getInput(),
+  auto inputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+      op.getLoc(), memoryConfigedInputType, op.getInput(),
       tt::ttnn::Layout::Tile,
       ttcore::DataTypeAttr::get(
           rewriter.getContext(),
@@ -153,9 +153,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     if (residualLayout != desiredInputLayout) {
       RankedTensorType shardedResidualType =
           residualType.cloneWithEncoding(desiredInputLayout);
-      auto residualToLayoutOp = ttnn::ToLayoutOp::create(
-          rewriter, op.getLoc(), shardedResidualType, residual,
-          tt::ttnn::Layout::Tile,
+      auto residualToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+          op.getLoc(), shardedResidualType, residual, tt::ttnn::Layout::Tile,
           ttcore::DataTypeAttr::get(
               rewriter.getContext(),
               ttcore::elementTypeToDataType(inputElementType)));

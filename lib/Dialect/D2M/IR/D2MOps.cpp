@@ -208,7 +208,7 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   ::llvm::SmallVector<mlir::Value> invocationStack;
   auto bufferType = mlir::cast<MemRefType>(
       *getBufferType(getResult(), options, state, invocationStack));
-  auto allocOp = memref::AllocOp::create(rewriter, getLoc(), bufferType);
+  auto allocOp = rewriter.create<memref::AllocOp>(getLoc(), bufferType);
 
   // Propagate virtualGridInverseMapping (inverse) and virtualGridForwardMapping
   // (forward) as discardable attributes on memref::AllocOp (we don't own
@@ -590,8 +590,7 @@ ToLayoutOp::bufferize(mlir::RewriterBase &rewriter,
 
   // ToLayoutOp is now only for device-to-device transfers. Host transfers
   // use ToDeviceOp and ToHostOp instead.
-  ToLayoutOp::create(rewriter, getLoc(), TypeRange(), *maybeInput,
-                     *maybeOutput);
+  rewriter.create<ToLayoutOp>(getLoc(), TypeRange(), *maybeInput, *maybeOutput);
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
@@ -917,13 +916,13 @@ ToDeviceOp::bufferize(mlir::RewriterBase &rewriter,
   if (mlir::cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout())
           .isPadded()) {
     auto alignedHostTensor =
-        memref::AllocOp::create(rewriter, getLoc(), alignedHostMemref);
-    memref::CopyOp::create(rewriter, getLoc(), *maybeInput, alignedHostTensor);
+        rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
+    rewriter.create<memref::CopyOp>(getLoc(), *maybeInput, alignedHostTensor);
     maybeInput = alignedHostTensor.getResult();
   }
 
-  ToDeviceOp::create(rewriter, getLoc(), TypeRange(), *maybeInput, *maybeOutput,
-                     getLayout());
+  rewriter.create<ToDeviceOp>(getLoc(), TypeRange(), *maybeInput, *maybeOutput,
+                              getLayout());
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      *maybeOutput);
@@ -1047,15 +1046,15 @@ ToHostOp::bufferize(mlir::RewriterBase &rewriter,
       mlir::dyn_cast<ttcore::HostLayoutAttr>(alignedHostMemref.getLayout());
   if (hostLayout && hostLayout.isPadded()) {
     auto alignedHostTensor =
-        memref::AllocOp::create(rewriter, getLoc(), alignedHostMemref);
+        rewriter.create<memref::AllocOp>(getLoc(), alignedHostMemref);
 
-    ToHostOp::create(rewriter, getLoc(), TypeRange(), *maybeInput,
-                     alignedHostTensor, getLayout());
+    rewriter.create<ToHostOp>(getLoc(), TypeRange(), *maybeInput,
+                              alignedHostTensor, getLayout());
 
-    memref::CopyOp::create(rewriter, getLoc(), alignedHostTensor, *maybeOutput);
+    rewriter.create<memref::CopyOp>(getLoc(), alignedHostTensor, *maybeOutput);
   } else {
-    ToHostOp::create(rewriter, getLoc(), TypeRange(), *maybeInput, *maybeOutput,
-                     getLayout());
+    rewriter.create<ToHostOp>(getLoc(), TypeRange(), *maybeInput, *maybeOutput,
+                              getLayout());
   }
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
@@ -1205,9 +1204,9 @@ mlir::LogicalResult d2m::ViewLayoutOp::bufferize(
   }
 
   auto outMemrefType = mlir::cast<mlir::MemRefType>(*outMemrefTypeOr);
-  auto newOp =
-      d2m::ViewLayoutOp::create(rewriter, getLoc(), outMemrefType, *maybeInput,
-                                getRemapping(), getReinterpretLayout());
+  auto newOp = rewriter.create<d2m::ViewLayoutOp>(getLoc(), outMemrefType,
+                                                  *maybeInput, getRemapping(),
+                                                  getReinterpretLayout());
 
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
@@ -1599,8 +1598,8 @@ void d2m::GenericOp::build(
 
     assert(layout && "Expected MetalLayoutAttr on operand or its view source");
     auto shardShape = layout.getShardShape(tensorType);
-    auto emptyOp = mlir::tensor::EmptyOp::create(
-        builder, state.location, shardShape, tensorType.getElementType());
+    auto emptyOp = builder.create<mlir::tensor::EmptyOp>(
+        state.location, shardShape, tensorType.getElementType());
     operandAllocs.push_back(emptyOp.getResult());
   }
 
@@ -2356,8 +2355,8 @@ createReblockedOperands(d2m::GenericOp thisOp, OpBuilder &builder,
       continue;
     }
 
-    d2m::ViewLayoutOp view = d2m::ViewLayoutOp::create(
-        builder, thisOp.getLoc(), reblockedType, operand.get());
+    d2m::ViewLayoutOp view = builder.create<d2m::ViewLayoutOp>(
+        thisOp.getLoc(), reblockedType, operand.get());
     operandViews.push_back(view);
     reblockedOperands.push_back(view.getResult());
   }
@@ -2386,9 +2385,9 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
     newResultTypes.push_back(newOutputs[resultIndex].getType());
   }
 
-  return d2m::GenericOp::create(
-      builder, thisOp.getLoc(), TypeRange(newResultTypes), newInputs,
-      newOutputs, thisOp.getAdditionalArgs(), newGrid,
+  return builder.create<d2m::GenericOp>(
+      thisOp.getLoc(), TypeRange(newResultTypes), newInputs, newOutputs,
+      thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
       thisOp.getFabricConnectionConfigAttr(), thisOp.getNumRegions());
@@ -2535,14 +2534,14 @@ static d2m::ViewLayoutOp createReturnView(d2m::GenericOp thisOp,
   OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointAfter(newGenericOp);
   if (thisOp.getNumResults() > 0) {
-    return d2m::ViewLayoutOp::create(builder, thisOp.getLoc(),
-                                     thisOp.getResult(0).getType(),
-                                     newGenericOp.getResult(0));
+    return builder.create<d2m::ViewLayoutOp>(thisOp.getLoc(),
+                                             thisOp.getResult(0).getType(),
+                                             newGenericOp.getResult(0));
   }
   if (!thisOp.getOutputs().empty()) {
-    return d2m::ViewLayoutOp::create(builder, thisOp.getLoc(),
-                                     thisOp.getOutputs().front().getType(),
-                                     newGenericOp.getOutputs().front());
+    return builder.create<d2m::ViewLayoutOp>(
+        thisOp.getLoc(), thisOp.getOutputs().front().getType(),
+        newGenericOp.getOutputs().front());
   }
   return d2m::ViewLayoutOp();
 }
@@ -3326,9 +3325,9 @@ mlir::LogicalResult d2m::SpatialOp::bufferize(
     }
     bufferOutputs.push_back(*maybeValue);
   }
-  auto bufferSpatial =
-      d2m::SpatialOp::create(rewriter, getLoc(), ValueRange(), bufferInputs,
-                             bufferOutputs, getGridRanges(), getNumRegions());
+  auto bufferSpatial = rewriter.create<d2m::SpatialOp>(
+      getLoc(), ValueRange(), bufferInputs, bufferOutputs, getGridRanges(),
+      getNumRegions());
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
   for (mlir::Region &region : bufferSpatial.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));

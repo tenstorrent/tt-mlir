@@ -299,7 +299,7 @@ private:
     llvm::SmallVector<Value> returnValues;
     llvm::transform(outputs, std::back_inserter(returnValues),
                     [&](Value v) { return mapping.lookup(v); });
-    func::ReturnOp::create(rewriter, loc, returnValues);
+    rewriter.create<func::ReturnOp>(loc, returnValues);
 
     // Place subgraph after all its operands: after last input definer and after
     // the empty output buffers we just created (so output buffers dominate).
@@ -310,8 +310,8 @@ private:
     } else {
       rewriter.setInsertionPoint(firstOp);
     }
-    auto dispatchOp = D2MSubgraphOp::create(
-        rewriter, loc, outputTypes, inputs.getArrayRef(), outputBuffers,
+    auto dispatchOp = rewriter.create<D2MSubgraphOp>(
+        loc, outputTypes, inputs.getArrayRef(), outputBuffers,
         SymbolRefAttr::get(rewriter.getContext(), funcName));
 
     for (auto [origOutput, dispatchResult] :

@@ -35,10 +35,10 @@ public:
     }
 
     rewriter.setInsertionPoint(parent);
-    ttkernel::TileRegsCommitOp::create(rewriter, op->getLoc());
-    ttkernel::TileRegsWaitOp::create(rewriter, op->getLoc());
+    rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
+    rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
     rewriter.setInsertionPointAfter(parent);
-    ttkernel::TileRegsReleaseOp::create(rewriter, op->getLoc());
+    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
 
     return success();
   };

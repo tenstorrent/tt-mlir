@@ -233,7 +233,7 @@ public:
   ~ScopedModuleHelper() = default;
 
   void emitComment(StringRef str) {
-    emitc::VerbatimOp::create(*builder, loc, (Twine("// ") + str).str());
+    builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
   }
 
   void emitLlk(const char *generated, unsigned int len) {
@@ -316,7 +316,7 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
   // We will wrap everything in a standalone module op so that we can run the
   // translation.
-  auto moduleWrapper = mlir::ModuleOp::create(builder, loc, "module_wrapper");
+  auto moduleWrapper = builder.create<mlir::ModuleOp>(loc, "module_wrapper");
   builder.setInsertionPointToStart(moduleWrapper.getBody());
 
   Region *kernelMainRegion;
@@ -325,8 +325,8 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
                                           origEntry.getName());
 
     // Clone 'region' into a new func op nested inside 'moduleWrapper':
-    auto kernelMain = func::FuncOp::create(
-        builder, loc, "kernel_main",
+    auto kernelMain = builder.create<func::FuncOp>(
+        loc, "kernel_main",
         builder.getType<FunctionType>(region->getArgumentTypes(), TypeRange()));
     kernelMainRegion = &kernelMain.getBody();
   }
@@ -349,7 +349,7 @@ LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
   if (failed(kernelModule)) {
     return failure();
   }
-  auto moduleCleanup = llvm::scope_exit([&]() { kernelModule->erase(); });
+  auto moduleCleanup = llvm::make_scope_exit([&]() { kernelModule->erase(); });
   return emitc::translateToCpp(*kernelModule, os);
 }
 
