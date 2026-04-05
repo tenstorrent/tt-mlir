@@ -1073,6 +1073,8 @@ def execute_py(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        raise
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
     finally:
@@ -1172,6 +1174,7 @@ def execute_cpp(
     output_tensors = {}
     golden_report = {}
 
+    emitc_dylib_handle = None
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
         program_names = tt_runtime.runtime.test.get_so_programs(
@@ -1272,7 +1275,12 @@ def execute_cpp(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        raise
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
+    finally:
+        if emitc_dylib_handle is not None:
+            tt_runtime.runtime.test.close_so(emitc_dylib_handle)
 
     return golden_report, output_tensors
