@@ -2141,7 +2141,7 @@ llvm::Expected<OpConstraints> OpModel<BitcastConvertOp>::getOpConstraints(
 
   // Create query closure
   auto bitcastOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
+    return QUERY_OP_CONSTRAINTS(
         ::ttnn::bitcast, device, inputSpec,
         conversion::getDataType(dtype.getValue()),
         detail::getNullableMemoryConfig(outputLayout));
@@ -2170,7 +2170,7 @@ llvm::Expected<size_t> OpModel<BitcastConvertOp>::getOpRuntime(
 
   // Create query closure
   auto bitcastOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(
+    return QUERY_OP_RUNTIME(
         ::ttnn::bitcast, device, inputSpec,
         conversion::getDataType(dtype.getValue()),
         detail::getNullableMemoryConfig(outputLayout));
