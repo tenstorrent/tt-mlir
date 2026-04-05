@@ -5005,8 +5005,6 @@ def TTIR_GatherDimOp : TTIR_NamedOp<"gather_dim"> {
     This is distinct from the StableHLO-style `gather` op which has complex
     multi-dimensional semantics.
 
-    Note that the `sparse_grad` attribute is not supported for this operation.
-
     Parameters:
       - `input` (Tensor): The source tensor to gather from.
       - `index` (Tensor): Indices specifying which values to gather.
