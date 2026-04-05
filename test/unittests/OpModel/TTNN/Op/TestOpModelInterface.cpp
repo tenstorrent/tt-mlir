@@ -6499,8 +6499,8 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
   auto outputType =
       createRankedTensorType(queryShape, tiledElemType, queryLayout);
 
-  auto mlaOp = builder.create<PagedFlashMultiLatentAttentionDecodeOp>(
-      builder.getUnknownLoc(), outputType, query, key,
+  auto mlaOp = PagedFlashMultiLatentAttentionDecodeOp::create(
+      builder, builder.getUnknownLoc(), outputType, query, key,
       /*value=*/nullptr,
       /*head_dim_v=*/headDimV, pageTable,
       /*is_causal=*/true,

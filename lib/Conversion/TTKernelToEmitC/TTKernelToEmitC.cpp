@@ -1846,11 +1846,10 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value> operands;
     operands.push_back(adaptor.getFcm());
-    operands.push_back(rewriter
-                           .create<emitc::LiteralOp>(
-                               op.getLoc(),
-                               rewriter.getType<emitc::OpaqueType>("uint64_t"),
-                               std::to_string(op.getDim()))
+    operands.push_back(emitc::LiteralOp::create(
+                           rewriter, op.getLoc(),
+                           rewriter.getType<emitc::OpaqueType>("uint64_t"),
+                           std::to_string(op.getDim()))
                            .getResult());
 
     std::string opName =
