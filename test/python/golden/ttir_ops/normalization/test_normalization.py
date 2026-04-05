@@ -91,7 +91,7 @@ def test_batch_norm(
 )
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy", "emitc"])
 def test_rms_norm(
     shape: Shape,
     normalized_shape: List[int],

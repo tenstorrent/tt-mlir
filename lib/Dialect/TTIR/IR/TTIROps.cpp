@@ -5827,19 +5827,34 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     }
   }
 
-  // Verify weight tensor shape if present.
+  // Verify weight tensor trailing dims match normalized_shape.
+  // Allow leading 1-dims from rank normalization.
   if (getWeight()) {
-    RankedTensorType weightType = getWeight().getType();
-    if (weightType.getShape() != normalizedShape) {
+    ArrayRef<int64_t> weightShape = getWeight().getType().getShape();
+    if (weightShape.size() < normalizedShape.size() ||
+        weightShape.take_back(normalizedShape.size()) != normalizedShape) {
       return emitOpError("weight tensor shape must match normalized_shape");
+    }
+    for (int64_t d : weightShape.drop_back(normalizedShape.size())) {
+      if (d != 1) {
+        return emitOpError(
+            "weight tensor leading dimensions must be 1 if present");
+      }
     }
   }
 
-  // Verify bias tensor shape if present.
+  // Verify bias tensor trailing dims match normalized_shape.
   if (getBias()) {
-    RankedTensorType biasType = getBias().getType();
-    if (biasType.getShape() != normalizedShape) {
+    ArrayRef<int64_t> biasShape = getBias().getType().getShape();
+    if (biasShape.size() < normalizedShape.size() ||
+        biasShape.take_back(normalizedShape.size()) != normalizedShape) {
       return emitOpError("bias tensor shape must match normalized_shape");
+    }
+    for (int64_t d : biasShape.drop_back(normalizedShape.size())) {
+      if (d != 1) {
+        return emitOpError(
+            "bias tensor leading dimensions must be 1 if present");
+      }
     }
   }
 
