@@ -1740,6 +1740,52 @@ TEST_F(OpModelTest, Typecast) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, BitcastConvert) {
+  const llvm::SmallVector<int64_t> tensorShape = {16 * workerCoresN300 * 32,
+                                                  32};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+  const TTNNLayoutAttr inputLayoutDRAMIF32 = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved,
+      std::nullopt, GetPhysicalGridSize(), builder.getF32Type());
+  const TTNNLayoutAttr inputLayoutL1HSF32 = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::HeightSharded,
+      std::nullopt, GetPhysicalGridSize(), builder.getF32Type());
+  const TTNNLayoutAttr outputLayoutDRAMIU32 = CreateTiledLayoutUInt32(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  auto constraintsExp = OpModel<BitcastConvertOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, inputLayoutDRAMIF32,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt32),
+      outputLayoutDRAMIU32);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = OpModel<BitcastConvertOp>::getOpRuntime(
+      tensorShape, inputLayoutDRAMIF32,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt32),
+      outputLayoutDRAMIU32);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = OpModel<BitcastConvertOp>::getOpConstraints(
+      CreateWorkerGrid(), tensorShape, inputLayoutDRAMIF32,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt32),
+      inputLayoutL1HSF32);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+  runtimeExp = OpModel<BitcastConvertOp>::getOpRuntime(
+      tensorShape, inputLayoutDRAMIF32,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt32),
+      inputLayoutL1HSF32);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+}
+
 struct BinaryEltwiseParam {
   detail::TestTensor inputA;
   detail::TestTensor inputB;
