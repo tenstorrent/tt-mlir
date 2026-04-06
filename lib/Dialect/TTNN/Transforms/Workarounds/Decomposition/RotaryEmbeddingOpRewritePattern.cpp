@@ -43,8 +43,8 @@ getWorkaroundedOp(RotaryEmbeddingOp ropeOp, PatternRewriter &rewriter) {
   SmallVector<int32_t> steps(resultShape.size(), 1);
   ends[ends.size() - 2] = originalSeqLen;
 
-  auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
-      ropeOp.getLoc(), resultType, paddedOp.getResult(),
+  auto sliceOp = ttnn::SliceStaticOp::create(
+      rewriter, ropeOp.getLoc(), resultType, paddedOp.getResult(),
       rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
       rewriter.getI32ArrayAttr(steps));
 

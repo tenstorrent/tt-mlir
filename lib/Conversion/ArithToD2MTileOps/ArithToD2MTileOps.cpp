@@ -81,8 +81,8 @@ public:
     auto tileType = operands[0].getType();
 
     // First, compute (lhs - rhs)
-    auto subOp = rewriter.create<d2m::TileSubOp>(loc, tileType, operands[0],
-                                                 operands[1]);
+    auto subOp = d2m::TileSubOp::create(rewriter, loc, tileType, operands[0],
+                                        operands[1]);
 
     auto operandTileType = mlir::cast<ttcore::TileType>(operands[0].getType());
 

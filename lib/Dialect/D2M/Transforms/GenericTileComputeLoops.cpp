@@ -130,7 +130,7 @@ static affine::AffineForOp convertScfForToAffine(scf::ForOp scfForOp,
 
   rewriter.setInsertionPoint(scfForOp);
   auto affineForOp =
-      rewriter.create<affine::AffineForOp>(scfForOp.getLoc(), *lb, *ub, *step);
+      affine::AffineForOp::create(rewriter, scfForOp.getLoc(), *lb, *ub, *step);
 
   Block *scfBody = scfForOp.getBody();
   Block *affineBody = affineForOp.getBody();
@@ -179,7 +179,7 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
       });
       if (needsStall) {
         rewriter.setInsertionPoint(linalgOp);
-        rewriter.create<d2m::UnpackStallOnPackOp>(linalgOp.getLoc());
+        d2m::UnpackStallOnPackOp::create(rewriter, linalgOp.getLoc());
       }
       for (Value out : linalgOp.getOutputs()) {
         producedValues.insert(out);

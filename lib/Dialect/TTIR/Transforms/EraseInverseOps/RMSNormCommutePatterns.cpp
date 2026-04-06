@@ -50,8 +50,8 @@ public:
                                               inputType.getEncoding());
 
     auto newInputReshape =
-        rewriter.create<ReshapeOp>(op.getLoc(), newInputType, op.getInput(),
-                                   rewriter.getI32ArrayAttr(newInputShape));
+        ReshapeOp::create(rewriter, op.getLoc(), newInputType, op.getInput(),
+                          rewriter.getI32ArrayAttr(newInputShape));
 
     RMSNormOpT newRmsNorm;
     if constexpr (std::is_same_v<RMSNormOpT, RMSNormOp>) {

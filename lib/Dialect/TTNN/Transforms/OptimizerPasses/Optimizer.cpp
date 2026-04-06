@@ -774,8 +774,8 @@ private:
         OpBuilder builder(consumerOp);
         Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                            "_mem_reconfig");
-        ToLayoutOp memoryReconfigOp = builder.create<ToLayoutOp>(
-            loc,
+        ToLayoutOp memoryReconfigOp = ToLayoutOp::create(
+            builder, loc,
             newTensorType,                             // output type
             consumerOp->getOperand(edge.operandIndex), // input value
             LayoutAttr::get(consumerOp->getContext(),

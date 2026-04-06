@@ -31,7 +31,7 @@ inline std::string hashFuncOp(func::FuncOp func) {
 
   // RAII guard to undo the temporary changes made to the function
   // during hashing.
-  auto undoTempChanges = llvm::make_scope_exit([&func, originalSymName]() {
+  auto undoTempChanges = llvm::scope_exit([&func, originalSymName]() {
     func.setSymName(originalSymName);
     func.walk([&](func::CallOp callOp) { callOp->removeAttr("callee_hash"); });
   });

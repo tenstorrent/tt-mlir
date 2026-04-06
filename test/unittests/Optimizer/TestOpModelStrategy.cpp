@@ -104,8 +104,8 @@ public:
                                          ShapeAttr::get(&context, inputShape),
                                          /*dtype=*/nullptr, /*layout=*/nullptr);
 
-    return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
-                                 input1.getResult(), input2.getResult());
+    return AddOp::create(builder, builder.getUnknownLoc(), tensorType,
+                         input1.getResult(), input2.getResult());
   }
 
   // Create a ReshapeOp for testing.
@@ -120,8 +120,8 @@ public:
     auto outputTensorType = mlir::RankedTensorType::get(
         outputShape, builder.getBF16Type(), outputLayout);
 
-    auto input = builder.create<OnesOp>(
-        builder.getUnknownLoc(), inputTensorType,
+    auto input = OnesOp::create(
+        builder, builder.getUnknownLoc(), inputTensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
         /*dtype=*/nullptr, /*layout=*/nullptr);
 

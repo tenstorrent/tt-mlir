@@ -185,8 +185,8 @@ public:
         Location loc = region.getNumArguments() > 0
                            ? region.getArgument(0).getLoc()
                            : generic.getLoc();
-        auto func = builder.create<func::FuncOp>(
-            loc, symbolName,
+        auto func = func::FuncOp::create(
+            builder, loc, symbolName,
             FunctionType::get(builder.getContext(), region.getArgumentTypes(),
                               {}));
         func.setPrivate();
@@ -196,14 +196,15 @@ public:
         ttmlir::utils::setFunctionType(func,
                                        ttmlir::utils::FunctionType::Kernel);
         builder.setInsertionPointToEnd(&func.getBody().front());
-        builder.create<func::ReturnOp>(generic.getLoc());
+        func::ReturnOp::create(builder, generic.getLoc());
         threads.push_back(threadAttrWithSym);
       }
 
       builder.setInsertionPoint(generic);
-      auto symbolicGeneric = builder.create<GenericOp>(
-          generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-          generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+      auto symbolicGeneric = GenericOp::create(
+          builder, generic->getLoc(), generic.getResultTypes(),
+          generic.getInputs(), generic.getOutputs(),
+          generic.getAdditionalArgs(), generic.getGrid(),
           generic.getBlockFactors(), generic.getIndexingMaps(),
           generic.getIteratorTypes(), builder.getArrayAttr(threads),
           generic.getFabricConnectionConfigAttr(),

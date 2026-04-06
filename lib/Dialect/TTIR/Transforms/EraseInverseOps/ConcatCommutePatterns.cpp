@@ -60,9 +60,8 @@ public:
           operandType.getElementType());
 
       newConcatOperands.push_back(
-          rewriter
-              .create<PermuteOp>(op->getLoc(), permuteOperandType, operand,
-                                 permuteUser.getPermutation())
+          PermuteOp::create(rewriter, op->getLoc(), permuteOperandType, operand,
+                            permuteUser.getPermutation())
               ->getResult(0));
     }
 
@@ -70,8 +69,8 @@ public:
         ttmlir::utils::applyPermutation(op.getType().getShape(),
                                         permuteUser.getPermutation()),
         op.getType().getElementType());
-    ConcatOp newConcat = rewriter.create<ConcatOp>(
-        op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
+    ConcatOp newConcat = ConcatOp::create(rewriter, op->getLoc(), newConcatType,
+                                          newConcatOperands, newConcatDim);
 
     // All users must be identical TMs.
     // We must not reference `permuteUser` during/after replacements, as it will
@@ -131,16 +130,16 @@ public:
             ttmlir::utils::inversePermutation(permuteOperand.getPermutation())),
         op.getType().getElementType());
     int64_t newConcatDim = permuteOperand.getPermutation()[currentConcatDim];
-    ConcatOp newConcat = rewriter.create<ConcatOp>(
-        op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
+    ConcatOp newConcat = ConcatOp::create(rewriter, op->getLoc(), newConcatType,
+                                          newConcatOperands, newConcatDim);
 
     RankedTensorType newPermuteType = RankedTensorType::get(
         ttmlir::utils::applyPermutation(newConcatType.getShape(),
                                         permuteOperand.getPermutation()),
         newConcatType.getElementType());
     PermuteOp newPerm =
-        rewriter.create<PermuteOp>(op->getLoc(), newPermuteType, newConcat,
-                                   permuteOperand.getPermutation());
+        PermuteOp::create(rewriter, op->getLoc(), newPermuteType, newConcat,
+                          permuteOperand.getPermutation());
 
     rewriter.replaceOp(op, newPerm);
   }
@@ -229,15 +228,15 @@ public:
       RankedTensorType newOperandType = RankedTensorType::get(
           SmallVector<int64_t>(newOperandShape.begin(), newOperandShape.end()),
           operandType.getElementType());
-      newConcatOperands.push_back(rewriter.create<ReshapeOp>(
-          op->getLoc(), newOperandType, operand,
-          rewriter.getI32ArrayAttr(newOperandShape)));
+      newConcatOperands.push_back(
+          ReshapeOp::create(rewriter, op->getLoc(), newOperandType, operand,
+                            rewriter.getI32ArrayAttr(newOperandShape)));
     }
 
     RankedTensorType newConcatType =
         RankedTensorType::get(newConcatShape, op.getType().getElementType());
-    ConcatOp newConcat = rewriter.create<ConcatOp>(
-        op->getLoc(), newConcatType, newConcatOperands, newConcatDim);
+    ConcatOp newConcat = ConcatOp::create(rewriter, op->getLoc(), newConcatType,
+                                          newConcatOperands, newConcatDim);
 
     // All users must be identical TMs.
     // We must not reference `reshapeUser` during/after replacements, as it will

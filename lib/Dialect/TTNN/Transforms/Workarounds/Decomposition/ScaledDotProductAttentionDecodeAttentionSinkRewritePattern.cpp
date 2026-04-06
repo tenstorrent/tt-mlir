@@ -44,14 +44,12 @@ ScaledDotProductAttentionDecodeAttentionSinkRewritePattern::matchAndRewrite(
   if (batch != 1) {
     auto slicedType =
         utils::RankedTensorTypeFactory::create(sinkType, {1, numHeads, 1, 1});
-    sink =
-        rewriter
-            .create<SliceStaticOp>(
-                loc, slicedType, sink, rewriter.getI32ArrayAttr({0, 0, 0, 0}),
-                rewriter.getI32ArrayAttr(
-                    {1, static_cast<int32_t>(numHeads), 1, 1}),
-                rewriter.getI32ArrayAttr({1, 1, 1, 1}))
-            .getResult();
+    sink = SliceStaticOp::create(rewriter, loc, slicedType, sink,
+                                 rewriter.getI32ArrayAttr({0, 0, 0, 0}),
+                                 rewriter.getI32ArrayAttr(
+                                     {1, static_cast<int32_t>(numHeads), 1, 1}),
+                                 rewriter.getI32ArrayAttr({1, 1, 1, 1}))
+               .getResult();
     sinkType = mlir::cast<RankedTensorType>(sink.getType());
   }
 

@@ -208,9 +208,9 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   // stats on (input + residual).
   mlir::Value x = input;
   if (op.getResidual()) {
-    auto addOp = rewriter.create<ttnn::AddOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_residual_add"), inputType, x,
-        op.getResidual());
+    auto addOp = ttnn::AddOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_residual_add"),
+        inputType, x, op.getResidual());
     x = addOp.getResult();
   }
 
@@ -379,16 +379,16 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       addEpsOp.getResult());
 
   // normalized = multiply(x, inv_rms) — broadcasts inv_rms across last dim
-  auto normalizedOp = rewriter.create<ttnn::MultiplyOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_normalize"), resultType, x,
-      rsqrtOp.getResult());
+  auto normalizedOp = ttnn::MultiplyOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_normalize"),
+      resultType, x, rsqrtOp.getResult());
 
   // Apply optional weight (gamma).
   mlir::Value result = normalizedOp.getResult();
   if (op.getWeight()) {
-    auto weightOp = rewriter.create<ttnn::MultiplyOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_weight"), resultType, result,
-        op.getWeight());
+    auto weightOp = ttnn::MultiplyOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_weight"),
+        resultType, result, op.getWeight());
     result = weightOp.getResult();
   }
 

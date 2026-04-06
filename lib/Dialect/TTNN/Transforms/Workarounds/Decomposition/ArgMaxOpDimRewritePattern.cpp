@@ -52,8 +52,8 @@ ArgMaxOpDimRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
       utils::RankedTensorTypeFactory::create(inputType, permutedShape);
 
   // Forward permute: move reduction dim to last position.
-  auto forwardPermute = rewriter.create<ttnn::PermuteOp>(
-      ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
+  auto forwardPermute = ttnn::PermuteOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute"),
       permutedInputType, srcOp.getInput(),
       rewriter.getDenseI64ArrayAttr(permutation),
       /*pad_value=*/mlir::FloatAttr());
