@@ -61,17 +61,18 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   // stats on (input + residual).
   mlir::Value x = input;
   if (op.getResidual()) {
-    auto addOp = rewriter.create<ttnn::AddOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_residual_add"), inputType, x,
-        op.getResidual());
+    auto addOp = ttnn::AddOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_residual_add"),
+        inputType, x, op.getResidual());
     x = addOp.getResult();
   }
 
   // --- Pre all-gather: compute local E(x^2) ---
 
   // x_sq = multiply(x, x)
-  auto xSqOp = rewriter.create<ttnn::MultiplyOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_square"), inputType, x, x);
+  auto xSqOp = ttnn::MultiplyOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_square"), inputType,
+      x, x);
 
   // local_stats = mean(x_sq, dim=-1, keep_dim=true)
   SmallVector<int64_t> statsShape(inputShape.begin(), inputShape.end());
@@ -83,9 +84,9 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
                             inputEncoding.withTensorShape(statsShape));
 
   ArrayAttr dimArg = rewriter.getI32ArrayAttr({static_cast<int32_t>(rank - 1)});
-  auto localMeanOp = rewriter.create<ttnn::MeanOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_local_mean"), statsType,
-      xSqOp.getResult(), /*keep_dim=*/true, dimArg);
+  auto localMeanOp = ttnn::MeanOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_local_mean"),
+      statsType, xSqOp.getResult(), /*keep_dim=*/true, dimArg);
 
   // --- All-gather: gather local stats across devices ---
 
@@ -95,9 +96,9 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       RankedTensorType::get(gatheredShape, inputType.getElementType(),
                             inputEncoding.withTensorShape(gatheredShape));
 
-  auto allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_all_gather"), gatheredType,
-      localMeanOp.getResult(),
+  auto allGatherOp = ttnn::AllGatherOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
+      gatheredType, localMeanOp.getResult(),
       /*all_gather_dim=*/static_cast<int32_t>(rank - 1),
       /*cluster_axis=*/clusterAxis,
       /*sub_device_id=*/nullptr,
@@ -108,37 +109,37 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   // --- Post all-gather: normalize using global stats ---
 
   // global_stats = mean(gathered_stats, dim=-1, keep_dim=true)
-  auto globalMeanOp = rewriter.create<ttnn::MeanOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_global_mean"), statsType,
-      allGatherOp.getResult(), /*keep_dim=*/true, dimArg);
+  auto globalMeanOp = ttnn::MeanOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_global_mean"),
+      statsType, allGatherOp.getResult(), /*keep_dim=*/true, dimArg);
 
   // eps_tensor = full(epsilon)
-  auto epsTensor = rewriter.create<ttnn::FullOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_epsilon"), statsType,
+  auto epsTensor = ttnn::FullOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_epsilon"), statsType,
       rewriter.getF32FloatAttr(op.getEpsilon().convertToFloat()),
       op.getDevice());
 
   // stabilized = add(global_stats, eps_tensor)
-  auto addEpsOp = rewriter.create<ttnn::AddOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_add_eps"), statsType,
+  auto addEpsOp = ttnn::AddOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_add_eps"), statsType,
       globalMeanOp.getResult(), epsTensor.getResult());
 
   // inv_rms = rsqrt(stabilized)
-  auto rsqrtOp = rewriter.create<ttnn::RsqrtOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_rsqrt"), statsType,
+  auto rsqrtOp = ttnn::RsqrtOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_rsqrt"), statsType,
       addEpsOp.getResult());
 
   // normalized = multiply(x, inv_rms) — broadcasts inv_rms across last dim
-  auto normalizedOp = rewriter.create<ttnn::MultiplyOp>(
-      ttmlir::utils::appendLocationSuffix(loc, "_normalize"), resultType, x,
-      rsqrtOp.getResult());
+  auto normalizedOp = ttnn::MultiplyOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(loc, "_normalize"),
+      resultType, x, rsqrtOp.getResult());
 
   // Apply optional weight (gamma).
   mlir::Value result = normalizedOp.getResult();
   if (op.getWeight()) {
-    auto weightOp = rewriter.create<ttnn::MultiplyOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_weight"), resultType, result,
-        op.getWeight());
+    auto weightOp = ttnn::MultiplyOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_weight"),
+        resultType, result, op.getWeight());
     result = weightOp.getResult();
   }
 

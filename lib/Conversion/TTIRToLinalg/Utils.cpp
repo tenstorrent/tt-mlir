@@ -85,8 +85,8 @@ Value broadcastToShape(Value input, ArrayRef<int64_t> targetShape, Location loc,
     return input;
   }
 
-  auto initTensor = rewriter.create<ttir::EmptyOp>(loc, targetShape,
-                                                   inputType.getElementType());
+  auto initTensor = ttir::EmptyOp::create(rewriter, loc, targetShape,
+                                          inputType.getElementType());
 
   // When all dims need broadcasting (e.g. [1,1] -> [64,128]), extract the
   // scalar element and use linalg.fill instead of linalg.broadcast, since
@@ -94,10 +94,10 @@ Value broadcastToShape(Value input, ArrayRef<int64_t> targetShape, Location loc,
   // tensor) and tensor.collapse_shape with empty reassociation is invalid.
   if (broadcastDims.size() == targetShape.size()) {
     SmallVector<Value> zeroIndices(
-        inputShape.size(), rewriter.create<arith::ConstantIndexOp>(loc, 0));
-    Value scalar = rewriter.create<tensor::ExtractOp>(loc, input, zeroIndices);
+        inputShape.size(), arith::ConstantIndexOp::create(rewriter, loc, 0));
+    Value scalar = tensor::ExtractOp::create(rewriter, loc, input, zeroIndices);
     auto fillOp =
-        rewriter.create<linalg::FillOp>(loc, scalar, initTensor.getResult());
+        linalg::FillOp::create(rewriter, loc, scalar, initTensor.getResult());
     return fillOp.getResult(0);
   }
 
@@ -107,12 +107,12 @@ Value broadcastToShape(Value input, ArrayRef<int64_t> targetShape, Location loc,
   SmallVector<SmallVector<int64_t, 2>, 2> collapseDimGroups =
       getCollapseDims(inputShape, targetShape);
   if (collapseDimGroups.size() != inputShape.size()) {
-    broadcastInput =
-        rewriter.create<tensor::CollapseShapeOp>(loc, input, collapseDimGroups);
+    broadcastInput = tensor::CollapseShapeOp::create(rewriter, loc, input,
+                                                     collapseDimGroups);
   }
 
-  auto broadcastOp = rewriter.create<linalg::BroadcastOp>(
-      loc, broadcastInput, initTensor.getResult(), broadcastDims);
+  auto broadcastOp = linalg::BroadcastOp::create(
+      rewriter, loc, broadcastInput, initTensor.getResult(), broadcastDims);
 
   return broadcastOp.getResults().front();
 }
@@ -137,17 +137,17 @@ Value convertToBooleanTensor(Value input, Location loc,
   SmallVector<int64_t> zeroShape(inputType.getRank(), 1);
   auto zeroType = RankedTensorType::get(zeroShape, elementType);
   auto zeroAttr = createDenseElementsAttr(zeroType, 0.0);
-  auto zeroConst = rewriter.create<tosa::ConstOp>(loc, zeroType, zeroAttr);
+  auto zeroConst = tosa::ConstOp::create(rewriter, loc, zeroType, zeroAttr);
 
   // For logical operations, non-zero means true.
   // So we need: (input != 0) which we get by computing !(input == 0).
   auto boolType =
       RankedTensorType::get(inputType.getShape(), rewriter.getIntegerType(1));
   auto equalZero =
-      rewriter.create<tosa::EqualOp>(loc, boolType, input, zeroConst);
+      tosa::EqualOp::create(rewriter, loc, boolType, input, zeroConst);
   // Then use LogicalNotOp to invert it, giving us (input != 0).
   auto notEqualZero =
-      rewriter.create<tosa::LogicalNotOp>(loc, boolType, equalZero);
+      tosa::LogicalNotOp::create(rewriter, loc, boolType, equalZero);
 
   return notEqualZero;
 }
@@ -170,13 +170,13 @@ Value createTosaConst(ConversionPatternRewriter &rewriter, Location loc,
   SmallVector<int64_t> shape(rank, 1);
   auto type = RankedTensorType::get(shape, elementType);
   auto attr = createDenseElementsAttr(type, value);
-  return rewriter.create<tosa::ConstOp>(loc, type, attr);
+  return tosa::ConstOp::create(rewriter, loc, type, attr);
 }
 
 Value createTosaMulShift(ConversionPatternRewriter &rewriter, Location loc) {
   auto type = RankedTensorType::get({1}, rewriter.getI8Type());
   auto attr = DenseElementsAttr::get(type, rewriter.getI8IntegerAttr(0));
-  return rewriter.create<tosa::ConstOp>(loc, type, attr);
+  return tosa::ConstOp::create(rewriter, loc, type, attr);
 }
 
 int64_t calculateExtraPadding(int64_t dim, int64_t kernel, int64_t stride,
@@ -194,9 +194,10 @@ Value createTosaReshape(Value input, RankedTensorType targetType,
   ArrayRef<int64_t> newShape = targetType.getShape();
   auto shapeType = tosa::shapeType::get(rewriter.getContext(), newShape.size());
   auto shapeAttr = rewriter.getIndexTensorAttr(newShape);
-  auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, shapeAttr);
-  return rewriter
-      .create<tosa::ReshapeOp>(loc, targetType, input, shapeOp.getResult())
+  auto shapeOp =
+      tosa::ConstShapeOp::create(rewriter, loc, shapeType, shapeAttr);
+  return tosa::ReshapeOp::create(rewriter, loc, targetType, input,
+                                 shapeOp.getResult())
       .getResult();
 }
 
@@ -222,8 +223,8 @@ Value sliceResultToShape(Value result, RankedTensorType targetType,
     sizes.push_back(rewriter.getI64IntegerAttr(targetType.getShape()[i]));
     strides.push_back(rewriter.getI64IntegerAttr(1));
   }
-  return rewriter.create<tensor::ExtractSliceOp>(loc, targetType, result,
-                                                 offsets, sizes, strides);
+  return tensor::ExtractSliceOp::create(rewriter, loc, targetType, result,
+                                        offsets, sizes, strides);
 }
 
 int64_t normalizeDim(int64_t dim, int64_t rank) {

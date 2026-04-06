@@ -231,7 +231,7 @@ SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
   SmallVector<Value> dimValues;
   for (unsigned i = 0; i < indexingMap.getNumDims(); ++i) {
     dimValues.push_back(
-        builder.create<BlockIndexOp>(loc, static_cast<int64_t>(i)));
+        BlockIndexOp::create(builder, loc, static_cast<int64_t>(i)));
   }
 
   // For each result expression, use expandAffineExpr to translate to arith ops
@@ -725,7 +725,7 @@ template <typename Builder>
 SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
                             ValueRange index, bool isRemote) {
   auto affineApply = [&](AffineMap map, ValueRange index) {
-    return builder.template create<affine::AffineApplyOp>(loc, map, index);
+    return affine::AffineApplyOp::create(builder, loc, map, index);
   };
 
   if (isRemote) {
@@ -755,14 +755,14 @@ applyMap<PatternRewriter>(PatternRewriter &builder, Location loc, AffineMap map,
 
 std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
 getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
-  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                 builder.getIndexAttr(0));
-  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                builder.getIndexAttr(1));
+  Value zero = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                         builder.getIndexAttr(0));
+  Value one = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                        builder.getIndexAttr(1));
   SmallVector<Value> lbs(shardShape.size(), zero);
   SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
-    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                             builder.getIndexAttr(dim));
+    return arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                     builder.getIndexAttr(dim));
   }));
   SmallVector<Value> step(shardShape.size(), one);
   return std::make_tuple(lbs, ubs, step);

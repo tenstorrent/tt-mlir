@@ -174,8 +174,8 @@ public:
                                   llvm::StringRef name = "test") {
     auto funcType = builder.getType<mlir::FunctionType>(
         mlir::TypeRange(inputTypes), mlir::TypeRange(outputTypes));
-    func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), name,
-                                              funcType);
+    func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(), name,
+                                      funcType);
     mlir::Block *block = func.addEntryBlock();
     builder.setInsertionPointToStart(block);
     return func;
@@ -200,13 +200,13 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMapDoesNotCrash) {
   mlir::Value arg1 = func.getBody().front().getArgument(1);
 
   auto addOp =
-      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
-  auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
-                                       addOp.getResult());
-  auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
-                                          reluOp.getResult(), arg1);
-  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
-                                       mulOp.getResult());
+      AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
+  auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
+                               addOp.getResult());
+  auto mulOp = MultiplyOp::create(builder, builder.getUnknownLoc(), tensorType,
+                                  reluOp.getResult(), arg1);
+  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
+                               mulOp.getResult());
 
   llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
   legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);
@@ -236,11 +236,11 @@ TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
   mlir::Value arg1 = func.getBody().front().getArgument(1);
 
   auto addOp =
-      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
-  auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
-                                       addOp.getResult());
-  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
-                                       reluOp.getResult());
+      AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
+  auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
+                               addOp.getResult());
+  mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
+                               reluOp.getResult());
 
   llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
   legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);
@@ -278,8 +278,8 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
 
     static int counter = 0;
     std::string name = "test_" + std::to_string(counter++);
-    auto localFunc = builder.create<mlir::func::FuncOp>(
-        builder.getUnknownLoc(), name,
+    auto localFunc = mlir::func::FuncOp::create(
+        builder, builder.getUnknownLoc(), name,
         builder.getType<mlir::FunctionType>(
             mlir::TypeRange({tensorType, tensorType}),
             mlir::TypeRange({tensorType})));
@@ -290,13 +290,13 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
     mlir::Value arg1 = block->getArgument(1);
 
     auto addOp =
-        builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
-    auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
-                                         addOp.getResult());
-    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
-                                            reluOp.getResult(), arg1);
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
-                                         mulOp.getResult());
+        AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
+    auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
+                                 addOp.getResult());
+    auto mulOp = MultiplyOp::create(builder, builder.getUnknownLoc(),
+                                    tensorType, reluOp.getResult(), arg1);
+    mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
+                                 mulOp.getResult());
 
     llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
     legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);
@@ -342,8 +342,8 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
 
     static int counter = 100;
     std::string name = "k_test_" + std::to_string(counter++);
-    auto localFunc = builder.create<mlir::func::FuncOp>(
-        builder.getUnknownLoc(), name,
+    auto localFunc = mlir::func::FuncOp::create(
+        builder, builder.getUnknownLoc(), name,
         builder.getType<mlir::FunctionType>(
             mlir::TypeRange({tensorType, tensorType}),
             mlir::TypeRange({tensorType})));
@@ -354,13 +354,13 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
     mlir::Value arg1 = block->getArgument(1);
 
     auto addOp =
-        builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
-    auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
-                                         addOp.getResult());
-    auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
-                                            reluOp.getResult(), arg1);
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
-                                         mulOp.getResult());
+        AddOp::create(builder, builder.getUnknownLoc(), tensorType, arg0, arg1);
+    auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), tensorType,
+                                 addOp.getResult());
+    auto mulOp = MultiplyOp::create(builder, builder.getUnknownLoc(),
+                                    tensorType, reluOp.getResult(), arg1);
+    mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
+                                 mulOp.getResult());
 
     llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
     legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);

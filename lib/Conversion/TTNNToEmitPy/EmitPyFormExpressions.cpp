@@ -72,8 +72,8 @@ public:
       ValueRange operands = op->getOperands();
 
       builder.setInsertionPoint(op);
-      auto exprOp = builder.create<emitpy::ExpressionOp>(
-          loc, op->getResult(0).getType(), operands);
+      auto exprOp = emitpy::ExpressionOp::create(
+          builder, loc, op->getResult(0).getType(), operands);
 
       auto *body = &exprOp.getBody().emplaceBlock();
       for (auto operand : operands) {
@@ -88,7 +88,7 @@ public:
       }
 
       builder.setInsertionPointToEnd(body);
-      builder.create<emitpy::YieldOp>(loc, op->getResult(0));
+      emitpy::YieldOp::create(builder, loc, op->getResult(0));
     }
   }
 

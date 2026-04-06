@@ -56,9 +56,9 @@ static Value squeezeToOriginalRank(Value v, RankedTensorType originalType,
       currentType, originalType.getShape());
   SmallVector<int32_t> shapeAttr(originalType.getShape().begin(),
                                  originalType.getShape().end());
-  return rewriter
-      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr),
-                         /*memory_config=*/MemoryConfigAttr())
+  return ReshapeOp::create(rewriter, loc, newType, v,
+                           rewriter.getI32ArrayAttr(shapeAttr),
+                           /*memory_config=*/MemoryConfigAttr())
       .getResult();
 }
 
@@ -440,12 +440,10 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
       newShape.append(maskType.getShape().begin(), maskType.getShape().end());
       auto newType = utils::RankedTensorTypeFactory::create(maskType, newShape);
       SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
-      c.mask =
-          rewriter
-              .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, c.mask,
-                                 rewriter.getI32ArrayAttr(shapeAttr),
+      c.mask = ReshapeOp::create(rewriter, c.attentionMatmul.getLoc(), newType,
+                                 c.mask, rewriter.getI32ArrayAttr(shapeAttr),
                                  /*memory_config=*/MemoryConfigAttr())
-              .getResult();
+                   .getResult();
     }
   }
 
@@ -508,10 +506,9 @@ bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
     newShape.append(type.getShape().begin(), type.getShape().end());
     auto newType = utils::RankedTensorTypeFactory::create(type, newShape);
     SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
-    return rewriter
-        .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, v,
-                           rewriter.getI32ArrayAttr(shapeAttr),
-                           /*memory_config=*/MemoryConfigAttr())
+    return ReshapeOp::create(rewriter, c.attentionMatmul.getLoc(), newType, v,
+                             rewriter.getI32ArrayAttr(shapeAttr),
+                             /*memory_config=*/MemoryConfigAttr())
         .getResult();
   };
 
@@ -683,12 +680,12 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     float invScale = 1.0f / scale;
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, c.attentionMatmul.getOperation());
-    auto invScaleOp = rewriter.create<FullOp>(
-        c.attentionMatmul.getLoc(), sinkType,
+    auto invScaleOp = FullOp::create(
+        rewriter, c.attentionMatmul.getLoc(), sinkType,
         rewriter.getF32FloatAttr(invScale), deviceOp.getResult());
     c.attentionSink =
-        rewriter.create<MultiplyOp>(c.attentionMatmul.getLoc(), sinkType,
-                                    c.attentionSink, invScaleOp.getResult());
+        MultiplyOp::create(rewriter, c.attentionMatmul.getLoc(), sinkType,
+                           c.attentionSink, invScaleOp.getResult());
   }
 
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
@@ -719,9 +716,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       return failure();
     }
 
-    auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
-        c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
-        c.key, c.value,
+    auto decodeOp = ScaledDotProductAttentionDecodeOp::create(
+        rewriter, c.attentionMatmul.getLoc(), permutedQuery.getType(),
+        permutedQuery, c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
@@ -752,9 +749,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
       return failure();
     }
 
-    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-        c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
-        c.mask,
+    auto sdpaOp = ScaledDotProductAttentionOp::create(
+        rewriter, c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
+        c.value, c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
         /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
         /*memory_config=*/MemoryConfigAttr());

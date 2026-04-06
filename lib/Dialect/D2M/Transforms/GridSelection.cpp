@@ -341,13 +341,13 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
     virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
   }
 
-  auto newEmptyOp = builder.create<d2m::EmptyOp>(
-      emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
+  auto newEmptyOp = d2m::EmptyOp::create(
+      builder, emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
       virtualGridForwardMapping);
 
   builder.setInsertionPoint(toLayoutOp);
-  auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-      toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
+  auto newToLayoutOp = d2m::ToLayoutOp::create(
+      builder, toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
   // Reblock it back to original shape to preserve IR correctness.
   // The view chain that applyViews composes through depends on this
@@ -358,8 +358,8 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
-  auto view = builder.create<d2m::ViewLayoutOp>(
-      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0),
+  auto view = d2m::ViewLayoutOp::create(
+      builder, toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0),
       reblockMap, /*reinterpretLayout=*/false);
 
   // We expect the ToLayout to be used in one of two ways:
@@ -485,9 +485,9 @@ static void insertViewForTTNNDRAMTensor(Value operand,
       fakeShardedShape, metalTensor.getElementType(), viewOutputLayout);
 
   builder.setInsertionPointAfter(castOp);
-  auto viewOp = builder.create<d2m::ViewLayoutOp>(
-      castOp.getLoc(), viewOutputTensor, castOp.getResult(),
-      AffineMapAttr::get(reblockMap));
+  auto viewOp = d2m::ViewLayoutOp::create(builder, castOp.getLoc(),
+                                          viewOutputTensor, castOp.getResult(),
+                                          AffineMapAttr::get(reblockMap));
   castOp.getResult().replaceAllUsesExcept(viewOp.getResult(), viewOp);
 }
 
@@ -514,8 +514,9 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
 
   builder.setInsertionPointAfter(castOp);
 
-  auto newViewLayoutOp = builder.create<d2m::ViewLayoutOp>(
-      castOp.getLoc(), newTensorType, castOp.getResult(), gridRemapping);
+  auto newViewLayoutOp =
+      d2m::ViewLayoutOp::create(builder, castOp.getLoc(), newTensorType,
+                                castOp.getResult(), gridRemapping);
 
   // Reblock it back to original shape to preserve IR correctness.
   auto viewOutputType = mlir::cast<RankedTensorType>(utils::reblockShapedType(
@@ -523,9 +524,10 @@ static void optimizeTTNNMetalLayoutCastOpGrid(
   auto reblockMap = ttmlir::utils::calculateReblockMap(
       newTensorType.getShape(), viewOutputType.getShape(),
       builder.getContext());
-  auto revertingView = builder.create<d2m::ViewLayoutOp>(
-      castOp.getLoc(), viewOutputType, newViewLayoutOp.getResult(), reblockMap,
-      /*reinterpretLayout=*/false);
+  auto revertingView =
+      d2m::ViewLayoutOp::create(builder, castOp.getLoc(), viewOutputType,
+                                newViewLayoutOp.getResult(), reblockMap,
+                                /*reinterpretLayout=*/false);
 
   castOp.getResult().replaceAllUsesExcept(revertingView.getResult(),
                                           newViewLayoutOp);
@@ -851,8 +853,8 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
       auto viewTensorType = mlir::cast<RankedTensorType>(
           utils::reblockShapedType(inputType, inputOptimalGrid));
       builder.setInsertionPoint(compositeView);
-      auto view = builder.create<d2m::ViewLayoutOp>(compositeView.getLoc(),
-                                                    viewTensorType, input);
+      auto view = d2m::ViewLayoutOp::create(builder, compositeView.getLoc(),
+                                            viewTensorType, input);
       reblockedInputs.push_back(view.getResult());
     }
 
@@ -862,8 +864,8 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
         tensorWithOptimalGrid(outType, config, info.grid, builder);
 
     builder.setInsertionPoint(compositeView);
-    auto newCompositeView = builder.create<d2m::CompositeViewOp>(
-        compositeView.getLoc(), newOutType, reblockedInputs,
+    auto newCompositeView = d2m::CompositeViewOp::create(
+        builder, compositeView.getLoc(), newOutType, reblockedInputs,
         compositeView.getDim());
 
     compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
@@ -911,8 +913,8 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
       }
     }
 
-    auto newEmptyOp = builder.create<d2m::EmptyOp>(
-        emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
+    auto newEmptyOp = d2m::EmptyOp::create(
+        builder, emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
         virtualGridForwardMapping);
     emptyOp.getResult().replaceAllUsesWith(newEmptyOp.getResult());
     emptyOp.erase();
@@ -1029,9 +1031,9 @@ updateViewLayoutOps(ArrayRef<ViewLayoutUpdateInfo> viewLayoutsToUpdate,
     }
 
     builder.setInsertionPoint(viewOp);
-    auto newViewOp = builder.create<d2m::ViewLayoutOp>(
-        viewOp.getLoc(), newResultType, viewOp.getInput(), newRemapping,
-        viewOp.getReinterpretLayout());
+    auto newViewOp = d2m::ViewLayoutOp::create(
+        builder, viewOp.getLoc(), newResultType, viewOp.getInput(),
+        newRemapping, viewOp.getReinterpretLayout());
     viewOp.getResult().replaceAllUsesWith(newViewOp.getResult());
     viewOp.erase();
   }
