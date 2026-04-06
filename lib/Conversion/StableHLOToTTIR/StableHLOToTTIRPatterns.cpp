@@ -6047,9 +6047,9 @@ private:
     }
 
     // Build per-dimension index slices. Each operand dimension can be:
-    // inserted (collapsed) + scatter-indexed: use scatter index only
-    // window-only: use window offset only
-    // both scatter-indexed and window: add scatter index + window offset
+    // a) inserted (collapsed) + scatter-indexed: use scatter index only
+    // b) window-only: use window offset only
+    // c) both scatter-indexed and window: add scatter index + window offset
     llvm::SmallVector<Value> indexSlices;
     size_t windowIdxPos = 0;
     for (int64_t operandDim = 0; operandDim < operandRank; ++operandDim) {
@@ -6059,7 +6059,7 @@ private:
       Value dimIndex = nullptr;
 
       if (isScatterDim) {
-        // Slice the scatter index column for this operand dim.
+        // a) Slice the scatter index column for this operand dim.
         int64_t idxPos = scatterDimToIdxPos[operandDim];
         llvm::SmallVector<int32_t> begins = {0, static_cast<int32_t>(idxPos)};
         llvm::SmallVector<int32_t> ends = {
@@ -6082,8 +6082,8 @@ private:
         Value windowOffset = windowOffsetSlices[windowIdxPos];
         ++windowIdxPos;
 
-        if (dimIndex) {
-          // Both scatter-indexed and window dim: add scatter index + window
+        if (isScatterDim) {
+          // (c) Both scatter-indexed and window dim: add scatter index + window
           // offset.
           RankedTensorType addType = RankedTensorType::get(
               {expandedNumIndices, 1}, indicesType.getElementType());
@@ -6092,6 +6092,7 @@ private:
                   loc, "_scatter_plus_window_" + std::to_string(operandDim)),
               addType, dimIndex, windowOffset);
         } else {
+          // (b) Window-only dim: use window offset only.
           dimIndex = windowOffset;
         }
       }
