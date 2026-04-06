@@ -294,10 +294,10 @@ class ComplexSliceOpConversionPattern
   using OpConversionPattern<mlir::stablehlo::SliceOp>::OpConversionPattern;
 
 public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::SliceOp op,
-                  OpConversionPattern<mlir::stablehlo::SliceOp>::OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::SliceOp op,
+      OpConversionPattern<mlir::stablehlo::SliceOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
 
@@ -361,12 +361,10 @@ struct StableHLOComplexDataTypeConversionPass
       return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
     };
 
-    target.addDynamicallyLegalOp<mlir::stablehlo::ConstantOp,
-                                 mlir::stablehlo::ReshapeOp,
-                                 mlir::stablehlo::SliceOp,
-                                 mlir::stablehlo::ConcatenateOp,
-                                 mlir::stablehlo::BroadcastInDimOp>(
-        isNotComplexType);
+    target.addDynamicallyLegalOp<
+        mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
+        mlir::stablehlo::SliceOp, mlir::stablehlo::ConcatenateOp,
+        mlir::stablehlo::BroadcastInDimOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
@@ -391,16 +389,15 @@ struct StableHLOComplexDataTypeConversionPass
         });
 
     RewritePatternSet patterns(&getContext());
-    patterns
-        .add<ComplexBroadcastInDimOpConversionPattern,
-             ComplexConcatenateOpConversionPattern,
-             ComplexConstantOpConversionPattern,
-             ComplexSliceOpConversionPattern,
-             ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
-             StablehloComplexToDecomposedPattern,
-             StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
-             StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
-            typeConverter, &getContext());
+    patterns.add<
+        ComplexBroadcastInDimOpConversionPattern,
+        ComplexConcatenateOpConversionPattern,
+        ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
+        StablehloComplexToDecomposedPattern,
+        StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
+        StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
+        typeConverter, &getContext());
 
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
