@@ -11,7 +11,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
-#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
+#include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -372,26 +372,26 @@ struct TTIRToTTNNCommonPipelineOptions
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
 
-  Option<WeightDtype> experimentalWeightDtype{
+  Option<BFPDtype> experimentalWeightDtype{
       *this, "experimental-weight-dtype",
       llvm::cl::desc("Experimental: Target dtype for weight conversion in "
                      "matrix multiplication and linear operations."),
       llvm::cl::values(
-          clEnumValN(WeightDtype::None, "none", "Disabled"),
-          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
-          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
+          clEnumValN(BFPDtype::None, "none", "Disabled"),
+          clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4",
                      "BFP BFloat4 format")),
-      llvm::cl::init(WeightDtype::None)};
+      llvm::cl::init(BFPDtype::None)};
 
-  Option<WeightDtype> experimentalKVCacheDtype{
+  Option<BFPDtype> experimentalKVCacheDtype{
       *this, "experimental-kv-cache-dtype",
       llvm::cl::desc("Experimental: Target dtype for KV cache conversion."),
       llvm::cl::values(
-          clEnumValN(WeightDtype::None, "none", "Disabled"),
-          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
-          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
+          clEnumValN(BFPDtype::None, "none", "Disabled"),
+          clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4",
                      "BFP BFloat4 format")),
-      llvm::cl::init(WeightDtype::None)};
+      llvm::cl::init(BFPDtype::None)};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4

@@ -3,7 +3,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
+#include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -63,17 +63,6 @@ class TTNNKVCacheDtypeConversionPass
 public:
   using impl::TTNNKVCacheDtypeConversionBase<
       TTNNKVCacheDtypeConversionPass>::TTNNKVCacheDtypeConversionBase;
-
-  static ttcore::DataType weightDtypeToDataType(WeightDtype wd) {
-    switch (wd) {
-    case WeightDtype::BFP_BFloat8:
-      return ttcore::DataType::BFP_BFloat8;
-    case WeightDtype::BFP_BFloat4:
-      return ttcore::DataType::BFP_BFloat4;
-    default:
-      llvm_unreachable("Invalid WeightDtype for conversion");
-    }
-  }
 
   static ttcore::LocalShapeAttr
   convertLocalShapeAttr(MLIRContext *ctx, ttcore::LocalShapeAttr attr,
@@ -135,7 +124,7 @@ public:
           continue;
         }
 
-        // Returned KV cache args need matching local_shape result metadata.
+        // Update local_shape of returned KV cache args to match the new dtype.
         if (auto localShapeAttr =
                 funcOp.getResultAttrOfType<ttcore::LocalShapeAttr>(
                     i, ttcore::LocalShapeAttr::name)) {
@@ -151,11 +140,11 @@ public:
   }
 
   void runOnOperation() final {
-    if (targetDtype == WeightDtype::None) {
+    if (targetDtype == BFPDtype::None) {
       return;
     }
 
-    ttcore::DataType dtype = weightDtypeToDataType(targetDtype);
+    ttcore::DataType dtype = bfpDtypeToDataType(targetDtype);
 
     // Change kv_cache argument types to the target dtype and update the
     // function signature.

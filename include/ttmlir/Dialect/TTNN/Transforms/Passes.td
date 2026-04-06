@@ -426,8 +426,8 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   }];
 
   list<Option> options = [
-    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::WeightDtype",
-           /*default=*/"::mlir::tt::ttnn::WeightDtype::None",
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
            "Target data type for weight conversion (bfp_bf8, bfp_bf4).">,
   ];
 }
@@ -441,8 +441,8 @@ def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::
   }];
 
   list<Option> options = [
-    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::WeightDtype",
-           /*default=*/"::mlir::tt::ttnn::WeightDtype::None",
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
            "Target data type for KV cache conversion (bfp_bf8, bfp_bf4).">
   ];
 }
