@@ -305,6 +305,7 @@ public:
     SmallVector<int64_t> newLimitIndices(op.getLimitIndices());
     SmallVector<int64_t> newStrides(op.getStrides());
 
+    // adding [0:2:1] slice means "select all from the new trailing dimension"
     newStartIndices.push_back(0);
     newLimitIndices.push_back(2);
     newStrides.push_back(1);
@@ -334,6 +335,7 @@ public:
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
 
+    // same concat, just changing inputs/result from complex to float
     rewriter.replaceOpWithNewOp<mlir::stablehlo::ConcatenateOp>(
         op, newResultType, adaptor.getInputs(), op.getDimension());
     return success();
