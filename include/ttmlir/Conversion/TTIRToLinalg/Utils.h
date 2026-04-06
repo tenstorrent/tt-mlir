@@ -92,16 +92,22 @@ template <typename TosaReductionOp>
 Value createReductionOpChain(Value input, RankedTensorType resultType,
                              ArrayRef<int64_t> dims, bool keepDim, Location loc,
                              ConversionPatternRewriter &rewriter) {
-  SmallVector<int64_t> sortedDims(dims.begin(), dims.end());
-  std::sort(sortedDims.begin(), sortedDims.end(), std::greater<int64_t>());
-
   Value result = input;
   auto inputType = cast<RankedTensorType>(input.getType());
+  int64_t rank = inputType.getRank();
+
+  // Normalize negative dims and sort in descending order.
+  SmallVector<int64_t> normalizedDims(dims.begin(), dims.end());
+  for (int64_t &d : normalizedDims) {
+    d = normalizeDim(d, rank);
+  }
+  std::sort(normalizedDims.begin(), normalizedDims.end(),
+            std::greater<int64_t>());
 
   SmallVector<int64_t> shape(inputType.getShape().begin(),
                              inputType.getShape().end());
-  for (size_t i = 0; i < sortedDims.size(); ++i) {
-    int64_t dim = sortedDims[i];
+  for (size_t i = 0; i < normalizedDims.size(); ++i) {
+    int64_t dim = normalizedDims[i];
     auto axisAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(dim));
     shape[dim] = 1;
     auto opResultType =
