@@ -22,5 +22,5 @@ def arange_tile(*shape, tile_size=[32, 32], dtype=None):
     tiled_shape[-1] //= tile_size[-1]
     tensor = torch.arange(math.prod(tiled_shape), dtype=dtype).reshape(tiled_shape)
     tensor = tensor.unsqueeze(-1).unsqueeze(-1)
-    tensor = tensor.repeat([1]*len(tiled_shape) + tile_size)
+    tensor = tensor.repeat([1] * len(tiled_shape) + tile_size)
     return tensor.transpose(-2, -3).reshape(shape)

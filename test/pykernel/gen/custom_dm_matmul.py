@@ -23,7 +23,7 @@ def matmul(lhs, rhs, out, K, M, N, GY, GX):
                 remote_store(out, [m, n], out_shard)
 
 
-@d2m_jit()
+@d2m_jit(kernel_source_mode=None)
 def add(lhs, rhs, out, m_blocks, n_blocks):
     m_offset = core_index(0) * m_blocks
     n_offset = core_index(1) * n_blocks
@@ -58,17 +58,17 @@ def test_eltwise():
 
 
 def test_eltwise2():
-    lhs = arange_tile(64, 64, dtype=torch.float)
-    rhs = arange_tile(64, 64, dtype=torch.float)
-    out = torch.zeros(64, 64)
-    grid = (1, 1)
+    lhs = arange_tile(128, 128, dtype=torch.float)
+    rhs = arange_tile(128, 128, dtype=torch.float)
+    out = torch.zeros(128, 128)
+    grid = (2, 2)
     block_shape = [1, 1]
     m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
     n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
     add(
-        TensorLayout(lhs, block_shape, grid_shape=[2, 2]),
-        TensorLayout(rhs, block_shape, grid_shape=[2, 2]),
-        TensorLayout(out, block_shape, grid_shape=[1, 1]),
+        TensorLayout(lhs, block_shape, grid_shape=[4, 4]),
+        TensorLayout(rhs, block_shape, grid_shape=[4, 4]),
+        TensorLayout(out, block_shape, grid_shape=grid),
         m_blocks,
         n_blocks,
         grid=grid,
@@ -103,4 +103,4 @@ def test_matmul():
 
 
 test_eltwise2()
-#test_matmul()
+# test_matmul()
