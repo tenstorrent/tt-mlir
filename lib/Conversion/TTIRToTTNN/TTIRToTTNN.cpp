@@ -1669,7 +1669,7 @@ public:
     auto programConfigAttr = createSparseMatmulProgramConfigAttr(
         rewriter.getContext(), aType, bType, deviceAttr);
 
-    rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
         op.getIsInputBSparse(), nnzAttr,
@@ -1677,6 +1677,9 @@ public:
         /*memory_config=*/nullptr,
         /*dtype=*/nullptr,
         /*compute_config=*/nullptr);
+    if (auto attr = op->getAttr("ttcore.weight_dtype")) {
+      newOp->setAttr("ttcore.weight_dtype", attr);
+    }
     return success();
   }
 };

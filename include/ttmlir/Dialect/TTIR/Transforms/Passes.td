@@ -373,12 +373,12 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
 }
 
 def TTIRPropagateWeightDtype: Pass<"ttir-propagate-weight-dtype", "::mlir::ModuleOp"> {
-  let summary = "Resolve weight_dtype annotations for matmul/linear ops.";
+  let summary = "Resolve weight_dtype annotations for matmul/linear/sparse_matmul ops.";
   let description = [{
-    For each matmul/linear op, traces the weight (B) operand backward through
-    ops with the TensorManipulation trait to find the originating
-    func arg. If it carries a "ttcore.weight_dtype" annotation, sets it as a
-    discardable attribute on the consumer op.
+    For each matmul/linear/sparse_matmul op, traces the weight (B) operand
+    backward through ops with the TensorManipulation trait to find the
+    originating func arg. If it carries a "ttcore.weight_dtype" annotation,
+    sets it as a discardable attribute on the consumer op.
 
     This pass should run before const-eval hoisting, while the graph is still
     flat and has no load_cached ops.
