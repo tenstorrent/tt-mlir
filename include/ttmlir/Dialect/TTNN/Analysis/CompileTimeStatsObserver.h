@@ -5,7 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_COMPILETIMESTATSOBSERVER_H
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_COMPILETIMESTATSOBSERVER_H
 
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagationObserver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationObserver.h"
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Format.h"

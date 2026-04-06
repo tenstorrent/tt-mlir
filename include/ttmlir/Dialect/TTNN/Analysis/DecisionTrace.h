@@ -6,7 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_DECISIONTRACE_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillObserver.h"
-#include "ttmlir/Dialect/TTNN/Analysis/LayoutPropagationObserver.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationObserver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "llvm/ADT/DenseMap.h"
