@@ -342,6 +342,177 @@ public:
   }
 };
 
+// Helper to get pre-allocated semaphore for a ScatterOp.
+// Returns a single scatterDone semaphore.
+static BlockArgument getScatterSemaphore(ScatterOp scatter) {
+  auto arrayAttr =
+      scatter->getAttrOfType<ArrayAttr>(kPreallocatedSemaphoresAttr);
+  TT_assertv(arrayAttr,
+             "ScatterOp must have preallocated_semaphores attribute. "
+             "Ensure D2MPreallocateMcastSemaphores pass runs before "
+             "D2MLowerLoadStoreOpsToDMA.");
+  TT_assertv(arrayAttr.size() == 1u,
+             "ScatterOp preallocated_semaphores must have exactly 1 element");
+
+  auto genericOp = scatter->getParentOfType<GenericOp>();
+  TT_assertv(genericOp, "ScatterOp must be inside a GenericOp");
+
+  Region *parentRegion = scatter->getParentRegion();
+  while (parentRegion && parentRegion->getParentOp() != genericOp) {
+    parentRegion = parentRegion->getParentOp()->getParentRegion();
+  }
+  TT_assertv(parentRegion, "Failed to find parent region for ScatterOp");
+  TT_assertv(!parentRegion->empty(), "Parent region is empty");
+
+  Block &block = parentRegion->front();
+  unsigned semIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
+  TT_assertv(semIdx < block.getNumArguments(),
+             "Scatter semaphore index is out of bounds");
+  return block.getArgument(semIdx);
+}
+
+class D2MLowerScatterRewritePattern : public OpRewritePattern<ScatterOp> {
+public:
+  using OpRewritePattern<ScatterOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ScatterOp scatter,
+                                PatternRewriter &rewriter) const final {
+    if (!scatter.isExplicitCBForm()) {
+      return rewriter.notifyMatchFailure(scatter,
+                                         "scatter is not in explicit CB form");
+    }
+
+    Location loc = scatter.getLoc();
+    Value inputCb = scatter.getSrc(); // In explicit CB form, src IS inputCb.
+    Value outputCb = scatter.getOutputCb();
+
+    auto genericOp = scatter->getParentOfType<GenericOp>();
+    TT_assertv(genericOp, "ScatterOp must be inside a GenericOp");
+
+    // Get preallocated semaphore.
+    BlockArgument scatterDoneSem = getScatterSemaphore(scatter);
+
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                                   rewriter.getIndexAttr(1));
+
+    AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
+
+    // Determine sender core. For mcast: sender is at mcastStartIndex.
+    // For unicast: sender is the first core in coreCoords.
+    Value isSender = nullptr;
+    if (scatter.isMcast()) {
+      SmallVector<bool> isMcastDim;
+      for (Value mcastDimVal : scatter.getMcastShape()) {
+        int64_t dimSize = 1;
+        if (auto cOp = mcastDimVal.getDefiningOp<arith::ConstantOp>()) {
+          if (auto intAttr = mlir::dyn_cast<IntegerAttr>(cOp.getValue())) {
+            dimSize = intAttr.getInt();
+          }
+        }
+        isMcastDim.push_back(dimSize > 1);
+      }
+      ValueRange mcastStartIndex = scatter.getMcastStartIndex();
+      for (size_t i = 0; i < isMcastDim.size(); ++i) {
+        if (isMcastDim[i]) {
+          Value coreIdx = rewriter.create<CoreIndexOp>(
+              loc, static_cast<int64_t>(i), gridMapping);
+          Value cond = rewriter.create<arith::CmpIOp>(
+              loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx,
+              mcastStartIndex[i]);
+          isSender = isSender
+                         ? rewriter.create<arith::AndIOp>(loc, isSender, cond)
+                               .getResult()
+                         : cond;
+        }
+      }
+    } else {
+      // Unicast: sender is first core in coreCoords list.
+      auto [senderY, senderX] = scatter.getCoreAt(0);
+      Value coreY = rewriter.create<CoreIndexOp>(loc, 0, gridMapping);
+      Value coreX = rewriter.create<CoreIndexOp>(loc, 1, gridMapping);
+      Value eqY = rewriter.create<arith::CmpIOp>(
+          loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreY, senderY);
+      Value eqX = rewriter.create<arith::CmpIOp>(
+          loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreX, senderX);
+      isSender = rewriter.create<arith::AndIOp>(loc, eqY, eqX).getResult();
+    }
+    TT_assertv(isSender, "Failed to determine sender core");
+
+    // Reserve outputCb unconditionally — all cores participate in CB protocol.
+    Value localMemref = rewriter.create<ReserveOp>(loc, outputCb).getResult();
+
+    if (scatter.isMcast()) {
+      // --- Rectangular mcast case ---
+      rewriter.create<scf::IfOp>(
+          loc, isSender,
+          [&](OpBuilder &builder, Location loc) {
+            Value srcMemref = builder.create<WaitOp>(loc, inputCb).getResult();
+            Value mcastTx = builder.create<DMAWriteOp>(
+                loc, srcMemref, localMemref, scatter.getMcastStartIndex(),
+                scatter.getMcastShape());
+            builder.create<DMAWaitOp>(loc, mcastTx);
+            builder.create<PopOp>(loc, inputCb);
+            builder.create<SemaphoreSetOp>(loc, scatterDoneSem, one,
+                                           scatter.getMcastStartIndex(),
+                                           scatter.getMcastShape(),
+                                           /*startDevice=*/ValueRange(),
+                                           /*deviceMcastShape=*/ValueRange());
+            builder.create<scf::YieldOp>(loc);
+          },
+          [&](OpBuilder &builder, Location loc) {
+            builder.create<SemaphoreWaitOp>(loc, scatterDoneSem, one, zero);
+            builder.create<scf::YieldOp>(loc);
+          });
+    } else {
+      // --- Non-rectangular unicast case ---
+      size_t numCores = scatter.getNumCores();
+      rewriter.create<scf::IfOp>(
+          loc, isSender,
+          [&](OpBuilder &builder, Location loc) {
+            Value srcMemref = builder.create<WaitOp>(loc, inputCb).getResult();
+
+            // Emit N individual shard-level DMA writes (one per dest core).
+            SmallVector<Value> txs;
+            for (size_t i = 0; i < numCores; ++i) {
+              auto [coreY, coreX] = scatter.getCoreAt(i);
+              SmallVector<Value> dstGridIndices = {coreY, coreX};
+              Value tx = builder.create<DMAWriteOp>(loc, srcMemref, localMemref,
+                                                    dstGridIndices);
+              txs.push_back(tx);
+            }
+
+            // Wait for all writes to complete.
+            for (Value tx : txs) {
+              builder.create<DMAWaitOp>(loc, tx);
+            }
+
+            builder.create<PopOp>(loc, inputCb);
+
+            // Signal each receiver individually via unicast semaphore_set.
+            for (size_t i = 1; i < numCores; ++i) {
+              auto [coreY, coreX] = scatter.getCoreAt(i);
+              SmallVector<Value> dstCore = {coreY, coreX};
+              builder.create<SemaphoreSetOp>(loc, scatterDoneSem, one, dstCore);
+            }
+
+            builder.create<scf::YieldOp>(loc);
+          },
+          [&](OpBuilder &builder, Location loc) {
+            builder.create<SemaphoreWaitOp>(loc, scatterDoneSem, one, zero);
+            builder.create<scf::YieldOp>(loc);
+          });
+    }
+
+    // All cores: push outputCb to signal compute thread that data is ready.
+    rewriter.create<PushOp>(loc, outputCb);
+
+    rewriter.eraseOp(scatter);
+    return success();
+  }
+};
+
 class D2MLowerLoadStoreOpsToDMA
     : public impl::D2MLowerLoadStoreOpsToDMABase<D2MLowerLoadStoreOpsToDMA> {
 public:
@@ -353,6 +524,7 @@ public:
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
     patterns.add<D2MLowerDMACopyRewritePattern>(&getContext());
+    patterns.add<D2MLowerScatterRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

@@ -421,4 +421,40 @@ module attributes {ttcore.system_desc = #system_desc} {
     }
     return
   }
+
+  // Test 8: Scatter in unified thread routes to DM thread
+  // Verifies:
+  // - scatter goes to datamovement
+  // - wait/pop on outputCb stays in compute
+  // CHECK-LABEL: func.func @test_scatter_split
+  // CHECK: d2m.generic
+  // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+
+  // CHECK: d2m.scatter
+  // CHECK-NOT: d2m.wait
+  // CHECK-NOT: d2m.pop
+
+  // CHECK: }, {
+  // CHECK: d2m.wait
+  // CHECK: d2m.pop
+  // CHECK-NOT: d2m.scatter
+  func.func @test_scatter_split(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    %alloc = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    ^unified0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c4 = arith.constant 4 : index
+      d2m.scatter %cb0 into %cb1 mcore[%c0, %c0] mshape[%c2, %c4] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.wait %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    return
+  }
 }

@@ -593,4 +593,32 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
+  // Scatter implicit form → explicit CB form with inputCb + outputCb + wait + pop.
+  // src goes in ins (read from), dst goes in outs (written to).
+  // CHECK-LABEL: func.func @test_scatter_to_explicit_cb
+  func.func @test_scatter_to_explicit_cb(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    %alloc_dst = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    // Scatter gets converted: src → inputCb, dst → outputCb
+    // CHECK: d2m.scatter %{{.*}} into %{{.*}}
+    // CHECK: d2m.wait
+    // CHECK: d2m.pop
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
+        ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%alloc_dst : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    ^unified0:
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c4 = arith.constant 4 : index
+      scf.for %arg3 = %c0 to %c1 step %c1 {
+        scf.for %arg4 = %c0 to %c1 step %c1 {
+          d2m.scatter %arg0, %alloc_dst mcore[%c0, %c0] mshape[%c2, %c4] : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+        } {d2m.blocking_loop = 1}
+      } {d2m.blocking_loop = 0}
+    }
+    return
+  }
+
 }

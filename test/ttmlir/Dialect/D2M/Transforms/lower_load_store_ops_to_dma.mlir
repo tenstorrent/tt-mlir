@@ -209,6 +209,101 @@ module attributes {} {
     }
     return
   }
+  // Scatter op lowering: if-guarded mcast DMAWriteOp + semaphore protocol.
+  // CHECK-LABEL: func.func @test_scatter_mcast
+  func.func @test_scatter_mcast(%arg0: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    // Scatter should lower to:
+    //   reserve(outputCb) unconditionally
+    //   if (isSender) { wait(inputCb) → dma_write(mcast) → dma_wait → pop(inputCb) → semaphore_set }
+    //   else { semaphore_wait }
+    //   push(outputCb) unconditionally
+    //
+    // CHECK: d2m.reserve
+    // CHECK: scf.if
+    // CHECK:   d2m.wait
+    // CHECK:   d2m.dma_write
+    // CHECK:   d2m.dma_wait
+    // CHECK:   d2m.pop
+    // CHECK:   d2m.semaphore_set
+    // CHECK: } else {
+    // CHECK:   d2m.semaphore_wait
+    // CHECK: }
+    // CHECK: d2m.push
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%alloc : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
+    ^datamovement0(%sem0: !d2m.semaphore):
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      d2m.scatter %cb0 into %cb1 mcore[%c0, %c0] mshape[%c1, %c4] {preallocated_semaphores = [0]} : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }, {
+    ^compute0(%sem0c: !d2m.semaphore):
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.wait %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    return
+  }
+
+  // Scatter op lowering (unicast): N individual dma_writes + per-core sem_set.
+  // CHECK-LABEL: func.func @test_scatter_unicast
+  func.func @test_scatter_unicast(%arg0: memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    // Unicast scatter should lower to:
+    //   reserve(outputCb) unconditionally
+    //   if (isSender) {
+    //     wait(inputCb)
+    //     dma_write to core[0,0]
+    //     dma_write to core[0,1]
+    //     dma_write to core[1,0]
+    //     dma_wait x3
+    //     pop(inputCb)
+    //     semaphore_set to core[0,1]
+    //     semaphore_set to core[1,0]
+    //   } else { semaphore_wait }
+    //   push(outputCb)
+    //
+    // CHECK: d2m.reserve
+    // CHECK: scf.if
+    // CHECK:   d2m.wait
+    // CHECK:   d2m.dma_write
+    // CHECK:   d2m.dma_write
+    // CHECK:   d2m.dma_write
+    // CHECK:   d2m.dma_wait
+    // CHECK:   d2m.dma_wait
+    // CHECK:   d2m.dma_wait
+    // CHECK:   d2m.pop
+    // CHECK:   d2m.semaphore_set
+    // CHECK:   d2m.semaphore_set
+    // CHECK: } else {
+    // CHECK:   d2m.semaphore_wait
+    // CHECK: }
+    // CHECK: d2m.push
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
+        outs(%alloc : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)  {
+    ^datamovement0(%sem0: !d2m.semaphore):
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      // 3 cores: sender=(0,0), receivers=(0,1) and (1,0)
+      d2m.scatter %cb0 into %cb1 cores[%c0, %c0, %c0, %c1, %c1, %c0] {preallocated_semaphores = [0]} : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }, {
+    ^compute0(%sem0c: !d2m.semaphore):
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.wait %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    return
+  }
+
   // local_copy gets its producer side synchronization inserted.
   // CHECK-LABEL: func.func @test_local_copy
   func.func @test_local_copy() {

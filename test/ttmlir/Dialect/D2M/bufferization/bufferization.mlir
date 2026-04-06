@@ -71,6 +71,14 @@ func.func @dma_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layo
     // CHECK: d2m.local_copy %[[BUFFER]], %[[DST_BUFFER]] indexing_maps = [#map{{.*}}, #map{{.*}}] : memref<1x1x!ttcore.tile<32x32, f32>>, memref<1x1x!ttcore.tile<32x32, f32>>
     %result = d2m.local_copy %buffer, %dst_buffer indexing_maps = [#map3, #map3] : tensor<1x1x!ttcore.tile<32x32, f32>>, tensor<1x1x!ttcore.tile<32x32, f32>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
 
+    // Scatter: tensor form → memref form after bufferization
+    %scatter_dst = tensor.empty() : tensor<1x1x!ttcore.tile<32x32, f32>>
+    %c0_s = arith.constant 0 : index
+    %c2_s = arith.constant 2 : index
+    // CHECK: d2m.scatter %{{.*}}, %{{.*}} mcore[%{{.*}}, %{{.*}}] mshape[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}>
+    // CHECK-NOT: -> tensor
+    %scatter_result = d2m.scatter %buffer, %scatter_dst mcore[%c0_s, %c0_s] mshape[%c2_s, %c2_s] : tensor<1x1x!ttcore.tile<32x32, f32>>, tensor<1x1x!ttcore.tile<32x32, f32>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
+
     d2m.yield %store_result : (tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>)
   } : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>
   return %result : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>

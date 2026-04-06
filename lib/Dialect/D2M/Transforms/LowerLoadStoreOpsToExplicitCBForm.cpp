@@ -404,6 +404,63 @@ static void rewriteImplicitLocalCopyOpsToExplicitCBForm(
   }
 }
 
+static void
+rewriteImplicitScatterOpsToExplicitCBForm(ModuleOp moduleOp,
+                                          IRRewriter &rewriter, CBCache &cache,
+                                          PortCounter &portCounters) {
+  SmallVector<ScatterOp> scattersToConvert;
+  moduleOp->walk([&](ScatterOp scatter) {
+    if (!scatter.isImplicitForm()) {
+      return;
+    }
+    scattersToConvert.push_back(scatter);
+  });
+
+  for (ScatterOp scatter : scattersToConvert) {
+    Location loc = scatter.getLoc();
+
+    GenericOp generic = scatter->getParentOfType<GenericOp>();
+    TT_assertv(generic, "expected scatter to be nested inside a d2m.generic");
+
+    Value src = scatter.getSrc();
+    Value dst = scatter.getDst();
+
+    // Find inputCb — CB associated with src (the sender's local data).
+    Value inputCb = findAssociatedCB(scatter.getOperation(), src, rewriter,
+                                     cache, portCounters);
+    TT_assertv(inputCb, "expected scatter src to have an associated CB");
+
+    // Find outputCb — CB associated with dst (destination on all cores).
+    Value outputCb = findAssociatedCB(scatter.getOperation(), dst, rewriter,
+                                      cache, portCounters);
+    TT_assertv(outputCb, "expected scatter dst to have an associated CB");
+
+    rewriter.setInsertionPoint(scatter);
+
+    // Create explicit CB form: src=inputCb, dst=absent, outputCb=outputCb.
+    rewriter.create<ScatterOp>(loc, /*result=*/TypeRange{},
+                               /*src=*/inputCb, /*dst=*/Value{}, outputCb,
+                               scatter.getMcastStartIndex(),
+                               scatter.getMcastShape(),
+                               scatter.getCoreCoords());
+
+    // Insert wait on outputCb — compute thread uses this to know data landed.
+    auto waitOp = rewriter.create<WaitOp>(loc, outputCb);
+
+    // Replace in-region uses of dst with the wait result.
+    rewriter.replaceUsesWithIf(dst, waitOp.getResult(), [&](OpOperand &use) {
+      return use.getOwner() != scatter.getOperation() && generic &&
+             generic->isProperAncestor(use.getOwner());
+    });
+
+    rewriter.eraseOp(scatter);
+
+    if (!hasOnlyDMConsumers(waitOp)) {
+      ensurePopForWait(rewriter, waitOp);
+    }
+  }
+}
+
 static void rewriteImplicitRemoteStoreOpsToExplicitCBForm(
     ModuleOp moduleOp, IRRewriter &rewriter, CBCache &cache,
     PortCounter &portCounters) {
@@ -504,6 +561,8 @@ static void rewriteRemoteOpsToExplicitCB(ModuleOp moduleOp,
                                                portCounters);
   rewriteImplicitLocalCopyOpsToExplicitCBForm(moduleOp, rewriter, cache,
                                               portCounters);
+  rewriteImplicitScatterOpsToExplicitCBForm(moduleOp, rewriter, cache,
+                                            portCounters);
   rewriteImplicitRemoteStoreOpsToExplicitCBForm(moduleOp, rewriter, cache,
                                                 portCounters);
 }

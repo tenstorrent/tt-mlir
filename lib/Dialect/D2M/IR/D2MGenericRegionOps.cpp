@@ -323,6 +323,147 @@ bool LocalCopyOp::hasTensorSemantics() {
 }
 
 //===----------------------------------------------------------------------===//
+// Scatter Operation
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult ScatterOp::verify() {
+  bool hasDst = static_cast<bool>(getDst());
+  bool hasOutputCb = static_cast<bool>(getOutputCb());
+
+  // Exactly one of dst (implicit) or outputCb (explicit CB) must be present.
+  if (hasDst == hasOutputCb) {
+    return emitOpError(
+        "must have exactly one of dst or outputCb (not both, not neither)");
+  }
+
+  // mcastStartIndex and mcastShape must have the same size.
+  if (getMcastStartIndex().size() != getMcastShape().size()) {
+    return emitOpError(
+        "mcastStartIndex and mcastShape must have the same size");
+  }
+
+  // Exactly one of mcast (mcastStartIndex/mcastShape) or coreCoords must be
+  // present.
+  bool hasMcast = !getMcastShape().empty();
+  bool hasCoreCoords = !getCoreCoords().empty();
+  if (!hasMcast && !hasCoreCoords) {
+    return emitOpError("must have either mcast params or core coords");
+  }
+  if (hasMcast && hasCoreCoords) {
+    return emitOpError("cannot have both mcast params and core coords");
+  }
+
+  // coreCoords must have even size (flat [y0,x0, y1,x1, ...]).
+  if (hasCoreCoords && getCoreCoords().size() % 2 != 0) {
+    return emitOpError("coreCoords must have even size (pairs of y,x)");
+  }
+
+  // Tensor form requires a result.
+  bool hasTensors = mlir::isa<RankedTensorType>(getSrc().getType()) ||
+                    (hasDst && mlir::isa<RankedTensorType>(getDst().getType()));
+  if (hasTensors && !getResult()) {
+    return emitOpError("tensor form requires a result");
+  }
+  if (hasOutputCb && getResult()) {
+    return emitOpError("explicit CB form must not have a result");
+  }
+
+  return success();
+}
+
+bool ScatterOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool ScatterOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // The dst operand is written to (scattered data destination).
+  Value dst = getDst();
+  return dst && operand.get() == dst;
+}
+
+mlir::bufferization::AliasingValueList
+ScatterOp::getAliasingValues(mlir::OpOperand &operand,
+                             const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  // Result aliases dst since scatter writes into the destination.
+  Value dst = getDst();
+  Value resultValue = getResult();
+  if (dst && resultValue && operand.get() == dst) {
+    aliasList.addAlias(
+        {resultValue, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+ScatterOp::getBufferType(mlir::Value value,
+                         const mlir::bufferization::BufferizationOptions &,
+                         const mlir::bufferization::BufferizationState &,
+                         ::llvm::SmallVector<mlir::Value> &) {
+  if (getOutputCb()) {
+    return mlir::failure();
+  }
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult
+ScatterOp::bufferize(mlir::RewriterBase &rewriter,
+                     const mlir::bufferization::BufferizationOptions &options,
+                     mlir::bufferization::BufferizationState &state) {
+  if (getOutputCb()) {
+    return emitOpError(
+        "ScatterOp with CB should not exist during bufferization");
+  }
+
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return srcBuffer;
+  }
+
+  Value dst = getDst();
+  if (!dst) {
+    return emitOpError("Expected dst in implicit form");
+  }
+
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, dst, options, state);
+  if (failed(dstBuffer)) {
+    return dstBuffer;
+  }
+
+  // Create memref-form ScatterOp (no result for memref form).
+  if (isMcast()) {
+    rewriter.create<ScatterOp>(getLoc(), *srcBuffer, *dstBuffer,
+                               getMcastStartIndex(), getMcastShape());
+  } else {
+    // For unicast, need the full builder since the convenience builder
+    // doesn't exist for coreCoords form yet.
+    rewriter.create<ScatterOp>(getLoc(), /*result=*/TypeRange{}, *srcBuffer,
+                               *dstBuffer, /*outputCb=*/Value{},
+                               /*mcastStartIndex=*/ValueRange{},
+                               /*mcastShape=*/ValueRange{}, getCoreCoords());
+  }
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     ValueRange{*dstBuffer});
+  return success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool ScatterOp::hasTensorSemantics() {
+  if (getOutputCb()) {
+    return false;
+  }
+  bool srcIsTensor = mlir::isa<RankedTensorType>(getSrc().getType());
+  bool dstIsTensor =
+      getDst() && mlir::isa<RankedTensorType>(getDst().getType());
+  return srcIsTensor || dstIsTensor;
+}
+
+//===----------------------------------------------------------------------===//
 // Remote Load/Store Operations
 //===----------------------------------------------------------------------===//
 

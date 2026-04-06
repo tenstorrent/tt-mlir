@@ -1830,6 +1830,156 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     }];
 }
 
+def D2M_ScatterOp : D2M_GenericRegionDatamovementOp<"scatter",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , D2M_ShardDMAOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "Scatter local data to N destination cores via mcast/unicast.";
+    let description = [{
+      A designated sender core writes its local shard to N destination cores'
+      L1 via multicast (rectangular) or individual unicast writes. Requires
+      1 preallocated semaphore for synchronization (`scatterDone`).
+
+      The `src` operand is always present: it is the sender's local data
+      (a memref/tensor in implicit form, or a CB in explicit form).
+
+      Destination addressing uses either rectangular mcast params
+      (mcore/mshape) or a flat list of core coordinates (cores[...]).
+
+      Implicit form (pre-bufferization):
+      ```mlir
+      %result = d2m.scatter %src, %dst mcore[%sy, %sx] mshape[%h, %w]
+                  : memref<...>, memref<...> -> memref<...>
+      ```
+
+      Explicit CB form (after LowerLoadStoreOpsToExplicitCBForm):
+      ```mlir
+      d2m.scatter %inputCb into %outputCb mcore[%sy, %sx] mshape[%h, %w]
+                  : !d2m.cb<...> into !d2m.cb<...>
+      ```
+
+      Non-rectangular (unicast) form:
+      ```mlir
+      d2m.scatter %inputCb into %outputCb cores[%y0, %x0, %y1, %x1, ...]
+                  : !d2m.cb<...> into !d2m.cb<...>
+      ```
+
+      Constraints:
+      - Exactly one of dst or outputCb must be present.
+      - Exactly one of (mcastStartIndex/mcastShape) or (coreCoords).
+      - mcastStartIndex and mcastShape must have the same size.
+      - coreCoords must have even size (flat [y0,x0, y1,x1, ...]).
+    }];
+
+    let arguments = (ins
+      AnyTypeOf<[AnyRankedTensorOrMemRef, D2M_CB]>:$src,
+      Optional<AnyRankedTensorOrMemRef>:$dst,
+      Optional<D2M_CB>:$outputCb,
+      Variadic<Index>:$mcastStartIndex,
+      Variadic<Index>:$mcastShape,
+      Variadic<Index>:$coreCoords
+    );
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // Implicit form with mcast: infers result from dst type.
+      OpBuilder<(ins "Value":$src, "Value":$dst,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape), [{
+        Type dstType = dst.getType();
+        TypeRange resultTypes = mlir::isa<RankedTensorType>(dstType)
+            ? TypeRange(dstType) : TypeRange{};
+        build($_builder, $_state, resultTypes, src, dst,
+              /*outputCb=*/Value{}, mcastStartIndex, mcastShape,
+              /*coreCoords=*/ValueRange{});
+      }]>
+    ];
+
+    let assemblyFormat = [{
+      $src (`,` $dst^)? (`into` $outputCb^)?
+      (`mcore` `[` $mcastStartIndex^ `]` `mshape` `[` $mcastShape `]`)?
+      (`cores` `[` $coreCoords^ `]`)?
+      attr-dict `:` type($src) (`,` type($dst)^)? (`into` type($outputCb)^)?
+      (`->` type($result)^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface.
+      MutableOperandRange getDpsInitsMutable() { return getDstMutable(); }
+
+      /// Returns true if in explicit CB form (has outputCb, no dst).
+      bool isExplicitCBForm() { return static_cast<bool>(getOutputCb()); }
+
+      /// Returns true if in implicit form (has dst, no outputCb).
+      bool isImplicitForm() { return static_cast<bool>(getDst()); }
+
+      /// Returns true if this is a rectangular multicast scatter (mcore/mshape).
+      bool isMcast() { return !getMcastShape().empty(); }
+
+      /// Returns true if this is a non-rectangular unicast scatter (core coords).
+      bool isUnicast() { return !getCoreCoords().empty(); }
+
+      /// Returns the number of destination cores (unicast form).
+      size_t getNumCores() {
+        assert(isUnicast() && "getNumCores requires unicast form");
+        return getCoreCoords().size() / 2;
+      }
+
+      /// Returns the (y, x) pair for the i-th destination core (unicast form).
+      std::pair<Value, Value> getCoreAt(size_t i) {
+        assert(isUnicast() && "getCoreAt requires unicast form");
+        auto coords = getCoreCoords();
+        return {coords[2 * i], coords[2 * i + 1]};
+      }
+
+      /// Returns the multicast volume (product of mcast shape dims).
+      size_t getMcastVolume() {
+        if (isUnicast()) return getNumCores();
+        size_t vol = 1;
+        for (Value v : getMcastShape()) {
+          if (auto cst = v.getDefiningOp<mlir::arith::ConstantOp>()) {
+            if (auto intAttr = mlir::dyn_cast<IntegerAttr>(cst.getValue())) {
+              vol *= intAttr.getInt();
+            }
+          }
+        }
+        return vol;
+      }
+
+      /// Returns the CB type of outputCb, or null if not present.
+      CBType getOutputCbType() {
+        Value cb = getOutputCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Returns the CB port number. Op must be in explicit CB form.
+      /// Returns the outputCb port — this drives ScheduleDMA thread assignment.
+      unsigned getCBPort();
+    }];
+
+    let extraClassDefinition = [{
+      unsigned $cppClass::getCBPort() {
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getOutputCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "outputCb operand must be defined by a GetCBOp");
+        return getCBOp.getPort();
+      }
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//

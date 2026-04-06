@@ -103,6 +103,17 @@ static void assignNocIndices(
             ttcore::MemorySpace::DeviceDRAM) {
           scores[t].unicastBias -= 1;
         }
+      } else if (auto scatter = mlir::dyn_cast<ScatterOp>(op)) {
+        if (scatter.isMcast()) {
+          // Use outputCb's underlying memref type for shard size.
+          auto memrefType =
+              scatter.getOutputCbType().template getUnderlyingAs<MemRefType>();
+          scores[t].mcastShardSize =
+              deviceAttr.getShardSizeInBytes(memrefType, 1, false);
+        } else {
+          scores[t].unicastBias -=
+              static_cast<int64_t>(scatter.getMcastVolume());
+        }
       }
     }
   }

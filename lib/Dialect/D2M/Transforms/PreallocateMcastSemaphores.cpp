@@ -45,6 +45,21 @@ static void collectMcastRemoteLoads(Block *block,
   }
 }
 
+// Recursively collect all ScatterOps (all scatters need semaphores).
+static void collectScatterOps(Block *block,
+                              SmallVectorImpl<ScatterOp> &scatterOps) {
+  for (Operation &op : block->getOperations()) {
+    if (auto forOp = mlir::dyn_cast<scf::ForOp>(&op)) {
+      collectScatterOps(forOp.getBody(), scatterOps);
+      continue;
+    }
+
+    if (auto scatter = mlir::dyn_cast<ScatterOp>(&op)) {
+      scatterOps.push_back(scatter);
+    }
+  }
+}
+
 class D2MPreallocateMcastSemaphoresRewriter
     : public OpRewritePattern<GenericOp> {
 public:
@@ -52,7 +67,7 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp generic,
                                 PatternRewriter &rewriter) const final {
-    // Skip if already processed (any RemoteLoadOp has the attribute).
+    // Skip if already processed (any op has the attribute).
     for (Region &region : generic->getRegions()) {
       if (region.empty()) {
         continue;
@@ -65,67 +80,74 @@ public:
           return failure(); // Already processed
         }
       }
+      SmallVector<ScatterOp> scatterOps;
+      collectScatterOps(&block, scatterOps);
+      for (ScatterOp scatter : scatterOps) {
+        if (scatter->hasAttr(kPreallocatedSemaphoresAttr)) {
+          return failure(); // Already processed
+        }
+      }
     }
 
     // Find all RemoteLoadOps that need multicast semaphores.
     // They can be in any region (typically the datamovement region).
     SmallVector<RemoteLoadOp> allMcastLoads;
+    SmallVector<ScatterOp> allScatterOps;
     for (Region &region : generic->getRegions()) {
       if (region.empty()) {
         continue;
       }
       Block &block = region.front();
       collectMcastRemoteLoads(&block, allMcastLoads);
+      collectScatterOps(&block, allScatterOps);
     }
 
-    // If no multicast loads, nothing to do.
-    if (allMcastLoads.empty()) {
+    // If nothing needs semaphores, nothing to do.
+    if (allMcastLoads.empty() && allScatterOps.empty()) {
       return failure();
     }
-
-    // For each multicast RemoteLoadOp, we need to add 2 semaphore block
-    // arguments to ALL regions of the generic op:
-    // - receiversReadySemaphore
-    // - senderFinishedSemaphore
 
     Location loc = generic.getLoc();
     SemaphoreType semType = rewriter.getType<SemaphoreType>();
 
-    // Track the starting index of semaphores for each RemoteLoadOp.
-    // We'll store these indices as attributes on the ops.
-    SmallVector<std::pair<RemoteLoadOp, SmallVector<unsigned>>>
-        loadToSemIndices;
-
-    for (RemoteLoadOp load : allMcastLoads) {
+    // Helper: add N semaphore block arguments to all regions, return indices.
+    auto addSemaphores = [&](unsigned count) -> SmallVector<unsigned> {
       SmallVector<unsigned> semIndices;
-
-      // Add 2 semaphore arguments to each region.
       for (Region &region : generic->getRegions()) {
         if (region.empty()) {
           continue;
         }
         Block &block = region.front();
 
-        // Record the index before adding (same index in all regions).
         if (semIndices.empty()) {
           unsigned baseIdx = block.getNumArguments();
-          semIndices.push_back(baseIdx);     // receiversReady index
-          semIndices.push_back(baseIdx + 1); // senderFinished index
+          for (unsigned i = 0; i < count; ++i) {
+            semIndices.push_back(baseIdx + i);
+          }
         }
 
-        // Add the semaphore arguments.
-        block.addArgument(semType, loc);
-        block.addArgument(semType, loc);
+        for (unsigned i = 0; i < count; ++i) {
+          block.addArgument(semType, loc);
+        }
       }
+      return semIndices;
+    };
 
-      loadToSemIndices.push_back({load, semIndices});
-    }
-
-    // Now set the attribute on each RemoteLoadOp with its semaphore indices.
-    for (auto &[load, semIndices] : loadToSemIndices) {
+    // For each multicast RemoteLoadOp: 2 semaphores
+    // (receiversReady + senderFinished).
+    for (RemoteLoadOp load : allMcastLoads) {
+      SmallVector<unsigned> semIndices = addSemaphores(2);
       SmallVector<int64_t> indices(semIndices.begin(), semIndices.end());
       load->setAttr(kPreallocatedSemaphoresAttr,
                     rewriter.getI64ArrayAttr(indices));
+    }
+
+    // For each ScatterOp: 1 semaphore (scatterDone).
+    for (ScatterOp scatter : allScatterOps) {
+      SmallVector<unsigned> semIndices = addSemaphores(1);
+      SmallVector<int64_t> indices(semIndices.begin(), semIndices.end());
+      scatter->setAttr(kPreallocatedSemaphoresAttr,
+                       rewriter.getI64ArrayAttr(indices));
     }
 
     return success();
