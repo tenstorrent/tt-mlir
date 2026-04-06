@@ -271,8 +271,8 @@ def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
            /*default=*/"false",
            "Dump each sharding variant IR to disk for inspection">,
     Option<"dumpDir", "dump-dir", "std::string",
-           /*default=*/"\"\"",
-           "Directory to dump variants into (default: current directory)">,
+           /*default=*/"\"/tmp/\"",
+           "Directory to dump variants into (default: /tmp/)">,
   ];
 
   let dependentDialects = [

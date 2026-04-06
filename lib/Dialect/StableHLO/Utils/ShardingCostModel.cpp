@@ -1,49 +1,39 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
+// =============================================================================
+// Sharding Cost Model
+// =============================================================================
+//
+// Scores a sharding configuration by estimating two competing factors:
+//
+//   net_cost = communication_cost - memory_benefit
+//
+// Communication cost: walks the lowered module, identifies stablehlo CCL ops
+// (all_gather, reduce_scatter, etc.), and sums a per-op cost of
+// (fixed_latency + weight * volume_fraction). This penalizes configs that
+// introduce many or large collective operations.
+//
+// Memory benefit: estimates how much memory is saved by sharding argument
+// tensors across the mesh. Weight/parameter tensors get a higher multiplier
+// since they are persistent on-device.
+//
+// Notes:
+// - CCL weights and magic numbers are heuristic, not hardware-calibrated.
+//
+// =============================================================================
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingCostModel.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
-#include "llvm/ADT/StringMap.h"
-
 namespace mlir::tt::stablehlo {
 
-// Relative cost weights for collective communication ops.
-// all_gather / collective_permute: 1.0 (single data movement, no reduction)
-// reduce_scatter / all_reduce / all_to_all: 1.5 (reduction + data movement)
-// all_slice: 0.5 (local slicing, minimal communication)
-static const llvm::StringMap<double> cclWeights = {
-    {"stablehlo.all_gather", 1.0},         {"stablehlo.reduce_scatter", 1.5},
-    {"stablehlo.all_reduce", 1.5},         {"stablehlo.all_to_all", 1.5},
-    {"stablehlo.collective_permute", 1.0},
-};
-
-static const llvm::StringMap<double> compositeWeights = {
-    {"sdy.all_slice", 0.5},
-    {"sdy.all_gather", 1.0},
-    {"sdy.reduce_scatter", 1.5},
-    {"sdy.all_reduce", 1.5},
-};
-
-ShardingCostModel::ShardingCostModel() = default;
-
-ShardingCostModel::ShardingCostModel(Options options)
-    : options(std::move(options)) {}
-
-ShardingResult ShardingCostModel::evaluate(ModuleOp module,
-                                           const ShardingConfig &config,
-                                           func::FuncOp originalFuncOp,
-                                           int64_t meshAxisSize) const {
-  int64_t maxElements = computeMaxElements(originalFuncOp);
-  double commCost = evaluateCommunicationCost(module, maxElements);
-  double memBenefit =
-      evaluateMemoryBenefit(config, originalFuncOp, meshAxisSize, maxElements);
-  return {commCost, memBenefit, commCost - memBenefit};
-}
-
-int64_t ShardingCostModel::computeMaxElements(func::FuncOp funcOp) {
+// Return the element count of the largest argument tensor in `funcOp`.
+// Used as a normalization factor so that costs are relative to the model's
+// largest tensor rather than absolute element counts.
+static int64_t computeMaxElements(func::FuncOp funcOp) {
   int64_t maxElements = 1;
   for (auto arg : funcOp.getArguments()) {
     if (auto tt = dyn_cast<RankedTensorType>(arg.getType())) {
@@ -53,67 +43,77 @@ int64_t ShardingCostModel::computeMaxElements(func::FuncOp funcOp) {
   return maxElements;
 }
 
-// Evaluate cost of a lowered StableHLO module by counting and weighting CCL
-// ops. Each CCL op incurs a fixed latency overhead (setup, synchronization)
-// plus a bandwidth cost proportional to the volume of data communicated.
-double ShardingCostModel::evaluateCommunicationCost(ModuleOp module,
-                                                    int64_t maxElements) const {
+// Evaluate communication cost of a lowered module by counting and weighting
+// CCL ops.
+//
+// Cost formula per CCL op:
+//   cost_i = baseCCLLatency + cclWeight_i * (commElements_i / maxElements)
+//
+// - baseCCLLatency: fixed overhead per CCL (synchronization, kernel launch).
+//   A graph with zero CCLs incurs zero latency. This is a heuristic constant
+//   (experimentally estimated, not measured).
+// - cclWeight: reflects op complexity (see getCCLWeight).
+// - volumeFactor: fraction of data communicated relative to the largest tensor,
+//   approximating bandwidth cost.
+//
+// Total communication cost is the sum over all CCL ops in the module.
+static double evaluateCommunicationCost(ModuleOp module, int64_t maxElements) {
+  // Heuristic constant: fixed per-CCL overhead for synchronization and setup.
+  // Every CCL op incurs at least this much cost regardless of data volume,
+  // ensuring that even a tiny CCL is never "free".
+  // Experimentally estimated — not derived from hardware measurements.
+  constexpr double baseCCLLatency = 1.0;
+
   double totalCost = 0.0;
 
+  // module.walk is recursive across all functions in the module, so CCL ops
+  // inside stablehlo.composite decomposition functions (created by
+  // ReoutlineComposite) are counted as well.
   module.walk([&](Operation *op) {
-    StringRef opName = op->getName().getStringRef();
-    double opWeight = 0.0;
-
-    auto it = cclWeights.find(opName);
-    if (it != cclWeights.end()) {
-      opWeight = it->second;
-    } else if (opName == "stablehlo.composite") {
-      if (auto nameAttr = op->getAttrOfType<StringAttr>("name")) {
-        auto cit = compositeWeights.find(nameAttr.getValue());
-        if (cit != compositeWeights.end()) {
-          opWeight = cit->second;
-        }
-      }
+    if (!isCCLOp(op)) {
+      return;
     }
 
-    if (opWeight > 0.0 && maxElements > 0) {
-      int64_t commElements = 1;
-      if (op->getNumOperands() > 0) {
-        if (auto tt = dyn_cast<RankedTensorType>(op->getOperand(0).getType())) {
-          commElements = tt.getNumElements();
-        }
+    double opWeight = getCCLWeight(op);
+
+    int64_t commElements = 1;
+    if (op->getNumOperands() > 0) {
+      if (auto tt = dyn_cast<RankedTensorType>(op->getOperand(0).getType())) {
+        commElements = tt.getNumElements();
       }
-      double volumeFactor =
-          static_cast<double>(commElements) / static_cast<double>(maxElements);
-      totalCost += options.baseCCLLatency + opWeight * volumeFactor;
     }
+    double volumeFactor =
+        static_cast<double>(commElements) / static_cast<double>(maxElements);
+    totalCost += baseCCLLatency + opWeight * volumeFactor;
   });
 
   return totalCost;
 }
 
-// Compute the memory benefit of a sharding config. Sharding large argument
-// tensors across the mesh saves memory proportional to the element count.
-// Benefit is normalized relative to the largest argument.
-//
-// Weight/parameter tensors (heuristic: rank <= 2 with > 1024 elements) get a
-// higher multiplier because they are persistent on device and dominate peak
-// memory in large models. Activations (rank > 2, typically with a batch dim)
-// are transient and less valuable to shard for memory.
-double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
-                                                func::FuncOp funcOp,
-                                                int64_t meshAxisSize,
-                                                int64_t maxElements) const {
+// Compute the memory benefit of a sharding configuration.
+static double evaluateMemoryBenefit(
+    const llvm::SmallVector<llvm::SmallVector<bool>> &argDimSharded,
+    func::FuncOp funcOp, int64_t meshAxisSize, int64_t maxElements) {
+  // With a single device, there is no distribution and fractionSaved = 0.
   if (meshAxisSize <= 1) {
     return 0.0;
   }
 
+  // Heuristic multiplier: sharding weights/parameters is ~3x more valuable
+  // than sharding activations because weights are persistent on-device and
+  // dominate peak memory. Experimentally estimated, not measured.
+  constexpr double parameterMultiplier = 3.0;
+
   double benefit = 0.0;
+
+  // Fraction of memory saved per sharded tensor: (N-1)/N where N = mesh size.
+  // When a tensor is sharded across N devices (meshAxisSize = N), each device
+  // holds 1/N of the data, saving (1 - 1/N) of the original memory.
   double fractionSaved = 1.0 - 1.0 / static_cast<double>(meshAxisSize);
 
-  for (size_t argIdx = 0; argIdx < config.argDimSharded.size(); ++argIdx) {
+  for (size_t argIdx = 0; argIdx < argDimSharded.size(); ++argIdx) {
     bool isSharded =
-        llvm::any_of(config.argDimSharded[argIdx], [](bool s) { return s; });
+        llvm::any_of(argDimSharded[argIdx], [](bool s) { return s; });
     if (!isSharded) {
       continue;
     }
@@ -122,11 +122,11 @@ double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
         cast<RankedTensorType>(funcOp.getArgument(argIdx).getType());
     int64_t numElements = tensorType.getNumElements();
 
-    // Heuristic: tensors with rank <= 4 and > 1024 elements are likely
-    // model weights/parameters rather than activations.
+    // Heuristic: tensors with rank <= 4 and > 1024 elements are likely model
+    // weights/parameters rather than activations.
     double typeMultiplier = 1.0;
     if (tensorType.getRank() <= 4 && numElements > 1024) {
-      typeMultiplier = options.parameterMultiplier;
+      typeMultiplier = parameterMultiplier;
     }
 
     benefit += typeMultiplier *
@@ -134,6 +134,17 @@ double ShardingCostModel::evaluateMemoryBenefit(const ShardingConfig &config,
   }
 
   return benefit;
+}
+
+ShardingResult
+evaluate(ModuleOp module,
+         const llvm::SmallVector<llvm::SmallVector<bool>> &argDimSharded,
+         func::FuncOp originalFuncOp, int64_t meshAxisSize) {
+  int64_t maxElements = computeMaxElements(originalFuncOp);
+  double commCost = evaluateCommunicationCost(module, maxElements);
+  double memBenefit = evaluateMemoryBenefit(argDimSharded, originalFuncOp,
+                                            meshAxisSize, maxElements);
+  return {commCost, memBenefit, commCost - memBenefit};
 }
 
 } // namespace mlir::tt::stablehlo

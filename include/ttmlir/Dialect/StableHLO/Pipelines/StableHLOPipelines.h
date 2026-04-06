@@ -55,9 +55,8 @@ struct StableHLOPipelineOptions
 
   Option<std::string> autoShardingDumpDir{
       *this, OptionNames::dumpDir,
-      llvm::cl::desc("Directory to dump variants into (default: current "
-                     "directory)."),
-      llvm::cl::init("")};
+      llvm::cl::desc("Directory to dump variants into (default: /tmp/)."),
+      llvm::cl::init("/tmp/")};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{

@@ -34,6 +34,7 @@ import csv
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -209,7 +210,11 @@ def run_auto_sharding(
 
 
 def lower_to_flatbuffer(
-    input_mlir: str, output_dir: Path, label: str, mesh_shape: str
+    input_mlir: str,
+    output_dir: Path,
+    label: str,
+    mesh_shape: str,
+    preprocess: bool = False,
 ) -> Path | None:
     """Lower a StableHLO MLIR graph through the full pipeline to a flatbuffer."""
     d = output_dir / label
@@ -221,8 +226,12 @@ def lower_to_flatbuffer(
     ttnn = d / "03_ttnn.mlir"
     flatbuffer = d / f"04_graph_{label}.ttnn"
 
-    print(f"  Preprocessing {input_mlir} ...")
-    preprocess_mlir(input_mlir, preprocessed)
+    if preprocess:
+        print(f"  Preprocessing {input_mlir} ...")
+        preprocess_mlir(input_mlir, preprocessed)
+    else:
+        print(f"  Copying {input_mlir} ...")
+        shutil.copy(input_mlir, preprocessed)
 
     steps = [
         (
@@ -397,7 +406,13 @@ def compile_and_profile(graphs: dict, output_dir: Path, mesh_shape: str) -> dict
             results[label] = {"status": "MISSING_INPUT"}
             continue
 
-        flatbuffer = lower_to_flatbuffer(info["input"], output_dir, label, mesh_shape)
+        flatbuffer = lower_to_flatbuffer(
+            info["input"],
+            output_dir,
+            label,
+            mesh_shape,
+            preprocess=(label == "auto_sharding"),
+        )
         if flatbuffer is None:
             results[label] = {"status": "LOWER_FAILED"}
             continue

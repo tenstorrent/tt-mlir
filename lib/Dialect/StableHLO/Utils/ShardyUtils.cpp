@@ -287,18 +287,14 @@ mlir::DictionaryAttr addDictionaryAttrSdyShardingAnnotation(
     std::optional<mlir::DictionaryAttr> dictAttr) {
   llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
 
-  auto shardingKey =
-      mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name);
-
   if (dictAttr) {
-    for (auto namedAttr : dictAttr.value().getValue()) {
-      if (namedAttr.getName() != shardingKey) {
-        newArgAttrs.push_back(namedAttr);
-      }
-    }
+    newArgAttrs =
+        SmallVector<mlir::NamedAttribute>(dictAttr.value().getValue());
   }
 
-  newArgAttrs.emplace_back(shardingKey, shardingAttr);
+  newArgAttrs.emplace_back(
+      mlir::StringAttr::get(context, mlir::sdy::TensorShardingAttr::name),
+      shardingAttr);
   return mlir::DictionaryAttr::get(context, newArgAttrs);
 }
 
