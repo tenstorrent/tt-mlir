@@ -10,7 +10,7 @@
 #include "mlir/IR/IRMapping.h"
 
 namespace mlir::tt::stablehlo {
-#define GEN_PASS_DEF_FLATTENCOMPOSITEPASS
+#define GEN_PASS_DEF_FLATTENORCONVERTCOMPOSITESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 // Inline a single stablehlo.composite op. Returns success if it was flattened.
@@ -217,11 +217,52 @@ static void eraseDeadPrivateCallees(mlir::ModuleOp module) {
   }
 }
 
-// The pass that flattens all stablehlo.composite ops in the module.
-struct FlattenCompositePass
-    : public impl::FlattenCompositePassBase<FlattenCompositePass> {
-  using impl::FlattenCompositePassBase<
-      FlattenCompositePass>::FlattenCompositePassBase;
+// Returns true if the given composite name has a custom sharding rule
+// registered in kCompositesWithCustomSharding.
+static bool hasCustomShardingRule(llvm::StringRef name) {
+  for (const auto &entry : utils::kCompositesWithCustomSharding) {
+    if (entry == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Convert a composite op with a custom sharding rule to a
+// stablehlo.custom_call op. The composite name becomes the call_target_name,
+// composite attributes are carried as a tt.composite_attributes discardable
+// attribute, and a tt.has_custom_sharding UnitAttr is added for debugging.
+static void convertCompositeToCustomCall(mlir::stablehlo::CompositeOp comp,
+                                         mlir::OpBuilder &builder) {
+  builder.setInsertionPoint(comp);
+  auto customCall = builder.create<mlir::stablehlo::CustomCallOp>(
+      comp.getLoc(), comp.getResultTypes(), comp.getOperands(),
+      builder.getStringAttr(comp.getName()),
+      /*has_side_effect=*/nullptr,
+      /*backend_config=*/nullptr,
+      /*api_version=*/nullptr,
+      /*called_computations=*/nullptr,
+      /*operand_layouts=*/nullptr,
+      /*result_layouts=*/nullptr,
+      /*output_operand_aliases=*/nullptr);
+  mlir::DictionaryAttr compAttrs = comp.getCompositeAttributes();
+  if (compAttrs) {
+    customCall->setDiscardableAttr(utils::kCompositeAttributesKey, compAttrs);
+  }
+  customCall->setDiscardableAttr(utils::kHasCustomShardingAttr,
+                                 builder.getUnitAttr());
+  comp.replaceAllUsesWith(customCall);
+  comp.erase();
+}
+
+// The pass that flattens or converts stablehlo.composite ops in the module.
+// Composites with custom sharding rules are converted to custom_call ops.
+// All other composites are flattened (inlined) as before.
+struct FlattenOrConvertCompositesPass
+    : public impl::FlattenOrConvertCompositesPassBase<
+          FlattenOrConvertCompositesPass> {
+  using impl::FlattenOrConvertCompositesPassBase<
+      FlattenOrConvertCompositesPass>::FlattenOrConvertCompositesPassBase;
 
 public:
   void runOnOperation() override {
@@ -239,6 +280,14 @@ public:
     for (mlir::func::FuncOp funcOp : module.getOps<mlir::func::FuncOp>()) {
       for (auto compositeOp : llvm::make_early_inc_range(
                funcOp.getOps<mlir::stablehlo::CompositeOp>())) {
+        // If this composite has a custom sharding rule, convert it to a
+        // stablehlo.custom_call so that Shardy can propagate through it
+        // using the CustomCall sharding model.
+        if (hasCustomShardingRule(compositeOp.getName())) {
+          convertCompositeToCustomCall(compositeOp, builder);
+          continue;
+        }
+        // No custom sharding rule -- flatten as before.
         if (mlir::failed(flattenOneComposite(compositeOp, symTable, builder))) {
           compositeOp.emitOpError() << "failed to inline/flatten composite '"
                                     << compositeOp.getName() << "'";

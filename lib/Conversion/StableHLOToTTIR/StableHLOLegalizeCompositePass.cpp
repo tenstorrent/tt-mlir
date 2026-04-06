@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
@@ -332,6 +333,104 @@ public:
     }
 
     // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias, output]
+    size_t numOperands = adaptor.getOperands().size();
+    SmallVector<int32_t> segmentSizes;
+    if (numOperands == 3) { // input, weight, bias
+      segmentSizes = {1, 1, 1};
+    } else if (numOperands == 2) { // input, weight
+      segmentSizes = {1, 1, 0};
+    } else { // input
+      segmentSizes = {1, 0, 0};
+    }
+
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::RMSNormOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
+// Converts stablehlo.custom_call @tenstorrent.rms_norm -> ttir.rms_norm.
+// This handles composites that were converted to custom_calls by
+// FlattenOrConvertCompositesPass because they have custom sharding rules.
+// Attributes are carried in the "tt.composite_attributes" discardable attr.
+class CustomCallRMSNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallRMSNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != "tenstorrent.rms_norm") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    auto compositeAttrs =
+        mlir::dyn_cast_or_null<DictionaryAttr>(srcOp->getDiscardableAttr(
+            mlir::tt::stablehlo::utils::kCompositeAttributesKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing tt.composite_attributes on custom_call");
+    }
+
+    // Determine the number of normalized dimensions from the stored attribute.
+    // The actual dimension sizes come from the (possibly sharded) input tensor,
+    // since UpdateGlobalToLocalShapes may have rewritten types to local shapes.
+    auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+    int64_t numNormalizedDims = 0;
+
+    if (auto denseAttr =
+            mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
+      numNormalizedDims = denseAttr.getNumElements();
+    } else if (auto arrayAttr =
+                   mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
+      numNormalizedDims = arrayAttr.size();
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "normalized_shape must be a dense tensor or array attribute");
+    }
+
+    auto inputType =
+        mlir::cast<RankedTensorType>(srcOp.getOperand(0).getType());
+    int64_t inputRank = inputType.getRank();
+    if (numNormalizedDims > inputRank) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "normalized_shape has more dims than input rank");
+    }
+
+    // Use actual trailing dimensions from the input tensor.
+    SmallVector<int64_t> normalizedShapeVec;
+    for (int64_t i = inputRank - numNormalizedDims; i < inputRank; ++i) {
+      normalizedShapeVec.push_back(inputType.getDimSize(i));
+    }
+
+    auto normalizedShapeDenseAttr =
+        rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
+
+    auto epsilonAttr = compositeAttrs.get("epsilon");
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(
+        rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
+    if (epsilonAttr) {
+      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    }
+
+    // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias]
     size_t numOperands = adaptor.getOperands().size();
     SmallVector<int32_t> segmentSizes;
     if (numOperands == 3) { // input, weight, bias
@@ -724,6 +823,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
+  patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);

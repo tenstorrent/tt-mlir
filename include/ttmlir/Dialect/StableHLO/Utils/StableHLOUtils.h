@@ -29,6 +29,25 @@ inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");
 inline constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
 inline constexpr llvm::StringLiteral kCompNameKey("name");
 
+// Key for carrying composite attributes on custom_call ops converted from
+// composites with custom sharding rules.
+inline constexpr llvm::StringLiteral
+    kCompositeAttributesKey("tt.composite_attributes");
+
+// UnitAttr marker on custom_call ops that were converted from composites
+// with custom sharding rules. Useful for debugging.
+inline constexpr llvm::StringLiteral
+    kHasCustomShardingAttr("tt.has_custom_sharding");
+
+// Composite names that have custom sharding rules. These composites are
+// converted to stablehlo.custom_call ops (instead of being flattened) so
+// that Shardy can propagate shardings through them using the CustomCall
+// sharding model. This array is the single source of truth used by both
+// FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass.
+inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
+    "tenstorrent.rms_norm",
+};
+
 // Create a new private function with the provided ops within the module.
 // - Captures become function arguments (in declared order).
 // - Escapes become function results (in declared order).

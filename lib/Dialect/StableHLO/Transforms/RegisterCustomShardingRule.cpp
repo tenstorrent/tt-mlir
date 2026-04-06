@@ -6,6 +6,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "llvm/Support/Error.h"
 
@@ -927,6 +928,78 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for tenstorrent.rms_norm (custom_call converted from
+// composite).
+//
+// Operands:
+//   operand 0: input  [batch dims..., normalized dims...]
+//   operand 1: weight [normalized dims...] (optional)
+//   operand 2: bias   [normalized dims...] (optional)
+// Result: same shape as input.
+//
+// Batch dimensions can be freely sharded. Normalized dimensions require
+// replication because RMS norm reduces over them and Shardy needs to
+// insert collectives to handle cross-device reductions.
+static mlir::sdy::OpShardingRuleAttr
+getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  if (!inputType) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+      op->getDiscardableAttr(utils::kCompositeAttributesKey));
+  if (!compositeAttrs) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+  int64_t numNormalizedDims = 0;
+
+  if (auto denseAttr =
+          mlir::dyn_cast_or_null<DenseIntElementsAttr>(normalizedShapeAttr)) {
+    numNormalizedDims = denseAttr.getNumElements();
+  } else if (auto arrayAttr =
+                 mlir::dyn_cast_or_null<ArrayAttr>(normalizedShapeAttr)) {
+    numNormalizedDims = arrayAttr.size();
+  } else {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t numBatchDims = inputRank - numNormalizedDims;
+  if (numBatchDims < 0) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t numOperands = op.getNumOperands();
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // Batch dimensions: pass-through for input and result.
+  for (int64_t dim = 0; dim < numBatchDims; dim++) {
+    SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
+    operandDims[0] = dim;
+    builder.addFactor(operandDims, {dim}, inputType.getDimSize(dim),
+                      mlir::sdy::FactorType::kPassThrough);
+  }
+
+  // Normalized dimensions: need replication because RMS norm reduces over them.
+  for (int64_t i = 0; i < numNormalizedDims; i++) {
+    int64_t inputDim = numBatchDims + i;
+    SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
+    operandDims[0] = inputDim;
+    if (numOperands > 1) {
+      operandDims[1] = i;
+    }
+    if (numOperands > 2) {
+      operandDims[2] = i;
+    }
+    builder.addFactor(operandDims, {inputDim}, inputType.getDimSize(inputDim),
+                      mlir::sdy::FactorType::kNeedReplication);
+  }
+
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -971,6 +1044,10 @@ private:
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
+          // Sharding rules for composites converted to custom_calls.
+          // The names must match entries in kCompositesWithCustomSharding
+          // (StableHLOUtils.h).
+          {"tenstorrent.rms_norm", getRMSNormShardingRule},
       };
 };
 

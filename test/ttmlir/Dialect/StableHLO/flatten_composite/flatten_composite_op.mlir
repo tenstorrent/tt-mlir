@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt -split-input-file --flatten-composite -o %t %s
+// RUN: ttmlir-opt -split-input-file --flatten-or-convert-composites -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module @FlattenCompositeGrouping attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
