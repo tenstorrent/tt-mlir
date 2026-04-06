@@ -156,6 +156,77 @@ def clear_device_cache():
     _current_fabric_config = None
 
 
+class DeferredDevice:
+    """Device that opens after compilation, not before.
+
+    The optimizer pipeline uses OpModel's internal mock device during
+    compilation. If a real device is already open, mock device creation
+    fails. Pass ``DeferredDevice(request)`` as the ``device`` argument to
+    ``compile_and_execute_ttir`` so the real device is opened only for
+    execution.
+    """
+
+    def __init__(self, request):
+        self._request = request
+
+    def prepare(self):
+        """Close any cached device from prior tests so compilation can use
+        the mock device without conflict."""
+        global _current_device
+
+        if _current_device is not None:
+            tt_runtime.runtime.close_mesh_device(_current_device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+            clear_device_cache()
+
+    def open(self):
+        return self._request.getfixturevalue("device")
+
+    def close(self, device):
+        """Close the device and clear the fixture cache so the next test
+        can compile with a mock device."""
+        tt_runtime.runtime.close_mesh_device(device)
+        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
+        clear_device_cache()
+
+
+def _reset_device_after_failure():
+    """Close the cached device after an execution failure.
+
+    After a device execution failure the hardware may be in an undefined state.
+    Close the device and clear the cache so the next test's ``device`` fixture
+    opens a fresh one automatically.
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    if _current_device is None:
+        return
+
+    target = _current_device_target
+    device = _current_device
+
+    try:
+        if target == "emitpy":
+            ttnn.close_mesh_device(device)
+        else:
+            tt_runtime.runtime.close_mesh_device(device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+    except Exception as e:
+        print(f"Warning: failed to close device during reset: {e}")
+
+    _current_device = None
+    _current_device_target = None
+    _current_device_mesh_shape = None
+    _current_fabric_config = None
+
+    if target == "emitpy":
+        utils.DeviceGetter._instance = None
+        utils.DeviceGetter._mesh_shape = None
+
+
 def _get_current_environment():
     if "TT_METAL_SIMULATOR" in os.environ:
         return "sim"
@@ -706,6 +777,10 @@ def pytest_runtest_call(item: pytest.Item):
                 f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+
+        if failure_stage == "runtime" and not getattr(item, "skip_exec", False):
+            _reset_device_after_failure()
+
         raise
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)

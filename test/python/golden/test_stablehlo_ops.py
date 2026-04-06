@@ -622,10 +622,6 @@ def test_sort(
 @pytest.mark.parametrize("dimension", [2, 1, 0], ids=["dim2", "dim1", "dim0"])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("is_stable", [False])
-@pytest.mark.skip_exec(
-    ("p150",),
-    reason="Flaky on p150 in CI, ticket: https://github.com/tenstorrent/tt-mlir/issues/7571",
-)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sort_key_value(
     shape: Shape,
