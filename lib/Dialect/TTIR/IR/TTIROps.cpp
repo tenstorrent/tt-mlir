@@ -5827,34 +5827,43 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     }
   }
 
-  // Verify weight tensor trailing dims match normalized_shape.
-  // Allow leading 1-dims from rank normalization.
+  // Verify weight tensor trailing dims match normalized_shape. Rank
+  // normalization may insert at most one leading size-1 dimension (e.g. 1-D
+  // weight to 2-D).
   if (getWeight()) {
     ArrayRef<int64_t> weightShape = getWeight().getType().getShape();
-    if (weightShape.size() < normalizedShape.size() ||
-        weightShape.take_back(normalizedShape.size()) != normalizedShape) {
+    size_t normRank = normalizedShape.size();
+    size_t weightRank = weightShape.size();
+    if (weightRank != normRank && weightRank != normRank + 1) {
+      return emitOpError(
+          "weight tensor rank must match normalized_shape rank or exceed it "
+          "by at most one (single leading broadcast dimension)");
+    }
+    if (weightShape.take_back(normRank) != normalizedShape) {
       return emitOpError("weight tensor shape must match normalized_shape");
     }
-    for (int64_t d : weightShape.drop_back(normalizedShape.size())) {
-      if (d != 1) {
-        return emitOpError(
-            "weight tensor leading dimensions must be 1 if present");
-      }
+    if (weightRank == normRank + 1 && weightShape.front() != 1) {
+      return emitOpError(
+          "weight tensor leading dimension from rank normalization must be 1");
     }
   }
 
   // Verify bias tensor trailing dims match normalized_shape.
   if (getBias()) {
     ArrayRef<int64_t> biasShape = getBias().getType().getShape();
-    if (biasShape.size() < normalizedShape.size() ||
-        biasShape.take_back(normalizedShape.size()) != normalizedShape) {
+    size_t normRank = normalizedShape.size();
+    size_t biasRank = biasShape.size();
+    if (biasRank != normRank && biasRank != normRank + 1) {
+      return emitOpError(
+          "bias tensor rank must match normalized_shape rank or exceed it by "
+          "at most one (single leading broadcast dimension)");
+    }
+    if (biasShape.take_back(normRank) != normalizedShape) {
       return emitOpError("bias tensor shape must match normalized_shape");
     }
-    for (int64_t d : biasShape.drop_back(normalizedShape.size())) {
-      if (d != 1) {
-        return emitOpError(
-            "bias tensor leading dimensions must be 1 if present");
-      }
+    if (biasRank == normRank + 1 && biasShape.front() != 1) {
+      return emitOpError(
+          "bias tensor leading dimension from rank normalization must be 1");
     }
   }
 

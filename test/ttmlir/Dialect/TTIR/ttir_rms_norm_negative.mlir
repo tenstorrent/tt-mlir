@@ -62,3 +62,17 @@ func.func @rms_norm_bias_multidim_shape_mismatch(%arg0: tensor<2x4x8xf32>, %arg1
   %1 = "ttir.rms_norm"(%arg0, %arg1, %arg2) <{normalized_shape = array<i64: 4, 8>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<2x4x8xf32>, tensor<4x8xf32>, tensor<2x8xf32>) -> tensor<2x4x8xf32>
   return %1 : tensor<2x4x8xf32>
 }
+
+// -----
+// CHECK: error: 'ttir.rms_norm' op weight tensor rank must match normalized_shape rank or exceed it by at most one (single leading broadcast dimension)
+func.func @rms_norm_weight_too_many_leading_ones(%arg0: tensor<2x4x8xf32>, %arg1: tensor<1x1x8xf32>) -> tensor<2x4x8xf32> {
+  %1 = "ttir.rms_norm"(%arg0, %arg1) <{normalized_shape = array<i64: 8>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<2x4x8xf32>, tensor<1x1x8xf32>) -> tensor<2x4x8xf32>
+  return %1 : tensor<2x4x8xf32>
+}
+
+// -----
+// CHECK: error: 'ttir.rms_norm' op bias tensor rank must match normalized_shape rank or exceed it by at most one (single leading broadcast dimension)
+func.func @rms_norm_bias_too_many_leading_ones(%arg0: tensor<2x4x8xf32>, %arg1: tensor<8xf32>, %arg2: tensor<1x1x8xf32>) -> tensor<2x4x8xf32> {
+  %1 = "ttir.rms_norm"(%arg0, %arg1, %arg2) <{normalized_shape = array<i64: 8>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<2x4x8xf32>, tensor<8xf32>, tensor<1x1x8xf32>) -> tensor<2x4x8xf32>
+  return %1 : tensor<2x4x8xf32>
+}

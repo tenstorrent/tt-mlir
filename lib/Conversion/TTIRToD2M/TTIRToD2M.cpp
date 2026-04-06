@@ -3073,7 +3073,7 @@ class D2MRMSNormDecompositionRewriter
   matchAndRewrite(ttir::RMSNormOp op, ttir::RMSNormOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value x = op.getInput();
+    Value x = adaptor.getInput();
     auto inputType = cast<RankedTensorType>(x.getType());
     int64_t rank = inputType.getRank();
 
@@ -3117,14 +3117,14 @@ class D2MRMSNormDecompositionRewriter
           loc, reshapedType, v, rewriter.getI32ArrayAttr(shapeI32));
     };
 
-    if (op.getWeight()) {
-      Value weight = reshapeToInputRank(op.getWeight());
+    if (adaptor.getWeight()) {
+      Value weight = reshapeToInputRank(adaptor.getWeight());
       result = rewriter.create<ttir::MultiplyOp>(loc, inputType, result, weight)
                    .getResult();
     }
 
-    if (op.getBias()) {
-      Value bias = reshapeToInputRank(op.getBias());
+    if (adaptor.getBias()) {
+      Value bias = reshapeToInputRank(adaptor.getBias());
       result = rewriter.create<ttir::AddOp>(loc, inputType, result, bias)
                    .getResult();
     }
