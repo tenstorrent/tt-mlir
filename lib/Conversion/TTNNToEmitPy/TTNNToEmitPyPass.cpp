@@ -143,7 +143,11 @@ private:
           continue;
         }
         auto sourceFile = ttmlir::utils::getImportedFrom(funcOp);
-        assert(sourceFile && "ImportedDeclaration missing tt.imported_from");
+        if (!sourceFile) {
+          funcOp.emitOpError("ImportedDeclaration missing tt.imported_from");
+          signalPassFailure();
+          return;
+        }
         importsByFile[*sourceFile].push_back(funcOp);
       }
 

@@ -145,16 +145,24 @@ private:
     };
 
     for (auto cpuDecl : cpuDecls) {
-      FileOpTy targetFile;
-      if (fileContainsCallTo(mainFile, cpuDecl.getSymName())) {
-        targetFile = mainFile;
-      } else if (fileContainsCallTo(constevalFile, cpuDecl.getSymName())) {
-        assert(!targetFile &&
-               "CPU-hoisted declaration is called from both files");
-        targetFile = constevalFile;
+      bool calledFromMain = fileContainsCallTo(mainFile, cpuDecl.getSymName());
+      bool calledFromConsteval =
+          fileContainsCallTo(constevalFile, cpuDecl.getSymName());
+
+      if (calledFromMain && calledFromConsteval) {
+        cpuDecl.emitOpError(
+            "CPU-hoisted declaration is called from both files");
+        signalPassFailure();
+        return;
       }
-      assert(targetFile &&
-             "CPU-hoisted declaration is not called from any file");
+      if (!calledFromMain && !calledFromConsteval) {
+        cpuDecl.emitOpError(
+            "CPU-hoisted declaration is not called from any file");
+        signalPassFailure();
+        return;
+      }
+
+      FileOpTy targetFile = calledFromMain ? mainFile : constevalFile;
       cpuDecl->moveBefore(&targetFile.getBodyRegion().front(),
                           targetFile.getBodyRegion().front().begin());
     }
