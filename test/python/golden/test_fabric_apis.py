@@ -1164,8 +1164,6 @@ def test_ttnn_generic_unicast_2x4_line(
         module = Module.parse(mlir_text)
         print("Module:", module)
 
-    full_shape = (64, 128)
-
     input_tensor = torch.zeros(full_shape, dtype=torch.bfloat16)
     for i in range(0, mesh_shape[0]):
         for j in range(0, mesh_shape[1]):

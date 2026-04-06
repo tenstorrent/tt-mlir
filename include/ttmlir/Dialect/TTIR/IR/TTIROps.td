@@ -3754,65 +3754,6 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
     let hasVerifier = 1;
 }
 
-def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
-    let summary = "Gather operation.";
-    let description = [{
-      The `gather` operation collects slices from an input tensor at positions specified by start indices.
-
-      This operation is based on the StableHLO Gather operation (https://openxla.org/stablehlo/spec#gather) and
-      allows for flexible slicing and indexing of tensors. It can be used to implement operations like array
-      indexing, slicing, dynamic indexing, and more complex gathering patterns.
-
-      Example:
-      ```mlir
-      // Basic gather example: gather elements from a 2D tensor using indices
-      %input = ... : tensor<5x3xf32>         // Input tensor with shape [5,3]
-      %indices = ... : tensor<2xi64>         // Indices tensor with values [2, 1]
-      %result = ttir.gather(%input, %indices) {
-          offset_dims = [0],                 // Output dimensions that are gathered from input
-          collapsed_slice_dims = [0],        // Input dimensions that are collapsed
-          operand_batching_dims = [],        // Batch dimensions of the input
-          start_indices_batching_dims = [],  // Batch dimensions of the indices
-          start_index_map = [0],             // Maps indices to input dimensions
-          index_vector_dim = 0,              // Which dimension of indices contains the index vector
-          slice_sizes = [1, 3],              // Size of the slice to extract from each position
-          indices_are_sorted = false         // Whether indices are sorted
-      } : (tensor<5x3xf32>, tensor<2xi64>) -> tensor<3xf32>
-
-      // This gathers a slice of size [1,3] starting at position [2,0] from the input tensor,
-      // which results in the values from the third row of the input tensor.
-      ```
-
-      Inputs:
-      - `input` (Tensor): The tensor from which to gather values.
-      - `start_indices` (Tensor): Tensor containing the starting indices for slices.
-
-      Attributes:
-      - `offset_dims` (Array of Integer): Output dimensions that correspond to dimensions of the gathered slice.
-      - `collapsed_slice_dims` (Array of Integer): Input dimensions that are collapsed when gathering.
-      - `operand_batching_dims` (Array of Integer): Batch dimensions of the input tensor.
-      - `start_indices_batching_dims` (Array of Integer): Batch dimensions of the indices tensor.
-      - `start_index_map` (Array of Integer): Maps index values to input dimensions.
-      - `index_vector_dim` (Integer): Which dimension of indices contains the index vector.
-      - `slice_sizes` (Array of Integer): Size of the slice to extract from each position.
-      - `indices_are_sorted` (Boolean): Whether indices are sorted (for optimization).
-
-      Output:
-      - `result` (Tensor): The gathered tensor.
-    }];
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$start_indices,
-                         DenseI64ArrayAttr:$offset_dims,
-                         DenseI64ArrayAttr:$collapsed_slice_dims,
-                         DenseI64ArrayAttr:$operand_batching_dims,
-                         DenseI64ArrayAttr:$start_indices_batching_dims,
-                         DenseI64ArrayAttr:$start_index_map,
-                         SI64Attr:$index_vector_dim,
-                         DenseI64ArrayAttr:$slice_sizes,
-                         BoolAttr:$indices_are_sorted);
-    let results = (outs AnyRankedTensor:$result);
-}
-
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "2D average pooling operation.";
   let description = [{
@@ -5390,7 +5331,7 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
 // TTIR ccl ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
+def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather", [TTIR_CCL]> {
     let summary = "All gather operation.";
     let description = [{
       All gather op.
@@ -5405,7 +5346,7 @@ def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
+def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce", [TTIR_CCL]> {
     let summary = "AllReduce operation.";
     let description = [{
       AllReduce op.
@@ -5420,7 +5361,7 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async"> {
+def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async", [TTIR_CCL]> {
     let summary = "Asynchronous AllReduce operation.";
     let description = [{
       Asynchronous all-reduce collective communication operation. Performs a
@@ -5438,7 +5379,7 @@ def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
+def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter", [TTIR_CCL]> {
     let summary = "Reduce scatter operation.";
     let description = [{
       Reduce scatter op.
@@ -5452,7 +5393,7 @@ def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
+def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute", [TTIR_CCL]> {
     let summary = "Collective permute operation.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
@@ -5708,7 +5649,7 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let hasVerifier = 1;
 }
 
-def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
+def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all", [TTIR_CCL]> {
     let summary = "All to All operation.";
     let description = [{
       The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends
@@ -5736,7 +5677,7 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
 }
 
 
-def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
+def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast", [TTIR_CCL]> {
   let summary = "Collective Broadcast op";
   let description = [{
     The collective_broadcast operation distributes a tensor from a single source device to all
@@ -6081,7 +6022,7 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
+def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch", [TTIR_CCL]> {
     let summary = "Dispatch tokens to expert devices for MoE computation.";
     let description = [{
       Routes tokens to devices holding their selected experts via all-to-all
@@ -6108,7 +6049,7 @@ def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
+def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine", [TTIR_CCL]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
       Inverse of dispatch: gathers expert computation results from expert devices

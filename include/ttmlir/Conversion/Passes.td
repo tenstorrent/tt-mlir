@@ -193,13 +193,23 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def ConvertTTIRCPUToEmitPy : Pass<"convert-ttir-cpu-to-emitpy", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR CPU-hoisted ops to EmitPy dialect.";
+  let description = [{
+    Lowers TTIR ops to EmitPy CallOpaqueOp calls targeting
+    `ttir_cpu.<mnemonic>` functions — pure-torch implementations that run
+    on the host CPU.
+  }];
+  let constructor = "createConvertTTIRCPUToEmitPyPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
+}
+
 def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
   let options = [
-    Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
-    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">,
     // `target-module` is forwarded from the TTNN EmitPy pipeline options.
     // Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
     Option<"targetModule", "target-module", "bool", /*default=*/"false",

@@ -162,7 +162,9 @@ public:
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
                                          remoteLoad.getMcastStartIndex(),
-                                         remoteLoad.getMcastShape());
+                                         remoteLoad.getMcastShape(),
+                                         /*startDevice=*/ValueRange(),
+                                         /*deviceMcastShape=*/ValueRange());
 
           builder.create<scf::YieldOp>(loc);
         },
@@ -278,11 +280,21 @@ public:
     Value cb = remoteStore.getCb();
     Value remoteMemref = remoteStore.getMemref();
     SmallVector<Value> gridIndices = remoteStore.getIndices();
+    ValueRange startDevice = remoteStore.getStartDevice();
+    ValueRange deviceMcastShape = remoteStore.getDeviceMcastShape();
 
     // Wait on CB, emit shard-level dma_write, wait, pop
     Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
-    Value dmaTx = rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref,
-                                              gridIndices);
+    Value dmaTx =
+        rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
+                                    startDevice, deviceMcastShape);
+
+    if (remoteStore.getSemaphore()) {
+      auto incr = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+      rewriter.create<SemaphoreIncOp>(loc, remoteStore.getSemaphore(), incr,
+                                      remoteStore.getSemaphoreIndices(),
+                                      startDevice, deviceMcastShape);
+    }
 
     rewriter.eraseOp(remoteStore);
 

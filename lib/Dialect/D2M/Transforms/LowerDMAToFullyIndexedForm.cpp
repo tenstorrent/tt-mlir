@@ -115,7 +115,8 @@ static size_t calculateCoalescingFactorWithFallback(
 // generateFullyIndexedDMAOps to abstract over DMAReadOp vs DMAWriteOp creation.
 using CreateDMAOpFn = llvm::function_ref<Value(
     OpBuilder &builder, Location loc, SmallVector<Value> &remoteIndices,
-    SmallVector<Value> &localIndices, size_t coalescingFactor)>;
+    SmallVector<Value> &localIndices, size_t coalescingFactor,
+    SmallVector<Value> &startDevice, SmallVector<Value> &deviceMcastShape)>;
 
 // Generate fully-indexed DMA operations with proper coalescing.
 // Returns the last DMA transaction value (for waiting).
@@ -125,6 +126,7 @@ static Value generateFullyIndexedDMAOps(
     OpBuilder &builder, Location loc, SmallVector<Value> gridIndices,
     ArrayRef<int64_t> shardShape, AffineMap remoteMemoryMap,
     AffineMap localMemoryMap, size_t coalescingFactor, size_t shardVolume,
+    SmallVector<Value> startDevice, SmallVector<Value> deviceMcastShape,
     CreateDMAOpFn createDMAOp) {
 
   if (coalescingFactor == shardVolume) {
@@ -145,7 +147,7 @@ static Value generateFullyIndexedDMAOps(
         utils::applyMap(builder, loc, localMemoryMap, localIndices, false);
 
     return createDMAOp(builder, loc, remoteIndices, localIndices,
-                       coalescingFactor);
+                       coalescingFactor, startDevice, deviceMcastShape);
   }
 
   // Strided/non-contiguous: generate loops with guarded DMAs.
@@ -206,8 +208,9 @@ static Value generateFullyIndexedDMAOps(
             true /*addThenBlock*/, true /*addElseBlock*/);
 
         auto thenBuilder = ifExpr.getThenBodyBuilder();
-        Value dmaTx = createDMAOp(thenBuilder, innerLoc, remoteIndices,
-                                  localIndices, coalescingFactor);
+        Value dmaTx =
+            createDMAOp(thenBuilder, innerLoc, remoteIndices, localIndices,
+                        coalescingFactor, startDevice, deviceMcastShape);
         thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
         auto elseBuilder = ifExpr.getElseBodyBuilder();
@@ -269,9 +272,12 @@ public:
 
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
-        coalescingFactor, shardVolume,
+        coalescingFactor, shardVolume, /*startDevice=*/ValueRange(),
+        /*deviceMcastShape=*/ValueRange(),
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
-            SmallVector<Value> &localIdx, size_t cf) {
+            SmallVector<Value> &localIdx, size_t cf,
+            SmallVector<Value> &startDevice,
+            SmallVector<Value> &deviceMcastShape) {
           return b.create<DMAReadOp>(l, remoteMemref, remoteIdx, localMemref,
                                      localIdx, b.getI64IntegerAttr(cf));
         });
@@ -354,14 +360,19 @@ public:
 
     size_t shardVolume = ttmlir::utils::volume(shardShape);
     SmallVector<Value> gridIndices(op.getDstIndices());
+    SmallVector<Value> startDevice(op.getStartDevice());
+    SmallVector<Value> deviceMcastShape(op.getDeviceMcastShape());
 
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
-        coalescingFactor, shardVolume,
+        coalescingFactor, shardVolume, startDevice, deviceMcastShape,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
-            SmallVector<Value> &localIdx, size_t cf) {
+            SmallVector<Value> &localIdx, size_t cf,
+            SmallVector<Value> &startDevice,
+            SmallVector<Value> &deviceMcastShape) {
           return b.create<DMAWriteOp>(l, localMemref, localIdx, dstMemref,
-                                      remoteIdx, cf);
+                                      remoteIdx, cf, startDevice,
+                                      deviceMcastShape);
         });
 
     rewriter.replaceOp(op, newTx);

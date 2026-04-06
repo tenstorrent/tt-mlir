@@ -249,55 +249,15 @@ const std::initializer_list<
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
                                BufferType::L1},
-            detail::ExpectedResult{false}),
-        std::make_tuple(
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::Interleaved,
-                               BufferType::L1},
-            detail::ExpectedResult{false})};
-
-const std::initializer_list<
-    std::tuple<detail::TestTensor, detail::TestTensor, detail::ExpectedResult>>
-    tanhParams = {
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(detail::interleavedN300X1024Dram,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024Dram,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(detail::interleavedN300X1024L1,
-                        detail::interleavedN300X1024L1,
-                        detail::ExpectedResult{true}),
-        std::make_tuple(
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
             detail::ExpectedResult{true}),
         std::make_tuple(
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::Interleaved,
-                               BufferType::L1},
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
-                               TensorMemoryLayout::HeightSharded,
-                               BufferType::L1},
-            detail::ExpectedResult{false}),
-        std::make_tuple(
-            detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::HeightSharded,
                                BufferType::L1},
             detail::TestTensor{{14 * OpModelFixture::workerCoresN300 * 32, 32},
                                TensorMemoryLayout::Interleaved,
                                BufferType::L1},
-            detail::ExpectedResult{false})};
+            detail::ExpectedResult{true})};
 
 INSTANTIATE_TEST_SUITE_P(ReluTests, OpModelReluParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
@@ -331,7 +291,7 @@ INSTANTIATE_TEST_SUITE_P(ExpTests, OpModelExpParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(TanhTests, OpModelTanhParam,
-                         ::testing::ValuesIn(tanhParams));
+                         ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(LogTests, OpModelLogParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
@@ -2098,14 +2058,14 @@ const std::initializer_list<BinaryEltwiseParam> binaryEltwiseParams = {
                         llvm::SmallVector<int64_t>{8, 1}},
      detail::ExpectedResult{true}}};
 
-// Power and Remainder tests are mostly similar to other binary ops, but they
-// have subtle differences in terms of their memory footprint after metal
+// Power, Remainder, Atan2 tests are mostly similar to other binary ops, but
+// they have subtle differences in terms of their memory footprint after metal
 // uplift. As a workaround, we generate separate test parameters for these two
 // ops. However, this will be completely resolved when we change the way we test
 // OpModelLib (See this issue:
 // https://github.com/tenstorrent/tt-mlir/issues/4288).
 const std::initializer_list<BinaryEltwiseParam>
-    binaryEltwiseParamsForRemainderAndPow = {
+    binaryEltwiseParamsForRemainderAndPowAndAtan2 = {
         {detail::interleavedN300X1024Dram, detail::interleavedN300X1024Dram,
          detail::interleavedN300X1024Dram, detail::ExpectedResult{true}},
         {detail::interleavedN300X1024Dram, detail::interleaved2048X2048Dram,
@@ -2212,15 +2172,15 @@ INSTANTIATE_TEST_SUITE_P(BitwiseXorTests, OpModelBitwiseXorParam,
 
 INSTANTIATE_TEST_SUITE_P(
     PowTests, OpModelPowParam,
-    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPow));
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPowAndAtan2));
 
 INSTANTIATE_TEST_SUITE_P(
     RemainderTests, OpModelRemainderParam,
-    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPow));
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPowAndAtan2));
 
 INSTANTIATE_TEST_SUITE_P(
     Atan2Tests, OpModelAtan2Param,
-    generateBinaryEltwiseParamsSameLayout(binaryEltwiseParams));
+    generateBinaryEltwiseParams(binaryEltwiseParamsForRemainderAndPowAndAtan2));
 
 class OpModelPowScalarParam
     : public OpModelTest,

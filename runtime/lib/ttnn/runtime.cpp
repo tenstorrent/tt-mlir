@@ -28,9 +28,11 @@
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
-#include <numeric>
+
+#include "tracy/Tracy.hpp"
 
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <vector>
 
@@ -2003,6 +2005,7 @@ getOpInputRefs(OpContext opContextHandle,
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
+  ZoneScoped;
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(

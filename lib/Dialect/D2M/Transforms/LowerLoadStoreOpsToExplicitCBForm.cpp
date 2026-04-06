@@ -146,8 +146,6 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
                                       rewriter, cache, portCounters);
     TT_assert((inputCB && outputCB));
 
-    rewriter.setInsertionPoint(loadOp);
-
     // Case A: Load from remote (input has view layout) -> load into output CB
     // Case B: Store to remote (output has view layout) -> store from input CB
     bool isRemoteLoad = isRemoteOperand(loadMemref, loadOp.getOperation());
@@ -160,25 +158,39 @@ static void simplifyLoadStorePairs(ModuleOp moduleOp, IRRewriter &rewriter,
     if (!isRemoteLoad && !isRemoteStore) {
       continue;
     }
-    if (isRemoteLoad) {
-      auto cb = (isRemoteStore) ? inputCB : outputCB;
-      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(), cb,
-                                    loadOp.getMcastStartIndex(),
-                                    loadOp.getMcastShape());
-    } else {
-      // Aliased load - insert reserve and push here.
-      rewriter.create<ReserveOp>(loc, inputCB);
-      rewriter.create<PushOp>(loc, inputCB);
-    }
 
-    if (isRemoteStore) {
-      auto cb = inputCB;
-      rewriter.create<RemoteStoreOp>(loc, storeMemref, storeOp.getIndices(),
-                                     cb);
-    } else {
+    if (isRemoteLoad && isRemoteStore) {
+      rewriter.setInsertionPoint(loadOp);
+      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
+                                    outputCB, loadOp.getMcastStartIndex(),
+                                    loadOp.getMcastShape());
+      rewriter.setInsertionPoint(storeOp);
+      rewriter.create<RemoteStoreOp>(
+          loc, storeMemref, storeOp.getIndices(), outputCB,
+          storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
+          storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
+    } else if (isRemoteLoad) {
+      // Create the explicit CB form of remote_load (no localBuffer, has CB
+      // operand)
+      rewriter.setInsertionPoint(loadOp);
+      rewriter.create<RemoteLoadOp>(loc, loadMemref, loadOp.getIndices(),
+                                    outputCB, loadOp.getMcastStartIndex(),
+                                    loadOp.getMcastShape());
       // Aliased store - insert wait and pop here.
+      rewriter.setInsertionPoint(storeOp);
       rewriter.create<WaitOp>(loc, outputCB);
       rewriter.create<PopOp>(loc, outputCB);
+    } else if (isRemoteStore) {
+      rewriter.setInsertionPoint(storeOp);
+      rewriter.create<RemoteStoreOp>(
+          loc, storeMemref, storeOp.getIndices(), inputCB,
+          storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
+          storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
+
+      // Aliased load - insert reserve and push here.
+      rewriter.setInsertionPoint(loadOp);
+      rewriter.create<ReserveOp>(loc, inputCB);
+      rewriter.create<PushOp>(loc, inputCB);
     }
 
     // Get the shared localBuffer before erasing operations
@@ -386,8 +398,10 @@ static void rewriteRemoteStoreOpsToExplicitCBForm(ModuleOp moduleOp,
 
       // Create the explicit CB form of remote_store (no local buffer, has CB)
       // d2m.remote_store %memref[indices] from %cb
-      rewriter.create<RemoteStoreOp>(loc, memref, remoteStore.getIndices(),
-                                     assocCb);
+      rewriter.create<RemoteStoreOp>(
+          loc, memref, remoteStore.getIndices(), assocCb,
+          remoteStore.getStartDevice(), remoteStore.getDeviceMcastShape(),
+          remoteStore.getSemaphore(), remoteStore.getSemaphoreIndices());
 
       // Erase the original remote_store operation
       rewriter.eraseOp(remoteStore);

@@ -51,6 +51,16 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNDecomposition : Pass<"ttnn-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose TTNN ops into primitive equivalents.";
+  let description = [{
+    This pass decomposes TTNN ops that cannot be handled by any available
+    fused kernel into sequences of primitive TTNN ops. Unlike workarounds,
+    these decompositions are permanent and functional - they apply when no
+    suitable kernel exists for the given op configuration (e.g. shape).
+  }];
+}
+
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{

@@ -98,7 +98,7 @@ def test_max_pool2d(
         ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], True),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_max_pool2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -210,7 +210,7 @@ def test_avg_pool2d(
         ([8, 8], [1, 1], [1, 1], [7, 7, 7, 7], False, True),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_avg_pool2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -323,7 +323,7 @@ def test_max_pool2d_with_indices(
         ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], True),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_max_pool2d_with_indices(
     shape: Shape,
     dtype: torch.dtype,
@@ -399,7 +399,7 @@ def test_global_avg_pool2d(
 @x86_only
 @pytest.mark.parametrize("shape", hoisted_pooling_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_global_avg_pool2d(
     shape: Shape,
     dtype: torch.dtype,
