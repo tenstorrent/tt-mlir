@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 
 namespace mlir::tt::ttnn {
 
@@ -90,7 +91,7 @@ bool ConcatRuleBook::isValidOutputHintForInputs(
 }
 
 OutputHints ConcatRuleBook::getOutputHints(
-    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
+    Operation *op, const std::vector<OpConfig> &legalConfigs) const {
   // tt-metal concat defaults to DRAM_MEMORY_CONFIG when output memory config is
   // nullopt, so a NULL hint always produces DRAM output. For sharded inputs
   // this immediately fails validation (output must be sharded when inputs are
@@ -98,6 +99,26 @@ OutputHints ConcatRuleBook::getOutputHints(
   // calls on the guaranteed-to-fail NULL path.
   OutputHints result;
   result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+
+  // Reject sharded output hints when the concat output tensor has non-tile-
+  // aligned inner dimensions. tt-metal hangs during UntilizeWithUnpadding when
+  // a height-sharded tensor has non-tile-aligned penultimate or last dim
+  // (e.g. 32x32x17x16).
+  // https://github.com/tenstorrent/tt-metal/issues/41504
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (outputType) {
+    llvm::ArrayRef<int64_t> shape = outputType.getShape();
+    int64_t rank = shape.size();
+    if (rank >= 2) {
+      bool penultimateAligned = (shape[rank - 2] % TILE_HEIGHT) == 0;
+      bool lastAligned = (shape[rank - 1] % TILE_WIDTH) == 0;
+      if (!penultimateAligned || !lastAligned) {
+        return result;
+      }
+    }
+  }
+
   for (const auto &cfg : legalConfigs) {
     if (!cfg.outputLayout) {
       continue;
