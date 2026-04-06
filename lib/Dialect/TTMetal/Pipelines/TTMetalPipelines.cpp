@@ -160,6 +160,9 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
+
+  ////// D2M Backend pipeline begin ///////
+
   pm.addPass(d2m::createD2MLowerMulticastLoads());
 
   // After LowerToExplicitForm, all generic op are in Explicit Datamovement
@@ -247,7 +250,48 @@ void createTTIRToTTMetalMiddleendPipeline(
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
+
+  ////// D2M Backend pipeline end ///////
 }
+
+#if 0
+////// D2M to ttkernel pipeline here ///////
+////// Do we want to go to emitC separately?
+void createD2MToTTKernelPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
+  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
+  pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(ttkernel::createTTKernelControlDstSection());
+  createOptimizationPasses(pm, options);
+  pm.addPass(ttkernel::createTTKernelHoistInits());
+  // Insert DeviceZone scopes around selected ttkernel ops before EmitC
+  // lowering.
+  if (options.insertProfilerTraces) {
+    pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+  }
+  pm.addPass(createConvertTTKernelToEmitC());
+  pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(mlir::emitc::createFormExpressionsPass());
+}
+
+////// D2M to ttmetal pipeline here ///////
+void createD2MToTTMetalPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
+  { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
+  pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
+}
+
+////// D2M to ttnn pipeline here ///////
+void createD2MToTTMetalPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+  d2m::ConvertD2MToTTNNOptions d2mToTTNNOptions;
+  { d2mToTTNNOptions.mathFidelity = options.mathFidelity; }
+  pm.addPass(tt::createConvertD2MToTTNNPass(d2mToTTNNOptions));
+}
+#endif
 
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
