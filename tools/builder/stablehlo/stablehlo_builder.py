@@ -15,7 +15,7 @@ from collections import OrderedDict
 import math
 
 from ttmlir.ir import *
-from ttmlir.dialects import stablehlo, sdy, mpmd, func
+from ttmlir.dialects import stablehlo, sdy, func
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
@@ -9252,36 +9252,6 @@ class StableHLOBuilder(Builder):
         self._set_golden_tensor(op_result, golden_output)
 
         return op_result
-
-    # ----- Experimental Mpmd Attribute Generators ----
-
-    def experimental_named_mesh_attr(
-        self,
-        name: str,
-        mesh_attr: sdy.MeshAttr,
-    ) -> mpmd.NamedMeshAttr:
-        return mpmd.NamedMeshAttr.get(name, mesh_attr)
-
-    def experimental_topology_attr(
-        self,
-        meshes: List[mpmd.NamedMeshAttr],
-    ) -> mpmd.TopologyAttr:
-        return mpmd.TopologyAttr.get(meshes)
-
-    def experimental_user_origin_attr(
-        self,
-        user_name: str,
-        transpose_count: int = 0,
-    ) -> mpmd.UserOriginAttr:
-        return mpmd.UserOriginAttr.get(
-            user_name=user_name, transpose_count=transpose_count
-        )
-
-    def experimental_origin_attr(
-        self,
-        origin_label: str,
-    ) -> mpmd.OriginAttr:
-        return mpmd.OriginAttr.get(origin_label=origin_label)
 
     # ----- Parse stablehlo module ----
 
