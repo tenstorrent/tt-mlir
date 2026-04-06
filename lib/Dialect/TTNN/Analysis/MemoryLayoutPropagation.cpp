@@ -150,17 +150,15 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     candidate.reshardLayouts = reshardLayouts;
     candidate.outputLayouts = result.actualOutputLayouts;
 
-    TTMLIR_TRACE(
-        ttmlir::LogComponent::GreedyOptimizer,
-        "    VALID candidate for {0}: hint[{1}] outBuf={2} "
-        "outMem={3} score(L1={4},sharded={5},dramIn={6},"
-        "reshard={7},cores={8},l1use={9}) outputLayout={10}",
-        op->getName(), hintIdx,
-        candidate.configHint.outputLayout.getBufferType(),
-        candidate.configHint.outputLayout.getMemLayout(), candidate.score.isL1,
-        candidate.score.isSharded, candidate.score.inputDramBytes,
-        candidate.score.requiresReshard, candidate.score.coreCount,
-        candidate.score.outputL1Usage, result.getFirstActualOutputLayout());
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "    VALID candidate for {0}: hint[{1}]={2} "
+                 "score(L1={3},sharded={4},dramIn={5},"
+                 "reshard={6},cores={7},l1use={8})",
+                 op->getName(), hintIdx, candidate.configHint.toCompactString(),
+                 candidate.score.isL1, candidate.score.isSharded,
+                 candidate.score.inputDramBytes,
+                 candidate.score.requiresReshard, candidate.score.coreCount,
+                 candidate.score.outputL1Usage);
 
     observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
                            &candidate, /*failureReason=*/"");
@@ -169,22 +167,12 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
   }
 
   // Log validation failures.
-  llvm::StringRef hintBuf = "null";
-  llvm::StringRef hintMem = "null";
-  std::string hintBufStr, hintMemStr;
-  if (hint.outputLayout) {
-    llvm::raw_string_ostream bufOS(hintBufStr);
-    bufOS << hint.outputLayout.getBufferType();
-    hintBuf = hintBufStr;
-    llvm::raw_string_ostream memOS(hintMemStr);
-    memOS << hint.outputLayout.getMemLayout();
-    hintMem = hintMemStr;
-  }
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "    FAILED validation for {0}: hint[{1}] error: {2} "
-               "outBuf={3} outMem={4} inputs=[{5}] reshard={6}",
-               op->getName(), hintIdx, result.errorMessage, hintBuf, hintMem,
-               formatInputLayouts(inputLayouts), anyReshard);
+               "    FAILED validation for {0}: hint[{1}]={2} error={3} "
+               "inputs=[{4}] reshard={5}",
+               op->getName(), hintIdx, hint.toCompactString(),
+               result.errorMessage, formatInputLayouts(inputLayouts),
+               anyReshard);
 
   observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
                          /*candidate=*/nullptr, result.errorMessage);
@@ -423,18 +411,8 @@ MemoryLayoutPropagation::processOp(Operation *op) {
 
   // Log output hints detail.
   for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-    const auto &h = outputHints.hints[hi];
-    if (h.outputLayout) {
-      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "    hint[{0}]: buf={1} mem={2} attemptL1Shard={3}", hi,
-                   h.outputLayout.getBufferType(),
-                   h.outputLayout.getMemLayout(),
-                   outputHints.attemptL1Sharding);
-    } else {
-      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "    hint[{0}]: NULL (backend decides) attemptL1Shard={1}",
-                   hi, outputHints.attemptL1Sharding);
-    }
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "    hint[{0}]: {1}",
+                 hi, outputHints.hints[hi].toCompactString());
   }
 
   // Step 3: Cross-product evaluation.
@@ -511,6 +489,10 @@ MemoryLayoutPropagation::processOp(Operation *op) {
     // Try primary output hints with this input combination.
     bool gotSharded = false;
     for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
+      if (!ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
+                                               inputLayouts)) {
+        continue;
+      }
       if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
                   producerCandidateIndices, reshardLayouts)) {
         gotSharded = true;
@@ -524,6 +506,10 @@ MemoryLayoutPropagation::processOp(Operation *op) {
                    "hints",
                    op->getName(), outputHints.fallbackHints.size());
       for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
+        if (!ruleBook.isValidOutputHintForInputs(outputHints.fallbackHints[fi],
+                                                 inputLayouts)) {
+          continue;
+        }
         tryHint(outputHints.fallbackHints[fi], outputHints.hints.size() + fi,
                 inputLayouts, anyReshard, producerCandidateIndices,
                 reshardLayouts);

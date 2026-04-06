@@ -57,9 +57,7 @@ filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
 /// Non-sharded output hints (common pattern for many ops).
 inline OutputHints
 nonShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
-  return OutputHints{filterNonSharded(legalConfigs),
-                     {},
-                     /*attemptL1Sharding=*/false};
+  return OutputHints{filterNonSharded(legalConfigs), {}};
 }
 
 /// NULL-hint-only output (backend decides from inputs, no fallbacks).

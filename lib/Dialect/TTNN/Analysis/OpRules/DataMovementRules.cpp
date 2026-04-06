@@ -22,23 +22,89 @@ bool ConcatRuleBook::shouldExploreReshards() const { return true; }
 
 bool ConcatRuleBook::isValidInputCombination(
     llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
-  // Concat requires all inputs to have the same memory layout type.
   if (inputLayouts.size() < 2) {
     return true;
   }
+
+  // Concat requires all inputs to have the same memory layout type.
   auto firstMem = inputLayouts[0].getMemLayout();
   for (size_t i = 1; i < inputLayouts.size(); ++i) {
     if (inputLayouts[i].getMemLayout() != firstMem) {
       return false;
     }
   }
+
+  // Concat requires all sharded inputs to have the same grid.
+  if (inputLayouts[0].hasShardedTensorMemoryLayout()) {
+    auto firstGrid = inputLayouts[0].getGrid();
+    for (size_t i = 1; i < inputLayouts.size(); ++i) {
+      if (inputLayouts[i].getGrid() != firstGrid) {
+        return false;
+      }
+    }
+  }
+
   return true;
 }
 
-// ConcatOp::getOutputHints — uses default OpRuleBook impl (sharded + NULL
-// hints). Sharded output re-enabled after tt-metal hang fix landed.
-// https://github.com/tenstorrent/tt-metal/issues/39419
-// Fix: https://github.com/tenstorrent/tt-metal/pull/39882
+bool ConcatRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty()) {
+    return true;
+  }
+
+  auto inputMem = inputLayouts[0].getMemLayout();
+  bool inputsSharded = inputMem && isShardedMemoryLayout(inputMem.getValue());
+
+  // NULL hint defaults to DRAM in tt-metal; reject when inputs are sharded
+  // (concat requires sharded output when inputs are sharded).
+  if (!hint.outputLayout) {
+    return !inputsSharded;
+  }
+
+  auto hintMem = hint.outputLayout.getMemLayout();
+  bool hintSharded = hintMem && isShardedMemoryLayout(hintMem.getValue());
+
+  // Sharded inputs require sharded output with matching memory layout type
+  // and matching grid.
+  if (inputsSharded) {
+    if (!hintSharded || hintMem != inputMem) {
+      return false;
+    }
+    auto hintGrid = hint.outputLayout.getGrid();
+    auto inputGrid = inputLayouts[0].getGrid();
+    if (!hintGrid || !inputGrid) {
+      return false;
+    }
+    return hintGrid == inputGrid;
+  }
+
+  // Interleaved inputs: accept any hint (NULL handled above,
+  // sharded/non-sharded both valid for interleaved-to-sharded or
+  // interleaved-to-interleaved).
+  return true;
+}
+
+OutputHints ConcatRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
+  // tt-metal concat defaults to DRAM_MEMORY_CONFIG when output memory config is
+  // nullopt, so a NULL hint always produces DRAM output. For sharded inputs
+  // this immediately fails validation (output must be sharded when inputs are
+  // sharded). Promote sharded configs to primary hints to avoid wasting backend
+  // calls on the guaranteed-to-fail NULL path.
+  OutputHints result;
+  result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+  for (const auto &cfg : legalConfigs) {
+    if (!cfg.outputLayout) {
+      continue;
+    }
+    auto memLayout = cfg.outputLayout.getMemLayout();
+    if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+      result.hints.push_back(cfg);
+    }
+  }
+  return result;
+}
 
 //===----------------------------------------------------------------------===//
 // SliceRuleBook

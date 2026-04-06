@@ -69,6 +69,23 @@ struct OpConfig {
     }
     std::visit([](const auto &config) { config.dump(); }, opSpecificAttrs);
   }
+
+  /// Compact string for trace logging (e.g. "l1/height_sharded/[8x1]").
+  std::string toCompactString() const {
+    if (!outputLayout) {
+      return "null";
+    }
+    std::string bufStr, memStr;
+    llvm::raw_string_ostream(bufStr) << outputLayout.getBufferType();
+    llvm::raw_string_ostream(memStr) << outputLayout.getMemLayout();
+    auto memLayout = outputLayout.getMemLayout();
+    if (memLayout && isShardedMemoryLayout(memLayout.getValue()) &&
+        outputLayout.getGrid()) {
+      auto gs = outputLayout.getGrid().getShape();
+      return llvm::formatv("{0}/{1}/[{2}x{3}]", bufStr, memStr, gs[0], gs[1]);
+    }
+    return llvm::formatv("{0}/{1}", bufStr, memStr);
+  }
 };
 
 } // namespace mlir::tt::ttnn

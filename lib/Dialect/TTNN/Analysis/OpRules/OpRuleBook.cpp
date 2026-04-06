@@ -28,7 +28,6 @@ OpRuleBook::getOutputHints(Operation * /*op*/,
   // Fallback: sharded configs -- tried only when NULL yields non-sharded
   // output.
   OutputHints result;
-  result.attemptL1Sharding = true;
   result.hints.push_back(OpConfig(TTNNLayoutAttr()));
   for (const auto &cfg : legalConfigs) {
     if (!cfg.outputLayout) {

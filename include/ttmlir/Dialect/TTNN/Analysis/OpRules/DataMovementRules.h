@@ -38,6 +38,12 @@ struct ConcatRuleBook : OpRuleBook {
   bool shouldExploreReshards() const override;
   bool isValidInputCombination(
       llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
 };
 
 /// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
