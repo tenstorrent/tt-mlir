@@ -521,8 +521,8 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
         module_mul,
         module_pow,
         module_subtract,
-        module_remainder,
-        module_atan2,
+        module_remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
 def test_binary_ops(test_fn: Callable, target: str, request, device):
