@@ -2582,6 +2582,46 @@ TEST_F(OpModelBase, typecastOp) {
   }
 }
 
+TEST_F(OpModelBase, bitcastConvertOp) {
+  // create BitcastConvertOp
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+
+  RankedTensorType rankedTensorTypeBF16 =
+      RankedTensorType::get(tensorShape, builder.getBF16Type());
+
+  auto input = builder.create<OnesOp>(
+      builder.getUnknownLoc(), rankedTensorTypeBF16, nullptr,
+      ShapeAttr::get(&context, tensorShape),
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16), nullptr,
+      nullptr);
+  RankedTensorType rankedTensorTypeU16 =
+      RankedTensorType::get(tensorShape, builder.getIntegerType(16, false));
+
+  auto bitcastConvert = builder.create<BitcastConvertOp>(
+      builder.getUnknownLoc(), rankedTensorTypeU16, input,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt16));
+
+  auto constraintsExp = getOpConstraints(bitcastConvert.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(bitcastConvert.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, Conv2dInterface) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};

@@ -106,7 +106,7 @@ reduction_op_cpu_hoisted_names = [
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_cpu_hoisted_names)
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_reduction_cpu_hoisted_ops(
     shapes,
     dtype: torch.dtype,
@@ -190,9 +190,11 @@ def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
     ],
     ids=["dim1", "dim0", "dim_negative"],
 )
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_cumsum(
     shapes: List[Shape],
     dim: int,
+    target: str,
     request,
     device,
 ):
@@ -208,6 +210,7 @@ def test_hoisted_cumsum(
     compile_and_execute_ttir(
         module,
         test_base=request.node.name,
+        target=target,
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

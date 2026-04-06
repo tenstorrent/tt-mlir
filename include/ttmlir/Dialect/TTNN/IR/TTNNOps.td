@@ -100,6 +100,27 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let hasVerifier = 1;
 }
 
+def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
+    let summary = "Bitcast_convert op.";
+    let description = [{
+      This op reinterprets the bits of each element in
+      the input tensor as a data type of the output tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_DataTypeAttr:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "ttcore::DataTypeAttr": $dtype),
+      [{
+        build($_builder, $_state, resultType, input, dtype, /*memory_config=*/nullptr);
+      }]>
+    ];
+
+    let hasVerifier = 1;
+}
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";

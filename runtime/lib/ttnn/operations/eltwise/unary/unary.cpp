@@ -39,7 +39,8 @@ static void runEltwiseUnaryTanhOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &, bool)> &ttnnOp) {
+        const std::optional<::ttnn::Tensor> &, bool,
+        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -51,7 +52,7 @@ static void runEltwiseUnaryTanhOp(
 
   ::ttnn::Tensor out =
       ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
-             /*approx=*/false);
+             /*approx=*/false, /*sub_core_grids=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -85,7 +86,8 @@ static void runEltwiseUnarySigmoidOp(
         ::ttnn::Tensor(const ::ttnn::Tensor &, const int,
                        const ::ttnn::operations::unary::SigmoidMode,
                        const std::optional<::ttnn::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
+                       const std::optional<::ttnn::Tensor> &,
+                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -98,7 +100,8 @@ static void runEltwiseUnarySigmoidOp(
   auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
   ::ttnn::Tensor out = ttnnOp(
       in, static_cast<int>(::ttnn::operations::unary::VecMode::RC), sigmoidMode,
-      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt);
+      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
+      /*sub_core_grids=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

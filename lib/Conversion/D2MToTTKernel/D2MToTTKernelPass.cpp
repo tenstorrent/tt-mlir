@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
@@ -141,9 +142,6 @@ struct ConvertD2MToTTKernel
       return ttkernel::L1AddrType::get(globalSemaphore.getContext());
     });
 
-    d2m::AssociatedDMAWaits associatedDMAWaits =
-        getAnalysis<d2m::AssociatedDMAWaits>();
-
     d2m::CBProducerConsumer cbProducerConsumer =
         getAnalysis<d2m::CBProducerConsumer>();
 
@@ -151,8 +149,7 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  associatedDMAWaits, cbProducerConsumer,
-                                  ttnnMode);
+                                  cbProducerConsumer, ttnnMode);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

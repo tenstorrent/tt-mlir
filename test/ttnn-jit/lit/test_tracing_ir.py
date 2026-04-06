@@ -39,8 +39,6 @@ from op_definitions import (
     repeat_1x3 as repeat_1x3_func,
     repeat_2x2 as repeat_2x2_func,
     embedding as embedding_func,
-    gather_dim0 as gather_dim0_func,
-    gather_dim1 as gather_dim1_func,
 )
 
 
@@ -922,54 +920,5 @@ if __name__ == "__main__":
     # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
     # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
     test_ir_generation(embedding_func, input_indices, weight_table)
-
-    # ============================================================
-    # Gather operations tests
-    # ============================================================
-
-    # Create tensors for gather test
-    # For torch.gather, output shape = index shape
-    # input: [64, 64], index: [64, 32], dim=1 -> output: [64, 32]
-    gather_input = create_sharded_tile_tensor(device, (64, 64), (0, 0), torch.bfloat16)
-    gather_index_dim0 = create_sharded_tile_tensor(
-        device, (32, 64), (0, 0), torch.bfloat16
-    )
-    gather_index_dim1 = create_sharded_tile_tensor(
-        device, (64, 32), (0, 0), torch.bfloat16
-    )
-
-    # Gather along dimension 0: [64, 64] input + [32, 64] index -> [32, 64]
-    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @gather_dim0
-    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
-    # CHECK-SAME: %arg1: tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> [[OUT_TYPE:tensor<32x64xbf16, #ttnn_layout[0-9]*>]]
-    # CHECK: %[[VAL:[0-9]+]] = "ttir.gather"(%arg0, %arg1)
-    # CHECK-SAME: collapsed_slice_dims = array<i64: 0, 1>
-    # CHECK-SAME: index_vector_dim = 2 : si64
-    # CHECK-SAME: offset_dims = array<i64>
-    # CHECK-SAME: slice_sizes = array<i64: 1, 1>
-    # CHECK-SAME: start_index_map = array<i64: 0>
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<32x64xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
-    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
-    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
-    test_ir_generation(gather_dim0_func, gather_input, gather_index_dim0)
-
-    # Gather along dimension 1: [64, 64] input + [64, 32] index -> [64, 32]
-    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @gather_dim1
-    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
-    # CHECK-SAME: %arg1: tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>)
-    # CHECK-SAME: -> [[OUT_TYPE:tensor<64x32xbf16, #ttnn_layout[0-9]*>]]
-    # CHECK: %[[VAL:[0-9]+]] = "ttir.gather"(%arg0, %arg1)
-    # CHECK-SAME: collapsed_slice_dims = array<i64: 0, 1>
-    # CHECK-SAME: index_vector_dim = 2 : si64
-    # CHECK-SAME: offset_dims = array<i64>
-    # CHECK-SAME: slice_sizes = array<i64: 1, 1>
-    # CHECK-SAME: start_index_map = array<i64: 1>
-    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x32xbf16, #ttnn_layout{{[0-9]*}}>) -> tensor<{{.*}}>
-    # CHECK: %[[CONVERTED:[0-9]+]] = ttir.to_layout %[[VAL]]{{.*}} -> [[OUT_TYPE]]
-    # CHECK: return %[[CONVERTED]] : [[OUT_TYPE]]
-    test_ir_generation(gather_dim1_func, gather_input, gather_index_dim1)
 
     ttnn.close_device(device)

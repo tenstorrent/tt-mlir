@@ -1669,7 +1669,7 @@ public:
     auto programConfigAttr = createSparseMatmulProgramConfigAttr(
         rewriter.getContext(), aType, bType, deviceAttr);
 
-    rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
         op.getIsInputBSparse(), nnzAttr,
@@ -1677,6 +1677,9 @@ public:
         /*memory_config=*/nullptr,
         /*dtype=*/nullptr,
         /*compute_config=*/nullptr);
+    if (auto attr = op->getAttr("ttcore.weight_dtype")) {
+      newOp->setAttr("ttcore.weight_dtype", attr);
+    }
     return success();
   }
 };
@@ -2452,6 +2455,30 @@ public:
         op, this->getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getLhs(), adaptor.getRhs(), outputDtypeAttr,
         /*memory_config=*/nullptr, op.getApproximate());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class BitcastConvertOPConversionPattern
+    : public OpConversionPattern<ttir::BitcastConvertOp> {
+  using OpConversionPattern<ttir::BitcastConvertOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::BitcastConvertOp op,
+                  ttir::BitcastConvertOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = op.getType();
+    ttnn::TTNNLayoutAttr outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    ttcore::DataTypeAttr outputDataTypeAttr = ttcore::DataTypeAttr::get(
+        op.getContext(), outputLayoutAttr.getDataType());
+
+    rewriter.replaceOpWithNewOp<ttnn::BitcastConvertOp>(
+        op, this->getTypeConverter()->convertType(resultType),
+        adaptor.getInput(), outputDataTypeAttr);
     return success();
   }
 };
@@ -3645,6 +3672,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            SortOpConversionPattern,
+           BitcastConvertOPConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,

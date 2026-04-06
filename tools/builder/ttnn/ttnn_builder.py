@@ -13,6 +13,7 @@ from ttmlir.dialects import ttnn, ttcore, func
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
+from builder.base.builder_enums import *
 
 from golden import *
 
@@ -9002,6 +9003,108 @@ class TTNNBuilder(Builder):
         golden_output = op_golden_function(
             input0,
             all_gather_dim_attr,
+            cluster_axis_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    ############### ttnn.ReduceScatterOp ###############
+
+    @tag(ttnn.ReduceScatterOp)
+    def reduce_scatter(
+        self,
+        input: Operand,
+        reduce_type: ReduceType,
+        scatter_dim: int,
+        cluster_axis: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.reduce_scatter)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type.value)
+        scatter_dim_attr = IntegerAttr.get(IntegerType.get_signed(32), scatter_dim)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            reduce_type_attr,
+            scatter_dim_attr,
+            cluster_axis_attr,
+            mlir_output_type,
+        )
+        result = self._create_dram_tiled_ttnn_tensor(
+            golden_output.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            input,
+            reduce_type_attr,
+            scatter_dim_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttnn.ReduceScatterOp)
+    def reduce_scatter_parser(
+        self,
+        old_op: ttnn.ReduceScatterOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.reduce_scatter_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        reduce_type_attr = old_op.reduce_type
+        scatter_dim_attr = old_op.scatter_dim
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            reduce_type_attr,
+            scatter_dim_attr,
+            cluster_axis_attr,
+            sub_device_id=old_op.sub_device_id,
+            memory_config=old_op.memory_config,
+            num_links=old_op.num_links,
+            topology=old_op.topology,
+            compute_config=old_op.compute_config,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            reduce_type_attr,
+            scatter_dim_attr,
             cluster_axis_attr,
             result.element_type,
         )

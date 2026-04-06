@@ -42,6 +42,19 @@ module {
     return %result : tensor<1x1x68x51200xbf16>
   }
 
+  // Verify that ttcore.weight_dtype discardable attribute is preserved on the
+  // new LinearOp after output shape adjustment.
+  func.func @linear_output_shape_preserves_weight_dtype(%arg0: tensor<256x1024xbf16>, %arg1: tensor<1024x512xbf16>, %bias: tensor<1x1x512xbf16>) -> tensor<1x256x512xbf16> {
+    // CHECK-LABEL: func.func @linear_output_shape_preserves_weight_dtype
+    // CHECK: "ttnn.linear"
+    // CHECK-SAME: ttcore.weight_dtype = "bfp_bf4"
+    // CHECK-SAME: -> tensor<256x512xbf16
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: -> tensor<1x256x512xbf16
+    %result = "ttnn.linear"(%arg0, %arg1, %bias) <{transpose_a = false, transpose_b = false}> {ttcore.weight_dtype = "bfp_bf4"} : (tensor<256x1024xbf16>, tensor<1024x512xbf16>, tensor<1x1x512xbf16>) -> tensor<1x256x512xbf16>
+    return %result : tensor<1x256x512xbf16>
+  }
+
   // No bias. Pattern should NOT fire.
   func.func @linear_no_bias_no_change(%arg0: tensor<256x1024xbf16>, %arg1: tensor<1024x512xbf16>) -> tensor<256x512xbf16> {
     // CHECK-LABEL: func.func @linear_no_bias_no_change
