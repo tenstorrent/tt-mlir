@@ -113,7 +113,24 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
-    if (options.enableGreedyOptimizer) {
+    if (!options.enableGreedyOptimizer) {
+      // Default: chain-based TTNNOptimizer.
+      ttnn::TTNNOptimizerOptions optimizerOptions(options);
+      pm.addPass(createDevicePassesWrapper(
+          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
+            innerPm.addPass(mlir::createCanonicalizerPass());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                    validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          },
+          wrapperOptions));
+    } else {
       // Greedy optimizer: two new passes replace TTNNOptimizer.
       TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
       propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
@@ -137,24 +154,6 @@ void createTTNNPipelineAnalysisPasses(
               innerPm.addPass(
                   mlir::tt::ttnn::createTTNNGreedyL1SpillManagement());
             }
-            innerPm.addPass(mlir::createCanonicalizerPass());
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-                    validationOptions));
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-          },
-          wrapperOptions));
-    } else {
-      // Default: chain-based TTNNOptimizer.
-      ttnn::TTNNOptimizerOptions optimizerOptions(options);
-      pm.addPass(createDevicePassesWrapper(
-          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
-            // All Optimizer passes will be run inside the wrapper.
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-            innerPm.addPass(
-                mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
             innerPm.addPass(mlir::createCanonicalizerPass());
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(

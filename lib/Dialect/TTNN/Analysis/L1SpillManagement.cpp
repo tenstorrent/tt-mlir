@@ -526,6 +526,26 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
 }
 
 //===----------------------------------------------------------------------===//
+// ensureFitsL1
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
+    Operation *op, int64_t pos, const ScheduleData &data, uint64_t opL1Usage,
+    uint64_t cbPeakUsage, uint64_t l1Size) {
+  auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+  if (!speculativeAddr) {
+    l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+    speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+  }
+  if (l1Size > 0 && speculativeAddr &&
+      wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr)) {
+    l1Size = handleFragmentation(op, pos, data, opL1Usage, cbPeakUsage, l1Size);
+  }
+  return l1Size;
+}
+
+//===----------------------------------------------------------------------===//
 // handleOOM
 //===----------------------------------------------------------------------===//
 
@@ -557,28 +577,8 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
     uint64_t l1Size =
         result.outputL1Usage > 0 ? result.outputL1Usage : opL1Usage;
     if (l1Size > 0) {
-      // Same contiguous-fit + CB frag checks as the main success path.
-      // Without these, ops that pass validation after eviction can still
-      // fail at runtime due to address-space fragmentation.
-      auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
-      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                   "    POST_OOM_FIT: l1Size={0}, speculativeAddr={1}, "
-                   "lowestOccupied={2}, occupied={3}/{4}, "
-                   "cbPeakUsage={5}",
-                   l1Size, speculativeAddr ? (int64_t)*speculativeAddr : -1,
-                   memoryTracker.getLowestOccupiedAddress(),
-                   memoryTracker.getOccupiedL1(), l1BudgetPerCore,
-                   result.cbPeakUsage);
-      if (!speculativeAddr) {
-        l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
-        speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
-      }
-      if (l1Size > 0 && speculativeAddr &&
-          wouldCBsOverlapTensors(op, pos, result.cbPeakUsage,
-                                 *speculativeAddr)) {
-        l1Size = handleFragmentation(op, pos, data, opL1Usage,
-                                     result.cbPeakUsage, l1Size);
-      }
+      l1Size =
+          ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
     }
     if (l1Size > 0) {
       addResultsToLiveSet(l1Size);
@@ -980,22 +980,8 @@ void L1SpillManagement<MemoryTracker>::run() {
                    "cbPeakUsage={1}, outputL1={2} bytes",
                    ttmlir::opToString(op), result.cbPeakUsage, l1Size);
 
-      // Can the output fit contiguously in the free list?
-      auto speculativeOutputAddr = memoryTracker.wouldAllocateAt(l1Size);
-      if (!speculativeOutputAddr) {
-        l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
-        speculativeOutputAddr = memoryTracker.wouldAllocateAt(l1Size);
-      }
-
-      // CB fragmentation check: would CBs overlap any tensor?
-      if (l1Size > 0 && speculativeOutputAddr &&
-          wouldCBsOverlapTensors(op, pos, result.cbPeakUsage,
-                                 *speculativeOutputAddr)) {
-        l1Size = handleFragmentation(op, pos, data, opL1Usage,
-                                     result.cbPeakUsage, l1Size);
-      }
-
-      // Add tensor results to live set (0 means demoted to DRAM, skip).
+      l1Size =
+          ensureFitsL1(op, pos, data, opL1Usage, result.cbPeakUsage, l1Size);
       if (l1Size == 0) {
         continue;
       }

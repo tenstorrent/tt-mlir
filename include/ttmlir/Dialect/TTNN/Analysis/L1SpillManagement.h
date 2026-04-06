@@ -253,6 +253,13 @@ private:
                                const ScheduleData &data, uint64_t opL1Usage,
                                uint64_t cbPeakUsage, uint64_t outputL1Size);
 
+  /// Run contiguous-fit and CB-fragmentation checks on a validated op's
+  /// output. Returns the (possibly updated) L1 size to add to the live set,
+  /// or 0 if the output was demoted to DRAM.
+  uint64_t ensureFitsL1(Operation *op, int64_t pos, const ScheduleData &data,
+                        uint64_t opL1Usage, uint64_t cbPeakUsage,
+                        uint64_t l1Size);
+
   /// OOM recovery: demote to L1-interleaved, evict farthest-use, or spill self.
   void handleOOM(Operation *op, int64_t pos,
                  llvm::ArrayRef<OpResult> tensorResults,
