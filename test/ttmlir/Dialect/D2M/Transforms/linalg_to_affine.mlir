@@ -1,14 +1,10 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true mark-root-loops=true" -o %t1 %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="mark-root-loops=true" -o %t1 %s
 // RUN: FileCheck %s --input-file=%t1 --check-prefixes=CHECK,MARKERS,CONVERT-MATMUL
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true mark-root-loops=false" -o %t2 %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="mark-root-loops=false" -o %t2 %s
 // RUN: FileCheck %s --input-file=%t2 --check-prefixes=CHECK,NO-MARKERS,CONVERT-MATMUL
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=false mark-root-loops=false" -o %t3 %s
-// RUN: FileCheck %s --input-file=%t3 --check-prefixes=CHECK,NO-MARKERS,NO-CONVERT-MATMUL
 
 // Test d2m-linalg-to-affine pass with various option combinations:
 // - mark-root-loops: controls emission of d2m.linalg_root marker attributes.
-// - use-tile-matmul: controls whether linalg.generic with tile_matmul ops
-//   are converted (true) or left unchanged for later passes (false).
 
 #l1_ = #ttcore.memory_space<l1>
 
@@ -110,8 +106,6 @@ func.func @matmul(%in0: memref<1x1x2x3x!ttcore.tile<32x32, f32>, #ttcore.shard<4
     // CONVERT-MATMUL: affine.load
     // CONVERT-MATMUL: d2m.tile_matmul
     // CONVERT-MATMUL: affine.store
-    // NO-CONVERT-MATMUL: linalg.generic
-    // NO-CONVERT-MATMUL: d2m.tile_matmul
     // MARKERS: } {d2m.linalg_root}
     // NO-MARKERS-NOT: d2m.linalg_root
     linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>,

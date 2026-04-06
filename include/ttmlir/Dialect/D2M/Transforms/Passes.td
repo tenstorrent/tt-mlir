@@ -220,7 +220,7 @@ def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
 
     The pass handles:
     - Regular linalg.generic ops -> affine for loops
-    - Special tile matmul cases (when useTileMatmul=true)
+    - Tile matmul linalg.generic ops -> affine for loops with tile_matmul
 
     Example transformation:
     ```mlir
@@ -249,8 +249,6 @@ def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
     "::mlir::linalg::LinalgDialect"
   ];
   let options = [
-    Option<"useTileMatmul", "use-tile-matmul", "bool", "false",
-           "Use tile_matmul instead of tile_matmul_block for matmul ops">,
     Option<"markRootLoops", "mark-root-loops", "bool", "true",
            "Mark root loops with d2m.linalg_root attribute for subsequent passes">
   ];
@@ -321,9 +319,34 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::affine::AffineDialect", "::mlir::func::FuncDialect"];
   let options = [
-    Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
     Option<"enableL1Acc", "enable-l1-acc", "bool", /*default=*/"false", "Enable accumulating partials in L1 instead of reloading from L1 to DST.">,
+  ];
+}
+
+def D2MInsertTileMatmulBlock : Pass<"d2m-insert-tile-matmul-block", "::mlir::ModuleOp"> {
+  let summary = "Replace tile_matmul compute loops with tile_matmul_block.";
+  let description = [{
+    This pass finds affine loop nests containing tile_matmul operations
+    and replaces them with a single tile_matmul_block operation that
+    encapsulates the block-level matmul.
+
+    The pass independently detects eligible matmul compute loops by
+    walking the IR for tile_matmul ops, recovers the input/output CB
+    memrefs by tracing operands through affine.load ops and DST-to-CB
+    store copy loops, and verifies shape eligibility before replacement.
+
+    This pass is robust to canonicalization ordering -- it works correctly
+    whether invoked before or after canonicalize.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect"
+  ];
+  let options = [
+    Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false",
+           "Use tile_matmul instead of tile_matmul_block. When true, the pass "
+           "is a no-op and tile_matmul ops are kept in their loop nests.">,
   ];
 }
 

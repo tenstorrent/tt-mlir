@@ -18,17 +18,8 @@ namespace mlir::tt::d2m {
 namespace {
 struct D2MLinalgToAffineRewriter final : public OpRewritePattern<GenericOp> {
 public:
-  D2MLinalgToAffineRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                            bool markRootLoops)
-      : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        markRootLoops(markRootLoops) {}
-
-  static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-    // Walk was interrupted if we found a d2m::TileMatmulOp.
-    return linalgGenericOp
-        ->walk([](d2m::TileMatmulOp) { return WalkResult::interrupt(); })
-        .wasInterrupted();
-  }
+  D2MLinalgToAffineRewriter(mlir::MLIRContext *ctx, bool markRootLoops)
+      : OpRewritePattern<GenericOp>(ctx), markRootLoops(markRootLoops) {}
 
   static bool hasLinalgGenericOps(GenericOp op, unsigned regionIndex) {
     Region *genericRegion = &op.getRegion(regionIndex);
@@ -70,22 +61,13 @@ public:
     for (auto [regionIndex, region] : computeRegions) {
       Block &block = region.getBlocks().front();
 
-      // Collect linalg.generic ops to convert.
+      // Collect and convert all linalg.generic ops to affine loops.
       SmallVector<linalg::GenericOp> allLinalgOps;
       block.walk([&](linalg::GenericOp linalgGenericOp) {
         allLinalgOps.push_back(linalgGenericOp);
       });
 
-      // Filter out linalg.generic ops containing tile_matmul when
-      // useTileMatmul=false. These will be handled directly by subsequent DST
-      // register allocation pass(es).
-      auto linalgOpsToConvert = llvm::make_filter_range(
-          allLinalgOps, [&](linalg::GenericOp linalgGenericOp) {
-            return useTileMatmul || !hasTileMatmul(linalgGenericOp);
-          });
-
-      // Convert all collected linalg.generic ops to affine loops.
-      for (auto linalgGenericOp : linalgOpsToConvert) {
+      for (auto linalgGenericOp : allLinalgOps) {
         rewriter.setInsertionPoint(linalgGenericOp);
         auto linalgLoops =
             linalg::linalgOpToAffineLoops(rewriter, linalgGenericOp);
@@ -106,7 +88,6 @@ public:
   }
 
 private:
-  bool useTileMatmul = false;
   bool markRootLoops = true;
 };
 } // namespace
@@ -121,7 +102,7 @@ public:
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
 
-    patterns.add<D2MLinalgToAffineRewriter>(ctx, useTileMatmul, markRootLoops);
+    patterns.add<D2MLinalgToAffineRewriter>(ctx, markRootLoops);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
