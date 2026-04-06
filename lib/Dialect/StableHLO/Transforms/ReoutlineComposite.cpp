@@ -152,7 +152,7 @@ static bool analyzeBoundary(const llvm::SmallVector<mlir::Operation *> &ops,
     return orderByBlockPos(a, b); // both unknown: fallback
   });
 
-  // Collect reoutline.result_pos annotations set by the FlattenComposite pass
+  // Collect reoutline.result_pos annotations set by FlattenOrConvertComposites
   // so we can restore the original result order.
   llvm::DenseMap<mlir::Value, int64_t> escapeResultPos;
   for (mlir::Value v : escapeSet) {

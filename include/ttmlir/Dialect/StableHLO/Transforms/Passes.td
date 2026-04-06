@@ -297,18 +297,30 @@ def DecomposeCustomCallTuplesPass : Pass<"decompose-custom-call-tuples", "::mlir
   ];
 }
 
-def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
-  let summary = "Inline (flatten) stablehlo.composite ops and tag cloned ops for optional re-outlining.";
+def FlattenOrConvertCompositesPass : Pass<"flatten-or-convert-composites", "::mlir::ModuleOp"> {
+  let summary = "Flatten or convert stablehlo.composite ops depending on whether they have custom sharding rules.";
   let description = [{
-    This pass inlines each `stablehlo.composite` by cloning the callee body at its call site.
-    Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
-    The first cloned op additionally receives a `reoutline.seed` (UnitAttr).
-    After rewiring the cloned return values to the original users, the composite op itself is erased.
+    This pass processes each `stablehlo.composite` op in one of two ways:
 
-    This pass is intended to run **before** sharding propagation so that propagation
-    occurs on a fully flattened graph. A later re-outlining pass may reconstruct
-    composite ops by grouping operations with the same `reoutline.group` attribute,
-    provided that the subgraph is closed and movable.
+    1. Composites with custom sharding rules (listed in kCompositesWithCustomSharding)
+       are converted to `stablehlo.custom_call` ops. The composite name becomes the
+       `call_target_name`, composite attributes are carried as a
+       `tt.composite_attributes` discardable attribute, and a `tt.has_custom_sharding`
+       UnitAttr is added for debugging. This allows Shardy to propagate shardings
+       through the custom_call using the registered CustomCall sharding model.
+
+    2. All other composites are inlined (flattened) by cloning the callee body at the
+       call site. Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
+       The first cloned op additionally receives a `reoutline.seed` (UnitAttr).
+       After rewiring the cloned return values to the original users, the composite op
+       itself is erased.
+
+    This pass is intended to run before sharding propagation so that propagation
+    occurs on a fully flattened graph for generic composites, while composites with
+    custom sharding rules become custom_calls that Shardy can propagate through
+    directly. A later re-outlining pass may reconstruct flattened composite ops by
+    grouping operations with the same `reoutline.group` attribute, provided that the
+    subgraph is closed and movable.
 
     This pass also checks whether the arguments and results of the composite are sharded,
     and performs inlining only if sharding (not replicated) is detected.
@@ -346,7 +358,8 @@ def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
 
 
   let dependentDialects = [
-    "::mlir::func::FuncDialect"
+    "::mlir::func::FuncDialect",
+    "::mlir::stablehlo::StablehloDialect"
   ];
 }
 
