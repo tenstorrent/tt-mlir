@@ -1776,14 +1776,13 @@ TEST_F(OpModelTest, BitcastConvert) {
       CreateWorkerGrid(), tensorShape, inputLayoutDRAMIF32,
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt32),
       inputLayoutL1HSF32);
-  EXPECT_FALSE(static_cast<bool>(constraintsExp));
-  llvm::consumeError(constraintsExp.takeError());
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
   runtimeExp = OpModel<BitcastConvertOp>::getOpRuntime(
       tensorShape, inputLayoutDRAMIF32,
       ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt32),
       inputLayoutL1HSF32);
-  EXPECT_FALSE(static_cast<bool>(runtimeExp));
-  llvm::consumeError(runtimeExp.takeError());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 struct BinaryEltwiseParam {
