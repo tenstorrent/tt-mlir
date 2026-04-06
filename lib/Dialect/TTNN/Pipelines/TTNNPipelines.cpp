@@ -348,7 +348,7 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
-    if (options.experimentalKVCacheDtype != WeightDtype::None) {
+    if (options.experimentalKVCacheDtype != BFPDtype::None) {
       TTNNKVCacheDtypeConversionOptions convOpts;
       convOpts.targetDtype = options.experimentalKVCacheDtype;
       devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
