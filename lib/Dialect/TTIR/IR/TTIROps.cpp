@@ -6,7 +6,6 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.cpp.inc"
@@ -15,10 +14,8 @@
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -29,17 +26,16 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
-#include "mlir/IR/Value.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -425,28 +421,6 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
         return mlir::failure();
       });
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
-}
-
-//===----------------------------------------------------------------------===//
-// BroadcastOp
-//===----------------------------------------------------------------------===//
-
-// BroadcastOp folder
-::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
-  // If the input doesn't change the shape, we can fold the operation.
-  if (llvm::all_of(getBroadcastDimensions(),
-                   [](const int32_t dim) { return dim == 1; })) {
-    return getInput();
-  }
-
-  // If the input is constant and splat, perform constant folding.
-  Attribute constInput = adaptor.getInput();
-  RankedTensorType resultType = getResult().getType();
-  if (auto foldResult = reshapeIfSplatAndPresent(resultType, constInput)) {
-    return foldResult;
-  }
-
-  return {};
 }
 
 //===----------------------------------------------------------------------===//
@@ -2051,9 +2025,6 @@ static mlir::OpFoldResult constFoldReshape(mlir::tt::ttir::ReshapeOp op,
                                            Attribute constInput) {
   if (auto denseAttr = dyn_cast_if_present<DenseElementsAttr>(constInput)) {
     RankedTensorType type = op.getResult().getType();
-    if (denseAttr.isSplat()) {
-      return denseAttr.resizeSplat(type);
-    }
     return denseAttr.reshape(type);
   }
   return nullptr;
@@ -2414,6 +2385,36 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
   }
 
   return success();
+}
+
+::mlir::OpFoldResult broadcastIdentityFold(mlir::tt::ttir::BroadcastOp op) {
+  if (llvm::all_of(op.getBroadcastDimensions(),
+                   [](const int32_t dim) { return dim == 1; })) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+::mlir::OpFoldResult constFoldBroadcast(mlir::tt::ttir::BroadcastOp op,
+                                        Attribute constInput) {
+  RankedTensorType resultType = op.getResult().getType();
+  if (auto foldResult = reshapeIfSplatAndPresent(resultType, constInput)) {
+    return foldResult;
+  }
+  return nullptr;
+}
+
+// BroadcastOp folder
+::mlir::OpFoldResult mlir::tt::ttir::BroadcastOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = broadcastIdentityFold(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = constFoldBroadcast(*this, adaptor.getInput())) {
+    return foldResult;
+  }
+
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
