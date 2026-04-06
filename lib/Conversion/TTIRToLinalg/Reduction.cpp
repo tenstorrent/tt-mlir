@@ -9,6 +9,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -460,10 +461,8 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 // Cumulative sum computes the running sum along a specified dimension.
-// Since this is a scan operation (not a reduction), we cannot use the standard
-// TOSA reduce operations. Instead, we unroll the scan at compile time,
-// generating a sequence of slice+add+insert operations for each position
-// along the scan dimension.
+// Uses scf.for to iterate along the scan dimension, carrying the running
+// sum accumulator and output tensor as loop-carried values.
 class CumSumOpConversionPattern : public OpConversionPattern<ttir::CumSumOp> {
 public:
   using OpConversionPattern<ttir::CumSumOp>::OpConversionPattern;
@@ -518,26 +517,41 @@ public:
       }
     }
 
-    // Unroll the scan loop at compile time.
-    for (int64_t idx = 0; idx < dimSize; ++idx) {
-      SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
-      offsets[dim] = rewriter.getIndexAttr(idx);
+    // Loop bounds for the scan.
+    Value lowerBound = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    Value upperBound = rewriter.create<arith::ConstantIndexOp>(loc, dimSize);
+    Value step = rewriter.create<arith::ConstantIndexOp>(loc, 1);
 
-      Value inputSlice = rewriter.create<tensor::ExtractSliceOp>(
-          loc, sliceType, input, offsets, staticSizes, staticStrides);
+    // Use scf.for to iterate along the scan dimension.
+    // Loop-carried values: [output, runningSum].
+    auto forOp = rewriter.create<scf::ForOp>(
+        loc, lowerBound, upperBound, step, ValueRange{output, runningSum},
+        [&](OpBuilder &b, Location loc, Value iv, ValueRange iterArgs) {
+          Value currentOutput = iterArgs[0];
+          Value currentSum = iterArgs[1];
 
-      auto emptySlice =
-          rewriter.create<tensor::EmptyOp>(loc, sliceShape, elementType);
-      auto addOp = rewriter.create<linalg::AddOp>(
-          loc, sliceType, ValueRange{runningSum, inputSlice},
-          emptySlice.getResult());
-      runningSum = addOp.getResult(0);
+          // Build offsets for this iteration.
+          SmallVector<OpFoldResult> offsets(rank, b.getIndexAttr(0));
+          offsets[dim] = iv;
 
-      output = rewriter.create<tensor::InsertSliceOp>(
-          loc, runningSum, output, offsets, staticSizes, staticStrides);
-    }
+          // Extract the current slice from input.
+          Value inputSlice = b.create<tensor::ExtractSliceOp>(
+              loc, sliceType, input, offsets, staticSizes, staticStrides);
 
-    rewriter.replaceOp(op, output);
+          // Add current input slice to running sum, writing into currentSum
+          // so the result aliases the iter_arg (required by bufferization).
+          auto addOp = b.create<linalg::AddOp>(
+              loc, sliceType, ValueRange{currentSum, inputSlice}, currentSum);
+          Value newSum = addOp.getResult(0);
+
+          // Insert the new sum into the output tensor at the current position.
+          Value newOutput = b.create<tensor::InsertSliceOp>(
+              loc, newSum, currentOutput, offsets, staticSizes, staticStrides);
+
+          b.create<scf::YieldOp>(loc, ValueRange{newOutput, newSum});
+        });
+
+    rewriter.replaceOp(op, forOp.getResult(0));
     return success();
   }
 };
