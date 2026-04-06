@@ -1007,6 +1007,27 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
     let hasCanonicalizeMethod = 1;
 }
 
+def TTIR_BitcastConvertOp : TTIR_ElementwiseUnaryOp<"bitcast_convert"> {
+    let summary = "Elementwise bitcast operation.";
+    let description = [{
+      The `bitcast_convert` operation reinterprets the bits of each element in
+      the input tensor as a data type of the output tensor. This leads to change
+      in numerical values in data.
+      Only same-bit-width element types are supported (e.g. ui32 -> f32).
+
+      Example:
+      ```mlir
+      // Reinterpret the raw bits of each ui32 element as f32.
+      // Input:  [0x3F800000, 0x40000000] (ui32)
+      // Output: [1.0,        2.0       ] (f32) — same bits, read as float
+      %result = ttir.bitcast_convert(%input) : (tensor<16384xui32>) -> tensor<16384xf32>
+      ```
+    }];
+
+    let hasVerifier = 1;
+    // TODO implement a hasCanonicalizeMethod later
+}
+
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
     let summary = "Elementwise natural logarithm operation.";
     let description = [{
