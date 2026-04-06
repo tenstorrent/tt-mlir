@@ -5827,43 +5827,19 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     }
   }
 
-  // Verify weight tensor trailing dims match normalized_shape. Rank
-  // normalization may insert at most one leading size-1 dimension (e.g. 1-D
-  // weight to 2-D).
+  // Verify weight tensor shape if present.
   if (getWeight()) {
-    ArrayRef<int64_t> weightShape = getWeight().getType().getShape();
-    size_t normRank = normalizedShape.size();
-    size_t weightRank = weightShape.size();
-    if (weightRank != normRank && weightRank != normRank + 1) {
-      return emitOpError(
-          "weight tensor rank must match normalized_shape rank or exceed it "
-          "by at most one (single leading broadcast dimension)");
-    }
-    if (weightShape.take_back(normRank) != normalizedShape) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getShape() != normalizedShape) {
       return emitOpError("weight tensor shape must match normalized_shape");
-    }
-    if (weightRank == normRank + 1 && weightShape.front() != 1) {
-      return emitOpError(
-          "weight tensor leading dimension from rank normalization must be 1");
     }
   }
 
-  // Verify bias tensor trailing dims match normalized_shape.
+  // Verify bias tensor shape if present.
   if (getBias()) {
-    ArrayRef<int64_t> biasShape = getBias().getType().getShape();
-    size_t normRank = normalizedShape.size();
-    size_t biasRank = biasShape.size();
-    if (biasRank != normRank && biasRank != normRank + 1) {
-      return emitOpError(
-          "bias tensor rank must match normalized_shape rank or exceed it by "
-          "at most one (single leading broadcast dimension)");
-    }
-    if (biasShape.take_back(normRank) != normalizedShape) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getShape() != normalizedShape) {
       return emitOpError("bias tensor shape must match normalized_shape");
-    }
-    if (biasRank == normRank + 1 && biasShape.front() != 1) {
-      return emitOpError(
-          "bias tensor leading dimension from rank normalization must be 1");
     }
   }
 

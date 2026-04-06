@@ -3065,75 +3065,6 @@ public:
   }
 };
 
-class D2MRMSNormDecompositionRewriter
-    : public OpConversionPattern<ttir::RMSNormOp> {
-  using OpConversionPattern<ttir::RMSNormOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::RMSNormOp op, ttir::RMSNormOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value x = adaptor.getInput();
-    auto inputType = cast<RankedTensorType>(x.getType());
-    int64_t rank = inputType.getRank();
-
-    auto xSquared = rewriter.create<ttir::MultiplyOp>(loc, inputType, x, x);
-
-    SmallVector<int64_t> reducedShape(inputType.getShape());
-    reducedShape[rank - 1] = 1;
-    auto reducedType = RankedTensorType::get(
-        reducedShape, inputType.getElementType(), inputType.getEncoding());
-
-    auto meanOp = rewriter.create<ttir::MeanOp>(
-        loc, reducedType, xSquared.getResult(), rewriter.getBoolAttr(true),
-        rewriter.getI32ArrayAttr({static_cast<int32_t>(rank - 1)}));
-
-    float epsilon = op.getEpsilon().convertToFloat();
-    auto epsOp = rewriter.create<ttir::FullOp>(
-        loc, reducedType, rewriter.getF32FloatAttr(epsilon));
-
-    auto addEps = rewriter.create<ttir::AddOp>(
-        loc, reducedType, meanOp.getResult(), epsOp.getResult());
-
-    auto rsqrt =
-        rewriter.create<ttir::RsqrtOp>(loc, reducedType, addEps.getResult());
-
-    auto normalized =
-        rewriter.create<ttir::MultiplyOp>(loc, inputType, x, rsqrt.getResult());
-
-    Value result = normalized.getResult();
-
-    auto reshapeToInputRank = [&](Value v) -> Value {
-      auto vType = cast<RankedTensorType>(v.getType());
-      if (vType.getRank() == rank) {
-        return v;
-      }
-      SmallVector<int64_t> newShape(rank - vType.getRank(), 1);
-      newShape.append(vType.getShape().begin(), vType.getShape().end());
-      auto reshapedType = RankedTensorType::get(
-          newShape, vType.getElementType(), vType.getEncoding());
-      SmallVector<int32_t> shapeI32(newShape.begin(), newShape.end());
-      return rewriter.create<ttir::ReshapeOp>(
-          loc, reshapedType, v, rewriter.getI32ArrayAttr(shapeI32));
-    };
-
-    if (adaptor.getWeight()) {
-      Value weight = reshapeToInputRank(adaptor.getWeight());
-      result = rewriter.create<ttir::MultiplyOp>(loc, inputType, result, weight)
-                   .getResult();
-    }
-
-    if (adaptor.getBias()) {
-      Value bias = reshapeToInputRank(adaptor.getBias());
-      result = rewriter.create<ttir::AddOp>(loc, inputType, result, bias)
-                   .getResult();
-    }
-
-    rewriter.replaceOp(op, result);
-    return success();
-  }
-};
-
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -3214,10 +3145,6 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // CCL
     D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
-
-  // High-priority decompositions that expand fused TTIR ops into primitives.
-  patterns.add<D2MRMSNormDecompositionRewriter>(typeConverter, ctx,
-                                                /*benefit=*/10);
 
   // High-priority rewriter for SliceStatic ops that violate NoC constraints.
   patterns.add<D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
