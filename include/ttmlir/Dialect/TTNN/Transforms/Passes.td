@@ -58,7 +58,27 @@ def TTNNDecomposition : Pass<"ttnn-decomposition", "::mlir::ModuleOp"> {
     fused kernel into sequences of primitive TTNN ops. Unlike workarounds,
     these decompositions are permanent and functional - they apply when no
     suitable kernel exists for the given op configuration (e.g. shape).
+
+    Shape-based decompositions (e.g. DistributedRMSNorm) always run.
+    Validation-gated decompositions (e.g. SDPA) run only when
+    enable-op-constraints or force-decompose is set.
   }];
+
+  let options = [
+    Option<"enableOpConstraints",
+            "enable-op-constraints",
+            "bool", /*default=*/"false",
+            "Enable op model constraint validation. "
+            "Requires TTMLIR_ENABLE_OPMODEL.">,
+    Option<"maxFallbackAttempts",
+            "max-fallback-attempts",
+            "uint32_t", /*default=*/"10000",
+            "Maximum number of fallback configurations to try.">,
+    Option<"forceDecompose",
+            "force-decompose",
+            "bool", /*default=*/"false",
+            "Skip validation and always decompose. Used for testing.">
+  ];
 }
 
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {

@@ -286,6 +286,12 @@ struct TTIRToTTNNDevicePipelineOptions
                                llvm::cl::desc("Enable D2M fusing pass."),
                                llvm::cl::init(false)};
 
+  Option<bool> ttnnForceDecompose{
+      *this, "ttnn-force-decompose",
+      llvm::cl::desc("Force decomposition of all matching ops in the TTNN "
+                     "decomposition pass. Used for testing."),
+      llvm::cl::init(false)};
+
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
