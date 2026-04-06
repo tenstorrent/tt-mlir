@@ -1,9 +1,9 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_ANALYSIS_DECISIONTRACE_H
-#define TTMLIR_DIALECT_TTNN_ANALYSIS_DECISIONTRACE_H
+#ifndef TTMLIR_DIALECT_TTNN_DIAGNOSTICS_DECISIONTRACE_H
+#define TTMLIR_DIALECT_TTNN_DIAGNOSTICS_DECISIONTRACE_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillObserver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationObserver.h"
@@ -263,4 +263,4 @@ private:
 
 } // namespace mlir::tt::ttnn
 
-#endif // TTMLIR_DIALECT_TTNN_ANALYSIS_DECISIONTRACE_H
+#endif // TTMLIR_DIALECT_TTNN_DIAGNOSTICS_DECISIONTRACE_H

@@ -1,7 +1,6 @@
 add_mlir_dialect_library(MLIRTTNNAnalysis
         BFInterleavedPolicy.cpp
         Conv2dConfigSearchSpace.cpp
-        DecisionTrace.cpp
         DFShardingPolicy.cpp
         MatmulProgramConfig.cpp
         GreedyL1InterleavedPolicy.cpp

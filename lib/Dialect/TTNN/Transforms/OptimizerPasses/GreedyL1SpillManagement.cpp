@@ -6,8 +6,8 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTNN/Analysis/DecisionTrace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
+#include "ttmlir/Dialect/TTNN/Diagnostics/DecisionTrace.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
