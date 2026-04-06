@@ -80,7 +80,7 @@ public:
     auto i32Type = builder.getI32Type();
     auto funcType = builder.getFunctionType({i32Type, i32Type}, i32Type);
     auto funcOp =
-        builder.create<mlir::func::FuncOp>(loc, "test_func", funcType);
+        mlir::func::FuncOp::create(builder, loc, "test_func", funcType);
     funcOp.setPrivate();
 
     auto &block = funcOp.getBody().emplaceBlock();
@@ -92,8 +92,8 @@ public:
     auto arg0 = block.getArgument(0);
     auto arg1 = block.getArgument(1);
 
-    auto addResult = builder.create<mlir::arith::AddIOp>(loc, arg0, arg1);
-    builder.create<mlir::func::ReturnOp>(loc, addResult.getResult());
+    auto addResult = mlir::arith::AddIOp::create(builder, loc, arg0, arg1);
+    mlir::func::ReturnOp::create(builder, loc, addResult.getResult());
 
     module.push_back(funcOp);
     return module;

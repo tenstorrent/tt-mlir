@@ -87,8 +87,9 @@ private:
 
     if (!nonTransparentUses.empty()) {
       builder.setInsertionPointAfterValue(result);
-      Value cast = builder.create<TypecastOp>(result.getLoc(), origType, result,
-                                              /*conservativeFolding=*/false);
+      Value cast =
+          TypecastOp::create(builder, result.getLoc(), origType, result,
+                             /*conservativeFolding=*/false);
       for (OpOperand *use : nonTransparentUses) {
         use->set(cast);
       }

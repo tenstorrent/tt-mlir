@@ -87,32 +87,32 @@ static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
         if (pieceOffset == 0) {
           globalDimIdx = globalConcatIdx;
         } else {
-          Value offsetVal = builder.create<arith::ConstantOp>(
-              innerLoc, builder.getIndexType(),
+          Value offsetVal = arith::ConstantOp::create(
+              builder, innerLoc, builder.getIndexType(),
               builder.getIndexAttr(pieceOffset));
-          globalDimIdx = builder.create<arith::SubIOp>(
-              innerLoc, globalConcatIdx, offsetVal);
+          globalDimIdx = arith::SubIOp::create(builder, innerLoc,
+                                               globalConcatIdx, offsetVal);
         }
       } else {
         // Otherwise it's just: grid_idx * tiles_per_shard + shard_idx.
-        Value outShardExtent = builder.create<arith::ConstantOp>(
-            innerLoc, builder.getIndexType(),
+        Value outShardExtent = arith::ConstantOp::create(
+            builder, innerLoc, builder.getIndexType(),
             builder.getIndexAttr(outputShardShape[dim]));
-        Value baseIdx = builder.create<arith::MulIOp>(
-            innerLoc, gridIndices[dim], outShardExtent);
+        Value baseIdx = arith::MulIOp::create(builder, innerLoc,
+                                              gridIndices[dim], outShardExtent);
         globalDimIdx =
-            builder.create<arith::AddIOp>(innerLoc, baseIdx, shardIters[dim]);
+            arith::AddIOp::create(builder, innerLoc, baseIdx, shardIters[dim]);
       }
 
-      Value inShardExtent = builder.create<arith::ConstantOp>(
-          innerLoc, builder.getIndexType(),
+      Value inShardExtent = arith::ConstantOp::create(
+          builder, innerLoc, builder.getIndexType(),
           builder.getIndexAttr(inputShardShapes[inputIdx][dim]));
       // grid_idx = idx // shard_size
-      Value inputGridIdx =
-          builder.create<arith::DivSIOp>(innerLoc, globalDimIdx, inShardExtent);
+      Value inputGridIdx = arith::DivSIOp::create(builder, innerLoc,
+                                                  globalDimIdx, inShardExtent);
       // shard_idx = idx % shard_size
-      Value inputShardIdx =
-          builder.create<arith::RemSIOp>(innerLoc, globalDimIdx, inShardExtent);
+      Value inputShardIdx = arith::RemSIOp::create(builder, innerLoc,
+                                                   globalDimIdx, inShardExtent);
 
       inputFullIdx[dim] = inputGridIdx;
       inputFullIdx[dim + gridRank] = inputShardIdx;
@@ -125,10 +125,10 @@ static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
         builder, innerLoc, localMemoryMap, shardIters, /*isRemote=*/false);
 
     // One tile at a time, no coalescing.
-    Value dmaTx = builder.create<DMAReadOp>(
-        innerLoc, expandedInputs[inputIdx], remoteIndices, localMemref,
-        localIndices, builder.getI64IntegerAttr(1));
-    builder.create<DMAWaitOp>(innerLoc, dmaTx);
+    Value dmaTx = DMAReadOp::create(builder, innerLoc, expandedInputs[inputIdx],
+                                    remoteIndices, localMemref, localIndices,
+                                    builder.getI64IntegerAttr(1));
+    DMAWaitOp::create(builder, innerLoc, dmaTx);
   };
 
   auto [lbs, ubs, steps] =
@@ -139,13 +139,14 @@ static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
       [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange shardIters) {
         // Global index along the concat dim of a given tile:
         // idx = grid_idx * tiles_per_shard + shard_idx
-        Value concatShardExtent = loopBuilder.create<arith::ConstantOp>(
-            innerLoc, loopBuilder.getIndexType(),
+        Value concatShardExtent = arith::ConstantOp::create(
+            loopBuilder, innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIndexAttr(outputShardShape[concatDim]));
-        Value baseConcatIdx = loopBuilder.create<arith::MulIOp>(
-            innerLoc, gridIndices[concatGridDim], concatShardExtent);
-        Value globalConcatIdx = loopBuilder.create<arith::AddIOp>(
-            innerLoc, baseConcatIdx, shardIters[concatDim]);
+        Value baseConcatIdx = arith::MulIOp::create(loopBuilder, innerLoc,
+                                                    gridIndices[concatGridDim],
+                                                    concatShardExtent);
+        Value globalConcatIdx = arith::AddIOp::create(
+            loopBuilder, innerLoc, baseConcatIdx, shardIters[concatDim]);
 
         // Recursively generate the if-else chain for all inputs.
         std::function<void(OpBuilder &, const int, const int64_t)>
@@ -162,15 +163,16 @@ static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
               // - Emit DMA reads for the current input's contribution.
               // - Recurse into the 'else' branch for the next input.
               const int64_t boundary = startOffset + inputExtents[inputIdx];
-              Value boundaryVal = builder.create<arith::ConstantOp>(
-                  innerLoc, builder.getIndexType(),
+              Value boundaryVal = arith::ConstantOp::create(
+                  builder, innerLoc, builder.getIndexType(),
                   builder.getIndexAttr(boundary));
-              Value cond = builder.create<arith::CmpIOp>(
-                  innerLoc, arith::CmpIPredicate::ult, globalConcatIdx,
-                  boundaryVal);
+              Value cond = arith::CmpIOp::create(builder, innerLoc,
+                                                 arith::CmpIPredicate::ult,
+                                                 globalConcatIdx, boundaryVal);
 
-              auto ifOp = builder.create<scf::IfOp>(innerLoc, TypeRange{}, cond,
-                                                    /*hasElse=*/true);
+              auto ifOp =
+                  scf::IfOp::create(builder, innerLoc, TypeRange{}, cond,
+                                    /*hasElse=*/true);
 
               OpBuilder thenBuilder = ifOp.getThenBodyBuilder();
               emitDMAReadForInput(thenBuilder, innerLoc, shardIters,
@@ -182,14 +184,14 @@ static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
 
         // Skip out-of-bound portions if the output was aligned up.
         if (totalInputExtent < compositeExtent) {
-          Value totalExtentVal = loopBuilder.create<arith::ConstantOp>(
-              innerLoc, loopBuilder.getIndexType(),
+          Value totalExtentVal = arith::ConstantOp::create(
+              loopBuilder, innerLoc, loopBuilder.getIndexType(),
               loopBuilder.getIndexAttr(totalInputExtent));
-          Value inBounds = loopBuilder.create<arith::CmpIOp>(
-              innerLoc, arith::CmpIPredicate::ult, globalConcatIdx,
+          Value inBounds = arith::CmpIOp::create(
+              loopBuilder, innerLoc, arith::CmpIPredicate::ult, globalConcatIdx,
               totalExtentVal);
-          auto guardOp = loopBuilder.create<scf::IfOp>(
-              innerLoc, TypeRange{}, inBounds, /*hasElse=*/false);
+          auto guardOp = scf::IfOp::create(loopBuilder, innerLoc, TypeRange{},
+                                           inBounds, /*hasElse=*/false);
           OpBuilder guardBuilder = guardOp.getThenBodyBuilder();
           emitIfElseChain(guardBuilder, /*inputIdx=*/0, /*startOffset=*/0);
         } else {

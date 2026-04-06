@@ -245,9 +245,9 @@ private:
     SmallVector<OpFoldResult> strides = {builder.getIndexAttr(1),
                                          builder.getIndexAttr(1)};
 
-    auto subviewOp = builder.create<memref::SubViewOp>(
-        loc, mlir::cast<MemRefType>(inferredType), scratchMemRef, offsets,
-        sizes, strides);
+    auto subviewOp = memref::SubViewOp::create(
+        builder, loc, mlir::cast<MemRefType>(inferredType), scratchMemRef,
+        offsets, sizes, strides);
 
     Value result = subviewOp.getResult();
 
@@ -263,8 +263,8 @@ private:
           subviewType, requestedType.getShape(), reassociation);
       assert(succeeded(expandedType) && "failed to compute expanded type");
 
-      result = builder.create<memref::ExpandShapeOp>(loc, *expandedType, result,
-                                                     reassociation);
+      result = memref::ExpandShapeOp::create(builder, loc, *expandedType,
+                                             result, reassociation);
     }
 
     allocOp.getResult().replaceAllUsesWith(result);

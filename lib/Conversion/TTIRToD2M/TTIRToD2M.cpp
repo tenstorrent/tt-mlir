@@ -321,8 +321,8 @@ protected:
     if (isTTNN) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
       auto metalTensorType = getMetalTensorFromTTNNTensor(rewriter, value);
-      auto metalCastOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          value.getLoc(), metalTensorType, value);
+      auto metalCastOp = ttir::TTNNMetalLayoutCastOp::create(
+          rewriter, value.getLoc(), metalTensorType, value);
 
       // Propagate both VGM maps for height/width sharded TTNN layouts
       // so that downstream passes (GenericOp::build, getMemoryMap, etc.)
@@ -367,9 +367,10 @@ protected:
         auto unitGridType = RankedTensorType::get(
             newTensorShape, metalTensorType.getElementType(),
             metalTensorType.getEncoding());
-        auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
-            value.getLoc(), unitGridType, metalCastOp->getResult(0), reblockMap,
-            /*reinterpretLayout=*/false);
+        auto unitReblockingView =
+            d2m::ViewLayoutOp::create(rewriter, value.getLoc(), unitGridType,
+                                      metalCastOp->getResult(0), reblockMap,
+                                      /*reinterpretLayout=*/false);
         return unitReblockingView.getResult();
       }
       // For DRAM operands, we can return the metal cast result directly.
@@ -422,8 +423,8 @@ protected:
     llvm::SmallVector<int64_t> shardedShape =
         layout.getDeviceShape(placeholderTensorGrid, tileShape);
 
-    auto emptyOp = rewriter.create<d2m::EmptyOp>(value.getLoc(), shardedShape,
-                                                 elementType, layout);
+    auto emptyOp = d2m::EmptyOp::create(rewriter, value.getLoc(), shardedShape,
+                                        elementType, layout);
 
     // For ND tensors (logicalShape.size() > 2), set placeholder virtual grid
     // mappings on the EmptyOp.  These will be replaced when GridSelection
@@ -486,15 +487,15 @@ protected:
                             Value fromValue, Type toResultType) const {
     if (isTTNNTensor(toResultType)) {
       assert(ttnnMode && "Unexpected TTNN tensor as op result");
-      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          fromValue.getLoc(), toResultType, fromValue);
+      return ttir::TTNNMetalLayoutCastOp::create(rewriter, fromValue.getLoc(),
+                                                 toResultType, fromValue);
     }
     auto output =
-        rewriter.create<d2m::EmptyOp>(fromValue.getLoc(), toResultType,
-                                      /*virtualGridInverseMapping=*/nullptr,
-                                      /*virtualGridForwardMapping=*/nullptr);
-    return rewriter.create<d2m::ToLayoutOp>(fromValue.getLoc(), fromValue,
-                                            output);
+        d2m::EmptyOp::create(rewriter, fromValue.getLoc(), toResultType,
+                             /*virtualGridInverseMapping=*/nullptr,
+                             /*virtualGridForwardMapping=*/nullptr);
+    return d2m::ToLayoutOp::create(rewriter, fromValue.getLoc(), fromValue,
+                                   output);
   }
 
   static llvm::SmallVector<mlir::Value>
@@ -503,8 +504,9 @@ protected:
     llvm::SmallVector<mlir::Value> dpsOutputs;
     dpsOutputs.reserve(types.size());
     for (auto type : types) {
-      ttir::EmptyOp empty = builder.create<ttir::EmptyOp>(
-          loc, type.getShape(), type.getElementType(), type.getEncoding());
+      ttir::EmptyOp empty =
+          ttir::EmptyOp::create(builder, loc, type.getShape(),
+                                type.getElementType(), type.getEncoding());
       dpsOutputs.push_back(empty);
     }
     return dpsOutputs;
@@ -619,8 +621,8 @@ protected:
       SmallVector<Value> indices = inputIndices[i];
 
       // Create a buffer for the load result
-      auto bufferOp = builder.create<tensor::EmptyOp>(
-          loc, shardType.getShape(), shardType.getElementType());
+      auto bufferOp = tensor::EmptyOp::create(
+          builder, loc, shardType.getShape(), shardType.getElementType());
       Value buffer = bufferOp.getResult();
 
       Value loadResult;
@@ -630,20 +632,18 @@ protected:
         SmallVector<Value> mcastDims;
         for (int64_t gridDim : mcastGridDims[i]) {
           mcastDims.push_back(
-              builder.create<arith::ConstantIndexOp>(loc, gridDim));
+              arith::ConstantIndexOp::create(builder, loc, gridDim));
         }
 
         // Create remote_load with high-level multicast form
         loadResult =
-            builder
-                .create<d2m::RemoteLoadOp>(loc, shardType, buffer,
-                                           genericOperand, indices, mcastDims)
+            d2m::RemoteLoadOp::create(builder, loc, shardType, buffer,
+                                      genericOperand, indices, mcastDims)
                 .getResult();
       } else {
         // Create remote_load without multicast (original behavior)
-        loadResult = builder
-                         .create<d2m::RemoteLoadOp>(loc, shardType, buffer,
-                                                    genericOperand, indices)
+        loadResult = d2m::RemoteLoadOp::create(builder, loc, shardType, buffer,
+                                               genericOperand, indices)
                          .getResult();
       }
 
@@ -654,8 +654,8 @@ protected:
     for (size_t i = 0; i < outputs.size(); ++i) {
       RankedTensorType shardType = getShardType(outputs[i]);
 
-      auto emptyOp = builder.create<tensor::EmptyOp>(
-          loc, shardType.getShape(), shardType.getElementType());
+      auto emptyOp = tensor::EmptyOp::create(builder, loc, shardType.getShape(),
+                                             shardType.getElementType());
 
       operands.push_back(emptyOp.getResult());
     }
@@ -692,14 +692,13 @@ protected:
             d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
         Value genericOperand = generic->getOperand(operandIdx);
         Value storeResult =
-            rewriter
-                .create<d2m::RemoteStoreOp>(loc, genericOperand.getType(),
-                                            genericOperand, indices,
-                                            computedResults[outputIdx])
+            d2m::RemoteStoreOp::create(rewriter, loc, genericOperand.getType(),
+                                       genericOperand, indices,
+                                       computedResults[outputIdx])
                 .getResult();
         storeResults.push_back(storeResult);
       }
-      rewriter.create<d2m::YieldOp>(loc, storeResults);
+      d2m::YieldOp::create(rewriter, loc, storeResults);
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
@@ -791,8 +790,8 @@ protected:
         rewriter.getContext(), ttcore::IteratorType::Parallel);
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -804,8 +803,8 @@ protected:
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-              loc,
+          auto linalgGeneric = mlir::linalg::GenericOp::create(
+              rewriter, loc,
               llvm::to_vector(
                   mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
               /*inputs=*/ValueRange{},
@@ -832,12 +831,12 @@ protected:
                                          .getValue()
                                          .getSExtValue());
                 }
-                Value fillScalar = bbBuilder.create<mlir::arith::ConstantOp>(
-                    bbLoc, scalarAttr.getType(), scalarAttr);
+                Value fillScalar = mlir::arith::ConstantOp::create(
+                    bbBuilder, bbLoc, scalarAttr.getType(), scalarAttr);
                 mlir::Value yieldTile =
-                    bbBuilder.create<d2m::TileFillOp>(bbLoc, tType, fillScalar)
+                    d2m::TileFillOp::create(bbBuilder, bbLoc, tType, fillScalar)
                         .getResult();
-                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yieldTile);
+                mlir::linalg::YieldOp::create(bbBuilder, bbLoc, yieldTile);
               });
 
           return {linalgGeneric.getResult(0)};
@@ -1138,8 +1137,8 @@ private:
     // Apply broadcast to all operands that need it.
     for (size_t i = 0; i < numInputs && i < tileBcastTypes.size(); ++i) {
       if (tileBcastTypes[i] != d2m::TileBcastType::None) {
-        operands[i] = bbBuilder.create<d2m::TileBcastOp>(
-            loc, resultTypes, operands[i], tileBcastTypes[i]);
+        operands[i] = d2m::TileBcastOp::create(bbBuilder, loc, resultTypes,
+                                               operands[i], tileBcastTypes[i]);
       }
     }
 
@@ -1155,28 +1154,28 @@ private:
       // Unary ops with forwarded attributes (e.g. clamp min/max, selu
       // scale/alpha).
       yield =
-          bbBuilder.create<TileOp>(loc, resultTypes[0], operands[0], opAttrs);
+          TileOp::create(bbBuilder, loc, resultTypes[0], operands[0], opAttrs);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalAndOp>) {
       // LogicalAnd: NEZ(a) * NEZ(b) - both must be non-zero.
       auto nezA =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
+          d2m::TileNezOp::create(bbBuilder, loc, resultTypes, operands[0]);
       auto nezB =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
-      yield = bbBuilder.create<d2m::TileMulOp>(loc, resultTypes,
-                                               ValueRange{nezA, nezB});
+          d2m::TileNezOp::create(bbBuilder, loc, resultTypes, operands[1]);
+      yield = d2m::TileMulOp::create(bbBuilder, loc, resultTypes,
+                                     ValueRange{nezA, nezB});
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalOrOp>) {
       // LogicalOr: NEZ(NEZ(a) + NEZ(b)) - at least one must be non-zero.
       auto nezA =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
+          d2m::TileNezOp::create(bbBuilder, loc, resultTypes, operands[0]);
       auto nezB =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
-      auto sum = bbBuilder.create<d2m::TileAddOp>(loc, resultTypes,
-                                                  ValueRange{nezA, nezB});
-      yield = bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, sum);
+          d2m::TileNezOp::create(bbBuilder, loc, resultTypes, operands[1]);
+      auto sum = d2m::TileAddOp::create(bbBuilder, loc, resultTypes,
+                                        ValueRange{nezA, nezB});
+      yield = d2m::TileNezOp::create(bbBuilder, loc, resultTypes, sum);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalXorOp>) {
       // LogicalXor: NEZ(NEZ(a) - NEZ(b)) - exactly one must be non-zero.
       auto nezA =
-          bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[0]);
+          d2m::TileNezOp::create(bbBuilder, loc, resultTypes, operands[0]);
       auto nezB =
           bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, operands[1]);
       auto diff = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes,
@@ -1198,10 +1197,10 @@ private:
         yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
       }
     } else {
-      yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+      yield = TileOp::create(bbBuilder, loc, resultTypes, operands);
     }
 
-    bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+    mlir::linalg::YieldOp::create(bbBuilder, bbLoc, yield);
   }
 
   LogicalResult
@@ -1271,8 +1270,8 @@ private:
     }
 
     // Create 'd2m.generic' accepting 'op's operands.
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -1314,8 +1313,8 @@ private:
           opAttrs.push_back(rewriter.getNamedAttr("alpha", op.getAlphaAttr()));
         }
 
-        auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-            loc,
+        auto linalgGeneric = mlir::linalg::GenericOp::create(
+            rewriter, loc,
             /* result tensor types */
             llvm::to_vector(
                 mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
@@ -1338,15 +1337,14 @@ private:
               d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
           Value genericOperand = generic->getOperand(operandIdx);
           Value result = linalgGeneric->getResult(outputIdx);
-          Value storeResult =
-              rewriter
-                  .create<d2m::RemoteStoreOp>(loc, genericOperand.getType(),
-                                              genericOperand, indices, result)
-                  .getResult();
+          Value storeResult = d2m::RemoteStoreOp::create(
+                                  rewriter, loc, genericOperand.getType(),
+                                  genericOperand, indices, result)
+                                  .getResult();
           storeResults.push_back(storeResult);
         }
 
-        rewriter.create<d2m::YieldOp>(loc, storeResults);
+        d2m::YieldOp::create(rewriter, loc, storeResults);
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -2163,8 +2161,8 @@ private:
         getIteratorTypesArray(rewriter, op, physicalRank);
 
     // Create 'd2m.generic' accepting extended operands.
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -2196,8 +2194,8 @@ private:
         auto reduceDimAttr =
             d2m::ReduceDimAttr::get(ctx, dimArgAsReduceDim(op, physicalRank));
 
-        auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-            loc,
+        auto linalgGeneric = mlir::linalg::GenericOp::create(
+            rewriter, loc,
             /* result tensor types */
             llvm::to_vector(
                 static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
@@ -2236,15 +2234,14 @@ private:
               d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
           Value genericOperand = generic->getOperand(operandIdx);
           Value result = linalgGeneric->getResult(outputIdx);
-          Value storeResult =
-              rewriter
-                  .create<d2m::RemoteStoreOp>(loc, genericOperand.getType(),
-                                              genericOperand, indices, result)
-                  .getResult();
+          Value storeResult = d2m::RemoteStoreOp::create(
+                                  rewriter, loc, genericOperand.getType(),
+                                  genericOperand, indices, result)
+                                  .getResult();
           storeResults.push_back(storeResult);
         }
 
-        rewriter.create<d2m::YieldOp>(loc, storeResults);
+        d2m::YieldOp::create(rewriter, loc, storeResults);
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -2486,8 +2483,8 @@ private:
         getIteratorTypesArray(rewriter, physicalRank);
 
     // Create 'd2m.generic' accepting 'op's operands.
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -2523,16 +2520,15 @@ private:
                 d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
             Value genericOperand = generic->getOperand(operandIdx);
             Value result = blockArgs[numInputs + outputIdx];
-            Value storeResult =
-                rewriter
-                    .create<d2m::RemoteStoreOp>(loc, genericOperand.getType(),
-                                                genericOperand, indices, result)
-                    .getResult();
+            Value storeResult = d2m::RemoteStoreOp::create(
+                                    rewriter, loc, genericOperand.getType(),
+                                    genericOperand, indices, result)
+                                    .getResult();
             storeResults.push_back(storeResult);
           }
 
           // In pure tensor semantics, explicitly yield the output shard.
-          rewriter.create<d2m::YieldOp>(loc, storeResults);
+          d2m::YieldOp::create(rewriter, loc, storeResults);
 
         } else if constexpr (std::is_same_v<d2m::TileMatmulOp, TileOp>) {
 
@@ -2546,8 +2542,8 @@ private:
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
-          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
-              loc,
+          auto linalgGeneric = mlir::linalg::GenericOp::create(
+              rewriter, loc,
               /* result tensor types */
               llvm::to_vector(
                   mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
@@ -2561,7 +2557,7 @@ private:
                     bbArgs.take_back(tileOpNumOutputs).getTypes()[0],
                     /* a */ bbArgs[0], /* b */ bbArgs[1], /* c */ bbArgs[2]);
 
-                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+                mlir::linalg::YieldOp::create(bbBuilder, bbLoc, yield);
               });
 
           // Insert remote_store operations for each output before yield
@@ -2573,15 +2569,14 @@ private:
                 d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
             Value genericOperand = generic->getOperand(operandIdx);
             Value result = linalgGeneric->getResult(outputIdx);
-            Value storeResult =
-                rewriter
-                    .create<d2m::RemoteStoreOp>(loc, genericOperand.getType(),
-                                                genericOperand, indices, result)
-                    .getResult();
+            Value storeResult = d2m::RemoteStoreOp::create(
+                                    rewriter, loc, genericOperand.getType(),
+                                    genericOperand, indices, result)
+                                    .getResult();
             storeResults.push_back(storeResult);
           }
 
-          rewriter.create<d2m::YieldOp>(loc, storeResults);
+          d2m::YieldOp::create(rewriter, loc, storeResults);
         }
       }
     }
@@ -2805,9 +2800,9 @@ public:
     // For inner permute, we need a view to express the reblocking.
     // The allocator will later decide whether to insert a CB allocation
     // for the consuming GenericOp.
-    auto view = rewriter.create<d2m::ViewLayoutOp>(loc, viewType, inputs[0],
-                                                   permuted.transposeMap,
-                                                   /*reinterpretLayout=*/false);
+    auto view = d2m::ViewLayoutOp::create(rewriter, loc, viewType, inputs[0],
+                                          permuted.transposeMap,
+                                          /*reinterpretLayout=*/false);
     inputs[0] = view.getResult();
     unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
@@ -2817,8 +2812,8 @@ public:
     Value inputOperand = inputs[0];
     Value outputOperand = outputs[0];
 
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         [&, inputOperand, outputOperand](OpBuilder &builder, Location bodyLoc,
                                          ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
@@ -2834,25 +2829,24 @@ public:
           SmallVector<Value> inputIndices =
               d2m::utils::buildGridIndices(builder, bodyLoc, inputIndexingMap);
           Value inputBuffer = blockArgs[0];
-          Value input = builder
-                            .create<d2m::RemoteLoadOp>(
-                                bodyLoc, inputShardType, inputBuffer,
-                                inputOperand, inputIndices)
-                            .getResult();
+          Value input =
+              d2m::RemoteLoadOp::create(builder, bodyLoc, inputShardType,
+                                        inputBuffer, inputOperand, inputIndices)
+                  .getResult();
 
           // Use the output tensor.empty directly.
           Value output = blockArgs[1];
 
-          auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
-              bodyLoc, output.getType(), input, output,
+          auto linalgGeneric = mlir::linalg::GenericOp::create(
+              builder, bodyLoc, output.getType(), input, output,
               SmallVector<mlir::AffineMap>{identityMap, identityMap},
               linalgIteratorTypes,
               [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                   mlir::ValueRange bbArgs) {
-                mlir::Value yield = bbBuilder.create<d2m::TileTransposeOp>(
-                    bbLoc, bbArgs.take_back(1).getTypes(),
+                mlir::Value yield = d2m::TileTransposeOp::create(
+                    bbBuilder, bbLoc, bbArgs.take_back(1).getTypes(),
                     bbArgs.take_front(1));
-                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+                mlir::linalg::YieldOp::create(bbBuilder, bbLoc, yield);
               });
 
           // Insert remote_store for output before yield
@@ -2860,13 +2854,12 @@ public:
           SmallVector<Value> outputIndices =
               d2m::utils::buildGridIndices(builder, bodyLoc, outputIndexingMap);
           Value result = linalgGeneric->getResult(0);
-          Value storeResult = builder
-                                  .create<d2m::RemoteStoreOp>(
-                                      bodyLoc, outputOperand.getType(),
-                                      outputOperand, outputIndices, result)
+          Value storeResult = d2m::RemoteStoreOp::create(
+                                  builder, bodyLoc, outputOperand.getType(),
+                                  outputOperand, outputIndices, result)
                                   .getResult();
 
-          builder.create<d2m::YieldOp>(bodyLoc, storeResult);
+          d2m::YieldOp::create(builder, bodyLoc, storeResult);
         });
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
@@ -3088,11 +3081,11 @@ public:
     if (!ttnnMode) {
       // When ttnnMode is disabled, we can simply convert ttir.to_layout
       // directly to d2m.to_layout.
-      Value empty = rewriter.create<d2m::EmptyOp>(
-          op.getLoc(), outType.getShape(), outType.getElementType(),
-          outType.getEncoding());
-      auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
-                                                    adaptor.getInput(), empty);
+      Value empty =
+          d2m::EmptyOp::create(rewriter, op.getLoc(), outType.getShape(),
+                               outType.getElementType(), outType.getEncoding());
+      auto newOp = d2m::ToLayoutOp::create(rewriter, op.getLoc(),
+                                           adaptor.getInput(), empty);
       rewriter.replaceOp(op, newOp.getResult(0));
       return success();
     }
@@ -3172,8 +3165,8 @@ private:
     if (mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(inputType.getEncoding())) {
       auto inputMetalType =
           getMetalTensorFromTTNNTensor(rewriter, adaptor.getInput());
-      auto inputCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          op.getLoc(), inputMetalType, adaptor.getInput());
+      auto inputCast = ttir::TTNNMetalLayoutCastOp::create(
+          rewriter, op.getLoc(), inputMetalType, adaptor.getInput());
       propagateVGMToCastOp(rewriter.getContext(), inputCast,
                            inputType.getEncoding());
       metalInput = inputCast.getResult();
@@ -3181,20 +3174,20 @@ private:
     auto outputMetalType =
         getMetalTensorFromTTNNTensor(rewriter, op.getOutput());
     // Create d2m.empty for TTNN layout.
-    Value metalEmpty = rewriter.create<d2m::EmptyOp>(
-        op.getLoc(), outType.getShape(), outType.getElementType(),
-        outType.getEncoding());
+    Value metalEmpty =
+        d2m::EmptyOp::create(rewriter, op.getLoc(), outType.getShape(),
+                             outType.getElementType(), outType.getEncoding());
     // Cast TTNN empty to Metal layout.
-    auto metalCast = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-        op.getLoc(), outputMetalType, metalEmpty);
+    auto metalCast = ttir::TTNNMetalLayoutCastOp::create(
+        rewriter, op.getLoc(), outputMetalType, metalEmpty);
     propagateVGMToCastOp(rewriter.getContext(), metalCast,
                          outType.getEncoding());
     // Create d2m.to_layout with Metal types.
     auto metalToLayout =
-        rewriter.create<d2m::ToLayoutOp>(op.getLoc(), metalInput, metalCast);
+        d2m::ToLayoutOp::create(rewriter, op.getLoc(), metalInput, metalCast);
     // Cast back to TTNN.
-    auto ttnnResult = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-        op.getLoc(), outType, metalToLayout.getResult(0));
+    auto ttnnResult = ttir::TTNNMetalLayoutCastOp::create(
+        rewriter, op.getLoc(), outType, metalToLayout.getResult(0));
     rewriter.replaceOp(op, ttnnResult.getResult());
     return success();
   }
@@ -3228,9 +3221,9 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
     }
 
     // Create d2m.empty with same shape and element type.
-    auto d2mEmpty = rewriter.create<d2m::EmptyOp>(
-        op.getLoc(), tensorType.getShape(), tensorType.getElementType(),
-        tensorType.getEncoding());
+    auto d2mEmpty = d2m::EmptyOp::create(
+        rewriter, op.getLoc(), tensorType.getShape(),
+        tensorType.getElementType(), tensorType.getEncoding());
 
     rewriter.replaceOp(op, d2mEmpty.getResult());
     return success();
@@ -3532,10 +3525,9 @@ public:
         rewriter.getContext(), scratchLogicalShape,
         ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
 
-    Value indexTileTensor =
-        rewriter
-            .create<d2m::EmptyOp>(loc, scratchShape, tileType, scratchLayout)
-            .getResult();
+    Value indexTileTensor = d2m::EmptyOp::create(rewriter, loc, scratchShape,
+                                                 tileType, scratchLayout)
+                                .getResult();
 
     AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
     SmallVector<AffineExpr> zeroExprs(physicalRank,
@@ -3549,8 +3541,8 @@ public:
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
     SmallVector<Value> genericInputs = {indexTileTensor};
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, genericInputs, outputs, /*additionalArgs=*/ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, genericInputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -3571,21 +3563,19 @@ public:
 
       // ArangeBlock operation will be decomposed in a later pass.
       Value arangeResult =
-          rewriter
-              .create<d2m::ArangeBlockOp>(loc, indexTileTensor, outputTensor,
-                                          numElements, start, step)
+          d2m::ArangeBlockOp::create(rewriter, loc, indexTileTensor,
+                                     outputTensor, numElements, start, step)
               .getResult();
 
       AffineMap outputIndexingMap = generic.getIndexingMap(1);
       SmallVector<Value> indices =
           d2m::utils::buildGridIndices(rewriter, loc, outputIndexingMap);
       Value storeResult =
-          rewriter
-              .create<d2m::RemoteStoreOp>(loc, output.getType(), output,
-                                          indices, arangeResult)
+          d2m::RemoteStoreOp::create(rewriter, loc, output.getType(), output,
+                                     indices, arangeResult)
               .getResult();
 
-      rewriter.create<d2m::YieldOp>(loc, storeResult);
+      d2m::YieldOp::create(rewriter, loc, storeResult);
     }
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
@@ -4116,12 +4106,12 @@ public:
         workerGridShape);
     llvm::SmallVector<int64_t> deviceShape =
         layout.getDeviceShape(optimalGrid, ttcore::TileType::getDefaultShape());
-    auto emptyOp = rewriter.create<d2m::EmptyOp>(
-        originalValue.getLoc(), deviceShape, tiledElementType, layout);
-    auto toLayoutResult = rewriter
-                              .create<d2m::ToLayoutOp>(originalValue.getLoc(),
-                                                       originalValue, emptyOp)
-                              ->getResult(0);
+    auto emptyOp = d2m::EmptyOp::create(rewriter, originalValue.getLoc(),
+                                        deviceShape, tiledElementType, layout);
+    auto toLayoutResult =
+        d2m::ToLayoutOp::create(rewriter, originalValue.getLoc(), originalValue,
+                                emptyOp)
+            ->getResult(0);
     return toLayoutResult;
   }
 
@@ -4140,12 +4130,11 @@ public:
     llvm::SmallVector<int64_t> deviceShape =
         layout.getDeviceShape(workerGridShape, {});
     auto emptyOp =
-        rewriter.create<d2m::EmptyOp>(loc, deviceShape, elementType, layout);
-    auto createGlobalSemaphoreOp =
-        rewriter.create<d2m::CreateGlobalSemaphoreOp>(
-            loc, d2m::GlobalSemaphoreType::get(rewriter.getContext()),
-            emptyOp.getResult(),
-            rewriter.getIntegerAttr(elementType, initialValue));
+        d2m::EmptyOp::create(rewriter, loc, deviceShape, elementType, layout);
+    auto createGlobalSemaphoreOp = d2m::CreateGlobalSemaphoreOp::create(
+        rewriter, loc, d2m::GlobalSemaphoreType::get(rewriter.getContext()),
+        emptyOp.getResult(),
+        rewriter.getIntegerAttr(elementType, initialValue));
     return createGlobalSemaphoreOp.getResult();
   }
 
@@ -4225,9 +4214,8 @@ public:
         inputTensorType.getShape(), inputStreamTensorType.getShape(),
         rewriter.getContext());
     Value inputStreamResult =
-        rewriter
-            .create<d2m::ViewLayoutOp>(op.getLoc(), inputStreamTensorType,
-                                       input, inputStreamReblockMap)
+        d2m::ViewLayoutOp::create(rewriter, op.getLoc(), inputStreamTensorType,
+                                  input, inputStreamReblockMap)
             ->getResult(0);
 
     auto outputTensorType =
@@ -4238,9 +4226,8 @@ public:
         outputTensorType.getShape(), outputStreamTensorType.getShape(),
         rewriter.getContext());
     Value outputStreamResult =
-        rewriter
-            .create<d2m::ViewLayoutOp>(op.getLoc(), outputStreamTensorType,
-                                       output, outputStreamReblockMap)
+        d2m::ViewLayoutOp::create(rewriter, op.getLoc(), outputStreamTensorType,
+                                  output, outputStreamReblockMap)
             ->getResult(0);
 
     // Create generic in explicit form: block factors, indexing maps, and
@@ -4253,8 +4240,8 @@ public:
     auto fabricConnectionConfig = ttcore::FabricConnectionConfigAttr::get(
         rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
         ttcore::RoutingMode::UnidirRingTorus, num_links);
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, TypeRange(outputStreamResult), inputStreamResult,
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, TypeRange(outputStreamResult), inputStreamResult,
         outputStreamResult, ValueRange({startSemaphore, endSemaphore}),
         ttcore::GridAttr::get(rewriter.getContext(), genericGridShape),
         rewriter.getI64ArrayAttr(emptyBlockFactors),
@@ -4280,35 +4267,35 @@ public:
         for (uint32_t dim = 0; dim < meshShape.size(); dim++) {
           if (dim == clusterAxis) {
             startDevice.push_back(
-                rewriter.create<arith::ConstantIndexOp>(loc, 0));
-            deviceMcastShape.push_back(rewriter.create<arith::ConstantIndexOp>(
-                loc, meshShape[clusterAxis]));
+                arith::ConstantIndexOp::create(rewriter, loc, 0));
+            deviceMcastShape.push_back(arith::ConstantIndexOp::create(
+                rewriter, loc, meshShape[clusterAxis]));
           } else {
             startDevice.push_back(
-                rewriter.create<d2m::MeshPositionOp>(loc, dim));
+                d2m::MeshPositionOp::create(rewriter, loc, dim));
             deviceMcastShape.push_back(
-                rewriter.create<arith::ConstantIndexOp>(loc, 1));
+                arith::ConstantIndexOp::create(rewriter, loc, 1));
           }
         }
 
         SmallVector<Value> coreIndices;
         for (uint32_t i = 0; i < inputRank; i++) {
-          coreIndices.push_back(rewriter.create<d2m::CoreIndexOp>(loc, i));
+          coreIndices.push_back(d2m::CoreIndexOp::create(rewriter, loc, i));
         }
 
         // Synchronize: fabric semaphore increment mcast to all devices in
         // cluster axis then wait till value is (num devices - 1)
-        rewriter.create<d2m::DeviceSynchronizeOp>(loc, startSemaphore,
-                                                  startDevice, deviceMcastShape,
-                                                  num_devices - 1, coreIndices);
+        d2m::DeviceSynchronizeOp::create(rewriter, loc, startSemaphore,
+                                         startDevice, deviceMcastShape,
+                                         num_devices - 1, coreIndices);
 
         SmallVector<Value> inputIndices;
         for (uint32_t i = 0; i < inputRank; i++) {
           if (i == workerCoreSplitDim) {
-            inputIndices.push_back(rewriter.create<d2m::CoreIndexOp>(loc, i));
+            inputIndices.push_back(d2m::CoreIndexOp::create(rewriter, loc, i));
           } else {
             inputIndices.push_back(
-                rewriter.create<arith::ConstantIndexOp>(loc, 0));
+                arith::ConstantIndexOp::create(rewriter, loc, 0));
           }
         }
 
@@ -4337,7 +4324,7 @@ public:
         auto outputIndexingMap = mlir::AffineMap::get(inputRank + 1, 0, results,
                                                       rewriter.getContext());
         auto meshPosition =
-            rewriter.create<d2m::MeshPositionOp>(loc, clusterAxis);
+            d2m::MeshPositionOp::create(rewriter, loc, clusterAxis);
         SmallVector<Value> inputIndicesWithMeshPosition = inputIndices;
         inputIndicesWithMeshPosition.insert(
             inputIndicesWithMeshPosition.begin(), meshPosition);
@@ -4345,18 +4332,18 @@ public:
             rewriter, loc, outputIndexingMap, inputIndicesWithMeshPosition);
 
         SmallVector<Value> storeResults;
-        auto remoteStoreOp = rewriter.create<d2m::RemoteStoreOp>(
-            loc, outputStreamResult.getType(), outputStreamResult,
+        auto remoteStoreOp = d2m::RemoteStoreOp::create(
+            rewriter, loc, outputStreamResult.getType(), outputStreamResult,
             outputIndices, loadResult, startDevice, deviceMcastShape,
             endSemaphore, inputIndices);
         Value storeResult = remoteStoreOp.getResult();
         storeResults.push_back(storeResult);
 
-        rewriter.create<d2m::SemaphoreWaitOp>(
-            loc, endSemaphore,
-            rewriter.create<arith::ConstantIndexOp>(loc, num_devices - 1));
+        d2m::SemaphoreWaitOp::create(
+            rewriter, loc, endSemaphore,
+            arith::ConstantIndexOp::create(rewriter, loc, num_devices - 1));
 
-        rewriter.create<d2m::YieldOp>(loc, storeResults);
+        d2m::YieldOp::create(rewriter, loc, storeResults);
       }
     }
     rewriter.finalizeOpModification(generic);
@@ -4482,9 +4469,9 @@ public:
     // Express the data rearrangement as a view. The allocator will later
     // decide whether to insert a CB allocation for any GenericOp that
     // consumes this view.
-    auto view = rewriter.create<d2m::ViewLayoutOp>(op.getLoc(), newOutTy,
-                                                   inputs[0], deviceMap,
-                                                   /*reinterpretLayout=*/false);
+    auto view = d2m::ViewLayoutOp::create(rewriter, op.getLoc(), newOutTy,
+                                          inputs[0], deviceMap,
+                                          /*reinterpretLayout=*/false);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
                                           op->getResult(0).getType()));
@@ -4783,8 +4770,8 @@ public:
       auto transposedInType = RankedTensorType::get(
           transposedInShape, inType.getElementType(), inType.getEncoding());
 
-      auto preTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, transposedInType, op.getInput(), hwTransposeIdx);
+      auto preTranspose = ttir::PermuteOp::create(
+          rewriter, loc, transposedInType, op.getInput(), hwTransposeIdx);
 
       // Transpose the slice spec.
       std::swap(begins[rank - 1], begins[rank - 2]);
@@ -4796,13 +4783,14 @@ public:
       auto transposedOutType = RankedTensorType::get(
           transposedOutShape, outType.getElementType(), outType.getEncoding());
 
-      auto transposedSliceOp = rewriter.create<ttir::SliceStaticOp>(
-          loc, transposedOutType, preTranspose.getResult(),
+      auto transposedSliceOp = ttir::SliceStaticOp::create(
+          rewriter, loc, transposedOutType, preTranspose.getResult(),
           rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
           rewriter.getI32ArrayAttr(step));
 
-      auto postTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, outType, transposedSliceOp.getResult(), hwTransposeIdx);
+      auto postTranspose = ttir::PermuteOp::create(
+          rewriter, loc, outType, transposedSliceOp.getResult(),
+          hwTransposeIdx);
 
       rewriter.replaceOp(op, postTranspose.getResult());
     } else {
@@ -4825,8 +4813,8 @@ public:
       auto cropWidthOutType = RankedTensorType::get(
           cropWidthOutShape, outType.getElementType(), outType.getEncoding());
 
-      auto cropWidthSliceOp = rewriter.create<ttir::SliceStaticOp>(
-          loc, cropWidthOutType, op.getInput(),
+      auto cropWidthSliceOp = ttir::SliceStaticOp::create(
+          rewriter, loc, cropWidthOutType, op.getInput(),
           rewriter.getI32ArrayAttr(cropWidthBegins),
           rewriter.getI32ArrayAttr(cropWidthEnds),
           rewriter.getI32ArrayAttr(cropWidthStep));
@@ -4837,9 +4825,9 @@ public:
           transposedCropWidthShape, outType.getElementType(),
           outType.getEncoding());
 
-      auto preTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, transposedCropWidthType, cropWidthSliceOp.getResult(),
-          hwTransposeIdx);
+      auto preTranspose =
+          ttir::PermuteOp::create(rewriter, loc, transposedCropWidthType,
+                                  cropWidthSliceOp.getResult(), hwTransposeIdx);
 
       // Construct the height only slice spec.
       SmallVector<int32_t> heightSliceBegins(rank, 0);
@@ -4864,14 +4852,14 @@ public:
       auto transposedOutType = RankedTensorType::get(
           transposedOutShape, outType.getElementType(), outType.getEncoding());
 
-      auto heightSliceOp = rewriter.create<ttir::SliceStaticOp>(
-          loc, transposedOutType, preTranspose.getResult(),
+      auto heightSliceOp = ttir::SliceStaticOp::create(
+          rewriter, loc, transposedOutType, preTranspose.getResult(),
           rewriter.getI32ArrayAttr(heightSliceBegins),
           rewriter.getI32ArrayAttr(heightSliceEnds),
           rewriter.getI32ArrayAttr(heightSliceStep));
 
-      auto postTranspose = rewriter.create<ttir::PermuteOp>(
-          loc, outType, heightSliceOp.getResult(), hwTransposeIdx);
+      auto postTranspose = ttir::PermuteOp::create(
+          rewriter, loc, outType, heightSliceOp.getResult(), hwTransposeIdx);
 
       rewriter.replaceOp(op, postTranspose.getResult());
     }

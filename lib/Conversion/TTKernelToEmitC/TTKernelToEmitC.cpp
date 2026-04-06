@@ -527,8 +527,8 @@ public:
   matchAndRewrite(ttkernel::StoreToL1Op op,
                   ttkernel::StoreToL1Op::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-        op->getLoc(),
+    auto subscriptOp = emitc::SubscriptOp::create(
+        rewriter, op->getLoc(),
         emitc::LValueType::get(
             op.getContext(),
             mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType())
@@ -1846,11 +1846,10 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value> operands;
     operands.push_back(adaptor.getFcm());
-    operands.push_back(rewriter
-                           .create<emitc::LiteralOp>(
-                               op.getLoc(),
-                               rewriter.getType<emitc::OpaqueType>("uint64_t"),
-                               std::to_string(op.getDim()))
+    operands.push_back(emitc::LiteralOp::create(
+                           rewriter, op.getLoc(),
+                           rewriter.getType<emitc::OpaqueType>("uint64_t"),
+                           std::to_string(op.getDim()))
                            .getResult());
 
     std::string opName =
@@ -1940,10 +1939,10 @@ public:
     StringRef fmt = op.getFmt();
 
     auto stringlit = [&](StringRef str) {
-      return rewriter
-          .create<emitc::LiteralOp>(
-              op.getLoc(), rewriter.getType<emitc::OpaqueType>("const char[]"),
-              (Twine("\"") + str + "\"").str())
+      return emitc::LiteralOp::create(
+                 rewriter, op.getLoc(),
+                 rewriter.getType<emitc::OpaqueType>("const char[]"),
+                 (Twine("\"") + str + "\"").str())
           .getResult();
     };
 
@@ -2045,9 +2044,9 @@ public:
                   ttkernel::InvokeSFPIOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     assert(op.getRegion().hasOneBlock());
-    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
-                                       "experimental::invoke_sfpi([=]() {");
-    auto endScope = rewriter.create<emitc::VerbatimOp>(op->getLoc(), "});");
+    emitc::VerbatimOp::create(rewriter, op->getLoc(),
+                              "experimental::invoke_sfpi([=]() {");
+    auto endScope = emitc::VerbatimOp::create(rewriter, op->getLoc(), "});");
     rewriter.inlineBlockBefore(&op.getRegion().front(), endScope);
     rewriter.eraseOp(op);
     return success();
@@ -2126,12 +2125,12 @@ public:
     // crtaArg>();
     std::string code = "auto " + varName + " = TensorAccessorArgs<" + ctaArg +
                        ", " + crtaArg + ">();";
-    rewriter.create<emitc::VerbatimOp>(op.getLoc(), code);
+    emitc::VerbatimOp::create(rewriter, op.getLoc(), code);
 
     auto resultType =
         this->getTypeConverter()->convertType(op->getResultTypes()[0]);
     auto literalOp =
-        rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName);
+        emitc::LiteralOp::create(rewriter, op.getLoc(), resultType, varName);
 
     rewriter.replaceOp(op, literalOp.getResult());
     return success();
@@ -2261,12 +2260,12 @@ public:
     }
     callStr += ");";
 
-    rewriter.create<emitc::VerbatimOp>(
-        op->getLoc(), rewriter.getStringAttr(callStr), operands);
+    emitc::VerbatimOp::create(rewriter, op->getLoc(),
+                              rewriter.getStringAttr(callStr), operands);
 
     // create a literal referencing the temp variable to be used later.
     auto literalOp =
-        rewriter.create<emitc::LiteralOp>(op->getLoc(), resultTypes, varName);
+        emitc::LiteralOp::create(rewriter, op->getLoc(), resultTypes, varName);
 
     rewriter.replaceOp(op, literalOp.getResult());
 
@@ -2425,8 +2424,8 @@ public:
   matchAndRewrite(ttkernel::PackReconfigL1AccOp op,
                   ttkernel::PackReconfigL1AccOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.create<emitc::VerbatimOp>(
-        op->getLoc(),
+    emitc::VerbatimOp::create(
+        rewriter, op->getLoc(),
         rewriter.getStringAttr("PACK((llk_pack_reconfig_l1_acc({})));"),
         ValueRange{adaptor.getL1AccEn()});
     rewriter.eraseOp(op);
@@ -2444,9 +2443,9 @@ public:
   matchAndRewrite(ttkernel::PackReconfigDataFormatOp op,
                   ttkernel::PackReconfigDataFormatOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.create<emitc::CallOpaqueOp>(op->getLoc(), TypeRange{},
-                                         "pack_reconfig_data_format",
-                                         ValueRange{adaptor.getOutCb()});
+    emitc::CallOpaqueOp::create(rewriter, op->getLoc(), TypeRange{},
+                                "pack_reconfig_data_format",
+                                ValueRange{adaptor.getOutCb()});
     rewriter.eraseOp(op);
     return success();
   }

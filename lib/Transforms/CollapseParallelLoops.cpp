@@ -45,10 +45,10 @@ private:
 
     SmallVector<Value> newLowerBounds, newUpperBounds, newSteps;
 
-    newLowerBounds.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+    newLowerBounds.push_back(arith::ConstantIndexOp::create(rewriter, loc, 0));
     newUpperBounds.push_back(
-        rewriter.create<arith::ConstantIndexOp>(loc, collapsedSize));
-    newSteps.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 1));
+        arith::ConstantIndexOp::create(rewriter, loc, collapsedSize));
+    newSteps.push_back(arith::ConstantIndexOp::create(rewriter, loc, 1));
 
     newLowerBounds.push_back(lowerBounds[1]);
     newUpperBounds.push_back(upperBounds[1]);
@@ -58,8 +58,8 @@ private:
     newUpperBounds.push_back(upperBounds[0]);
     newSteps.push_back(steps[0]);
 
-    auto newParallelOp = rewriter.create<scf::ParallelOp>(
-        loc, newLowerBounds, newUpperBounds, newSteps, initVals);
+    auto newParallelOp = scf::ParallelOp::create(
+        rewriter, loc, newLowerBounds, newUpperBounds, newSteps, initVals);
 
     return newParallelOp;
   }
@@ -147,12 +147,13 @@ public:
       int64_t productOfRemainingDims =
           calculateProductOfRemainingDims(i + 1, endIdx, dimSizes);
       Value divisor =
-          rewriter.create<arith::ConstantIndexOp>(loc, productOfRemainingDims);
-      Value quotient = rewriter.create<arith::DivUIOp>(loc, remaining, divisor);
+          arith::ConstantIndexOp::create(rewriter, loc, productOfRemainingDims);
+      Value quotient =
+          arith::DivUIOp::create(rewriter, loc, remaining, divisor);
       decomposedVars.push_back(quotient);
 
-      Value product = rewriter.create<arith::MulIOp>(loc, quotient, divisor);
-      remaining = rewriter.create<arith::SubIOp>(loc, remaining, product);
+      Value product = arith::MulIOp::create(rewriter, loc, quotient, divisor);
+      remaining = arith::SubIOp::create(rewriter, loc, remaining, product);
     }
     decomposedVars.push_back(remaining);
 

@@ -95,10 +95,10 @@ static Value createRemoteLoad(OpBuilder &builder, Location loc, Type shardType,
                               Value source, ArrayRef<Value> indices) {
   // RemoteLoadOp writes into an explicitly allocated local buffer.
   auto tensorType = mlir::cast<RankedTensorType>(shardType);
-  auto bufferOp = builder.create<tensor::EmptyOp>(loc, tensorType.getShape(),
-                                                  tensorType.getElementType());
+  auto bufferOp = tensor::EmptyOp::create(builder, loc, tensorType.getShape(),
+                                          tensorType.getElementType());
   Value buffer = bufferOp.getResult();
-  return builder.create<RemoteLoadOp>(loc, shardType, buffer, source, indices)
+  return RemoteLoadOp::create(builder, loc, shardType, buffer, source, indices)
       .getResult();
 }
 
@@ -106,9 +106,8 @@ static Value createRemoteLoad(OpBuilder &builder, Location loc, Type shardType,
 static Value createTensorEmpty(OpBuilder &builder, Location loc,
                                Type shardType) {
   auto tensorType = mlir::cast<RankedTensorType>(shardType);
-  return builder
-      .create<tensor::EmptyOp>(loc, tensorType.getShape(),
-                               tensorType.getElementType())
+  return tensor::EmptyOp::create(builder, loc, tensorType.getShape(),
+                                 tensorType.getElementType())
       .getResult();
 }
 
@@ -116,9 +115,8 @@ static Value createTensorEmpty(OpBuilder &builder, Location loc,
 static Value createRemoteStore(OpBuilder &builder, Location loc,
                                Value destination, ArrayRef<Value> indices,
                                Value localBuffer) {
-  return builder
-      .create<RemoteStoreOp>(loc, destination.getType(), destination, indices,
-                             localBuffer)
+  return RemoteStoreOp::create(builder, loc, destination.getType(), destination,
+                               indices, localBuffer)
       .getResult();
 }
 
@@ -219,8 +217,8 @@ public:
                               outputInfo.type.getElementType(), newLayout);
 
     // Pass the transformation map via the remapping attribute.
-    Value viewOp = rewriter.create<ViewLayoutOp>(loc, viewType, input, viewMap,
-                                                 /*reinterpretLayout=*/false);
+    Value viewOp = ViewLayoutOp::create(rewriter, loc, viewType, input, viewMap,
+                                        /*reinterpretLayout=*/false);
 
     // Materialize L1→L1 transformations with a DMA generic that performs the
     // actual data movement according to the view's affine map.
@@ -237,24 +235,24 @@ public:
       auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
       AffineMap indexingMap = indexingMapAttr.getValue();
 
-      return rewriter
-          .create<GenericOp>(
-              loc, viewOp, output, /*additionalArgs=*/ValueRange(),
-              [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-                // Load from input, store to output (load+store pair for proper
-                // CB association)
-                Type inputShardType = getShardTypeFromCB(blockArgs[0]);
-                SmallVector<Value> indices = d2m::utils::buildGridIndices(
-                    builder, innerLoc, indexingMap);
+      return GenericOp::create(
+                 rewriter, loc, viewOp, output, /*additionalArgs=*/ValueRange(),
+                 [&](OpBuilder &builder, Location innerLoc,
+                     ValueRange blockArgs) {
+                   // Load from input, store to output (load+store pair for
+                   // proper CB association)
+                   Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+                   SmallVector<Value> indices = d2m::utils::buildGridIndices(
+                       builder, innerLoc, indexingMap);
 
-                // Load-store idiom
-                Value loadedData = createRemoteLoad(
-                    builder, innerLoc, inputShardType, viewOp, indices);
-                Value storeResult = createRemoteStore(builder, innerLoc, output,
-                                                      indices, loadedData);
-                builder.create<YieldOp>(innerLoc, storeResult);
-              },
-              ThreadType::Unified)
+                   // Load-store idiom
+                   Value loadedData = createRemoteLoad(
+                       builder, innerLoc, inputShardType, viewOp, indices);
+                   Value storeResult = createRemoteStore(
+                       builder, innerLoc, output, indices, loadedData);
+                   YieldOp::create(builder, innerLoc, storeResult);
+                 },
+                 ThreadType::Unified)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
@@ -278,11 +276,11 @@ public:
     // Emit dedicated host transfer ops based on direction.
     if (inputInfo.isSystem()) {
       // Host → Device: use ToDeviceOp.
-      return rewriter.create<ToDeviceOp>(loc, input, output, *deviceLayout)
+      return ToDeviceOp::create(rewriter, loc, input, output, *deviceLayout)
           .getResult(0);
     }
     // Device → Host: use ToHostOp.
-    return rewriter.create<ToHostOp>(loc, input, output, *deviceLayout)
+    return ToHostOp::create(rewriter, loc, input, output, *deviceLayout)
         .getResult(0);
   }
 
@@ -349,9 +347,8 @@ public:
           baseLayout.getMemoryLayout());
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
-      return rewriter
-          .create<ViewLayoutOp>(loc, resultTy, fromVal, map,
-                                /*reinterpretLayout=*/false)
+      return ViewLayoutOp::create(rewriter, loc, resultTy, fromVal, map,
+                                  /*reinterpretLayout=*/false)
           .getResult();
     };
 
@@ -386,23 +383,22 @@ public:
     AffineMap indexingMap = indexingMapAttr.getValue();
 
     auto result =
-        rewriter
-            .create<GenericOp>(
-                loc, viewInput, viewOutput, /*additionalArgs=*/ValueRange(),
-                [&](OpBuilder &builder, Location innerLoc,
-                    ValueRange blockArgs) {
-                  Type inputShardType = getShardTypeFromCB(blockArgs[0]);
-                  SmallVector<Value> indices = d2m::utils::buildGridIndices(
-                      builder, innerLoc, indexingMap);
+        GenericOp::create(
+            rewriter, loc, viewInput, viewOutput,
+            /*additionalArgs=*/ValueRange(),
+            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+              Type inputShardType = getShardTypeFromCB(blockArgs[0]);
+              SmallVector<Value> indices =
+                  d2m::utils::buildGridIndices(builder, innerLoc, indexingMap);
 
-                  // Use load+store idiom for proper CB association
-                  Value loadedData = createRemoteLoad(
-                      builder, innerLoc, inputShardType, viewInput, indices);
-                  Value storeResult = createRemoteStore(
-                      builder, innerLoc, viewOutput, indices, loadedData);
-                  builder.create<YieldOp>(innerLoc, storeResult);
-                },
-                ThreadType::Unified, grid)
+              // Use load+store idiom for proper CB association
+              Value loadedData = createRemoteLoad(
+                  builder, innerLoc, inputShardType, viewInput, indices);
+              Value storeResult = createRemoteStore(
+                  builder, innerLoc, viewOutput, indices, loadedData);
+              YieldOp::create(builder, innerLoc, storeResult);
+            },
+            ThreadType::Unified, grid)
             .getResult(0);
     if (outputInfo.isDRAM() && result.getType() != output.getType()) {
       return buildConcreteView(result,
@@ -424,32 +420,30 @@ public:
                TensorInfo::from(output).getGridShape() &&
            "format conversion generic requires matching input/output grids");
 
-    return rewriter
-        .create<GenericOp>(
-            loc, input, output, /*additionalArgs=*/ValueRange(),
-            [=](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              auto [src, dst, indices] =
-                  buildIdentityLoadStore(builder, innerLoc, blockArgs[0],
-                                         blockArgs[1], input, output, 1);
+    return GenericOp::create(
+               rewriter, loc, input, output, /*additionalArgs=*/ValueRange(),
+               [=](OpBuilder &builder, Location innerLoc,
+                   ValueRange blockArgs) {
+                 auto [src, dst, indices] =
+                     buildIdentityLoadStore(builder, innerLoc, blockArgs[0],
+                                            blockArgs[1], input, output, 1);
 
-              Value result;
-              if (inputTiled) {
-                result = builder
-                             .create<TileUntilizeBlockOp>(
-                                 innerLoc, dst.getType(), src, dst)
-                             .getResult();
-              } else {
-                result = builder
-                             .create<TileTilizeBlockOp>(innerLoc, dst.getType(),
-                                                        src, dst)
-                             .getResult();
-              }
+                 Value result;
+                 if (inputTiled) {
+                   result = TileUntilizeBlockOp::create(builder, innerLoc,
+                                                        dst.getType(), src, dst)
+                                .getResult();
+                 } else {
+                   result = TileTilizeBlockOp::create(builder, innerLoc,
+                                                      dst.getType(), src, dst)
+                                .getResult();
+                 }
 
-              Value storeResult =
-                  createRemoteStore(builder, innerLoc, output, indices, result);
-              builder.create<YieldOp>(innerLoc, storeResult);
-            },
-            ThreadType::Unified)
+                 Value storeResult = createRemoteStore(builder, innerLoc,
+                                                       output, indices, result);
+                 YieldOp::create(builder, innerLoc, storeResult);
+               },
+               ThreadType::Unified)
         .getResult(0);
   }
 

@@ -170,7 +170,7 @@ public:
     }
 
     rewriter.setInsertionPointAfter(lastOp);
-    rewriter.create<DeallocateOp>(lastOp->getLoc(), value);
+    DeallocateOp::create(rewriter, lastOp->getLoc(), value);
     return success();
   }
 
@@ -404,8 +404,8 @@ protected:
 
     // Create ReturnOp.
     //
-    rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(),
-                                    tuple->getResults());
+    func::ReturnOp::create(rewriter, forwardFuncOp.getLoc(),
+                           tuple->getResults());
 
     return funcOp;
   }
@@ -503,8 +503,8 @@ private:
 
     // Create the main function.
     //
-    func::FuncOp mainFuncOp = rewriter.create<mlir::func::FuncOp>(
-        moduleOp.getLoc(), mainFuncName, functionType);
+    func::FuncOp mainFuncOp = mlir::func::FuncOp::create(
+        rewriter, moduleOp.getLoc(), mainFuncName, functionType);
 
     // Mark this function as a main function.
     //
@@ -529,8 +529,8 @@ private:
       // Call a forward function. If there are input tensors, pass them as
       // operands.
       //
-      rewriter.create<mlir::func::CallOp>(forwardFuncOp.getLoc(), forwardFuncOp,
-                                          operands);
+      mlir::func::CallOp::create(rewriter, forwardFuncOp.getLoc(),
+                                 forwardFuncOp, operands);
     }
 
     // Return 0
@@ -538,10 +538,10 @@ private:
     // func::ReturnOp requires a Value to be returned, which means that an SSA
     // needs to be returned, hence create a constant 0 via arith::ConstantOp.
     //
-    Value constantZero = rewriter.create<arith::ConstantOp>(
-        rewriter.getUnknownLoc(), rewriter.getI32Type(),
+    Value constantZero = arith::ConstantOp::create(
+        rewriter, rewriter.getUnknownLoc(), rewriter.getI32Type(),
         rewriter.getI32IntegerAttr(0));
-    rewriter.create<func::ReturnOp>(mainFuncOp->getLoc(), constantZero);
+    func::ReturnOp::create(rewriter, mainFuncOp->getLoc(), constantZero);
   }
 };
 
@@ -651,8 +651,8 @@ private:
     }
     // Create LoadTensorOp to load tensor from disk.
     //
-    ttnn::LoadTensorOp loadTensorOp = rewriter.create<ttnn::LoadTensorOp>(
-        loc, tensorType, filePathAttr, device);
+    ttnn::LoadTensorOp loadTensorOp = ttnn::LoadTensorOp::create(
+        rewriter, loc, tensorType, filePathAttr, device);
 
     return loadTensorOp;
   }
@@ -1009,9 +1009,9 @@ public:
       rewriter.setInsertionPointToStart(&entryBlock);
       for (size_t idx = 0; idx < originalFuncType.getNumInputs(); idx++) {
         ttcore::GetTupleElementOp getTupleElementOp =
-            rewriter.create<ttcore::GetTupleElementOp>(
-                targetFuncOpInput.getLoc(), targetFuncOpInput.getArgument(0),
-                idx);
+            ttcore::GetTupleElementOp::create(
+                rewriter, targetFuncOpInput.getLoc(),
+                targetFuncOpInput.getArgument(0), idx);
 
         // Replace all uses of the original tensor arguments with the
         // GetTupleElementOp results.
@@ -1055,8 +1055,8 @@ public:
       targetFuncOpResult.walk<WalkOrder::PostOrder, ReverseIterator>(
           [&](mlir::func::ReturnOp returnOp) {
             rewriter.setInsertionPoint(returnOp);
-            ttcore::TupleOp tupleOp = rewriter.create<ttcore::TupleOp>(
-                returnOp.getLoc(), returnOp.getOperands());
+            ttcore::TupleOp tupleOp = ttcore::TupleOp::create(
+                rewriter, returnOp.getLoc(), returnOp.getOperands());
             rewriter.modifyOpInPlace(returnOp, [&]() {
               returnOp.getOperandsMutable().assign(tupleOp);
             });

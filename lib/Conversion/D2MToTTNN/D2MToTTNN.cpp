@@ -577,8 +577,8 @@ handleD2MResetGlobalSemaphore(d2m::ResetGlobalSemaphoreOp op,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  rewriter.create<ttnn::ResetGlobalSemaphoreOp>(op.getLoc(), mappedSemaphore,
-                                                op.getValueAttr());
+  ttnn::ResetGlobalSemaphoreOp::create(rewriter, op.getLoc(), mappedSemaphore,
+                                       op.getValueAttr());
   return success();
 }
 

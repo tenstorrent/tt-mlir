@@ -185,8 +185,8 @@ public:
     RankedTensorType slicedType = utils::RankedTensorTypeFactory::create(
         prePermuteType, slicedPrePermuteShape);
 
-    auto newSliceOp = rewriter.create<ttnn::SliceStaticOp>(
-        op.getLoc(), slicedType, permuteOp.getInput(),
+    auto newSliceOp = ttnn::SliceStaticOp::create(
+        rewriter, op.getLoc(), slicedType, permuteOp.getInput(),
         rewriter.getI32ArrayAttr(newBegins), rewriter.getI32ArrayAttr(newEnds),
         rewriter.getI32ArrayAttr(newStep));
 
@@ -453,8 +453,8 @@ public:
     RankedTensorType slicedInputType =
         utils::RankedTensorTypeFactory::create(inputType, slicedInputShape);
 
-    auto newSliceOp = rewriter.create<ttnn::SliceStaticOp>(
-        op.getLoc(), slicedInputType, reshapeOp.getInput(),
+    auto newSliceOp = ttnn::SliceStaticOp::create(
+        rewriter, op.getLoc(), slicedInputType, reshapeOp.getInput(),
         rewriter.getI32ArrayAttr(newBegins), rewriter.getI32ArrayAttr(newEnds),
         rewriter.getI32ArrayAttr(newStep));
 
@@ -538,8 +538,8 @@ public:
     RankedTensorType slicedType = utils::RankedTensorTypeFactory::create(
         repeatInputType, slicedInputShape);
 
-    auto newSliceOp = rewriter.create<ttnn::SliceStaticOp>(
-        op.getLoc(), slicedType, repeatOp.getInput(),
+    auto newSliceOp = ttnn::SliceStaticOp::create(
+        rewriter, op.getLoc(), slicedType, repeatOp.getInput(),
         rewriter.getI32ArrayAttr(newBegins), rewriter.getI32ArrayAttr(newEnds),
         rewriter.getI32ArrayAttr(newStep));
 
@@ -645,8 +645,8 @@ public:
             cast<RankedTensorType>(eltwiseOp->getOperand(i).getType());
         auto slicedType = utils::RankedTensorTypeFactory::create(
             operandType, infos[i].slicedShape);
-        auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
-            op.getLoc(), slicedType, eltwiseOp->getOperand(i),
+        auto sliceOp = ttnn::SliceStaticOp::create(
+            rewriter, op.getLoc(), slicedType, eltwiseOp->getOperand(i),
             rewriter.getI32ArrayAttr(infos[i].begins),
             rewriter.getI32ArrayAttr(infos[i].ends),
             rewriter.getI32ArrayAttr(infos[i].step));

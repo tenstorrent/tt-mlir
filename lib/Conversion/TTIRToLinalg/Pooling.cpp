@@ -143,16 +143,16 @@ Value padInput(Value input, Value padValue, int32_t padTop, int32_t padLeft,
   SmallVector<OpFoldResult> highPad = {
       rewriter.getIndexAttr(0), rewriter.getIndexAttr(padBottom),
       rewriter.getIndexAttr(padRight), rewriter.getIndexAttr(0)};
-  return rewriter.create<tensor::PadOp>(loc, paddedType, input, lowPad, highPad,
-                                        padValue);
+  return tensor::PadOp::create(rewriter, loc, paddedType, input, lowPad,
+                               highPad, padValue);
 }
 
 /// Create a tensor filled with a scalar value.
 Value createFilledTensor(ArrayRef<int64_t> shape, Type elementType,
                          Value fillVal, ConversionPatternRewriter &rewriter,
                          Location loc) {
-  Value empty = rewriter.create<tensor::EmptyOp>(loc, shape, elementType);
-  return rewriter.create<linalg::FillOp>(loc, fillVal, empty).getResult(0);
+  Value empty = tensor::EmptyOp::create(rewriter, loc, shape, elementType);
+  return linalg::FillOp::create(rewriter, loc, fillVal, empty).getResult(0);
 }
 
 /// Create kernel window tensor for pooling ops. Element type and values are
@@ -161,8 +161,8 @@ Value createKernelTensor(const PoolingAttrs &attrs,
                          ConversionPatternRewriter &rewriter, Location loc) {
   auto kernelType = RankedTensorType::get({attrs.kernelH, attrs.kernelW},
                                           rewriter.getF32Type());
-  return rewriter.create<tensor::EmptyOp>(loc, kernelType.getShape(),
-                                          kernelType.getElementType());
+  return tensor::EmptyOp::create(rewriter, loc, kernelType.getShape(),
+                                 kernelType.getElementType());
 }
 
 /// Create kernel window tensor and strides/dilations attributes.
@@ -188,10 +188,10 @@ Value sumPool(const PoolingAttrs &attrs, Value input,
   Value output =
       createFilledTensor(resultType.getShape(), resultType.getElementType(),
                          zeroVal, rewriter, loc);
-  return rewriter
-      .create<linalg::PoolingNhwcSumOp>(
-          loc, TypeRange{resultType}, ValueRange{input, kernelTensor},
-          ValueRange{output}, stridesAttr, dilationsAttr)
+  return linalg::PoolingNhwcSumOp::create(rewriter, loc, TypeRange{resultType},
+                                          ValueRange{input, kernelTensor},
+                                          ValueRange{output}, stridesAttr,
+                                          dilationsAttr)
       .getResult(0);
 }
 
@@ -202,13 +202,13 @@ Value createMaxPoolIdentity(Type elementType,
   if (auto floatType = dyn_cast<FloatType>(elementType)) {
     auto negInf =
         APFloat::getInf(floatType.getFloatSemantics(), /*Negative=*/true);
-    return rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getFloatAttr(elementType, negInf));
+    return arith::ConstantOp::create(
+        rewriter, loc, rewriter.getFloatAttr(elementType, negInf));
   }
   auto intType = cast<IntegerType>(elementType);
   auto minVal = APInt::getSignedMinValue(intType.getWidth());
-  return rewriter.create<arith::ConstantOp>(
-      loc, rewriter.getIntegerAttr(elementType, minVal));
+  return arith::ConstantOp::create(
+      rewriter, loc, rewriter.getIntegerAttr(elementType, minVal));
 }
 
 /// Unflatten input for pooling and compute unflattened output spatial dims.
@@ -286,11 +286,10 @@ public:
     auto [kernelTensor, stridesAttr, dilationsAttr] =
         createLinalgPoolingAttrs(attrs, rewriter, loc);
 
-    Value result = rewriter
-                       .create<linalg::PoolingNhwcMaxOp>(
-                           loc, TypeRange{poolOutputType},
-                           ValueRange{paddedInput, kernelTensor},
-                           ValueRange{poolOutput}, stridesAttr, dilationsAttr)
+    Value result = linalg::PoolingNhwcMaxOp::create(
+                       rewriter, loc, TypeRange{poolOutputType},
+                       ValueRange{paddedInput, kernelTensor},
+                       ValueRange{poolOutput}, stridesAttr, dilationsAttr)
                        .getResult(0);
 
     result = sliceResultToShape(result, resultType, rewriter, loc);
@@ -352,8 +351,8 @@ public:
     int64_t channels = inputType.getShape()[3];
     auto poolOutputType = makePoolOutputType(resultType, outputH, outputW);
 
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getFloatAttr(elementType, 0.0));
+    Value zero = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getFloatAttr(elementType, 0.0));
 
     Value paddedInput =
         padInput(input, zero, attrs.paddingTop, attrs.paddingLeft, padBottom,
@@ -368,8 +367,8 @@ public:
     //   ceil-mode extra padding positions get zeros.
     // - count_include_pad=false: ones cover input only;
     //   all padding positions get zeros.
-    Value one = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getFloatAttr(elementType, 1.0));
+    Value one = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getFloatAttr(elementType, 1.0));
 
     int64_t paddedH = inputH + attrs.paddingTop + padBottom;
     int64_t paddedW = inputW + attrs.paddingLeft + padRight;
@@ -402,21 +401,20 @@ public:
 
     Value onesTensor =
         createFilledTensor(onesShape, elementType, one, rewriter, loc);
-    Value paddedOnes = rewriter.create<tensor::PadOp>(
-        loc, paddedType, onesTensor, onesLowPad, onesHighPad, zero);
+    Value paddedOnes = tensor::PadOp::create(
+        rewriter, loc, paddedType, onesTensor, onesLowPad, onesHighPad, zero);
 
     // Sum-pool the mask to count valid elements per window.
     Value divisor =
         sumPool(attrs, paddedOnes, poolOutputType, zero, rewriter, loc);
 
     // Divide sum by count to get average.
-    Value avgOutputInit = rewriter.create<tensor::EmptyOp>(
-        loc, poolOutputType.getShape(), elementType);
-    Value result = rewriter
-                       .create<linalg::DivOp>(loc, poolOutputType,
-                                              ValueRange{sumResult, divisor},
-                                              avgOutputInit)
-                       .getResult(0);
+    Value avgOutputInit = tensor::EmptyOp::create(
+        rewriter, loc, poolOutputType.getShape(), elementType);
+    Value result =
+        linalg::DivOp::create(rewriter, loc, poolOutputType,
+                              ValueRange{sumResult, divisor}, avgOutputInit)
+            .getResult(0);
 
     result = sliceResultToShape(result, resultType, rewriter, loc);
     if (flatteningInfo) {
@@ -480,8 +478,8 @@ public:
         padInput(input, identity, attrs.paddingTop, attrs.paddingLeft,
                  padBottom, padRight, rewriter, loc);
 
-    Value zeroIdx = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIntegerAttr(indexElementType, 0));
+    Value zeroIdx = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIntegerAttr(indexElementType, 0));
 
     Value valuesOutput = createFilledTensor(
         poolValuesType.getShape(), elementType, identity, rewriter, loc);
@@ -523,8 +521,8 @@ public:
         utils::IteratorType::reduction  // kW
     };
 
-    auto genericOp = rewriter.create<linalg::GenericOp>(
-        loc, TypeRange{poolValuesType, poolIndicesType},
+    auto genericOp = linalg::GenericOp::create(
+        rewriter, loc, TypeRange{poolValuesType, poolIndicesType},
         /*inputs=*/ValueRange{windowTensor},
         /*outputs=*/ValueRange{valuesOutput, indicesOutput}, indexingMaps,
         iteratorTypes,
@@ -534,69 +532,70 @@ public:
           Value runningMax = bodyArgs[1];
           Value runningIdx = bodyArgs[2];
 
-          Value n = b.create<linalg::IndexOp>(bodyLoc, 0);
-          Value oh = b.create<linalg::IndexOp>(bodyLoc, 1);
-          Value ow = b.create<linalg::IndexOp>(bodyLoc, 2);
-          Value c = b.create<linalg::IndexOp>(bodyLoc, 3);
-          Value kh = b.create<linalg::IndexOp>(bodyLoc, 4);
-          Value kw = b.create<linalg::IndexOp>(bodyLoc, 5);
+          Value n = linalg::IndexOp::create(b, bodyLoc, 0);
+          Value oh = linalg::IndexOp::create(b, bodyLoc, 1);
+          Value ow = linalg::IndexOp::create(b, bodyLoc, 2);
+          Value c = linalg::IndexOp::create(b, bodyLoc, 3);
+          Value kh = linalg::IndexOp::create(b, bodyLoc, 4);
+          Value kw = linalg::IndexOp::create(b, bodyLoc, 5);
 
           // hIdx = oh * strideH + kh * dilationH
           // wIdx = ow * strideW + kw * dilationW
           Value strideHVal =
-              b.create<arith::ConstantIndexOp>(bodyLoc, attrs.strideH);
+              arith::ConstantIndexOp::create(b, bodyLoc, attrs.strideH);
           Value dilationHVal =
-              b.create<arith::ConstantIndexOp>(bodyLoc, attrs.dilationH);
+              arith::ConstantIndexOp::create(b, bodyLoc, attrs.dilationH);
           Value strideWVal =
-              b.create<arith::ConstantIndexOp>(bodyLoc, attrs.strideW);
+              arith::ConstantIndexOp::create(b, bodyLoc, attrs.strideW);
           Value dilationWVal =
-              b.create<arith::ConstantIndexOp>(bodyLoc, attrs.dilationW);
+              arith::ConstantIndexOp::create(b, bodyLoc, attrs.dilationW);
 
-          Value hIdx = b.create<arith::AddIOp>(
-              bodyLoc, b.create<arith::MulIOp>(bodyLoc, oh, strideHVal),
-              b.create<arith::MulIOp>(bodyLoc, kh, dilationHVal));
-          Value wIdx = b.create<arith::AddIOp>(
-              bodyLoc, b.create<arith::MulIOp>(bodyLoc, ow, strideWVal),
-              b.create<arith::MulIOp>(bodyLoc, kw, dilationWVal));
+          Value hIdx = arith::AddIOp::create(
+              b, bodyLoc, arith::MulIOp::create(b, bodyLoc, oh, strideHVal),
+              arith::MulIOp::create(b, bodyLoc, kh, dilationHVal));
+          Value wIdx = arith::AddIOp::create(
+              b, bodyLoc, arith::MulIOp::create(b, bodyLoc, ow, strideWVal),
+              arith::MulIOp::create(b, bodyLoc, kw, dilationWVal));
 
           // Extract the element from the padded input.
-          Value curVal = b.create<tensor::ExtractOp>(
-              bodyLoc, paddedInput, ValueRange{n, hIdx, wIdx, c});
+          Value curVal = tensor::ExtractOp::create(
+              b, bodyLoc, paddedInput, ValueRange{n, hIdx, wIdx, c});
 
           // Compare: is current value > running max?
           Value cmp;
           if (isa<FloatType>(elementType)) {
-            cmp = b.create<arith::CmpFOp>(bodyLoc, arith::CmpFPredicate::OGT,
-                                          curVal, runningMax);
+            cmp = arith::CmpFOp::create(b, bodyLoc, arith::CmpFPredicate::OGT,
+                                        curVal, runningMax);
           } else {
-            cmp = b.create<arith::CmpIOp>(bodyLoc, arith::CmpIPredicate::sgt,
-                                          curVal, runningMax);
+            cmp = arith::CmpIOp::create(b, bodyLoc, arith::CmpIPredicate::sgt,
+                                        curVal, runningMax);
           }
 
           // Flattened index into the *original* (unpadded) input:
           // flat_index = (hIdx - paddingTop) * inputW + (wIdx - paddingLeft)
           Value padTopIdx =
-              b.create<arith::ConstantIndexOp>(bodyLoc, attrs.paddingTop);
+              arith::ConstantIndexOp::create(b, bodyLoc, attrs.paddingTop);
           Value padLeftIdx =
-              b.create<arith::ConstantIndexOp>(bodyLoc, attrs.paddingLeft);
-          Value inputWIdx = b.create<arith::ConstantIndexOp>(bodyLoc, inputW);
+              arith::ConstantIndexOp::create(b, bodyLoc, attrs.paddingLeft);
+          Value inputWIdx = arith::ConstantIndexOp::create(b, bodyLoc, inputW);
 
-          Value hIn = b.create<arith::SubIOp>(bodyLoc, hIdx, padTopIdx);
-          Value wIn = b.create<arith::SubIOp>(bodyLoc, wIdx, padLeftIdx);
-          Value flatIdxIndex = b.create<arith::AddIOp>(
-              bodyLoc, b.create<arith::MulIOp>(bodyLoc, hIn, inputWIdx), wIn);
+          Value hIn = arith::SubIOp::create(b, bodyLoc, hIdx, padTopIdx);
+          Value wIn = arith::SubIOp::create(b, bodyLoc, wIdx, padLeftIdx);
+          Value flatIdxIndex = arith::AddIOp::create(
+              b, bodyLoc, arith::MulIOp::create(b, bodyLoc, hIn, inputWIdx),
+              wIn);
 
           // Cast flat index from index to the result index element type.
-          Value flatIdx = b.create<arith::IndexCastOp>(
-              bodyLoc, indexElementType, flatIdxIndex);
+          Value flatIdx = arith::IndexCastOp::create(
+              b, bodyLoc, indexElementType, flatIdxIndex);
 
           // Select: if curVal > runningMax, use curVal and flatIdx.
           Value newMax =
-              b.create<arith::SelectOp>(bodyLoc, cmp, curVal, runningMax);
+              arith::SelectOp::create(b, bodyLoc, cmp, curVal, runningMax);
           Value newIdx =
-              b.create<arith::SelectOp>(bodyLoc, cmp, flatIdx, runningIdx);
+              arith::SelectOp::create(b, bodyLoc, cmp, flatIdx, runningIdx);
 
-          b.create<linalg::YieldOp>(bodyLoc, ValueRange{newMax, newIdx});
+          linalg::YieldOp::create(b, bodyLoc, ValueRange{newMax, newIdx});
         });
 
     Value valuesResult = sliceResultToShape(genericOp.getResult(0),
@@ -648,12 +647,12 @@ public:
     auto heightReduceType = RankedTensorType::get(afterHeightReduceShape,
                                                   resultType.getElementType());
 
-    auto heightReduceResult = rewriter.create<tosa::ReduceSumOp>(
-        loc, heightReduceType, input, rewriter.getI32IntegerAttr(1));
+    auto heightReduceResult = tosa::ReduceSumOp::create(
+        rewriter, loc, heightReduceType, input, rewriter.getI32IntegerAttr(1));
 
     // Then, reduce along width dimension (dim 2).
-    auto widthReduceResult = rewriter.create<tosa::ReduceSumOp>(
-        loc, resultType, heightReduceResult.getResult(),
+    auto widthReduceResult = tosa::ReduceSumOp::create(
+        rewriter, loc, resultType, heightReduceResult.getResult(),
         rewriter.getI32IntegerAttr(2));
 
     // Divide by the total number of spatial elements (H * W).
@@ -666,11 +665,12 @@ public:
     DenseElementsAttr divisorAttr = DenseElementsAttr::get(
         divisorType, rewriter.getFloatAttr(elementType, 1.0 / spatialCount));
     auto divisorConst =
-        rewriter.create<tosa::ConstOp>(loc, divisorType, divisorAttr);
+        tosa::ConstOp::create(rewriter, loc, divisorType, divisorAttr);
 
     Value shift = createTosaMulShift(rewriter, loc);
-    auto result = rewriter.create<tosa::MulOp>(
-        loc, resultType, widthReduceResult.getResult(), divisorConst, shift);
+    auto result =
+        tosa::MulOp::create(rewriter, loc, resultType,
+                            widthReduceResult.getResult(), divisorConst, shift);
 
     rewriter.replaceOp(op, result.getResult());
     return success();

@@ -56,16 +56,16 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     int64_t totalTileCols = numTileCols * gridShape[gridShape.size() - 1];
     int64_t totalTileRows = numTileRows * gridShape[gridShape.size() - 2];
 
-    Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+    Value zeroIdx = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    Value oneIdx = arith::ConstantIndexOp::create(rewriter, loc, 1);
     Value numTileRowsVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, numTileRows);
+        arith::ConstantIndexOp::create(rewriter, loc, numTileRows);
     Value numTileColsVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, numTileCols);
+        arith::ConstantIndexOp::create(rewriter, loc, numTileCols);
 
     // === STEP 1: Write the scratch tile ===
     TT_assert(indexTileMemref);
-    rewriter.create<FillArangeTileOp>(loc, indexTileMemref);
+    FillArangeTileOp::create(rewriter, loc, indexTileMemref);
 
     // === STEP 2: Scalar constants for arange start and step ===
     // arith ops require signless integers; tile element types may be si32/ui32.
@@ -87,10 +87,10 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
 
     // === STEP 3: Create nested loops over tiles ===
     // Get this core's coordinates.
-    Value coreY = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0), nullptr);
-    Value coreX = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(1), nullptr);
+    Value coreY = CoreIndexOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      rewriter.getI64IntegerAttr(0), nullptr);
+    Value coreX = CoreIndexOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      rewriter.getI64IntegerAttr(1), nullptr);
 
     // For column-major, iterate columns first; for row-major, iterate rows
     // first.
@@ -119,28 +119,29 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
 
     // === STEP 4: Load scratch tile ===
     Value localIndexTile =
-        rewriter
-            .create<memref::LoadOp>(loc, indexTileMemref,
-                                    ValueRange{zeroIdx, zeroIdx})
+        memref::LoadOp::create(rewriter, loc, indexTileMemref,
+                               ValueRange{zeroIdx, zeroIdx})
             .getResult();
 
     // === STEP 5: Compute tile offset as scalar ===
     Value shardTileRowsIdx =
-        rewriter.create<arith::ConstantIndexOp>(loc, numTileRows);
+        arith::ConstantIndexOp::create(rewriter, loc, numTileRows);
     Value shardTileColsIdx =
-        rewriter.create<arith::ConstantIndexOp>(loc, numTileCols);
+        arith::ConstantIndexOp::create(rewriter, loc, numTileCols);
     Value totalTileColsIdx =
         rewriter.create<arith::ConstantIndexOp>(loc, totalTileCols);
     Value totalTileRowsIdx =
         rewriter.create<arith::ConstantIndexOp>(loc, totalTileRows);
     Value const32Idx = rewriter.create<arith::ConstantIndexOp>(loc, 32);
     // globalTileRow = coreY * shardTileRows + localTileRow
-    Value globalTileRow = rewriter.create<arith::AddIOp>(
-        loc, rewriter.create<arith::MulIOp>(loc, coreY, shardTileRowsIdx),
+    Value globalTileRow = arith::AddIOp::create(
+        rewriter, loc,
+        arith::MulIOp::create(rewriter, loc, coreY, shardTileRowsIdx),
         tileRowIdx);
     // globalTileCol = coreX * shardTileCols + localTileCol
-    Value globalTileCol = rewriter.create<arith::AddIOp>(
-        loc, rewriter.create<arith::MulIOp>(loc, coreX, shardTileColsIdx),
+    Value globalTileCol = arith::AddIOp::create(
+        rewriter, loc,
+        arith::MulIOp::create(rewriter, loc, coreX, shardTileColsIdx),
         tileColIdx);
 
     Value tileOffsetIdx;
@@ -207,8 +208,8 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
             .getResult();
 
     // === STEP 7: Store result tile to output ===
-    rewriter.create<memref::StoreOp>(loc, resultTile, output,
-                                     ValueRange{tileRowIdx, tileColIdx});
+    memref::StoreOp::create(rewriter, loc, resultTile, output,
+                            ValueRange{tileRowIdx, tileColIdx});
 
     rewriter.setInsertionPointAfter(outerLoop);
 
