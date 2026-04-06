@@ -227,7 +227,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    rewriter.replaceOpWithNewOp<OpTy>(op, newResultType, adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<OpTy>(op, TypeRange{newResultType},
+                                      adaptor.getOperands(),
+                                      op.getProperties());
     return success();
   }
 };
@@ -286,6 +288,39 @@ public:
     return success();
   }
 };
+
+// Rewrites stablehlo::SliceOp with complex-typed tensor results by appending
+// a full-range slice (0:2:1) for the trailing real/imag dimension.
+class ComplexSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::SliceOp> {
+  using OpConversionPattern<mlir::stablehlo::SliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::SliceOp op,
+      OpConversionPattern<mlir::stablehlo::SliceOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+
+    SmallVector<int64_t> newStartIndices(op.getStartIndices());
+    SmallVector<int64_t> newLimitIndices(op.getLimitIndices());
+    SmallVector<int64_t> newStrides(op.getStrides());
+
+    // adding [0:2:1] slice means "select all from the new trailing dimension"
+    newStartIndices.push_back(0);
+    newLimitIndices.push_back(2);
+    newStrides.push_back(1);
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::SliceOp>(
+        op, newResultType, adaptor.getOperand(),
+        rewriter.getDenseI64ArrayAttr(newStartIndices),
+        rewriter.getDenseI64ArrayAttr(newLimitIndices),
+        rewriter.getDenseI64ArrayAttr(newStrides));
+    return success();
+  }
+};
+
 } // namespace
 
 namespace {
@@ -306,10 +341,10 @@ struct StableHLOComplexDataTypeConversionPass
       return !mlir::isa<mlir::ComplexType>(resultType.getElementType());
     };
 
-    target.addDynamicallyLegalOp<mlir::stablehlo::ConstantOp,
-                                 mlir::stablehlo::ReshapeOp,
-                                 mlir::stablehlo::BroadcastInDimOp>(
-        isNotComplexType);
+    target.addDynamicallyLegalOp<
+        mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
+        mlir::stablehlo::SliceOp, mlir::stablehlo::ConcatenateOp,
+        mlir::stablehlo::BroadcastInDimOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
@@ -334,14 +369,15 @@ struct StableHLOComplexDataTypeConversionPass
         });
 
     RewritePatternSet patterns(&getContext());
-    patterns
-        .add<ComplexBroadcastInDimOpConversionPattern,
-             ComplexConstantOpConversionPattern,
-             ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
-             StablehloComplexToDecomposedPattern,
-             StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
-             StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
-            typeConverter, &getContext());
+    patterns.add<
+        ComplexBroadcastInDimOpConversionPattern,
+        ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
+        StablehloComplexToDecomposedPattern,
+        StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
+        StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
+        typeConverter, &getContext());
 
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
