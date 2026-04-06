@@ -333,11 +333,14 @@ def D2MInsertTileMatmulBlock : Pass<"d2m-insert-tile-matmul-block", "::mlir::Mod
 
     The pass independently detects eligible matmul compute loops by
     walking the IR for tile_matmul ops, recovers the input/output CB
-    memrefs by tracing operands through affine.load ops and DST-to-CB
-    store copy loops, and verifies shape eligibility before replacement.
+    memrefs by tracing operands through affine.load ops and a verified
+    DST-to-L1 store copy chain (store value must come from affine.load of
+    the DST memref), and verifies shape eligibility before replacement.
 
-    This pass is robust to canonicalization ordering -- it works correctly
-    whether invoked before or after canonicalize.
+    When memref.cast or memref.subview has been folded into those loads or
+    stores, recovery scans the block before the compute loop for cast/subview
+    definitions of the underlying CB and prefers those results so strided
+    memref types stay consistent for downstream passes.
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",

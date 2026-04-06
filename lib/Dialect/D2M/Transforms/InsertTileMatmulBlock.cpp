@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -11,39 +11,17 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Block.h"
 
-#include <numeric>
-
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTTILEMATMULBLOCK
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
 
-// Higher rank matmuls are incompatible with tile matmul block, but there
-// is a special case if all outer ranks are 1's.
-// e.g.
-//   2x1x2x4 -> Not compatible
-//   1x2x2x4 -> Not Compatible
-//   1x1x2x4 -> Compatible (special case)
-//
-// Technically the rank > 2 special case seems feasible, but the indexing math
-// for matmul block gets tripped up during ttkernel lowering. Filed follow
-// on issue to support special case below:
+// Only rank-2 L1 tile memrefs are supported for tile_matmul_block today.
+// Higher-rank batching (e.g. leading 1x1x...) is tracked in:
 //   https://github.com/tenstorrent/tt-mlir/issues/6955
-// Once linked issue is fixed, the rank > 2 early out can be removed.
 static bool canReplaceWithMatmulBlock(ShapedType shapedType) {
-  if (shapedType.getRank() < 2) {
-    return false;
-  }
-
-  if (shapedType.getRank() > 2) {
-    return false;
-  }
-
-  auto outerShape = shapedType.getShape().drop_back(2);
-  int64_t outerVolume = std::accumulate(outerShape.begin(), outerShape.end(), 1,
-                                        std::multiplies<int64_t>());
-  return outerVolume == 1;
+  return shapedType.getRank() == 2;
 }
 
 static d2m::TileMatmulOp findTileMatmul(Operation *op) {
@@ -69,9 +47,22 @@ static Value findL1MemrefFromOperand(Value operand) {
   return nullptr;
 }
 
-// Find the output C memref by scanning sibling operations after the compute
-// loop for the store copy loop pattern: affine.load from DST followed by
-// affine.store to L1.
+static bool isAffineStoreFromDstToL1(affine::AffineStoreOp storeOp,
+                                     Value dstValue) {
+  if (ttcore::getMemorySpace(storeOp.getMemRef()) !=
+      ttcore::MemorySpace::DeviceL1) {
+    return false;
+  }
+  auto loadOp = storeOp.getValueToStore().getDefiningOp<affine::AffineLoadOp>();
+  if (!loadOp) {
+    return false;
+  }
+  return loadOp.getMemRef() == dstValue;
+}
+
+// Find the output C memref: scan siblings after the compute loop for a nest
+// that performs DST -> L1 (stored value must be defined by affine.load from
+// dstValue, store target must be L1).
 static Value findOutputMemrefFromStoreCopyLoop(Operation *computeLoop,
                                                Value dstValue) {
   Block *parentBlock = computeLoop->getBlock();
@@ -79,15 +70,11 @@ static Value findOutputMemrefFromStoreCopyLoop(Operation *computeLoop,
        it != parentBlock->end(); ++it) {
     Value outputMemref = nullptr;
     it->walk([&](affine::AffineStoreOp storeOp) {
-      Value target = storeOp.getMemRef();
-      if (target == dstValue) {
+      if (!isAffineStoreFromDstToL1(storeOp, dstValue)) {
         return WalkResult::advance();
       }
-      if (ttcore::getMemorySpace(target) == ttcore::MemorySpace::DeviceL1) {
-        outputMemref = target;
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
+      outputMemref = storeOp.getMemRef();
+      return WalkResult::interrupt();
     });
     if (outputMemref) {
       return outputMemref;
@@ -96,11 +83,11 @@ static Value findOutputMemrefFromStoreCopyLoop(Operation *computeLoop,
   return nullptr;
 }
 
-// When the store copy loop's affine.store folds a memref.cast (via
-// canonicalization), we get the raw CB instead of the cast result. Look for a
-// memref.cast or memref.subview of the raw CB defined before the compute loop
-// and prefer that, since it preserves the strided type annotation expected by
-// downstream passes.
+// When canonicalization folds memref.cast / memref.subview into a load or
+// store, the memref on the affine op becomes the raw CB. Look for a
+// memref.cast or memref.subview of that buffer in the same block before the
+// compute loop and prefer its result so strided layout types match what
+// downstream expects.
 static Value preferCastOrSubview(Value rawMemref, Operation *computeLoop) {
   Block *parentBlock = computeLoop->getBlock();
   for (auto it = parentBlock->begin(); it != Block::iterator(computeLoop);
@@ -215,6 +202,8 @@ private:
       return matmulOp->emitOpError()
              << "could not find L1 input memrefs for tile_matmul operands";
     }
+    inputA = preferCastOrSubview(inputA, computeLoop);
+    inputB = preferCastOrSubview(inputB, computeLoop);
 
     // Find the DST value from the accumulator operand.
     auto accLoad =
@@ -232,7 +221,6 @@ private:
              << "could not find output L1 memref in store copy loop";
     }
 
-    // Prefer a cast/subview of the raw CB if one exists before the loop.
     outputC = preferCastOrSubview(outputC, computeLoop);
 
     // Verify that the output shape is eligible for matmul block replacement.
