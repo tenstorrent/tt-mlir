@@ -171,16 +171,15 @@ struct ConvertD2MToTTKernel
         OpBuilder builder(func.getContext());
         builder.setInsertionPointToStart(&func.getBody().front());
         auto fabricConnectionManager =
-            builder
-                .create<ttkernel::CreateFabricConnectionManagerOp>(
-                    func.getLoc())
+            ttkernel::CreateFabricConnectionManagerOp::create(builder,
+                                                              func.getLoc())
                 .getResult();
-        builder.create<ttkernel::SetupFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
+        ttkernel::SetupFabricConnectionsOp::create(builder, func.getLoc(),
+                                                   fabricConnectionManager);
         Operation *terminator = func.getBody().front().getTerminator();
         builder.setInsertionPoint(terminator);
-        builder.create<ttkernel::CloseFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
+        ttkernel::CloseFabricConnectionsOp::create(builder, func.getLoc(),
+                                                   fabricConnectionManager);
       }
     });
 

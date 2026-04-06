@@ -42,7 +42,7 @@ public:
     innerModule.getBodyRegion().takeBody(rootModule.getBodyRegion());
     rootModule.getRegion().emplaceBlock();
     builder.setInsertionPointToStart(&rootModule.getBodyRegion().front());
-    auto deviceModule = builder.create<DeviceModuleOp>(rootModule.getLoc());
+    auto deviceModule = DeviceModuleOp::create(builder, rootModule.getLoc());
     builder.setInsertionPointToStart(&deviceModule.getBodyRegion().front());
     builder.clone(*innerModule);
     innerModule->erase();

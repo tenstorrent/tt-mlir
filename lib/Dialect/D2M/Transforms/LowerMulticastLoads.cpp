@@ -156,8 +156,8 @@ public:
     }
 
     // Build low-level multicast arguments.
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value zero = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
 
     SmallVector<Value> mcastStartIndex;
     SmallVector<int64_t> mcastShapeInt64;
@@ -169,8 +169,9 @@ public:
         auto dimPos = *maybeDimPos;
         if (mcastDimSet.contains(dimPos)) {
           // for parallel dim specified by multicast, extent is 0
-          Value coreIdx = rewriter.create<CoreIndexOp>(
-              loc, static_cast<int64_t>(dim), grid.getPhysicalToVirtMap());
+          Value coreIdx =
+              CoreIndexOp::create(rewriter, loc, static_cast<int64_t>(dim),
+                                  grid.getPhysicalToVirtMap());
           mcastStartIndex.push_back(coreIdx);
           mcastShapeInt64.push_back(1);
         } else {
@@ -218,8 +219,9 @@ public:
     SmallVector<Value> mcastShape;
     mcastShape.reserve(mcastShapeInt64.size());
     for (int64_t dimSize : mcastShapeInt64) {
-      mcastShape.push_back(rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(), rewriter.getIndexAttr(dimSize)));
+      mcastShape.push_back(
+          arith::ConstantOp::create(rewriter, loc, rewriter.getIndexType(),
+                                    rewriter.getIndexAttr(dimSize)));
     }
 
     // Create replacement RemoteLoadOp with low-level multicast form.

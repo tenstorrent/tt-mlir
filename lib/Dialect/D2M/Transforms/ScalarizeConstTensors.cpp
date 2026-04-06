@@ -286,8 +286,8 @@ static linalg::GenericOp rebuildLinalgGenericWithoutScalarizedInputs(
   }
 
   rewriter.setInsertionPoint(linalgOp);
-  auto newLinalgOp = rewriter.create<linalg::GenericOp>(
-      linalgOp.getLoc(), linalgOp.getResultTypes(), newInputs,
+  auto newLinalgOp = linalg::GenericOp::create(
+      rewriter, linalgOp.getLoc(), linalgOp.getResultTypes(), newInputs,
       linalgOp.getOutputs(), newIndexingMaps, linalgOp.getIteratorTypesArray());
 
   Block *linalgBlock = linalgOp.getBody();
@@ -348,9 +348,9 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
   }
 
   rewriter.setInsertionPoint(genericOp);
-  auto newGenericOp = rewriter.create<GenericOp>(
-      genericOp.getLoc(), genericOp.getResultTypes(), newGenericInputs,
-      genericOp.getOutputs(), genericOp.getAdditionalArgs(),
+  auto newGenericOp = GenericOp::create(
+      rewriter, genericOp.getLoc(), genericOp.getResultTypes(),
+      newGenericInputs, genericOp.getOutputs(), genericOp.getAdditionalArgs(),
       genericOp.getGrid(), genericOp.getBlockFactors(),
       rewriter.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
       genericOp.getThreads(), genericOp.getScratchInputsAttr(),
@@ -423,9 +423,9 @@ scalarizeSplatThroughUseChains(Location loc, Attribute splatValue,
 
       Value scalarConst;
       if (auto floatAttr = dyn_cast<FloatAttr>(splatValue)) {
-        scalarConst = rewriter.create<arith::ConstantOp>(loc, floatAttr);
+        scalarConst = arith::ConstantOp::create(rewriter, loc, floatAttr);
       } else if (auto intAttr = dyn_cast<IntegerAttr>(splatValue)) {
-        scalarConst = rewriter.create<arith::ConstantOp>(loc, intAttr);
+        scalarConst = arith::ConstantOp::create(rewriter, loc, intAttr);
       }
 
       if (!scalarConst) {

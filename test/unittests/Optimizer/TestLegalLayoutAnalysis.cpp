@@ -53,8 +53,8 @@ protected:
 
     // Create a function
     auto funcType = builder.getFunctionType({}, {});
-    func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(),
-                                              "test_func", funcType);
+    func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(),
+                                      "test_func", funcType);
 
     // Create a basic block in the function
     mlir::Block *entryBlock = func.addEntryBlock();
@@ -98,8 +98,9 @@ protected:
     // Create function with a test tensor type of the parameterized shape
     auto tensorType = createTensorType(getTensorShape(), f32Type);
 
-    auto device = builder.create<mlir::tt::ttnn::GetDeviceOp>(
-        builder.getUnknownLoc(), builder.getType<mlir::tt::ttnn::DeviceType>(),
+    auto device = mlir::tt::ttnn::GetDeviceOp::create(
+        builder, builder.getUnknownLoc(),
+        builder.getType<mlir::tt::ttnn::DeviceType>(),
         mlir::tt::ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
         mlir::tt::ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
@@ -113,20 +114,20 @@ protected:
         std::nullopt);
 
     // Create an empty tensor
-    auto empty = builder.create<mlir::tt::ttnn::EmptyOp>(
-        builder.getUnknownLoc(), tensorType, device,
+    auto empty = mlir::tt::ttnn::EmptyOp::create(
+        builder, builder.getUnknownLoc(), tensorType, device,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
         mlir::tt::ttcore::DataTypeAttr::get(
             &context, mlir::tt::ttcore::DataType::Float32),
         mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile), memConfig);
 
     // Use that tensor in a ReluOp so we have a relevant op with a tensor result
-    auto relu = builder.create<mlir::tt::ttnn::ReluOp>(builder.getUnknownLoc(),
-                                                       empty.getResult());
+    auto relu = mlir::tt::ttnn::ReluOp::create(builder, builder.getUnknownLoc(),
+                                               empty.getResult());
 
     // Add return op
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
-                                         relu.getResult());
+    mlir::func::ReturnOp::create(builder, builder.getUnknownLoc(),
+                                 relu.getResult());
   }
 };
 

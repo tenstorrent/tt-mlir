@@ -242,7 +242,7 @@ public:
 
     // Create a new function with the ttnn.Tensor signature and move the body.
     auto newOp =
-        rewriter.create<func::FuncOp>(op.getLoc(), op.getName(), newType);
+        func::FuncOp::create(rewriter, op.getLoc(), op.getName(), newType);
     newOp->setAttrs(op->getAttrs());
     newOp.setFunctionType(newType);
 
@@ -255,9 +255,9 @@ public:
     SmallVector<Value> torchArgs;
     for (unsigned i = 0; i < oldEntry.getNumArguments(); ++i) {
       auto newArg = newEntry.addArgument(ttnnType, op.getLoc());
-      auto toTorch = rewriter.create<emitpy::CallOpaqueOp>(
-          op.getLoc(), torchType, "ttnn.to_torch", ValueRange{newArg}, nullptr,
-          nullptr);
+      auto toTorch = emitpy::CallOpaqueOp::create(
+          rewriter, op.getLoc(), torchType, "ttnn.to_torch", ValueRange{newArg},
+          nullptr, nullptr);
       torchArgs.push_back(toTorch.getResult(0));
     }
 
@@ -282,9 +282,9 @@ public:
 
     SmallVector<Value> newOperands;
     for (Value operand : adaptor.getOperands()) {
-      auto fromTorch = rewriter.create<emitpy::CallOpaqueOp>(
-          op.getLoc(), ttnnType, "ttnn.from_torch", ValueRange{operand},
-          nullptr, nullptr);
+      auto fromTorch = emitpy::CallOpaqueOp::create(
+          rewriter, op.getLoc(), ttnnType, "ttnn.from_torch",
+          ValueRange{operand}, nullptr, nullptr);
       newOperands.push_back(fromTorch.getResult(0));
     }
     rewriter.replaceOpWithNewOp<func::ReturnOp>(op, newOperands);
@@ -426,8 +426,8 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto listOp = rewriter.create<emitpy::CallOpaqueOp>(
-        op.getLoc(),
+    auto listOp = emitpy::CallOpaqueOp::create(
+        rewriter, op.getLoc(),
         emitpy::OpaqueType::get(rewriter.getContext(), "[torch.Tensor]"),
         "util_create_list", adaptor.getInputs(), nullptr, nullptr);
 

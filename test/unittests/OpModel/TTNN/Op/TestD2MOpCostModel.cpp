@@ -39,9 +39,9 @@ public:
     }
     auto rankedTensorType =
         createRankedTensorType(tensorShape, elementType, layout);
-    return builder.create<OnesOp>(
-        builder.getUnknownLoc(), rankedTensorType, nullptr,
-        ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+    return OnesOp::create(builder, builder.getUnknownLoc(), rankedTensorType,
+                          nullptr, ShapeAttr::get(&context, tensorShape),
+                          nullptr, nullptr, nullptr);
   }
 
   std::vector<TTNNLayoutAttr> getInputLayoutsFromOperands(mlir::Operation *op) {
@@ -75,8 +75,8 @@ TEST_F(D2MOpCostModelTest, AddOp) {
   auto rhs = createEmptyTensor(shape, builder.getBF16Type(), layout);
   auto outputType =
       createRankedTensorType(shape, builder.getBF16Type(), layout);
-  auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), outputType,
-                                     mlir::ValueRange{lhs, rhs});
+  auto addOp = AddOp::create(builder, builder.getUnknownLoc(), outputType,
+                             mlir::ValueRange{lhs, rhs});
 
   std::vector<TTNNLayoutAttr> inputs = getInputLayoutsFromOperands(addOp);
   OpConfig opConfig = getOutputConfig(addOp);
@@ -102,8 +102,8 @@ TEST_F(D2MOpCostModelTest, ReluOp) {
   auto input = createEmptyTensor(shape, builder.getBF16Type(), layout);
   auto outputType =
       createRankedTensorType(shape, builder.getBF16Type(), layout);
-  auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), outputType,
-                                       mlir::ValueRange{input});
+  auto reluOp = ReluOp::create(builder, builder.getUnknownLoc(), outputType,
+                               mlir::ValueRange{input});
 
   std::vector<TTNNLayoutAttr> inputs = getInputLayoutsFromOperands(reluOp);
   OpConfig opConfig = getOutputConfig(reluOp);
@@ -132,8 +132,8 @@ TEST_F(D2MOpCostModelTest, SumOp) {
   auto input = createEmptyTensor(inputShape, builder.getBF16Type(), layoutIn);
   auto outputType =
       createRankedTensorType(outputShape, builder.getBF16Type(), layoutOut);
-  auto sumOp = builder.create<SumOp>(
-      builder.getUnknownLoc(), outputType, input, /*keep_dim=*/true,
+  auto sumOp = SumOp::create(
+      builder, builder.getUnknownLoc(), outputType, input, /*keep_dim=*/true,
       builder.getArrayAttr(
           llvm::SmallVector<mlir::Attribute>{builder.getI64IntegerAttr(1)}));
 
@@ -168,8 +168,8 @@ TEST_F(D2MOpCostModelTest, MatmulOp) {
   auto inputB = createEmptyTensor(shapeB, builder.getBF16Type(), layoutB);
   auto outputType =
       createRankedTensorType(shapeO, builder.getBF16Type(), layoutO);
-  auto matmulOp = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
-                                           mlir::ValueRange{inputA, inputB});
+  auto matmulOp = MatmulOp::create(builder, builder.getUnknownLoc(), outputType,
+                                   mlir::ValueRange{inputA, inputB});
 
   std::vector<TTNNLayoutAttr> inputs = getInputLayoutsFromOperands(matmulOp);
   OpConfig opConfig = getOutputConfig(matmulOp);
