@@ -56,6 +56,17 @@ struct RotaryEmbeddingRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// SplitQueryKeyValueAndSplitHeads: NULL hint only, no reshards.
+/// The sharded create_qkv_heads kernel (BLOCK_SHARDED → HEIGHT_SHARDED)
+/// corrupts data when the sequence dimension is non-tile-aligned (e.g. 197).
+/// https://github.com/tenstorrent/tt-metal/issues/41526
+struct SplitQKVRuleBook : OpRuleBook {
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_TRANSFORMERRULES_H

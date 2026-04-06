@@ -58,6 +58,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
   static RotaryEmbeddingRuleBook rotaryEmbedding;
+  static SplitQKVRuleBook splitQKV;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -86,6 +87,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(WhereOp::getOperationName(), &typecast);
     reg(RotaryEmbeddingOp::getOperationName(), &rotaryEmbedding);
     reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
+    reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;
