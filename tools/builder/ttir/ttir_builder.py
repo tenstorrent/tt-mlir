@@ -17279,8 +17279,8 @@ class TTIRBuilder(Builder):
 
     ############### ttir.GatherDimOp ###############
 
-    @tag(ttir.GatherDimOp)
-    def gather_dim(
+    @tag(ttir.GatherOp)
+    def gather(
         self,
         in0: Operand,
         index: Operand,
@@ -17289,7 +17289,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.gather_dim)
+        ttir_op = self.get_opview_from_method(TTIRBuilder.gather)
 
         if output_type is None:
             mlir_output_type = self.get_type(in0)
@@ -17331,10 +17331,10 @@ class TTIRBuilder(Builder):
 
         return op_result
 
-    @parse(ttir.GatherDimOp)
+    @parse(ttir.GatherOp)
     def gather_dim_parser(
         self,
-        old_op: ttir.GatherDimOp,
+        old_op: ttir.GatherOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.gather_dim_parser)
@@ -17368,10 +17368,10 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
-    @split(ttir.GatherDimOp)
+    @split(ttir.GatherOp)
     def gather_dim_split(
         self,
-        old_op: ttir.GatherDimOp,
+        old_op: ttir.GatherOp,
     ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.gather_dim_split)
 
