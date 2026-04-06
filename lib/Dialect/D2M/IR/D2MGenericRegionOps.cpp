@@ -407,6 +407,15 @@ void DMAWriteOp::getEffects(
   return mlir::success();
 }
 
+void GetArgOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  if (mlir::isa<IndexType>(getResult().getType())) {
+    setResultRange(getResult(),
+                   getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+  }
+}
+
 void WriteRowMaskTileOp::getEffects(
     mlir::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>

@@ -687,7 +687,22 @@ template <typename Builder>
 SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
                             ValueRange index, bool isRemote) {
   auto affineApply = [&](AffineMap map, ValueRange index) {
-    return builder.template create<affine::AffineApplyOp>(loc, map, index);
+    SmallVector<Value> clamped_index;
+    for (Value i : index) {
+      // Treat all index types as positive by casting them such that integer
+      // range analysis can eliminate a lot of additional codegen from
+      // AffineApplyOp for dealing with negative numbers.
+      if (mlir::isa<IndexType>(i.getType())) {
+        Value posIdx = builder.template create<arith::IndexCastUIOp>(
+            loc, builder.getI32Type(), i);
+        posIdx = builder.template create<arith::IndexCastUIOp>(
+            loc, builder.getIndexType(), i);
+      }
+      clamped_index.push_back(i);
+    }
+
+    return builder.template create<affine::AffineApplyOp>(loc, map,
+                                                          clamped_index);
   };
 
   if (isRemote) {

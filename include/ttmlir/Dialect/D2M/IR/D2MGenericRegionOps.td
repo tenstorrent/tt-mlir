@@ -2342,7 +2342,10 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
     let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
 }
 
-def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {
+def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg",
+  [ Pure
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  ]> {
     let summary = "Get a generic argument for the given operand index.";
     let description = [{
       Obtain a handle for the specified operand index. The result type determines
