@@ -98,7 +98,7 @@ ExternalProject_Add(shardy
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
-   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy.patch" && git commit -m "tt-mlir related patch" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy_mpmd_pybinds.patch" && git commit -m "tt-mlir related patch"
+   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/shardy.patch" && git commit -m "tt-mlir related patch"
 )
 
 if(TTMLIR_BUILD_LLVM)
