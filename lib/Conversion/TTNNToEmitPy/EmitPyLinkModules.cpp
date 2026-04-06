@@ -157,11 +157,11 @@ private:
       // and insert the definition before it.
       //
       Operation *insertionPoint = findFirstCaller(decl.getSymName(), *scope);
-      if (insertionPoint) {
-        it->second->moveBefore(insertionPoint);
-      } else {
-        it->second->moveBefore(decl);
+      if (!insertionPoint) {
+        return decl.emitError(
+            "CPU-hoisted declaration has no call site in its scope");
       }
+      it->second->moveBefore(insertionPoint);
       decl->erase();
 
       // Clone CPU imports into this scope (once per scope).

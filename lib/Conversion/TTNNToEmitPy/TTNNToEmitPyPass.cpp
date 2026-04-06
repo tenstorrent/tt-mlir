@@ -11,7 +11,6 @@
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Pass/PassManager.h"
-
 #include "llvm/ADT/MapVector.h"
 
 using namespace mlir;
@@ -125,8 +124,8 @@ struct ConvertTTNNToEmitPyPass
     }
 
     // Lower ImportedDeclaration func declarations to emitpy.import ops.
-    // These are private declarations created by TTNNFileSplit to represent
-    // functions defined in other files.
+    // These are private declarations created by TTNNFileSplit (if performed)
+    // to represent functions defined in other files.
     lowerImportedDeclarations(module);
   }
 

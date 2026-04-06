@@ -133,15 +133,12 @@ private:
     }
 
     auto fileContainsCallTo = [](auto fileOp, StringRef symbol) {
-      bool found = false;
-      fileOp.walk([&](func::CallOp callOp) {
-        if (callOp.getCallee() == symbol) {
-          found = true;
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
-      });
-      return found;
+      return fileOp
+          .walk([&symbol](func::CallOp callOp) {
+            return callOp.getCallee() == symbol ? WalkResult::interrupt()
+                                                : WalkResult::advance();
+          })
+          .wasInterrupted();
     };
 
     for (auto cpuDecl : cpuDecls) {
