@@ -411,6 +411,26 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   return outputTensorHandle;
 }
 
+::tt::runtime::Tensor Controller::createOwnedHostTensor(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType, std::uint64_t logicalId) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  ::tt::runtime::Tensor outputTensorHandle;
+
+  uint64_t commandId = CommandFactory::buildCreateHostTensorCommand(
+      *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
+      dataType, logicalId);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::CreateHostTensorCommand,
+                                 std::move(commandBuilder));
+
+  return outputTensorHandle;
+}
+
 ::tt::runtime::Tensor Controller::createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
     const std::unordered_map<std::string, std::string> &strategy,
