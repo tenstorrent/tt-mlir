@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-lower-load-store-ops-to-explicit-cb-form %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread %s | FileCheck %s
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -9,14 +9,19 @@
 module attributes {ttcore.system_desc = #system_desc} {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
+  // Shared buffer pair: aliased load from L1 shard, streaming store to DRAM.
+  // Verifies: DMA gets the store in explicit CB form, compute gets reserve+push.
   // CHECK-LABEL: func.func @sharded_to_interleaved_writeback
   // CHECK: d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>
-  // CHECK-SAME: threads = [#d2m.thread<unified>]
-  // CHECK: %[[CB:.*]] = d2m.get_cb(0) operand_index = 0
-  // CHECK: d2m.reserve %[[CB]]
-  // CHECK: d2m.push %[[CB]]
+  // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+  // DMA: store in explicit CB form
+  // CHECK: %[[CB:.*]] = d2m.get_cb(1) operand_index = 1
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %[[CB]]
+  // Compute: reserve + push for the aliased load side
+  // CHECK: }, {
+  // CHECK: d2m.reserve %{{.*}}
+  // CHECK: d2m.push %{{.*}}
   func.func @sharded_to_interleaved_writeback(
       %arg0: memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
     %dram_alloc = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<1x1x1x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #dram>
@@ -27,8 +32,6 @@ module attributes {ttcore.system_desc = #system_desc} {
         outs(%view : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>)
      {
     ^unified0:
-      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, bf16>, #l1>>
-      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, bf16>, #l1>>
       %core0 = d2m.core_index(0) {phys_to_virt_map = #phys_to_virt} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = #phys_to_virt} : index
       %alloc_local = memref.alloc() {alignment = 64 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
