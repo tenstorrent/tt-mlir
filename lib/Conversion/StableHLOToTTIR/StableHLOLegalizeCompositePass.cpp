@@ -862,8 +862,8 @@ public:
           rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
     }
 
-    rewriter.replaceOpWithNewOp<ttir::GatherDimOp>(srcOp, outputType, input,
-                                                   index, dimAttr);
+    rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
+                                                dimAttr);
     return success();
   }
 };

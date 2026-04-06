@@ -4328,7 +4328,7 @@ def ttir_scatter_golden(
     return out_tensor.to(output_dtype)
 
 
-def ttir_gather_dim_golden(
+def ttir_gather_golden(
     input_tensor: GoldenMapTensor,
     index: GoldenMapTensor,
     dim: IntegerAttr,
@@ -7257,7 +7257,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
-    ttir.GatherDimOp: ttir_gather_dim_golden,
+    ttir.GatherOp: ttir_gather_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
@@ -7452,7 +7452,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
-    ttnn.GatherOp: ttir_gather_dim_golden,
+    ttnn.GatherOp: ttir_gather_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----
