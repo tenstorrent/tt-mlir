@@ -228,8 +228,8 @@ public:
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
     rewriter.replaceOpWithNewOp<OpTy>(op, TypeRange{newResultType},
-                                     adaptor.getOperands(),
-                                     op.getProperties());
+                                      adaptor.getOperands(),
+                                      op.getProperties());
     return success();
   }
 };
