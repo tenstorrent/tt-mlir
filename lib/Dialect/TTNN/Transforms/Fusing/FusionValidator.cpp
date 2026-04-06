@@ -6,12 +6,20 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
 namespace mlir::tt::ttnn {
 
 FusionValidationResult FusionValidator::runValidationPipeline(ModuleOp module) {
+  // Suppress diagnostics from the validation sub-pipeline. Passes like
+  // OperationValidationAndFallback call emitError() on failure, which would
+  // propagate through the shared MLIRContext and poison the outer pipeline.
+  // We detect failure via the PassManager return value instead.
+  ScopedDiagnosticHandler diagHandler(context,
+                                      [](Diagnostic &) { return success(); });
+
   // Run workaround passes first.
   {
     PassManager pm(context);
