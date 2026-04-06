@@ -57,6 +57,29 @@ class TTIRBuilder(Builder):
     ):
         return (output_type, *inputs)
 
+    @staticmethod
+    def _set_grid_override(op, grid):
+        """Set ttir.grid_override discardable attribute on op if grid is provided.
+
+        grid can be:
+          - None: no override
+          - [R, C]: single grid broadcast to all operands
+          - [[R0, C0], [R1, C1], ...]: per-operand grids (inputs then output)
+        """
+        if grid is None:
+            return
+        operation = op.operation if hasattr(op, "operation") else op
+        if isinstance(grid[0], (list, tuple)):
+            # Per-operand: ArrayAttr of DenseI64ArrayAttr
+            operation.attributes["ttir.grid_override"] = ArrayAttr.get(
+                [DenseI64ArrayAttr.get(g) for g in grid]
+            )
+        else:
+            # Single grid broadcast: wrap in a 1-element ArrayAttr
+            operation.attributes["ttir.grid_override"] = ArrayAttr.get(
+                [DenseI64ArrayAttr.get(grid)]
+            )
+
     def _op_proxy(
         self,
         op_ttir_function: Callable,
@@ -71,6 +94,7 @@ class TTIRBuilder(Builder):
         ttir_kwargs: dict = {},
         loc: Optional[Union[str, Location]] = None,
         skip_golden: bool = False,
+        grid_override: Optional[List[int]] = None,
     ) -> Any:
         if not golden_kwargs:
             golden_kwargs = ttir_kwargs
@@ -139,6 +163,8 @@ class TTIRBuilder(Builder):
             if unit_attrs is not None:
                 for attr_name in unit_attrs:
                     op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+            self._set_grid_override(op, grid_override)
 
             if not skip_golden:
                 op_golden_function = get_golden_function(
@@ -7645,6 +7671,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        grid_override: Optional[List[int]] = None,
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.sum)
 
@@ -7684,6 +7711,8 @@ class TTIRBuilder(Builder):
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_grid_override(op, grid_override)
 
         self._set_golden_tensor(op_result, golden_output)
 
@@ -7786,6 +7815,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        grid_override: Optional[List[int]] = None,
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
@@ -7816,6 +7846,8 @@ class TTIRBuilder(Builder):
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_grid_override(op, grid_override)
 
         self._set_golden_tensor(op_result, golden_output)
 
@@ -9322,6 +9354,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        grid_override: Optional[List[int]] = None,
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.exp)
 
@@ -9350,6 +9383,8 @@ class TTIRBuilder(Builder):
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_grid_override(op, grid_override)
 
         self._set_golden_tensor(op_result, golden_output)
 
@@ -12680,6 +12715,7 @@ class TTIRBuilder(Builder):
         transpose_a: bool = False,
         transpose_b: bool = False,
         unit_attrs: Optional[List[str]] = None,
+        grid_override: Optional[List[int]] = None,
     ) -> OpView:
         kwargs = {
             "transpose_a": transpose_a,
@@ -12690,6 +12726,7 @@ class TTIRBuilder(Builder):
             [in0, in1],
             ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
+            grid_override=grid_override,
         )
 
     @parse(ttir.MatmulOp)

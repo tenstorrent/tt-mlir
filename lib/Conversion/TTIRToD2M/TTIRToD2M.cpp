@@ -33,6 +33,16 @@
 
 namespace mlir::tt {
 
+// Propagate per-op grid override from TTIR to D2M. If the source TTIR op
+// carries a "ttir.grid_override" attribute, copy it to the D2M generic as
+// "d2m.grid_override" so GridSelection can use it instead of computing
+// optimal grids.
+static void propagateGridOverride(Operation *sourceOp, d2m::GenericOp generic) {
+  if (auto gridOverride = sourceOp->getAttr("ttir.grid_override")) {
+    generic->setAttr("d2m.grid_override", gridOverride);
+  }
+}
+
 namespace {
 class D2MNamedRewriterCommon {
 protected:
@@ -819,6 +829,7 @@ private:
         loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
+    propagateGridOverride(op, generic);
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -987,6 +998,7 @@ private:
         loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
+    propagateGridOverride(op, generic);
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -1294,6 +1306,7 @@ private:
         loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
+    propagateGridOverride(op, generic);
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();
@@ -1658,6 +1671,7 @@ public:
 
           builder.create<d2m::YieldOp>(bodyLoc, storeResult);
         });
+    propagateGridOverride(op, generic);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
@@ -1997,6 +2011,7 @@ public:
         loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
+    propagateGridOverride(op, generic);
 
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
@@ -2143,6 +2158,7 @@ public:
         loc, genericInputs, outputs, /*additionalArgs=*/ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
+    propagateGridOverride(op, generic);
 
     // Mark index tile (index 0) as scratch - it doesn't need streaming.
     generic.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({0}));

@@ -1,0 +1,4 @@
+benchmark/sweep/builder-artifacts/
+benchmark/sweep/prof_per_config/
+benchmark/sweep/plots/
+benchmark/sweep/prof/

@@ -726,6 +726,19 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   OpBuilder builder(genericOp->getContext());
   GridAnalysisResult result;
 
+  // Check for per-op grid override (set via ttir.grid_override attribute).
+  // The override is an ArrayAttr of DenseI64ArrayAttr. If it has one element,
+  // that grid is broadcast to all operands. Otherwise, it must have one entry
+  // per operand (inputs then output, matching DPS order).
+  llvm::SmallVector<llvm::SmallVector<int64_t>> gridOverrides;
+  if (auto overrideAttr =
+          genericOp->getAttrOfType<ArrayAttr>("d2m.grid_override")) {
+    for (auto elem : overrideAttr) {
+      auto gridAttr = mlir::cast<DenseI64ArrayAttr>(elem);
+      gridOverrides.push_back(llvm::to_vector(gridAttr.asArrayRef()));
+    }
+  }
+
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getInputsAndOutputs())) {
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
@@ -738,7 +751,27 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     unsigned idx = static_cast<unsigned>(operandIndex);
     llvm::SmallVector<int64_t> physShape =
         computePhysicalShape(operand, config, builder);
-    auto optimalGrid = computeOptimalGrid(operandType, physShape, config);
+    llvm::SmallVector<int64_t> optimalGrid;
+
+    // Determine if this operand has a grid override.
+    ArrayRef<int64_t> overrideGrid;
+    if (gridOverrides.size() == 1) {
+      overrideGrid = gridOverrides[0];
+    } else if (operandIndex < gridOverrides.size()) {
+      overrideGrid = gridOverrides[operandIndex];
+    }
+
+    if (!overrideGrid.empty()) {
+      // Pad override grid with leading 1s to match the physical shape rank.
+      optimalGrid.assign(physShape.size(), 1);
+      size_t offset = physShape.size() - overrideGrid.size();
+      for (size_t i = 0;
+           i < overrideGrid.size() && (offset + i) < optimalGrid.size(); ++i) {
+        optimalGrid[offset + i] = overrideGrid[i];
+      }
+    } else {
+      optimalGrid = computeOptimalGrid(operandType, physShape, config);
+    }
     result.optimalOperandGrids.push_back(optimalGrid);
 
     if (isTTNNOperand(operand)) {
@@ -752,19 +785,23 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
       }
 
       // If the view's input is a ToLayoutOp, also compute and apply the
-      // optimal grid for that ToLayoutOp independently.
+      // optimal grid for that ToLayoutOp independently. When a grid override
+      // is active for this operand, use the same override grid.
       if (auto toLayoutOp =
               viewLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
         if (!toLayoutOp.getInput()
                  .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-          auto inputType = mlir::cast<mlir::RankedTensorType>(
-              viewLayout.getInput().getType());
-
-          llvm::SmallVector<int64_t> inputPhysShape =
-              computePhysicalShape(viewLayout.getInput(), config, builder);
-          auto inputOptimalGrid =
-              computeOptimalGrid(inputType, inputPhysShape, config);
-
+          llvm::SmallVector<int64_t> inputOptimalGrid;
+          if (!overrideGrid.empty()) {
+            inputOptimalGrid = optimalGrid;
+          } else {
+            auto inputType = mlir::cast<mlir::RankedTensorType>(
+                viewLayout.getInput().getType());
+            llvm::SmallVector<int64_t> inputPhysShape =
+                computePhysicalShape(viewLayout.getInput(), config, builder);
+            inputOptimalGrid =
+                computeOptimalGrid(inputType, inputPhysShape, config);
+          }
           result.toLayouts.push_back({toLayoutOp, idx, inputOptimalGrid});
         }
       }
@@ -1035,17 +1072,20 @@ updateViewLayoutOps(ArrayRef<ViewLayoutUpdateInfo> viewLayoutsToUpdate,
     llvm::SmallVector<int64_t> newShape(newResultType.getShape());
 
     // If dim alignments changed, align-up the old shape to match.
+    // Only do this when the old grid is unassigned (volume 1); if the grid is
+    // already assigned (e.g. from a manually-configured D2M generic with
+    // spatial block_factors), the old shape is already in the correct blocked
+    // form.
     auto newLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
     if (!llvm::equal(oldLayout.getDimAlignments(),
-                     newLayout.getDimAlignments())) {
+                     newLayout.getDimAlignments()) &&
+        ttmlir::utils::volume(oldLayout.getGridShape(oldResultType)) == 1) {
       llvm::SmallVector<int64_t> tileShape;
       if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
               oldResultType.getElementType())) {
         tileShape = llvm::to_vector(tileType.getShape());
       }
-      TT_assert(ttmlir::utils::volume(oldLayout.getGridShape(oldResultType)) ==
-                1);
       oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
                                           tileShape);
     }
