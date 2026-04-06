@@ -211,6 +211,7 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
 
 // Factory method to create a set of workarounds for GatherOp. The GatherOp
 // requires the input and index tensors to be in TILED layout.
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createGatherOpOperandsWorkarounds() {
   TTNNOperandWorkarounds tiledLayoutWorkaround;

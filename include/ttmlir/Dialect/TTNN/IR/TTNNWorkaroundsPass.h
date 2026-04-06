@@ -258,6 +258,7 @@ public:
 
   // Create workarounds for gather op operands. The input and index tensors must
   // always be in TILED layout.
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451
   static TTNNOperandsWorkarounds createGatherOpOperandsWorkarounds();
 
   // Create workarounds for scatter op operands.

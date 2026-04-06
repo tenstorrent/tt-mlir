@@ -223,6 +223,41 @@ def test_linear(
 
 
 @pytest.mark.parametrize(
+    "input_shape,index_shape,dim",
+    [
+        ((32, 64), (32, 16), 1),
+        ((64, 32), (16, 32), 0),
+    ],
+    ids=["dim1", "dim0"],
+)
+def test_gather(
+    input_shape: Shape,
+    index_shape: Shape,
+    dim: int,
+    request,
+    device,
+):
+    def module(builder: TTNNBuilder):
+        @builder.func(
+            [input_shape, index_shape],
+            [torch.bfloat16, torch.uint32],
+        )
+        def gather(in0: Operand, index: Operand, builder: TTNNBuilder):
+            # Override random index tensor with valid indices for torch.gather
+            # TTNN gather requires UINT32 or UINT16 index tensors
+            max_idx = input_shape[dim]
+            valid_index = torch.randint(0, max_idx, index_shape, dtype=torch.uint32)
+            builder.set_goldens({index: valid_index}, {})
+            return builder.gather(in0, index, dim=dim)
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
     "test_shape",
     [
         (1, 32, 32, 32),
