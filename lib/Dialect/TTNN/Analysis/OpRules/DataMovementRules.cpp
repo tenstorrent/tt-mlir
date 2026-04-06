@@ -79,9 +79,13 @@ bool ConcatRuleBook::isValidOutputHintForInputs(
     return hintGrid == inputGrid;
   }
 
-  // Interleaved inputs: accept any hint (NULL handled above,
-  // sharded/non-sharded both valid for interleaved-to-sharded or
-  // interleaved-to-interleaved).
+  // Interleaved inputs: reject sharded output hints. tt-metal concat selects
+  // the wrong writer kernel for interleaved-to-sharded, causing a JIT failure.
+  // https://github.com/tenstorrent/tt-metal/issues/41469
+  if (hintSharded) {
+    return false;
+  }
+
   return true;
 }
 
