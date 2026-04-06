@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
+#include "ttmlir/Dialect/TTNN/Analysis/Conv3dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -352,12 +353,16 @@ private:
       }
     }
 
-    // For Conv2d operations, extract op-specific attributes to first OpConfig
-    // for validation and fallback purposes.
+    // For Conv2d/Conv3d operations, extract op-specific attributes to first
+    // OpConfig for validation and fallback purposes.
     llvm::TypeSwitch<Operation *>(operation)
         .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&configs](auto convOp) {
           configs[0].opSpecificAttrs = Conv2dAttrs{
               convOp.getConv2dConfigAttr(), convOp.getComputeConfigAttr()};
+        })
+        .Case<ttnn::Conv3dOp>([&configs](ttnn::Conv3dOp convOp) {
+          configs[0].opSpecificAttrs = Conv3dAttrs{
+              convOp.getConv3dConfigAttr(), convOp.getComputeConfigAttr()};
         });
 
     return configs;
@@ -917,11 +922,128 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
                             /*shardSpec=*/std::nullopt));
 }
 
+// Construct input layouts suitable for the conv3d constraint query.
+// The layout fallback system may have already tried various layouts but they
+// failed due to OOM. Conv3d's backend requires ROW_MAJOR activation and TILE
+// weights/bias — if the original layouts don't match, adjust them here so
+// the config search can focus purely on finding a config that fits in L1.
+std::vector<TTNNLayoutAttr>
+buildConv3dInputLayouts(ttnn::Conv3dOp conv3dOp,
+                        const std::vector<TTNNLayoutAttr> &originalLayouts) {
+  std::vector<TTNNLayoutAttr> layouts(originalLayouts.begin(),
+                                      originalLayouts.end());
+
+  // Activation (operand 0): must be ROW_MAJOR for conv3d.
+  if (!layouts.empty() && layouts[0].isTiled()) {
+    auto inputType =
+        mlir::dyn_cast<RankedTensorType>(conv3dOp.getInput().getType());
+    if (inputType) {
+      layouts[0] =
+          layouts[0].withLayout(Layout::RowMajor, inputType.getShape());
+    }
+  }
+
+  return layouts;
+}
+
+// Try config fallbacks for Conv3d operations.
+//
+// When the layout fallback finds the correct layout combination (ROW_MAJOR
+// input) but the default conv3d config doesn't fit in L1, this function
+// searches over blocking parameters (C_in_block, C_out_block, spatial blocks)
+// to find a config that reduces L1 enough.
+//
+// Search order: large blocks first (more performant), falling back to smaller
+// blocks (less L1) until one fits.
+bool tryConv3dConfigFallbacks(
+    Operation *operation,
+    const std::vector<TTNNLayoutAttr> &originalInputLayouts,
+    const llvm::SmallVector<OpConfig> &configs, uint32_t maxAttempts) {
+
+  if (!std::holds_alternative<Conv3dAttrs>(configs[0].opSpecificAttrs)) {
+    return false;
+  }
+
+  auto conv3dOp = mlir::dyn_cast<ttnn::Conv3dOp>(operation);
+  if (!conv3dOp) {
+    return false;
+  }
+
+  const auto &conv3dAttrs = std::get<Conv3dAttrs>(configs[0].opSpecificAttrs);
+
+  Conv3dConfigAttr baseConfig =
+      conv3dAttrs.conv3dConfig.has_value() && conv3dAttrs.conv3dConfig.value()
+          ? conv3dAttrs.conv3dConfig.value()
+          : Conv3dConfigAttr::get(operation->getContext(), std::nullopt,
+                                  std::nullopt, std::nullopt, std::nullopt,
+                                  std::nullopt, std::nullopt, std::nullopt);
+
+  Conv3dConfigSearchSpace searchSpace(conv3dOp, baseConfig);
+
+  std::vector<TTNNLayoutAttr> inputLayouts =
+      buildConv3dInputLayouts(conv3dOp, originalInputLayouts);
+
+  auto filterOutFn = [](const Conv3dConfigAttr &) { return false; };
+  Conv3dConfigGenerator configGenerator(&conv3dOp, baseConfig, searchSpace,
+                                        filterOutFn);
+  size_t failedAttempts = 0;
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+               "Trying conv3d config fallbacks with {} C_in_block values, "
+               "{} C_out_block values",
+               searchSpace.cInBlock.size(), searchSpace.cOutBlock.size());
+
+  for (Conv3dConfigAttr configAttr : configGenerator) {
+    OpConfig testConfig = configs[0];
+    auto &testConv3dAttrs = std::get<Conv3dAttrs>(testConfig.opSpecificAttrs);
+    testConv3dAttrs.conv3dConfig = configAttr;
+
+    auto result = testFallbackCombination(operation, testConfig, inputLayouts);
+
+    if (result.isSuccess()) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+                   "Found working conv3d config after {} failed attempts",
+                   failedAttempts);
+
+      // Apply the working config to the op.
+      conv3dOp.setConv3dConfigAttr(configAttr);
+
+      // Apply layout transformations (insert ToLayout ops if needed).
+      applyFallbackTransformations(operation, originalInputLayouts,
+                                   inputLayouts, result, configs);
+      return true;
+    }
+
+    failedAttempts++;
+    TTMLIR_TRACE(ttmlir::LogComponent::ValidationFallback,
+                 "Conv3d config fallback failed (status: {}): {}",
+                 static_cast<int>(result.status), result.errorMessage);
+
+    if (maxAttempts > 0 && failedAttempts >= static_cast<size_t>(maxAttempts)) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+                   "Reached maximum fallback attempts ({}) for conv3d at {}",
+                   maxAttempts, operation->getLoc());
+      return false;
+    }
+  }
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+               "No working conv3d config found after {} failed attempts",
+               failedAttempts);
+  return false;
+}
+
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
                         const std::vector<TTNNLayoutAttr> &originalInputLayouts,
                         const llvm::SmallVector<OpConfig> &configs,
                         uint32_t maxAttempts) {
+  // Try Conv3d config fallbacks first if applicable
+  if (std::holds_alternative<Conv3dAttrs>(configs[0].opSpecificAttrs)) {
+    return tryConv3dConfigFallbacks(operation, originalInputLayouts, configs,
+                                    maxAttempts);
+  }
+
   // Only applicable to operations with Conv2dAttrs
   if (!std::holds_alternative<Conv2dAttrs>(configs[0].opSpecificAttrs)) {
     return false;

@@ -23,7 +23,7 @@ struct OpConfig {
   // Holds attributes for the op. For most cases, a new type should be
   // added to the following std::variant.
   using OpSpecificAttrs =
-      std::variant<UninitializedAttrs, Conv2dAttrs, MatmulAttrs>;
+      std::variant<UninitializedAttrs, Conv2dAttrs, Conv3dAttrs, MatmulAttrs>;
   OpSpecificAttrs opSpecificAttrs;
 
   // Default Config Constructors.
@@ -34,6 +34,8 @@ struct OpConfig {
       : outputLayout(outputLayout), opSpecificAttrs(std::move(attrs)) {}
   // Op Specific Constructors.
   OpConfig(TTNNLayoutAttr outputLayout, Conv2dAttrs config)
+      : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
+  OpConfig(TTNNLayoutAttr outputLayout, Conv3dAttrs config)
       : outputLayout(outputLayout), opSpecificAttrs(std::move(config)) {}
 
   // Some utility functions.
@@ -136,6 +138,22 @@ struct DenseMapInfo<mlir::tt::ttnn::OpConfig::OpSpecificAttrs> {
             }
 
             // Combine hashes using LLVM's method.
+            return hash_combine(h1, h2);
+          } else if constexpr (std::is_same_v<T, mlir::tt::ttnn::Conv3dAttrs>) {
+            unsigned h1 = 0;
+            unsigned h2 = 0;
+
+            if (attr.conv3dConfig.has_value() && attr.conv3dConfig.value()) {
+              h1 = static_cast<unsigned>(
+                  mlir::hash_value(attr.conv3dConfig.value()));
+            }
+
+            if (attr.deviceComputeKernelConfig.has_value() &&
+                attr.deviceComputeKernelConfig.value()) {
+              h2 = static_cast<unsigned>(
+                  mlir::hash_value(attr.deviceComputeKernelConfig.value()));
+            }
+
             return hash_combine(h1, h2);
           } else if constexpr (std::is_same_v<T, mlir::tt::ttnn::MatmulAttrs>) {
             if (attr.matmulProgramConfig.has_value() &&

@@ -73,6 +73,45 @@ struct Conv2dAttrs {
   void dump() const { llvm::outs() << toString(); }
 };
 
+struct Conv3dAttrs {
+  std::optional<mlir::tt::ttnn::Conv3dConfigAttr> conv3dConfig;
+  std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+      deviceComputeKernelConfig;
+
+  bool operator==(const Conv3dAttrs &other) const {
+    return conv3dConfig == other.conv3dConfig &&
+           deviceComputeKernelConfig == other.deviceComputeKernelConfig;
+  }
+  bool operator!=(const Conv3dAttrs &other) const { return !(*this == other); }
+
+  std::string toString() const {
+    std::string result = "Conv3dAttrs{";
+    if (conv3dConfig.has_value() && conv3dConfig.value()) {
+      std::string attrStr;
+      llvm::raw_string_ostream stream(attrStr);
+      stream << conv3dConfig.value();
+      stream.flush();
+      result += "conv3dConfig=" + attrStr;
+    } else {
+      result += "conv3dConfig=<null>";
+    }
+    if (deviceComputeKernelConfig.has_value() &&
+        deviceComputeKernelConfig.value()) {
+      std::string attrStr;
+      llvm::raw_string_ostream stream(attrStr);
+      stream << deviceComputeKernelConfig.value();
+      stream.flush();
+      result += ", deviceComputeKernelConfig=" + attrStr;
+    } else {
+      result += ", deviceComputeKernelConfig=<null>";
+    }
+    result += "}";
+    return result;
+  }
+
+  void dump() const { llvm::outs() << toString(); }
+};
+
 struct MatmulAttrs {
   std::optional<mlir::Attribute> matmulProgramConfig;
   std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig;

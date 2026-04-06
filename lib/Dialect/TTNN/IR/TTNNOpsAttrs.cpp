@@ -1038,6 +1038,58 @@ bool Conv2dConfigAttr::hasConfigTensorsInDram() const {
   return getConfigTensorsInDram() != nullptr;
 }
 
+//===----------------------------------------------------------------------===//
+// Conv3dConfigAttr - builder and with*/has* methods
+//===----------------------------------------------------------------------===//
+
+Conv3dConfigAttr Conv3dConfigAttr::withCInBlock(uint32_t value) const {
+  return Conv3dConfigAttr::get(getContext(), getWeightsDtype(), getTOutBlock(),
+                               getWOutBlock(), getHOutBlock(), getCOutBlock(),
+                               value, getComputeWithStorageGridSize());
+}
+
+Conv3dConfigAttr Conv3dConfigAttr::withCOutBlock(uint32_t value) const {
+  return Conv3dConfigAttr::get(getContext(), getWeightsDtype(), getTOutBlock(),
+                               getWOutBlock(), getHOutBlock(), value,
+                               getCInBlock(), getComputeWithStorageGridSize());
+}
+
+Conv3dConfigAttr Conv3dConfigAttr::withTOutBlock(uint32_t value) const {
+  return Conv3dConfigAttr::get(getContext(), getWeightsDtype(), value,
+                               getWOutBlock(), getHOutBlock(), getCOutBlock(),
+                               getCInBlock(), getComputeWithStorageGridSize());
+}
+
+Conv3dConfigAttr Conv3dConfigAttr::withWOutBlock(uint32_t value) const {
+  return Conv3dConfigAttr::get(getContext(), getWeightsDtype(), getTOutBlock(),
+                               value, getHOutBlock(), getCOutBlock(),
+                               getCInBlock(), getComputeWithStorageGridSize());
+}
+
+Conv3dConfigAttr Conv3dConfigAttr::withHOutBlock(uint32_t value) const {
+  return Conv3dConfigAttr::get(getContext(), getWeightsDtype(), getTOutBlock(),
+                               getWOutBlock(), value, getCOutBlock(),
+                               getCInBlock(), getComputeWithStorageGridSize());
+}
+
+bool Conv3dConfigAttr::hasCInBlock() const { return getCInBlock().has_value(); }
+
+bool Conv3dConfigAttr::hasCOutBlock() const {
+  return getCOutBlock().has_value();
+}
+
+bool Conv3dConfigAttr::hasTOutBlock() const {
+  return getTOutBlock().has_value();
+}
+
+bool Conv3dConfigAttr::hasWOutBlock() const {
+  return getWOutBlock().has_value();
+}
+
+bool Conv3dConfigAttr::hasHOutBlock() const {
+  return getHOutBlock().has_value();
+}
+
 CoreRangeSetAttr
 ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
                                mlir::tt::ttcore::GridAttr shardGrid,

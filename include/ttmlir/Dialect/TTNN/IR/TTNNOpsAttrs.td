@@ -783,6 +783,23 @@ def TTNN_Conv3dConfigAttr : TTNN_Attr<"Conv3dConfig", "conv3d_config"> {
     OptionalParameter<"std::optional<ttcore::GridAttr>">:$compute_with_storage_grid_size
   );
 
+  let builders = [
+    AttrBuilder<(ins )>
+  ];
+
+  let extraClassDeclaration = [{
+    Conv3dConfigAttr withCInBlock(uint32_t value) const;
+    Conv3dConfigAttr withCOutBlock(uint32_t value) const;
+    Conv3dConfigAttr withTOutBlock(uint32_t value) const;
+    Conv3dConfigAttr withWOutBlock(uint32_t value) const;
+    Conv3dConfigAttr withHOutBlock(uint32_t value) const;
+    bool hasCInBlock() const;
+    bool hasCOutBlock() const;
+    bool hasTOutBlock() const;
+    bool hasWOutBlock() const;
+    bool hasHOutBlock() const;
+  }];
+
   let assemblyFormat = "`<` struct(params) `>`";
 }
 

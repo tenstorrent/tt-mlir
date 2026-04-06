@@ -3606,6 +3606,30 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Conv3dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+// If a config has been specified in OpConfig, use that. Otherwise, use the op
+// property.
+static Conv3dAttrs unpackConv3dAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     Conv3dOp op) {
+  assert((std::holds_alternative<Conv3dAttrs>(attrs) ||
+          std::holds_alternative<UninitializedAttrs>(attrs)) &&
+         "Please create a Conv3dAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<UninitializedAttrs>(attrs)) {
+    return Conv3dAttrs{op.getConv3dConfig(), op.getComputeConfig()};
+  }
+
+  Conv3dAttrs conv3dAttrs = std::get<Conv3dAttrs>(attrs);
+
+  return Conv3dAttrs{
+      (conv3dAttrs.conv3dConfig.has_value() && conv3dAttrs.conv3dConfig.value())
+          ? conv3dAttrs.conv3dConfig
+          : op.getConv3dConfig(),
+      (conv3dAttrs.deviceComputeKernelConfig.has_value() &&
+       conv3dAttrs.deviceComputeKernelConfig.value())
+          ? conv3dAttrs.deviceComputeKernelConfig
+          : op.getComputeConfig()};
+}
+
 llvm::Expected<op_model::OpConstraints>
 Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
@@ -3627,6 +3651,7 @@ Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   }
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<Conv3dOp>::getOpConstraints, *this, deviceGrid,
@@ -3634,7 +3659,7 @@ Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
       getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
       getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
-      getConv3dConfig(), getComputeConfig(), opConfig.outputLayout);
+      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3651,14 +3676,15 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
     biasShape = getBias().getType().getShape();
     biasLayout = inputs[2];
   }
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<Conv3dOp>::getOpRuntime, *this, inputShape, inputs[0],
       weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
       getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
-      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
-      opConfig.outputLayout);
+      getPaddingMode(), getDtypeAttr(), attr.conv3dConfig,
+      attr.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
