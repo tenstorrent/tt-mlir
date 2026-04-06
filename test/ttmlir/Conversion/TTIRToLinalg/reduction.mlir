@@ -487,16 +487,11 @@ module {
 // CHECK-LABEL: func.func @cumsum_dim0
 module {
   func.func @cumsum_dim0(%arg0: tensor<3x4xf32>) -> tensor<3x4xf32> {
-    // CHECK: tensor.extract_slice
-    // CHECK: linalg.add
-    // CHECK: tensor.insert_slice
-    // CHECK: tensor.extract_slice
-    // CHECK: linalg.add
-    // CHECK: tensor.insert_slice
-    // CHECK: tensor.extract_slice
-    // CHECK: linalg.add
-    // CHECK: tensor.insert_slice
-    // CHECK-NOT: scf.for
+    // CHECK: scf.for
+    // CHECK:   tensor.extract_slice
+    // CHECK:   linalg.add
+    // CHECK:   tensor.insert_slice
+    // CHECK:   scf.yield
     %0 = "ttir.cumsum"(%arg0) <{dim = 0 : i64}> : (tensor<3x4xf32>) -> tensor<3x4xf32>
     return %0 : tensor<3x4xf32>
   }
@@ -505,13 +500,11 @@ module {
 // CHECK-LABEL: func.func @cumsum_dim1
 module {
   func.func @cumsum_dim1(%arg0: tensor<3x4xf32>) -> tensor<3x4xf32> {
-    // CHECK: tensor.extract_slice
-    // CHECK: linalg.add
-    // CHECK: tensor.insert_slice
-    // CHECK: tensor.extract_slice
-    // CHECK: linalg.add
-    // CHECK: tensor.insert_slice
-    // CHECK-NOT: scf.for
+    // CHECK: scf.for
+    // CHECK:   tensor.extract_slice
+    // CHECK:   linalg.add
+    // CHECK:   tensor.insert_slice
+    // CHECK:   scf.yield
     %0 = "ttir.cumsum"(%arg0) <{dim = 1 : i64}> : (tensor<3x4xf32>) -> tensor<3x4xf32>
     return %0 : tensor<3x4xf32>
   }
@@ -520,10 +513,11 @@ module {
 // CHECK-LABEL: func.func @cumsum_negative_dim
 module {
   func.func @cumsum_negative_dim(%arg0: tensor<2x3x4xf32>) -> tensor<2x3x4xf32> {
-    // CHECK: tensor.extract_slice
-    // CHECK: linalg.add
-    // CHECK: tensor.insert_slice
-    // CHECK-NOT: scf.for
+    // CHECK: scf.for
+    // CHECK:   tensor.extract_slice
+    // CHECK:   linalg.add
+    // CHECK:   tensor.insert_slice
+    // CHECK:   scf.yield
     %0 = "ttir.cumsum"(%arg0) <{dim = -1 : i64}> : (tensor<2x3x4xf32>) -> tensor<2x3x4xf32>
     return %0 : tensor<2x3x4xf32>
   }
@@ -532,10 +526,11 @@ module {
 // CHECK-LABEL: func.func @cumsum_3d_middle
 module {
   func.func @cumsum_3d_middle(%arg0: tensor<2x5x3xf32>) -> tensor<2x5x3xf32> {
-    // CHECK: tensor.extract_slice
-    // CHECK: linalg.add
-    // CHECK: tensor.insert_slice
-    // CHECK-NOT: scf.for
+    // CHECK: scf.for
+    // CHECK:   tensor.extract_slice
+    // CHECK:   linalg.add
+    // CHECK:   tensor.insert_slice
+    // CHECK:   scf.yield
     %0 = "ttir.cumsum"(%arg0) <{dim = 1 : i64}> : (tensor<2x5x3xf32>) -> tensor<2x5x3xf32>
     return %0 : tensor<2x5x3xf32>
   }

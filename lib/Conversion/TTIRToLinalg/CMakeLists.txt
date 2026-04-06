@@ -18,4 +18,5 @@ add_mlir_conversion_library(TTMLIRTTIRToLinalg
   MLIRPass
   MLIRLinalgDialect
   MLIRArithDialect
+  MLIRSCFDialect
 )
