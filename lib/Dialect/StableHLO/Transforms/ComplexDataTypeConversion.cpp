@@ -227,7 +227,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
-    rewriter.replaceOpWithNewOp<OpTy>(op, newResultType, adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<OpTy>(op, TypeRange{newResultType},
+                                     adaptor.getOperands(),
+                                     op.getProperties());
     return success();
   }
 };
@@ -319,28 +321,6 @@ public:
   }
 };
 
-// Rewrites stablehlo::ConcatenateOp with complex-typed tensor results.
-// The concatenation dimension is unchanged because the trailing real/imag
-// dimension is appended after all existing dimensions.
-class ComplexConcatenateOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::ConcatenateOp> {
-  using OpConversionPattern<
-      mlir::stablehlo::ConcatenateOp>::OpConversionPattern;
-
-public:
-  LogicalResult matchAndRewrite(
-      mlir::stablehlo::ConcatenateOp op,
-      OpConversionPattern<mlir::stablehlo::ConcatenateOp>::OpAdaptor adaptor,
-      ConversionPatternRewriter &rewriter) const override {
-    auto newResultType = mlir::cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
-
-    // same concat, just changing inputs/result from complex to float
-    rewriter.replaceOpWithNewOp<mlir::stablehlo::ConcatenateOp>(
-        op, newResultType, adaptor.getInputs(), op.getDimension());
-    return success();
-  }
-};
 } // namespace
 
 namespace {
@@ -391,8 +371,8 @@ struct StableHLOComplexDataTypeConversionPass
     RewritePatternSet patterns(&getContext());
     patterns.add<
         ComplexBroadcastInDimOpConversionPattern,
-        ComplexConcatenateOpConversionPattern,
         ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         StablehloComplexToDecomposedPattern,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
