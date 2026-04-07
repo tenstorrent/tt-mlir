@@ -113,6 +113,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Re-outline composite ops from flattened groups.
   pm.addPass(createReoutlineCompositePass());
 
+  // Fuse custom_calls with surrounding CCL ops (all_gather, all_slice) into
+  // distributed variants that handle cross-device communication internally.
+  pm.addPass(createFuseDistributedCustomCallsPass());
+
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());
 

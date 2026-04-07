@@ -48,6 +48,11 @@ inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
     "tenstorrent.rms_norm",
 };
 
+// Target name for the distributed RMS norm custom_call created by the
+// FuseDistributedCustomCallsPass when fusing all_gather + rms_norm + all_slice.
+inline constexpr llvm::StringLiteral
+    kDistributedRmsNormTargetName("tenstorrent.distributed_rms_norm");
+
 // Create a new private function with the provided ops within the module.
 // - Captures become function arguments (in declared order).
 // - Escapes become function results (in declared order).
