@@ -8169,7 +8169,6 @@ class TTNNBuilder(Builder):
     def rand_split(
         self,
         old_op: ttnn.RandOp,
-        get_device_op: ttnn.GetDeviceOp,
     ) -> Tuple[Module, TTNNBuilder]:
         ttnn_op = self.get_opview_from_split(TTNNBuilder.rand_split)
         old_ctx = old_op.context
@@ -8177,7 +8176,9 @@ class TTNNBuilder(Builder):
 
         with old_ctx, old_loc:
             rand_module = Module.create()
-            rand_builder = TTNNBuilder(old_ctx, old_loc)
+            rand_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
             op_input_types: List[Type] = []
 
             with InsertionPoint(rand_module.body):
@@ -8187,22 +8188,22 @@ class TTNNBuilder(Builder):
                 @func.func(*op_input_types, name="rand_module")
                 def decorated_func():
                     mesh_shape_attr = (
-                        get_device_op.mesh_shape
-                        if hasattr(get_device_op, "mesh_shape")
+                        self._get_device_op.mesh_shape
+                        if hasattr(self._get_device_op, "mesh_shape")
                         else ttnn.ir.MeshShapeAttr.get(
-                            old_ctx, *get_device_builder._mesh_shape
+                            old_ctx, *rand_builder._mesh_shape
                         )
                     )
                     mesh_offset_attr = (
-                        get_device_op.mesh_offset
-                        if hasattr(get_device_op, "mesh_offset")
+                        self._get_device_op.mesh_offset
+                        if hasattr(self._get_device_op, "mesh_offset")
                         else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
                     )
 
                     new_get_device_op = ttnn.GetDeviceOp(
                         mesh_shape=mesh_shape_attr,
                         mesh_offset=mesh_offset_attr,
-                        loc=get_device_op.location,
+                        loc=self._get_device_op.location,
                     )
 
                     result = old_op.result.type
@@ -8226,7 +8227,7 @@ class TTNNBuilder(Builder):
                     )
 
                     op_golden_function = get_golden_function(ttnn_op)
-                    golden_output = rand_builder._get_golden_tensor(old_op.result)
+                    golden_output = self._get_golden_tensor(old_op.result)
                     rand_builder._set_golden_tensor(new_op.result, golden_output)
                     ordered_outputs.append(new_op.result)
 
@@ -8236,8 +8237,6 @@ class TTNNBuilder(Builder):
             new_func_op = decorated_func.func_op
             rand_builder._func_ops_generated[new_func_op] = [[], ordered_outputs]
 
-        print("RAND SPLIT OUTPUTS")
-        print(rand_module)
         return rand_module, rand_builder
 
     ############### ttnn.GetDeviceOp ###############
@@ -8376,6 +8375,56 @@ class TTNNBuilder(Builder):
 
         return new_op, {old_op.result: new_op_result}
 
+    @split(ttnn.ToLayoutOp)
+    def to_layout_split(
+        self,
+        old_op: ttnn.ToLayoutOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.to_layout_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            to_layout_module = Module.create()
+            to_layout_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(to_layout_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="to_layout_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    layout_attr = old_op.layout
+
+                    new_op = ttnn_op(
+                        result, in0, layout=layout_attr, loc=old_op.location
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    to_layout_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    to_layout_builder._set_golden_tensor(in0, input0)
+                    to_layout_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                to_layout_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return to_layout_module, to_layout_builder
+
     ############### ttnn.ToDeviceOp ###############
 
     @tag(ttnn.ToDeviceOp)
@@ -8446,6 +8495,81 @@ class TTNNBuilder(Builder):
 
         return new_op, {old_op.result: new_op_result}
 
+    @split(ttnn.ToDeviceOp)
+    def to_device_split(
+        self,
+        old_op: ttnn.ToDeviceOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.to_device_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            to_device_module = Module.create()
+            to_device_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types: List[Type] = [old_op.input.type]
+
+            with InsertionPoint(to_device_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="to_device_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    mesh_shape_attr = (
+                        self._get_device_op.mesh_shape
+                        if hasattr(self._get_device_op, "mesh_shape")
+                        else ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *to_device_builder._mesh_shape
+                        )
+                    )
+                    mesh_offset_attr = (
+                        self._get_device_op.mesh_offset
+                        if hasattr(self._get_device_op, "mesh_offset")
+                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
+                    )
+
+                    new_get_device_op = ttnn.GetDeviceOp(
+                        mesh_shape=mesh_shape_attr,
+                        mesh_offset=mesh_offset_attr,
+                        loc=self._get_device_op.location,
+                    )
+
+                    result = old_op.result.type
+                    device = new_get_device_op.result
+                    memory_config_attr = old_op.memory_config
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        device,
+                        memory_config=memory_config_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    to_device_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    to_device_builder._set_golden_tensor(in0, input0)
+                    to_device_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                to_device_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return to_device_module, to_device_builder
+
     ############### ttnn.FromDeviceOp ###############
 
     @tag(ttnn.FromDeviceOp)
@@ -8499,6 +8623,53 @@ class TTNNBuilder(Builder):
         self._set_golden_tensor(new_op_result, golden_output)
 
         return new_op, {old_op.result: new_op_result}
+
+    @split(ttnn.FromDeviceOp)
+    def from_device_split(
+        self,
+        old_op: ttnn.FromDeviceOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.from_device_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            from_device_module = Module.create()
+            from_device_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(from_device_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="from_device_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    from_device_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    from_device_builder._set_golden_tensor(in0, input0)
+                    from_device_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                from_device_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return from_device_module, from_device_builder
 
     ############### ttnn.DeallocateOp ###############
 
@@ -8712,6 +8883,83 @@ class TTNNBuilder(Builder):
 
         return new_op, {old_op.result: new_op_result}
 
+    @split(ttnn.DistributeTensorOp)
+    def distribute_tensor_split(
+        self,
+        old_op: ttnn.DistributeTensorOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.distribute_tensor_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            distribute_tensor_module = Module.create()
+            distribute_tensor_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types: List[Type] = [old_op.input.type]
+
+            with InsertionPoint(distribute_tensor_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="distribute_tensor_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    mesh_shape_attr = (
+                        self._get_device_op.mesh_shape
+                        if hasattr(self._get_device_op, "mesh_shape")
+                        else ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *distribute_tensor_builder._mesh_shape
+                        )
+                    )
+                    mesh_offset_attr = (
+                        self._get_device_op.mesh_offset
+                        if hasattr(self._get_device_op, "mesh_offset")
+                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
+                    )
+
+                    new_get_device_op = ttnn.GetDeviceOp(
+                        mesh_shape=mesh_shape_attr,
+                        mesh_offset=mesh_offset_attr,
+                        loc=self._get_device_op.location,
+                    )
+
+                    result = old_op.result.type
+                    device = new_get_device_op.result
+                    config_attr = old_op.mapper_config
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        config_attr,
+                        device,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    distribute_tensor_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    input0 = self._get_golden_tensor(old_op.input)
+                    distribute_tensor_builder._set_golden_tensor(in0, input0)
+                    distribute_tensor_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                distribute_tensor_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return distribute_tensor_module, distribute_tensor_builder
+
     ############### ttnn.AggregateTensorOp ###############
 
     @tag(ttnn.AggregateTensorOp)
@@ -8814,6 +9062,83 @@ class TTNNBuilder(Builder):
         self._set_golden_tensor(new_op_result, golden_output)
 
         return new_op, {old_op.result: new_op_result}
+
+    @split(ttnn.AggregateTensorOp)
+    def aggregate_tensor_split(
+        self,
+        old_op: ttnn.AggregateTensorOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.aggregate_tensor_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            aggregate_tensor_module = Module.create()
+            aggregate_tensor_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types: List[Type] = [old_op.input.type]
+
+            with InsertionPoint(aggregate_tensor_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="aggregate_tensor_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    mesh_shape_attr = (
+                        self._get_device_op.mesh_shape
+                        if hasattr(self._get_device_op, "mesh_shape")
+                        else ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *aggregate_tensor_builder._mesh_shape
+                        )
+                    )
+                    mesh_offset_attr = (
+                        self._get_device_op.mesh_offset
+                        if hasattr(self._get_device_op, "mesh_offset")
+                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
+                    )
+
+                    new_get_device_op = ttnn.GetDeviceOp(
+                        mesh_shape=mesh_shape_attr,
+                        mesh_offset=mesh_offset_attr,
+                        loc=self._get_device_op.location,
+                    )
+
+                    result = old_op.result.type
+                    device = new_get_device_op.result
+                    config_attr = old_op.composer_config
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        config_attr,
+                        device,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    aggregate_tensor_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    input0 = self._get_golden_tensor(old_op.input)
+                    aggregate_tensor_builder._set_golden_tensor(in0, input0)
+                    aggregate_tensor_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                aggregate_tensor_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return aggregate_tensor_module, aggregate_tensor_builder
 
     @staticmethod
     def _find_non_overlapping_dim(
@@ -9142,6 +9467,65 @@ class TTNNBuilder(Builder):
 
         return new_op, {old_op.result: new_op_result}
 
+    @split(ttnn.AllGatherOp)
+    def all_gather_split(
+        self,
+        old_op: ttnn.AllGatherOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.all_gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            all_gather_module = Module.create()
+            all_gather_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(all_gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="all_gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    all_gather_dim_attr = old_op.all_gather_dim
+                    cluster_axis_attr = old_op.cluster_axis
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        all_gather_dim_attr,
+                        cluster_axis_attr,
+                        sub_device_id=old_op.sub_device_id,
+                        memory_config=old_op.memory_config,
+                        num_links=old_op.num_links,
+                        topology=old_op.topology,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    all_gather_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    all_gather_builder._set_golden_tensor(in0, input0)
+                    all_gather_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                all_gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return all_gather_module, all_gather_builder
+
     ############### ttnn.ReduceScatterOp ###############
 
     @tag(ttnn.ReduceScatterOp)
@@ -9258,7 +9642,35 @@ class TTNNBuilder(Builder):
         root_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
         with ctx, loc:
-            ttnn_builder = TTNNBuilder(ctx, loc)
+            mesh_name = "mesh"
+            mesh_dict = OrderedDict([("x", 1), ("y", 1)])
+
+            for entry in root_module.body.operations:
+                if isinstance(entry, ttcore.DeviceModuleOp):
+                    for device_op_module in entry.regions[0].blocks[0].operations:
+                        for device_module_op in (
+                            device_op_module.regions[0].blocks[0].operations
+                        ):
+                            if isinstance(device_module_op, ttcore.DeviceOp):
+                                for attr in device_module_op.attributes:
+                                    if attr.name == "sym_name":
+                                        mesh_name = attr.attr
+                                    if attr.name == "device_attr":
+                                        device_attr = (
+                                            ttcore.ir.DeviceAttr.maybe_downcast(
+                                                attr.attr
+                                            )
+                                        )
+                                        mesh_dict = OrderedDict(
+                                            [
+                                                ("x", device_attr.mesh_shape[0]),
+                                                ("y", device_attr.mesh_shape[1]),
+                                            ]
+                                        )
+
+            ttnn_builder = TTNNBuilder(
+                ctx, loc, mesh_name=mesh_name, mesh_dict=mesh_dict
+            )
             new_module = ttnn_builder.parse_root_module(root_module, golden_inputs)
 
         return new_module, ttnn_builder
@@ -9268,11 +9680,8 @@ class TTNNBuilder(Builder):
     def split_op(
         self,
         parsed_op: Operation,
-        get_device_op: Optional[ttnn.GetDeviceOp] = None,
     ) -> Tuple[Module, TTNNBuilder]:
         split_function = self.get_split_from_opview(type(parsed_op))
-        if get_device_op is not None:
-            return split_function(self, parsed_op, get_device_op)
         return split_function(self, parsed_op)
 
     @staticmethod
@@ -9298,9 +9707,15 @@ class TTNNBuilder(Builder):
                                     continue
 
                                 for block in device_module_op.body:
+                                    builder._get_device_op = None
                                     for op in block.operations:
                                         if isinstance(op, func.ReturnOp):
                                             continue
+                                        elif isinstance(op, ttnn.DeallocateOp):
+                                            continue  # ********* should add to module instead?
+                                            # sub_modules_and_builders[-1][0].body.operations.append(op)
+                                        elif isinstance(op, ttnn.GetDeviceOp):
+                                            builder._get_device_op = op
                                         elif isinstance(op, func.CallOp):
                                             sub_op_module_builder = (
                                                 builder.split_call_op(op)
@@ -9321,12 +9736,14 @@ class TTNNBuilder(Builder):
 
                     for block in entry.body:
                         sub_op_module_builder = None
-                        get_device_op = None
+                        builder._get_device_op = None
                         for op in block.operations:
                             if isinstance(op, func.ReturnOp):
                                 continue
+                            elif isinstance(op, ttnn.DeallocateOp):
+                                continue  # ********* should add to module isntead?
                             elif isinstance(op, ttnn.GetDeviceOp):
-                                get_device_op = op
+                                builder._get_device_op = op
                             elif isinstance(op, func.CallOp):
                                 sub_op_module_builder = builder.split_call_op(op)
                                 if len(sub_op_module_builder) != 0:
@@ -9334,17 +9751,7 @@ class TTNNBuilder(Builder):
                                         sub_op_module_builder
                                     )
                             else:
-                                # Reconfig
-                                if (
-                                    hasattr(op, "device")
-                                    and get_device_op is not None
-                                    and op.device is not None
-                                ):
-                                    sub_op_module_builder = builder.split_op(
-                                        op, get_device_op
-                                    )
-                                else:
-                                    sub_op_module_builder = builder.split_op(op)
+                                sub_op_module_builder = builder.split_op(op)
                                 if len(sub_op_module_builder) != 0:
                                     sub_modules_and_builders.append(
                                         sub_op_module_builder

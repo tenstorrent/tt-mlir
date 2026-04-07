@@ -16,6 +16,7 @@ from builder.base.builder_apis import (
     load_mlir_file,
     split_mlir_file,
     create_custom_ttir_pipeline_fn,
+    compile_ttir_module_to_flatbuffer,
 )
 from builder.base.builder_runtime import *
 from builder.base.builder_enums import *
@@ -107,10 +108,7 @@ def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
         split_modules = split_mlir_file(mlir_module, builder, target="ttnn")
         for m in split_modules:
             print(m[0])
-        if mlir_ir_string == "ttnn_add.mlir":
-            return
         input_output_goldens, intermediate_goldens = builder.golden_map
-        print(mlir_module)
         custom_pipeline = create_custom_ttir_pipeline_fn("")
         (
             mlir_path,
@@ -121,13 +119,11 @@ def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
             builder,
             input_output_goldens=input_output_goldens,
             intermediate_goldens=intermediate_goldens,
-            module_dump=True,
             custom_pipeline=custom_pipeline,
+            # bypass_ops=builder._bypass_ops,
         )
-        print(mlir_path)
-        fb_path = mlir_path + ".ttnn"
         execute_fb(
-            fb_path=fb_path,
+            mlir_path,
             input_output_goldens=input_output_goldens,
             intermediate_goldens=intermediate_goldens,
             device=device,

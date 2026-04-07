@@ -899,7 +899,6 @@ def execute_fb(
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
 
-    print("HERE", golden_report)
     return golden_report, output_tensors
 
 
