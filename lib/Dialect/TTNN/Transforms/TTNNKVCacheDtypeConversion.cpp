@@ -1,9 +1,13 @@
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -46,9 +50,8 @@ public:
         op.getLoc(), newInputType, input,
         ttcore::DataTypeAttr::get(rewriter.getContext(), targetDtype));
 
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getInputMutable().assign(typecastOp.getResult());
-    });
+    rewriter.modifyOpInPlace(
+        op, [&]() { op.getInputMutable().assign(typecastOp.getResult()); });
 
     return mlir::success();
   }
@@ -69,13 +72,14 @@ public:
                         ttcore::DataType targetDtype) {
     auto localShapeType = mlir::cast<RankedTensorType>(attr.getLocalShape());
     Type newElementType = ttcore::dataTypeToElementType(ctx, targetDtype);
-    auto newLocalShapeType = RankedTensorType::get(
-        localShapeType.getShape(), newElementType,
-        localShapeType.getEncoding());
+    auto newLocalShapeType =
+        RankedTensorType::get(localShapeType.getShape(), newElementType,
+                              localShapeType.getEncoding());
     return ttcore::LocalShapeAttr::get(ctx, newLocalShapeType);
   }
 
-  static void changeCacheArgTypes(func::FuncOp funcOp, ttcore::DataType targetDtype) {
+  static void changeCacheArgTypes(func::FuncOp funcOp,
+                                  ttcore::DataType targetDtype) {
     if (funcOp.isDeclaration()) {
       return;
     }
@@ -148,9 +152,8 @@ public:
 
     // Change kv_cache argument types to the target dtype and update the
     // function signature.
-    getOperation().walk([&](func::FuncOp funcOp) {
-      changeCacheArgTypes(funcOp, dtype);
-    });
+    getOperation().walk(
+        [&](func::FuncOp funcOp) { changeCacheArgTypes(funcOp, dtype); });
 
     // Insert typecast operations on the input operands of fill_cache and
     // update_cache ops so written data matches the new cache dtype.

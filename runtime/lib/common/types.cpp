@@ -19,8 +19,10 @@ TensorDesc::TensorDesc(const std::vector<uint32_t> &shape,
                        const std::optional<std::vector<uint32_t>> &stride,
                        const std::optional<uint64_t> physicalVolume)
     : shape(shape), dataType(dataType) {
-  this->itemsize = itemsize.value_or(
-      utils::isBlockFormatDataType(dataType) ? 0 : utils::dataTypeElementSize(dataType));
+  this->itemsize =
+      itemsize.value_or(utils::isBlockFormatDataType(dataType)
+                            ? 0
+                            : utils::dataTypeElementSize(dataType));
   this->stride = stride.value_or(utils::calculateStride(shape));
   this->physicalVolume = physicalVolume.value_or(volume());
 }

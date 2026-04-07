@@ -185,7 +185,7 @@ bool isBlockFormatDataType(::tt::target::DataType dataType) {
 
 uint64_t blockFormatTileSizeBytes(::tt::target::DataType dataType) {
   // BFP formats are only valid for 32x32 tiles.
-  // Each tile: mantissa bytes + 1 shared exponent byte per 16 elements 
+  // Each tile: mantissa bytes + 1 shared exponent byte per 16 elements
   switch (dataType) {
   case ::tt::target::DataType::BFP_Float8:
   case ::tt::target::DataType::BFP_BFloat8:
