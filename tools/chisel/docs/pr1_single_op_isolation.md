@@ -252,11 +252,12 @@ from chisel.callbacks import (
 )
 ```
 
-### Metrics — imported from `tools/golden/metrics.py`
-<!-- TODO: Lets just copy metrics from builder into tools/golden/metrics rewriten in torch and not numpy. -->
+### Metrics — `tools/golden/metrics.py`
 
-Chisel does **not** have a local `metrics.py`. All comparison functions are
-imported from the unified `golden.metrics` module (created in PR 0c):
+Created as part of this PR. Pure-torch implementations of `compute_pcc`,
+`compute_atol`, `compute_rtol` ported from the old chisel metrics at
+`runtime/tools/chisel/chisel/utils/metrics.py`. This removes the PR 0c
+dependency.
 
 ```python
 from golden.metrics import compute_pcc, compute_atol, compute_rtol
@@ -397,10 +398,10 @@ module {
 
 - **PR 0a-1** — GIL-Safety Fix (callbacks must not be copied)
 - **PR 0a-2a** — Named Callback API (register preOp/postOp by name)
-- **PR 0c** — Unified Metrics (`compute_pcc`, `compute_atol`, `compute_rtol`)
 
 Does **not** require:
 - PR 0a-2b (program-level hooks) — no preProgram/postProgram in this PR
 - PR 0a-3 (introspection bindings) — no program_index or input_refs queries
+- PR 0c (unified metrics) — `golden/metrics.py` is created in this PR
 
 This is the first chisel PR — no dependency on other chisel PRs.
