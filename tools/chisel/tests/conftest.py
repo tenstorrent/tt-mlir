@@ -16,6 +16,11 @@ import types
 from pathlib import Path
 
 _TOOLS_GOLDEN = Path(__file__).resolve().parents[3] / "tools" / "golden"
+_TOOLS_CHISEL = Path(__file__).resolve().parents[1]
+
+# Add tools/chisel to sys.path so that 'chisel' package is importable
+if str(_TOOLS_CHISEL) not in sys.path:
+    sys.path.insert(0, str(_TOOLS_CHISEL))
 
 
 def _load_metrics_as_golden_submodule():
