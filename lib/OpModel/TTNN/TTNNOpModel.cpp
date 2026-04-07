@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include <matmul/unifiedMatmulOp.h>
 #include <ttnn/graph/graph_query_op_runtime.hpp>
 
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -4122,6 +4123,41 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::tt::target::ttnn::MatmulOpT buildMatmulOpTFromMLIR(
+    bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
+    std::optional<mlir::Attribute> programConfigAttr,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+
+  ::tt::target::ttnn::MatmulOpT matmulOpT;
+
+  matmulOpT.transpose_a = transposeA;
+  matmulOpT.transpose_b = transposeB;
+
+  if (activation) {
+    matmulOpT.activation = activation->str();
+  }
+
+  if (programConfigAttr.has_value()) {
+    mlir::TypeSwitch<mlir::Attribute>(*programConfigAttr)
+        .Case<MatmulMultiCoreReuseProgramConfigAttr,
+              MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+              MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+              MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+            [&](auto config) {
+              matmulOpT.matmul_program_config.Set(toNative(config));
+            });
+  }
+  matmulOpT.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+
+  return matmulOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
@@ -4141,32 +4177,26 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
+  ::tt::target::ttnn::MatmulOpT matmulOpT =
+      buildMatmulOpTFromMLIR(transposeA, transposeB, activation,
+                             programConfigAttr, computeKernelConfig);
+
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
-
-  // Convert program config attribute
-  auto programConfig =
-      programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
-                        : std::nullopt;
-
-  std::optional<::ttnn::DeviceComputeKernelConfig>
-      computeKernelConfigConverted =
-          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
-
   // Create query closure
   auto matmulOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType, programConfig, activationStr,
-        computeKernelConfigConverted, /*core_grid=*/std::nullopt,
-        /*output_tile=*/std::nullopt, /*optional_output_tensor=*/std::nullopt,
-        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
+    unifiedOpLib::MatmulOpResult result = unifiedOpLib::callMatmul(
+        unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, matmulOpT, inputSpecA,
+        inputSpecB, device, outputMemoryConfig, outputDType);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from MatmulOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4192,6 +4222,9 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
+  ::tt::target::ttnn::MatmulOpT matmulOpT = buildMatmulOpTFromMLIR(
+      transposeA, transposeB, std::nullopt, std::nullopt, std::nullopt);
+
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -4199,17 +4232,14 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 
   // Create query closure
   auto matmulOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::matmul, device, inputSpecA, inputSpecB,
-                            transposeA, transposeB, outputMemoryConfig,
-                            outputDType,
-                            /*program_config=*/std::nullopt,
-                            /*activation=*/std::nullopt,
-                            /*compute_kernel_config=*/std::nullopt,
-                            /*core_grid=*/std::nullopt,
-                            /*output_tile=*/std::nullopt,
-                            /*optional_output_tensor=*/std::nullopt,
-                            /*global_cb=*/std::nullopt,
-                            /*sub_device_id=*/std::nullopt);
+    unifiedOpLib::MatmulOpResult result = unifiedOpLib::callMatmul(
+        unifiedOpLib::CallType::QUERY_OP_RUNTIME, matmulOpT, inputSpecA,
+        inputSpecB, device, outputMemoryConfig, outputDType);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from MatmulOp query");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(matmulOpQuery);

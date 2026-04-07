@@ -309,12 +309,117 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
   LOG_FATAL("Unsupported UnaryOpType");
 }
 
+::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRefT &tensorRef) {
+  return toTTNNDataType(tensorRef.desc->layout->memory_desc->data_type);
+}
+
 ::ttnn::operations::unary::UnaryWithParam toTTNNUnaryWithParam(
     const ::tt::target::ttnn::UnaryWithParamT &unaryWithParam) {
   return ::ttnn::operations::unary::UnaryWithParam(
       toTTNNUnaryOpType(unaryWithParam.op_type),
       std::vector<float>(unaryWithParam.params.begin(),
                          unaryWithParam.params.end()));
+}
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op) {
+  if (op.matmul_program_config.type ==
+      ::tt::target::ttnn::MatmulProgramConfig::NONE) {
+    return std::nullopt;
+  }
+
+  ::ttnn::operations::matmul::MatmulProgramConfig matmulProgramConfig;
+  switch (op.matmul_program_config.type) {
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseProgramConfig: {
+    auto *config =
+        op.matmul_program_config.AsMatmulMultiCoreReuseProgramConfig();
+    return ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
+        .compute_with_storage_grid_size =
+            unifiedOpLib::operations::utils::toTTNNCoreCoord(
+                *config->compute_with_storage_grid_size),
+        .in0_block_w = config->in0_block_w,
+        .out_subblock_h = config->out_subblock_h,
+        .out_subblock_w = config->out_subblock_w,
+        .per_core_M = config->per_core_m,
+        .per_core_N = config->per_core_n};
+  }
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseMultiCastProgramConfig: {
+    auto *config =
+        op.matmul_program_config.AsMatmulMultiCoreReuseMultiCastProgramConfig();
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastProgramConfig{
+            .compute_with_storage_grid_size =
+                unifiedOpLib::operations::utils::toTTNNCoreCoord(
+                    *config->compute_with_storage_grid_size),
+            .in0_block_w = config->in0_block_w,
+            .out_subblock_h = config->out_subblock_h,
+            .out_subblock_w = config->out_subblock_w,
+            .out_block_h = config->out_block_h,
+            .out_block_w = config->out_block_w,
+            .per_core_M = config->per_core_m,
+            .per_core_N = config->per_core_n,
+            .transpose_mcast = config->transpose_mcast,
+            .fused_activation =
+                config->fused_activation
+                    ? std::optional<::ttnn::operations::unary::UnaryWithParam>(
+                          unifiedOpLib::operations::utils::toTTNNUnaryWithParam(
+                              *config->fused_activation))
+                    : std::nullopt,
+            .fuse_batch = config->fuse_batch};
+  }
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseMultiCast1DProgramConfig: {
+    auto *config = op.matmul_program_config
+                       .AsMatmulMultiCoreReuseMultiCast1DProgramConfig();
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCast1DProgramConfig{
+            .compute_with_storage_grid_size =
+                unifiedOpLib::operations::utils::toTTNNCoreCoord(
+                    *config->compute_with_storage_grid_size),
+            .in0_block_w = config->in0_block_w,
+            .out_subblock_h = config->out_subblock_h,
+            .out_subblock_w = config->out_subblock_w,
+            .out_block_h = config->out_block_h,
+            .out_block_w = config->out_block_w,
+            .per_core_M = config->per_core_m,
+            .per_core_N = config->per_core_n,
+            .fuse_batch = config->fuse_batch,
+            .fused_activation =
+                config->fused_activation
+                    ? std::optional<::ttnn::operations::unary::UnaryWithParam>(
+                          unifiedOpLib::operations::utils::toTTNNUnaryWithParam(
+                              *config->fused_activation))
+                    : std::nullopt,
+            .mcast_in0 = config->mcast_in0,
+            .gather_in0 = config->gather_in0,
+            .hop_cores = unifiedOpLib::operations::utils::toTTNNCoreRangeSet(
+                *config->hop_cores),
+            .num_global_cb_receivers = config->num_global_cb_receivers,
+            .untilize_out = config->untilize_out};
+  }
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig: {
+    auto *config =
+        op.matmul_program_config
+            .AsMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig();
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig{
+            .in0_block_w = config->in0_block_w,
+            .per_core_M = config->per_core_m,
+            .per_core_N = config->per_core_n,
+            .fused_activation =
+                config->fused_activation
+                    ? std::optional<::ttnn::operations::unary::UnaryWithParam>(
+                          unifiedOpLib::operations::utils::toTTNNUnaryWithParam(
+                              *config->fused_activation))
+                    : std::nullopt,
+        };
+  }
+  default:
+    LOG_FATAL("Unsupported MatmulProgramConfig type");
+  }
 }
 
 ::ttnn::Conv2dConfig

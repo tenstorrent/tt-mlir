@@ -4,6 +4,7 @@
 
 #include "operations/matmul/matmul.h"
 
+#include "matmul/unifiedMatmulOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
@@ -22,36 +23,18 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &lhs = tensorPool.getTTNNTensorAndValidate(op->a());
   const ::ttnn::Tensor &rhs = tensorPool.getTTNNTensorAndValidate(op->b());
 
-  auto outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig,
-             "Memory config must exist for device tensors");
+  target::ttnn::MatmulOpT matmulOpT;
+  op->UnPackTo(&matmulOpT);
 
-  ::ttnn::DataType outputDataType = utils::getDataType(op->out());
+  unifiedOpLib::MatmulOpResult result = unifiedOpLib::callMatmul(
+      unifiedOpLib::CallType::EXECUTE, matmulOpT, &lhs, &rhs);
 
-  std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
-      matmulProgramConfig = utils::createMatmulProgramConfigIfNeeded(op);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callMatmul execution");
 
-  std::optional<std::string> activation =
-      op->activation() ? std::make_optional(op->activation()->str())
-                       : std::nullopt;
+  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
 
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
-
-  ::ttnn::Tensor output = ::ttnn::matmul(
-      lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, matmulProgramConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-      /* optional_output_tensor=*/std::nullopt);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 // ANCHOR_END: adding_an_op_matmul_runtime_operations
 
@@ -126,6 +109,8 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
              "SparseMatmulOp requires program_config to be set at compile "
              "time");
   auto *config = op->program_config();
+  target::ttnn::CoreRangeSetT hopCoresT;
+  (*config->hop_cores()).UnPackTo(&hopCoresT);
   ::ttnn::operations::matmul::MatmulMultiCoreReuseMultiCast1DProgramConfig
       programConfig{
           .compute_with_storage_grid_size =
@@ -147,8 +132,9 @@ void run(const ::tt::target::ttnn::SparseMatmulOp *op,
                   : std::nullopt,
           .mcast_in0 = config->mcast_in0(),
           .gather_in0 = config->gather_in0(),
-          .hop_cores = ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
-              *config->hop_cores()),
+          .hop_cores =
+              // ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*config->hop_cores()),
+          unifiedOpLib::operations::utils::toTTNNCoreRangeSet(hopCoresT),
           .num_global_cb_receivers = config->num_global_cb_receivers(),
           .untilize_out = config->untilize_out()};
 
