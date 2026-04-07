@@ -9672,7 +9672,7 @@ class TTNNBuilder(Builder):
                                 if isinstance(device_module_op, ttcore.DeviceOp):
                                     for attr in device_module_op.attributes:
                                         if attr.name == "sym_name":
-                                            mesh_name = str(attr.attr)
+                                            mesh_name = attr.attr.value
                                         if attr.name == "device_attr":
                                             device_attr = (
                                                 ttcore.ir.DeviceAttr.maybe_downcast(
