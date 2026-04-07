@@ -4465,6 +4465,41 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::tt::target::ttnn::LinearOpT buildLinearOpTFromMLIR(
+    bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
+    std::optional<mlir::Attribute> programConfigAttr,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+
+  ::tt::target::ttnn::LinearOpT linearOpT;
+
+  linearOpT.transpose_a = transposeA;
+  linearOpT.transpose_b = transposeB;
+
+  if (activation) {
+    linearOpT.activation = activation->str();
+  }
+
+  if (programConfigAttr.has_value()) {
+    mlir::TypeSwitch<mlir::Attribute>(*programConfigAttr)
+        .Case<MatmulMultiCoreReuseProgramConfigAttr,
+              MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+              MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+              MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+            [&](auto config) {
+              linearOpT.matmul_program_config.Set(toNative(config));
+            });
+  }
+  linearOpT.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+
+  return linearOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
@@ -4499,33 +4534,50 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
   }
 
+  ::tt::target::ttnn::LinearOpT linearOpT =
+      buildLinearOpTFromMLIR(transposeA, transposeB, activation,
+                             programConfigAttr, computeKernelConfig);
+
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
+  // // Convert activation string to optional
+  // std::optional<std::string> activationStr =
+  //     activation ? std::make_optional(activation->str()) : std::nullopt;
 
-  // Convert program config attribute
-  auto programConfig =
-      programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
-                        : std::nullopt;
+  // // Convert program config attribute
+  // auto programConfig =
+  //     programConfigAttr ?
+  //     conversion::getMatmulProgramConfig(*programConfigAttr)
+  //                       : std::nullopt;
 
-  std::optional<::ttnn::DeviceComputeKernelConfig>
-      computeKernelConfigConverted =
-          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+  // std::optional<::ttnn::DeviceComputeKernelConfig>
+  //     computeKernelConfigConverted =
+  //         conversion::getDeviceComputeKernelConfig(computeKernelConfig);
 
   // Create query closure
   auto linearOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
-        transposeB, outputMemoryConfig, outputDType, programConfig,
-        activationStr, computeKernelConfigConverted,
-        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-        /*optional_output_tensor=*/std::nullopt,
-        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
+    unifiedOpLib::LinearOpResult result = unifiedOpLib::callLinear(
+        unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, linearOpT, inputSpecA,
+        inputSpecB,
+        biasTensor.has_value() ? std::make_optional(&biasTensor.value())
+                               : std::nullopt,
+        device, outputMemoryConfig, outputDType);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from LinearOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
+    // return QUERY_OP_CONSTRAINTS(
+    //     ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,
+    //     transposeA, transposeB, outputMemoryConfig, outputDType,
+    //     programConfig, activationStr, computeKernelConfigConverted,
+    //     /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+    //     /*optional_output_tensor=*/std::nullopt,
+    //     /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4566,6 +4618,10 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
   }
 
+  ::tt::target::ttnn::LinearOpT linearOpT = buildLinearOpTFromMLIR(
+      transposeA, transposeB, /*activation=*/std::nullopt,
+      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt);
+
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -4573,14 +4629,25 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 
   // Create query closure
   auto linearOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
-        transposeB, outputMemoryConfig, outputDType,
-        /*program_config=*/std::nullopt,
-        /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
-        /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-        /*optional_output_tensor=*/std::nullopt,
-        /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
+    unifiedOpLib::LinearOpResult result = unifiedOpLib::callLinear(
+        unifiedOpLib::CallType::QUERY_OP_RUNTIME, linearOpT, inputSpecA,
+        inputSpecB,
+        biasTensor.has_value() ? std::make_optional(&biasTensor.value())
+                               : std::nullopt,
+        device, outputMemoryConfig, outputDType);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from LinearOp query");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
+    // return QUERY_OP_RUNTIME(
+    //     ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,
+    //     transposeA, transposeB, outputMemoryConfig, outputDType,
+    //     /*program_config=*/std::nullopt,
+    //     /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
+    //     /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+    //     /*optional_output_tensor=*/std::nullopt,
+    //     /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpRuntime(linearOpQuery);
@@ -4704,7 +4771,8 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
   ::tt::target::ttnn::MatmulOpT matmulOpT = buildMatmulOpTFromMLIR(
-      transposeA, transposeB, std::nullopt, std::nullopt, std::nullopt);
+      transposeA, transposeB, /*activation=*/std::nullopt,
+      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
