@@ -17,11 +17,8 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <tuple>
-
-#define DEBUG_TYPE "D2MElementwiseFusion"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
@@ -43,8 +40,6 @@ static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
   cbRemaining -= numConsOperands + numProdOperands - 2;
 
   if (cbRemaining < 0) {
-    llvm::errs()
-        << "[D2MElementwiseFusion]   failed: would exceed L1 CB limit (32)\n";
     return false;
   }
 
@@ -53,28 +48,18 @@ static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
 
 static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   if (!gOp.isComputeOnlyForm()) {
-    llvm::errs() << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
-                 << " is not a valid target: not compute-only form\n";
     return false;
   }
 
   if (!gOp.hasPureTensorSemantics()) {
-    llvm::errs()
-        << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
-        << " is not a valid target: does not have pure tensor semantics\n";
     return false;
   }
 
   if (!gOp.isAllParallel()) {
-    llvm::errs() << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
-                 << " is not a valid target: not all parallel\n";
     return false;
   }
 
   if (gOp.hasSkipOpEltwiseFusionTrait()) {
-    llvm::errs()
-        << "[D2MElementwiseFusion]   op at " << gOp->getLoc()
-        << " is not a valid target: has skip elementwise fusion trait\n";
     return false;
   }
 
@@ -93,17 +78,8 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   auto consumer = dyn_cast<GenericOp>(fusionTargetOperand->getOwner());
 
   if (!producer || !consumer) {
-    llvm::errs() << "[D2MElementwiseFusion] Attempting fusion (input operand "
-                 << fusionTargetOperand->getOperandNumber() << " of op at "
-                 << fusionTargetOperand->getOwner()->getLoc()
-                 << "): failed: defining op or owner not d2m.generic\n";
     return false;
   }
-
-  llvm::errs() << "[D2MElementwiseFusion] Attempting fusion: consumer at "
-               << consumer->getLoc() << ", producer at " << producer->getLoc()
-               << ", consumer input index "
-               << fusionTargetOperand->getOperandNumber() << "\n";
 
   // Check that the producer's result is only used by the consumer
   // Count external users (users outside producer's own regions and outside
@@ -126,13 +102,9 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
       }
     }
     if (!soleExternalUser || !allSameOp) {
-      llvm::errs() << "[D2MElementwiseFusion]   failed: producer result has "
-                      "multiple distinct external users\n";
       return false;
     }
     if (soleExternalUser != consumer.getOperation()) {
-      llvm::errs() << "[D2MElementwiseFusion]   failed: external user is not "
-                      "the consumer\n";
       return false;
     }
   }
@@ -146,8 +118,6 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   }
 
   if (!producer.hasCompatibleBlocking(consumer)) {
-    llvm::errs() << "[D2MElementwiseFusion]   failed: producer and consumer "
-                    "have incompatible blocking\n";
     return false;
   }
 
@@ -156,13 +126,21 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   }
 
   // Rank/perm checks
-  AffineMap consMap =
-      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
+  const unsigned fusedInIdx = fusionTargetOperand->getOperandNumber();
+  AffineMap consMap = consumer.getIndexingMap(fusedInIdx);
+  Value fusedProducerValue = fusionTargetOperand->get();
+
+  for (auto [inputIdx, inp] : llvm::enumerate(consumer.getInputs())) {
+    if (inputIdx == fusedInIdx) {
+      continue;
+    }
+    if (inp == fusedProducerValue &&
+        consumer.getIndexingMap(inputIdx) != consMap) {
+      return false;
+    }
+  }
+
   if (consMap.getNumResults() != producer.getNumDims()) {
-    llvm::errs()
-        << "[D2MElementwiseFusion]   failed: consumer indexing map results ("
-        << consMap.getNumResults() << ") != producer dims ("
-        << producer.getNumDims() << ")\n";
     return false;
   }
 
@@ -171,12 +149,9 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   AffineMap prodResMap = producer.getIndexingMap(
       producer.getDpsInitOperand(0)->getOperandNumber());
   if (!prodResMap.isPermutation()) {
-    llvm::errs() << "[D2MElementwiseFusion]   failed: producer result indexing "
-                    "map is not a permutation\n";
     return false;
   }
 
-  llvm::errs() << "[D2MElementwiseFusion]   fusion check passed\n";
   return true;
 }
 
@@ -564,9 +539,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
     if (!isValidElementwiseFusionTarget(consumer)) {
-      llvm::errs() << "[D2MElementwiseFusion] Skipping consumer at "
-                   << consumer->getLoc()
-                   << ": not a valid elementwise fusion target\n";
       return failure();
     }
 
@@ -592,9 +564,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     OpOperand *fusedOperand = findFusableOperand();
 
     if (!fusedOperand) {
-      llvm::errs()
-          << "[D2MElementwiseFusion] No fusable operand found for consumer at "
-          << consumer->getLoc() << "\n";
       return failure();
     }
 
@@ -620,10 +589,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
       r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
     }
 
-    llvm::errs()
-        << "[D2MElementwiseFusion] Fusion succeeded: fused producer at "
-        << producer->getLoc() << " into consumer at " << consumer->getLoc()
-        << "\n";
     rewriter.eraseOp(consumer);
     rewriter.eraseOp(producer);
     return success();
