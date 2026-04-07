@@ -1926,9 +1926,11 @@ public:
     // Preserve TT-Metal's default conv3d behavior when no config is attached to
     // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
     // otherwise the weights are pre-blocked differently from runtime defaults.
+    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
+    constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
-                                                  /*cInBlock=*/0);
+                                                  /*cInBlock=*/TILE_WIDTH);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -1949,7 +1951,6 @@ public:
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_to_ndhwc"));
     }
 
-    constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
     int64_t inChannels = inputShape[channelDim];
     if (inChannels % TILE_WIDTH != 0) {
       int32_t cinPadAmount = static_cast<int32_t>(
