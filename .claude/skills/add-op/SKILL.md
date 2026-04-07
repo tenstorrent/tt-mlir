@@ -29,6 +29,7 @@ The implementation order is:
 7. Runtime implementation
 8. OpModel
 9. TTIRBuilder, golden functions, tests
+10. CPU-hoisted version (if applicable)
 ```
 
 The key principle: **start from the TTNN C++ API** and work outward. The TTNN dialect op should
@@ -313,7 +314,7 @@ public:
   matchAndRewrite(mlir::tt::ttnn::YourOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::YourOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -331,8 +332,7 @@ public:
 };
 ```
 
-Register in `populateTTNNToEmitPyPatterns`. Note: EmitPy patterns take `enableGoldenMode` and
-pass `this->isGoldenModeEnabled()` to the emitter constructor.
+Register in `populateTTNNToEmitPyPatterns`.
 
 ## Step 6: StableHLO Composite to TTIR Conversion
 
@@ -817,6 +817,203 @@ type UINT32 or UINT16". Check the metal API docs for the required types.
 - `test/unittests/OpModel/TTNN/Lib/TestOpModelLib.cpp` — unit tests for the OpModel functions
 - `test/unittests/OpModel/TTNN/Op/TestOpModelInterface.cpp` — tests via the MLIR interface
 
+## Step 14: CPU-Hoisted Version (if applicable)
+
+CPU-hoisting moves selected TTIR ops off the device and executes them on the host CPU. This
+improves numerical precision (host uses full f32/i32) and reduces peak DRAM/L1 usage by keeping
+intermediate tensors in host memory. The hoisting passes run in two scenarios: **const-eval
+hoisting** (automatically hoisting entire constant-evaluation subgraphs) and **manual hoisting**
+(individual ops tagged with `ttir.should_hoist`). Both paths typically operate on model weights and
+constants rather than activations, so if your op has strictly activation semantics it likely does
+not need CPU-hoisting support.
+
+Once ops are hoisted into the CPU module, they are lowered through **two independent compilation
+paths** depending on the target:
+
+- **Runtime target** (flatbuffer path): TTIR → Linalg/TOSA → LLVM IR → standalone `.so` dylib,
+  embedded in the flatbuffer and loaded by the runtime via `dlopen()`.
+- **EmitPy target**: TTIR → EmitPy `CallOpaqueOp("ttir_cpu.<op>")` → Python code that calls
+  pure-torch implementations in the `ttir_cpu` module.
+
+Both paths share the same hoisting infrastructure and both require TTIR → Linalg/TOSA support
+(the runtime path uses it for actual lowering; the hoisting pass uses it as a validation gate via
+`canLowerTTIRToLinalg()`). The EmitPy path additionally requires an EmitPy CPU conversion pattern
+and a torch implementation.
+
+### 14a. Decomposition alternative (CPUFallback mode)
+
+Before implementing full CPU support for your op, check whether it can be decomposed into simpler
+TTIR ops that already have CPU support. The hoisting validation runs
+`TTIRToTTIRDecomposition(CPUFallback)` before the Linalg lowering check, so decomposed ops pass
+validation automatically. This avoids implementing Linalg, EmitPy CPU, and torch code entirely.
+
+**File:** `lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecompositionPass.cpp`
+
+Add the op as illegal in the `CPUFallback` switch case:
+
+```cpp
+case DecompMode::CPUFallback:
+  // ...existing legal/illegal ops...
+  target.addIllegalOp<ttir::YourOp>();  // will be decomposed
+  break;
+```
+
+Then add the decomposition pattern itself in the appropriate file under
+`lib/Conversion/TTIRToTTIRDecomposition/`. The decomposed ops must all have existing Linalg and
+EmitPy CPU support. Use this approach when the op has no natural Linalg/TOSA equivalent but
+decomposes cleanly (e.g., `DotGeneralOp` decomposes to `MatmulOp`).
+
+If decomposition is not viable, implement steps 14b–14f below.
+
+### 14b. TTIR → Linalg/TOSA conversion pattern
+
+**Files:**
+- `lib/Conversion/TTIRToLinalg/TTIRToLinalg.cpp` — add the conversion pattern
+- `lib/Conversion/TTIRToLinalg/EltwiseUnary.cpp` / `EltwiseBinary.cpp` / `Pooling.cpp` — for
+  elementwise or pooling ops, add patterns in the appropriate category file
+
+Register the pattern in `populateTTIRToLinalgPatterns` or `populateTTIRToTosaPatterns`:
+
+```cpp
+// In populateTTIRToTosaPatterns or populateTTIRToLinalgPatterns:
+patterns.add<YourOpConversionPattern>(typeConverter, ctx);
+```
+
+The pattern lowers TTIR ops to equivalent Linalg, TOSA, Arith, or Math dialect ops. The conversion
+target declares all TTIR ops as illegal, so every TTIR op in a CPU-hoisted function must have a
+pattern or both the runtime pipeline (Linalg → LLVM) and the hoisting validation will fail. Look
+at similar existing patterns — elementwise ops typically lower to `linalg.generic` or TOSA
+equivalents; reductions, matmuls, and normalization ops have dedicated patterns.
+
+### 14c. TTIR → Linalg/TOSA lit test
+
+**File:** `test/ttmlir/Conversion/TTIRToLinalg/<op_name>.mlir` (new file)
+
+Test that the TTIR op correctly lowers to Linalg/TOSA/Arith ops via `--convert-ttir-to-linalg`.
+Cover the key shape and attribute variations (e.g., different ranks, index types, optional operands).
+Use `CHECK-LABEL` per function and `CHECK` for the expected lowered ops.
+
+```mlir
+// RUN: ttmlir-opt --convert-ttir-to-linalg -o %t %s
+// RUN: FileCheck %s --input-file=%t
+
+module attributes {} {
+  // CHECK-LABEL: func.func @test_your_op_basic
+  func.func @test_your_op_basic(%arg0: tensor<32x64xf32>, %arg1: tensor<4xi32>) -> tensor<4x64xf32> {
+    // CHECK: tensor.empty()
+    // CHECK: linalg.generic
+    // CHECK: tensor.extract %arg0
+    // CHECK: linalg.yield
+    %0 = "ttir.your_op"(%arg0, %arg1) <{...}> : (tensor<32x64xf32>, tensor<4xi32>) -> tensor<4x64xf32>
+    // CHECK: return %{{[0-9]+}} : tensor<4x64xf32>
+    return %0 : tensor<4x64xf32>
+  }
+}
+```
+
+Look at the existing tests in `test/ttmlir/Conversion/TTIRToLinalg/` for patterns — ops that lower
+to TOSA use `CHECK: tosa.<op>` (e.g., `layer_norm.mlir`), ops that lower to Linalg use
+`CHECK: linalg.generic` or `CHECK: linalg.<named_op>` (e.g., `embedding.mlir`, `matmul.mlir`).
+For ops with index-type conversions, check for `arith.index_cast`. For ops with multiple data type
+inputs (e.g., i32 vs i64 indices), add separate test functions exercising each type path.
+
+### 14e. TTIR → EmitPy CPU conversion pattern
+
+**File:** `lib/Conversion/TTIRToEmitPy/TTIRCPUToEmitPyPass.cpp`
+
+Add a conversion pattern that lowers the TTIR op to an `emitpy::CallOpaqueOp` targeting
+`ttir_cpu.<op>`. Use `EmitPyCallBuilder` to construct the call:
+
+```cpp
+class TTIRYourOpToEmitPy : public OpConversionPattern<ttir::YourOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::YourOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    EmitPyCallBuilder b(op, getTypeConverter(), getCallee(op));
+    b.addOperand(adaptor.getInput());
+    b.addKwarg("epsilon", std::to_string(adaptor.getEpsilon().convertToFloat()));
+    b.replaceOp(rewriter);
+    return success();
+  }
+};
+```
+
+Register the pattern in the `ConvertTTIRToEmitPyCPUPass::runOnOperation` method:
+```cpp
+patterns.add<TTIRYourOpToEmitPy>(typeConverter, &getContext());
+```
+
+For elementwise ops, use the existing generic templates (`TTIRUnaryToEmitPy<ttir::YourOp>` or
+`TTIRBinaryToEmitPy<ttir::YourOp>`) instead of writing a custom pattern. For reductions, use
+`TTIRReductionToEmitPy<ttir::YourOp>`.
+
+### 14f. torch implementation in `ttir_cpu`
+
+**File:** `tools/tt-alchemist/templates/python/local/ttir_cpu.py`
+
+Add a function that mirrors the TTIR op semantics using pure torch. This is only used by the
+EmitPy target — the runtime target compiles through Linalg → LLVM instead.
+
+```python
+def your_op(input, *, epsilon=1e-5, **_):
+    return torch.nn.functional.your_op(input.float(), eps=epsilon).to(input.dtype)
+```
+
+Key conventions:
+- Use `**_` to absorb unused keyword arguments (the EmitPy call may pass extra kwargs)
+- Use `builtins.*` references when a local name shadows a Python builtin (e.g., `builtins.max`)
+- Operate in float32 for numerical precision when the op involves reductions or normalization
+- Match the TTIR op semantics exactly — this is the reference implementation for const-eval
+
+### 14g. Tests for CPU-hoisted ops
+
+#### Lit test: EmitPy CPU-hoisted output
+
+**File:** `test/ttmlir/EmitPy/cpu_hoisted_ops.mlir`
+
+Add a validation function that tags the op with `{ttir.should_hoist}`, runs it alongside the
+device version, and checks that the generated Python contains the expected `ttir_cpu.<op>` call:
+
+```mlir
+// CHECK-LABEL: def your_op_validation
+// CHECK: cpu_hoisted_ttir_your_op_{{.*}}
+// CHECK: ttnn.your_op(
+func.func @your_op_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %cpu = "ttir.your_op"(%arg0) <{epsilon = 1.0e-05 : f32}> {ttir.should_hoist}
+      : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %dev = "ttir.your_op"(%arg0) <{epsilon = 1.0e-05 : f32}>
+      : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %diff = "ttir.subtract"(%cpu, %dev) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %diff : tensor<32x32xf32>
+}
+```
+
+#### Builder test: CPU-hoisted golden
+
+**File:** `test/python/golden/ttir_ops/<category>/test_<category>.py`
+
+Add a parametrized test that exercises the builder method with `unit_attrs=["ttir.should_hoist"]`.
+Target all three backends (`ttnn`, `ttmetal`, `emitpy`):
+
+```python
+@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+def test_cpu_hoistable_your_op(shape, dtype, target, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_your_op(in0, builder, unit_attrs=None):
+            return builder.your_op(in0, epsilon=1e-5, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(module, test_base=request.node.name, target=target)
+```
+
+Look at the existing `test_cpu_hoistable_*` tests in the same file for the exact parametrization
+and decorator patterns (e.g., `@x86_only`).
+
 ## Verification
 
 After implementing all the code changes, you MUST verify they work.
@@ -910,3 +1107,10 @@ Use this to make sure you haven't missed anything:
 - [ ] EmitC test
 - [ ] Builder/golden tests (`test_ttir_ops.py`)
 - [ ] OpModel unit tests
+- [ ] CPU-hoisting: CPUFallback decomposition (`TTIRToTTIRDecompositionPass.cpp`) — or steps below
+- [ ] CPU-hoisting: TTIR → Linalg/TOSA pattern (`TTIRToLinalg.cpp`)
+- [ ] CPU-hoisting: TTIR → Linalg lit test (`test/ttmlir/Conversion/TTIRToLinalg/<op_name>.mlir`)
+- [ ] CPU-hoisting: TTIR → EmitPy CPU pattern (`TTIRCPUToEmitPyPass.cpp`)
+- [ ] CPU-hoisting: torch implementation (`ttir_cpu.py`)
+- [ ] CPU-hoisting: EmitPy lit test (`test/ttmlir/EmitPy/cpu_hoisted_ops.mlir`)
+- [ ] CPU-hoisting: builder golden test (`test/python/golden/ttir_ops/`)

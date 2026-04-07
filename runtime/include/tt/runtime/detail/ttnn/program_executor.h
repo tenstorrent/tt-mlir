@@ -65,6 +65,13 @@ private:
    * Dumps device profile counters if needed
    */
   void dumpPerfCountersIfNeeded();
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  /**
+   * Synchronizes all devices after each op when TT_RUNTIME_SYNC_AFTER_OP is set
+   */
+  void syncAfterOpIfNeeded();
+#endif
 };
 
 } // namespace tt::runtime::ttnn
