@@ -48,10 +48,10 @@ static MemRefType findTiledInputType(GenericOp genericOp) {
   return MemRefType();
 }
 
-// Check if a d2m.generic needs a scratch buffer. Scratch is needed when the
-// region contains more than one linalg.generic, which means elementwise fusion
-// produced a multi-op kernel whose intermediate results must be spilled to L1.
-static bool needsScratch(GenericOp genericOp) {
+// Count the number of linalg.generic ops in the first region of a
+// d2m.generic. A count greater than one indicates a fused kernel whose
+// intermediate results may need to be spilled to a scratch buffer.
+static unsigned countLinalgGenerics(GenericOp genericOp) {
   if (genericOp.getNumRegions() == 0) {
     return 0;
   }
@@ -62,10 +62,10 @@ static bool needsScratch(GenericOp genericOp) {
 }
 
 // Compute the number of scratch tiles needed for a d2m.generic using the
-// DST packing analysis. Returns binaryFPUCount * numTilesPerResult when the
+// DST packing analysis. Returns linalgCount * numTilesPerResult when the
 // analysis produces results, otherwise falls back to a fixed size.
 static size_t
-computeScratchNumTiles(GenericOp genericOp, unsigned binaryFPUCount,
+computeScratchNumTiles(GenericOp genericOp, unsigned linalgCount,
                        ttcore::TileType tileType,
                        const utils::DstRegisterAnalysis &dstAnalysis) {
   const utils::DSTPackingInfo *packingInfo = dstAnalysis.lookup(genericOp);
@@ -73,7 +73,7 @@ computeScratchNumTiles(GenericOp genericOp, unsigned binaryFPUCount,
     const utils::DSTPackingRegionInfo *regionInfo =
         packingInfo->lookup(&genericOp.getRegion(0));
     if (regionInfo) {
-      size_t numTiles = static_cast<size_t>(binaryFPUCount) *
+      size_t numTiles = static_cast<size_t>(linalgCount) *
                         static_cast<size_t>(regionInfo->numTilesPerResult);
       if (numTiles == 0) {
         numTiles = 1;
@@ -111,7 +111,8 @@ addScratchToGeneric(GenericOp genericOp,
   // Only add scratch to fused generics with multiple linalg.generic ops,
   // which indicates elementwise fusion produced a multi-op kernel whose
   // intermediate results must be spilled to L1.
-  if (!needsScratch(genericOp)) {
+  unsigned linalgCount = countLinalgGenerics(genericOp);
+  if (linalgCount <= 1) {
     return failure();
   }
 
@@ -134,7 +135,7 @@ addScratchToGeneric(GenericOp genericOp,
 
   // Calculate number of scratch tiles using the DST packing analysis.
   size_t numTiles =
-      computeScratchNumTiles(genericOp, binaryFPUCount, tileType, dstAnalysis);
+      computeScratchNumTiles(genericOp, linalgCount, tileType, dstAnalysis);
 
   // Get grid shape from reference input.
   auto gridShape =

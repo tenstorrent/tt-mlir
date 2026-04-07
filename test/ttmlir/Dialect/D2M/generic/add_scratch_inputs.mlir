@@ -13,11 +13,11 @@
 // Verify: scratch memref.alloc sized by DST packing analysis and scratch_inputs attr.
 
 // CHECK-LABEL: func.func @two_adds_gets_scratch
-// CHECK: memref.alloc() : memref<1x1x1x16x!ttcore.tile<32x32, f32>
+// CHECK: memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>
 // CHECK: d2m.generic
 // CHECK-SAME: scratch_inputs = array<i64: 2>
 // CHECK: ins(%{{.*}}, %{{.*}}, %{{.*}} :
-// CHECK-SAME: memref<1x1x1x16x!ttcore.tile<32x32, f32>
+// CHECK-SAME: memref<1x1x1x8x!ttcore.tile<32x32, f32>
 func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {
@@ -63,11 +63,11 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
 // Mixed binary FPU ops (tile_add + tile_mul) → scratch should be added.
 
 // CHECK-LABEL: func.func @add_and_mul_gets_scratch
-// CHECK: memref.alloc() : memref<1x1x1x16x!ttcore.tile<32x32, f32>
+// CHECK: memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>
 // CHECK: d2m.generic
 // CHECK-SAME: scratch_inputs = array<i64: 2>
 // CHECK: ins(%{{.*}}, %{{.*}}, %{{.*}} :
-// CHECK-SAME: memref<1x1x1x16x!ttcore.tile<32x32, f32>
+// CHECK-SAME: memref<1x1x1x8x!ttcore.tile<32x32, f32>
 func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {
@@ -110,7 +110,7 @@ func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) 
   return
 }
 
-// Single tile_add → no scratch (needsScratch requires > 1 binary FPU op).
+// Single tile_add → no scratch (needsScratch requires > 1 op).
 
 // CHECK-LABEL: func.func @single_add_no_scratch
 // CHECK-NOT: scratch_inputs
