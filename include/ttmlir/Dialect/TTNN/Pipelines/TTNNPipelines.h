@@ -8,10 +8,10 @@
 #include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
-#include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -379,8 +379,7 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::values(
           clEnumValN(BFPDtype::None, "none", "Disabled"),
           clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
-          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4",
-                     "BFP BFloat4 format")),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
       llvm::cl::init(BFPDtype::None)};
 
   Option<BFPDtype> experimentalKVCacheDtype{
@@ -389,8 +388,7 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::values(
           clEnumValN(BFPDtype::None, "none", "Disabled"),
           clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
-          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4",
-                     "BFP BFloat4 format")),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
       llvm::cl::init(BFPDtype::None)};
 
   // ComputeKernelConfig options
