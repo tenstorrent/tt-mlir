@@ -244,6 +244,20 @@ def TTIRDecomposeComplexPermute: Pass<"ttir-decompose-complex-permute", "::mlir:
   }];
 }
 
+def TTIRRMSNormDecomposition: Pass<"ttir-rms-norm-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose ttir.rms_norm into multiply, mean, rsqrt, and related ops.";
+  let description = [{
+    Lowers `ttir.rms_norm` to `ttir.multiply`, `ttir.mean` (last dimension,
+    keep_dim=true), `ttir.full` (epsilon), `ttir.add`, `ttir.rsqrt`, and
+    optional `ttir.reshape`/`multiply`/`add` for weight and bias.
+
+    Used by the TTMetal pipeline before `ttir-rank-normalization` so the
+    expanded ops participate in rank normalization like other TTIR ops.
+    Backends with a native fused RMS norm (e.g. TTNN) do not need this pass.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRRankNormalization: Pass<"ttir-rank-normalization", "::mlir::ModuleOp"> {
   let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
   let description = [{
