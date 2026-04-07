@@ -122,7 +122,7 @@ def process_multi_return_result(result):
         return _convert_to_mlir_value(result)
 
 
-def create_custom_ttir_pipeline_fn(
+def create_custom_pipeline_fn(
     pipeline: str, verify: bool = True, print_ir: Union[bool, str] = False
 ) -> Callable:
     def wrapper(module, device_register_options):
@@ -143,7 +143,7 @@ def create_custom_ttir_pipeline_fn(
     return wrapper
 
 
-def run_ttir_pipeline(
+def run_custom_pipeline(
     module,
     pipeline_fn: Callable,
     pipeline_options: Optional[List[str]] = None,

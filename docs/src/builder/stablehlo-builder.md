@@ -107,7 +107,7 @@ module {
 
 ## Compiling into flatbuffer
 
-`compile_stablehlo_to_flatbuffer` compiles a StableHLOBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_stablehlo_module`, `_run_ttir_pipeline`, and `ttnn_to_flatbuffer_file`, `ttmetal_to_flatbuffer_file`, or `ttir_to_ttnn_emitc_pipeline` as dictated by the `target` parameter.
+`compile_stablehlo_to_flatbuffer` compiles a StableHLOBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_stablehlo_module`, `_run_custom_pipeline`, and `ttnn_to_flatbuffer_file`, `ttmetal_to_flatbuffer_file`, or `ttir_to_ttnn_emitc_pipeline` as dictated by the `target` parameter.
 
 ```python
 def compile_stablehlo_to_flatbuffer(
@@ -172,7 +172,7 @@ compile_stablehlo_to_flatbuffer(
 
 ### TTMetal example
 
-Let's once again use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Just as with `_run_ttir_pipeline`, only one or the other can be run on a module since `compile_stablehlo_to_flatbuffer` modifies the module in place.
+Let's once again use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Just as with `_run_custom_pipeline`, only one or the other can be run on a module since `compile_stablehlo_to_flatbuffer` modifies the module in place.
 
 ```python
 compile_stablehlo_to_flatbuffer(

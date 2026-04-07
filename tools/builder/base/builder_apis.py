@@ -709,7 +709,7 @@ def compile_ttir_to_flatbuffer(
     each next function called on the output of the last:
 
     1. `build_module`
-    2. `run_ttir_pipeline`
+    2. `run_custom_pipeline`
     3. `to_target`
 
     The choice of TTNN vs. TTMetal is controlled by the `target` parameter.
@@ -795,7 +795,7 @@ def compile_ttir_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return builder, *compile_ttir_module_to_flatbuffer(
+    return builder, *compile_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -881,9 +881,10 @@ def compile_ttnn_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return builder, *compile_ttir_module_to_flatbuffer(
+    return builder, *compile_module_to_flatbuffer(
         module,
         builder,
+        module_dialect="ttnn",
         system_desc_path=system_desc_path,
         artifact_dir=artifact_dir,
         target=target,
@@ -916,7 +917,7 @@ def compile_d2m_to_flatbuffer(
     This decorator is a wrapper around:
 
     1. `build_module`
-    2. `run_ttir_pipeline`
+    2. `run_custom_pipeline`
     3. `to_target`
 
     The choice of TTNN vs. TTMetal is controlled by the `target` parameter.
@@ -981,9 +982,10 @@ def compile_d2m_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    return builder, *compile_ttir_module_to_flatbuffer(
+    return builder, *compile_module_to_flatbuffer(
         module,
         builder,
+        module_dialect="d2m",
         system_desc_path=system_desc_path,
         artifact_dir=artifact_dir,
         target=target,
@@ -1123,7 +1125,7 @@ def compile_stablehlo_to_flatbuffer(
         with open(filename, "w") as f:
             f.write(str(module))
 
-    return builder, *compile_ttir_module_to_flatbuffer(
+    return builder, *compile_module_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
@@ -1140,9 +1142,10 @@ def compile_stablehlo_to_flatbuffer(
     )
 
 
-def compile_ttir_module_to_flatbuffer(
+def compile_module_to_flatbuffer(
     module: Module,
     builder: Builder,
+    module_dialect: Literal["ttir", "ttnn", "d2m"] = "ttir",
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
     artifact_dir: str = ".",
     target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
@@ -1165,7 +1168,7 @@ def compile_ttir_module_to_flatbuffer(
     targets including TTNN, TTMetal, emitc, and emitpy. It is mainly a wrapper around the following functions, with
     each next function called on the output of the last:
 
-    1. `run_ttir_pipeline`
+    1. `run_custom_pipeline`
     2. `to_target`
 
     Parameters
@@ -1231,10 +1234,47 @@ def compile_ttir_module_to_flatbuffer(
     if pipeline_options is None:
         pipeline_options = []
 
-    if type(custom_pipeline) is str:
-        custom_pipeline = create_custom_ttir_pipeline_fn(
-            custom_pipeline, print_ir=print_ir
+    if module_dialect == "ttnn" and target == "ttnn" and custom_pipeline is None:
+        # If the module is already in the target dialect, only run passes necessary to prepare for compiling to flatbuffer
+        custom_pipeline = (
+            "ttcore-mark-functions-as-forward,"
+            "ttcore-wrap-device-module,"
+            "cpu-hoist-manually-tagged,"
+            "ttcore-register-device,"
+            "tt-populate-argument-types,"
+            "canonicalize,"
+            "inline,"
+            "cse,"
+            "const-eval-hoist-transform,"
+            "cpu-hoist-const-eval,"
+            "ttnn-layout,"
+            "ttnn-fusing,"
+            "ttnn-decomposition,"
+            "ttnn-workaround,"
+            "canonicalize,"
+            "cse,"
+            "ttnn-weight-dtype-conversion,"
+            "ttnn-set-compute-kernel-config,"
+            "const-eval-hoist-transform,"
+            "ttnn-configure-ccl-ops,"
+            "const-eval-hoist-transform,"
+            "ttnn-force-const-eval-to-system-memory,"
+            "canonicalize,"
+            "ttnn-decompose-layouts,"
+            "ttcore-optimization-barrier-fold,"
+            "ttnn-deallocate"
         )
+        """
+        custom_pipeline=(
+            "ttcore-mark-functions-as-forward,"
+            "ttcore-wrap-device-module,"
+            "ttcore.device_module(builtin.module("
+            "ttnn-configure-ccl-ops,ttnn-deallocate))"
+        )
+        """
+
+    if type(custom_pipeline) is str:
+        custom_pipeline = create_custom_pipeline_fn(custom_pipeline, print_ir=print_ir)
 
     pipeline_fn: Callable
     to_target: Callable
@@ -1265,7 +1305,7 @@ def compile_ttir_module_to_flatbuffer(
         to_file = ttmetal_to_flatbuffer_file
         target_extension = "ttm"
     elif target == "emitc":
-        ttir_to_ttnn_emitc_pipeline = create_custom_ttir_pipeline_fn(
+        ttir_to_ttnn_emitc_pipeline = create_custom_pipeline_fn(
             "ttir-to-emitc-pipeline", print_ir=print_ir
         )
         pipeline_fn = (
@@ -1293,7 +1333,7 @@ def compile_ttir_module_to_flatbuffer(
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
-        module = run_ttir_pipeline(
+        module = run_custom_pipeline(
             module,
             pipeline_fn,
             pipeline_options=pipeline_options,

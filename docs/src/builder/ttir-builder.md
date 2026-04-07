@@ -77,10 +77,10 @@ module {
 
 ## Running a pipeline
 
-`run_ttir_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
+`run_custom_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
 
 ```python
-def run_ttir_pipeline(
+def run_custom_pipeline(
     module,
     pipeline_fn: Callable,
     pipeline_options: List[str] = [],
@@ -100,7 +100,7 @@ Let's expand on our previous example
 from ttmlir.passes import ttir_to_ttnn_backend_pipeline
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import build_ttir_module, run_ttir_pipeline
+from builder.base.builder_utils import build_ttir_module, run_custom_pipeline
 
 shapes = [(32, 32), (32, 32), (32, 32)]
 
@@ -110,7 +110,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.multiply(multiply_1, in2)
 
 module, builder = build_ttir_module(model, shapes)
-ttnn_module = run_ttir_pipeline(module, ttir_to_ttnn_backend_pipeline)
+ttnn_module = run_custom_pipeline(module, ttir_to_ttnn_backend_pipeline)
 ```
 
 #### Returns
@@ -147,11 +147,11 @@ module {
 
 ### TTMetal example
 
-Let's use the same code for TTMetal that was used in the TTNN example but change the `pipeline_fn` to `ttir_to_ttmetal_backend_pipeline`. Only one or the other can be run on a module since `run_ttir_pipeline` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
+Let's use the same code for TTMetal that was used in the TTNN example but change the `pipeline_fn` to `ttir_to_ttmetal_backend_pipeline`. Only one or the other can be run on a module since `run_custom_pipeline` modifies the module in place. Note that while all TTIR ops supported by builder can be lowered to TTNN, not all can be lowered to TTMetal yet. Adding documentation to specify what ops can be lowered to TTMetal is in the works.
 
 ```python
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
-ttmetal_module = run_ttir_pipeline(module, ttir_to_ttmetal_backend_pipeline)
+ttmetal_module = run_custom_pipeline(module, ttir_to_ttmetal_backend_pipeline)
 ```
 
 #### Returns
@@ -437,7 +437,7 @@ module {
 
 ## Compiling into flatbuffer
 
-`compile_ttir_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_ttir_module`, `run_ttir_pipeline`, and `ttnn_to_flatbuffer_file`, `ttmetal_to_flatbuffer_file`, `ttir_to_emitpy_pipeline`, or `ttir_to_ttnn_emitc_pipeline` as dictated by the `target` parameter.
+`compile_ttir_to_flatbuffer` compiles a TTIRBuilder function `fn` straight to flatbuffer. This decorator is mainly a wrapper around the following functions, with each next function called on the output of the last: `build_ttir_module`, `run_custom_pipeline`, and `ttnn_to_flatbuffer_file`, `ttmetal_to_flatbuffer_file`, `ttir_to_emitpy_pipeline`, or `ttir_to_ttnn_emitc_pipeline` as dictated by the `target` parameter.
 
 ```python
 def compile_ttir_to_flatbuffer(
@@ -485,7 +485,7 @@ compile_ttir_to_flatbuffer(
 
 ### TTMetal example
 
-Let's once again use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Just as with `run_ttir_pipeline`, only one or the other can be run on a module since `compile_ttir_to_flatbuffer` modifies the module in place.
+Let's once again use the same code for TTMetal that was used in the TTNN example but change the `target` to `"ttmetal"`. Just as with `run_custom_pipeline`, only one or the other can be run on a module since `compile_ttir_to_flatbuffer` modifies the module in place.
 
 ```python
 compile_ttir_to_flatbuffer(

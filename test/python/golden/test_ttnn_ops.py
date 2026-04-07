@@ -417,12 +417,6 @@ def test_reduce_scatter(
 
     compile_and_execute_ttnn(
         module,
-        custom_pipeline=(
-            "ttcore-mark-functions-as-forward,"
-            "ttcore-wrap-device-module,"
-            "ttcore.device_module(builtin.module("
-            "ttnn-configure-ccl-ops,ttnn-deallocate))"
-        ),
         **get_request_kwargs(request),
         target="ttnn",
         device=device,

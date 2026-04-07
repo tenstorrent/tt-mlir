@@ -1380,11 +1380,11 @@ for module, builder in builder_module_list:
     print(module)
 ```
 
-## load+split+execute mlir file
+## load+split+execute ttir file
 
 ```python
 module, builder = load_mlir_file(mlir_ir_string, target="ttir")
-builder_module_list = split_mlir_file(module, builder)
+builder_module_list = split_mlir_file(module, builder, target="ttir")
 
 for split_module, split_builder in builder_module_list:
     print("-------------- Running test for split module: --------------")
@@ -1400,6 +1400,40 @@ for split_module, split_builder in builder_module_list:
     compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
         split_module,
         split_builder,
+    )
+
+    execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=device)
+
+    tt_runtime.runtime.close_mesh_device(device)
+```
+
+## load+split+execute ttnn file
+
+```python
+module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
+builder_module_list = split_mlir_file(module, builder, target="ttnn")
+
+for split_module, split_builder in builder_module_list:
+    print("-------------- Running test for split module: --------------")
+    print(split_module)
+    import _ttmlir_runtime as tt_runtime
+
+    tt_runtime.runtime.set_current_device_runtime(tt_runtime.runtime.DeviceRuntime.TTNN)
+    mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+    mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+    mesh_options.mesh_shape = (1, 2)
+    device = tt_runtime.runtime.open_mesh_device(mesh_options)
+
+    compiled_bin, input_output_goldens, intermediate_goldens = compile_ttir_module_to_flatbuffer(
+        split_module,
+        split_builder,
+        custom_pipeline=(
+            "ttcore-mark-functions-as-forward,"
+            "ttcore-wrap-device-module,"
+            "ttcore.device_module(builtin.module("
+            "ttnn-configure-ccl-ops,ttnn-deallocate))"
+        ),
+        mesh_dict=OrderedDict([("x", 1), ("y", 2)]),
     )
 
     execute_fb(compiled_bin, input_output_goldens, intermediate_goldens, device=device)

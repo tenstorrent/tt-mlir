@@ -10,8 +10,8 @@ import _ttmlir_runtime as tt_runtime
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 from builder.base.builder_runtime import execute_fb
-from builder.base.builder_apis import create_custom_ttir_pipeline_fn
-from builder.base.builder_utils import run_ttir_pipeline
+from builder.base.builder_apis import create_custom_pipeline_fn
+from builder.base.builder_utils import run_custom_pipeline
 from golden import GoldenMapTensor
 from ttmlir.passes import (
     ttmetal_to_flatbuffer_bin,
@@ -143,9 +143,9 @@ def test_fabric_unicast_2x4_line(
         "output_0": GoldenMapTensor({0: output_tensor}, (1, 1)),
     }
 
-    module = run_ttir_pipeline(
+    module = run_custom_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
+        create_custom_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -272,9 +272,9 @@ def test_fabric_unicast_sem_inc_2x4_line(
         "output_0": GoldenMapTensor({0: input_tensor}, (1, 1)),
     }
 
-    module = run_ttir_pipeline(
+    module = run_custom_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
+        create_custom_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -439,9 +439,9 @@ def test_fabric_mcast_1x8_line(
         "output_0": GoldenMapTensor({0: output_tensor}, (1, 1)),
     }
 
-    module = run_ttir_pipeline(
+    module = run_custom_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
+        create_custom_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -596,9 +596,9 @@ def test_fabric_mcast_1x8_ring(
         "output_0": GoldenMapTensor({0: output_tensor}, (1, 1)),
     }
 
-    module = run_ttir_pipeline(
+    module = run_custom_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
+        create_custom_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -748,9 +748,9 @@ def test_fabric_mcast_2x4_line(
         "output_0": GoldenMapTensor({0: output_tensor}, (1, 1)),
     }
 
-    module = run_ttir_pipeline(
+    module = run_custom_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
+        create_custom_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -904,9 +904,9 @@ def test_fabric_mcast_8x4_ring(
         "output_0": GoldenMapTensor({0: output_tensor}, (1, 1)),
     }
 
-    module = run_ttir_pipeline(
+    module = run_custom_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
+        create_custom_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1064,9 +1064,9 @@ def test_fabric_mcast_8x4_torus(
         "output_0": GoldenMapTensor({0: output_tensor}, (1, 1)),
     }
 
-    module = run_ttir_pipeline(
+    module = run_custom_pipeline(
         module,
-        create_custom_ttir_pipeline_fn(CUSTOM_TTIR_PIPELINE),
+        create_custom_pipeline_fn(CUSTOM_TTIR_PIPELINE),
         pipeline_options=[],
         save_artifacts=True,
         system_desc_path=request.config.getoption("--sys-desc"),
