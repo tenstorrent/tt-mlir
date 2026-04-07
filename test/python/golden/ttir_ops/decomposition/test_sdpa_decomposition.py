@@ -210,11 +210,7 @@ def test_sdpa_decompose_with_mask(sdpa_shapes, target, request):
             golden = build_torch_golden(
                 q_data, k_data, v_data, scale=scale, attention_mask=m_data
             )
-            builder.set_goldens(
-                {query: q_data, key: k_data, value: v_data, mask: m_data},
-                {sdpa: golden},
-            )
-            return builder.scaled_dot_product_attention(
+            result = builder.scaled_dot_product_attention(
                 query,
                 key,
                 value,
@@ -223,6 +219,11 @@ def test_sdpa_decompose_with_mask(sdpa_shapes, target, request):
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
 
     mlir_path = compile_and_run_decompose(module, target, request)
     assert_sdpa_decomposed(mlir_path)
@@ -249,11 +250,7 @@ def test_sdpa_decompose_no_mask(sdpa_shapes, target, request):
             k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
             v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
             golden = build_torch_golden(q_data, k_data, v_data, scale=scale)
-            builder.set_goldens(
-                {query: q_data, key: k_data, value: v_data},
-                {sdpa: golden},
-            )
-            return builder.scaled_dot_product_attention(
+            result = builder.scaled_dot_product_attention(
                 query,
                 key,
                 value,
@@ -261,6 +258,11 @@ def test_sdpa_decompose_no_mask(sdpa_shapes, target, request):
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data},
+                {result: golden},
+            )
+            return result
 
     mlir_path = compile_and_run_decompose(module, target, request)
     assert_sdpa_decomposed(mlir_path)
@@ -289,11 +291,7 @@ def test_sdpa_decompose_causal(sdpa_shapes, target, request):
             golden = build_torch_golden(
                 q_data, k_data, v_data, scale=scale, is_causal=True
             )
-            builder.set_goldens(
-                {query: q_data, key: k_data, value: v_data},
-                {sdpa: golden},
-            )
-            return builder.scaled_dot_product_attention(
+            result = builder.scaled_dot_product_attention(
                 query,
                 key,
                 value,
@@ -301,6 +299,11 @@ def test_sdpa_decompose_causal(sdpa_shapes, target, request):
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data},
+                {result: golden},
+            )
+            return result
 
     mlir_path = compile_and_run_decompose(module, target, request)
     assert_sdpa_decomposed(mlir_path)
@@ -346,11 +349,7 @@ def test_sdpa_decode_decompose_with_mask(sdpa_shapes, target, request):
             )
             # Permute golden back to decode shape [1, B, H, D]
             golden = golden_sdpa.permute(2, 0, 1, 3)
-            builder.set_goldens(
-                {query: q_data, key: k_data, value: v_data, mask: m_data},
-                {sdpa_decode: golden},
-            )
-            return builder.scaled_dot_product_attention_decode(
+            result = builder.scaled_dot_product_attention_decode(
                 query,
                 key,
                 value,
@@ -359,6 +358,11 @@ def test_sdpa_decode_decompose_with_mask(sdpa_shapes, target, request):
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
 
     mlir_path = compile_and_run_decompose(module, target, request)
     assert_sdpa_decomposed(mlir_path)
@@ -391,11 +395,7 @@ def test_sdpa_decode_decompose_no_mask(sdpa_shapes, target, request):
             q_permuted = q_data.permute(1, 2, 0, 3)
             golden_sdpa = build_torch_golden(q_permuted, k_data, v_data, scale=scale)
             golden = golden_sdpa.permute(2, 0, 1, 3)
-            builder.set_goldens(
-                {query: q_data, key: k_data, value: v_data},
-                {sdpa_decode: golden},
-            )
-            return builder.scaled_dot_product_attention_decode(
+            result = builder.scaled_dot_product_attention_decode(
                 query,
                 key,
                 value,
@@ -403,6 +403,11 @@ def test_sdpa_decode_decompose_no_mask(sdpa_shapes, target, request):
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data},
+                {result: golden},
+            )
+            return result
 
     mlir_path = compile_and_run_decompose(module, target, request)
     assert_sdpa_decomposed(mlir_path)
