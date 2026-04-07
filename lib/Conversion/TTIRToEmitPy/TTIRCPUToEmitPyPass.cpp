@@ -1109,19 +1109,10 @@ struct ConvertTTIRCPUToEmitPyPass
     target.addDynamicallyLegalOp<ModuleOp>(
         [](ModuleOp op) { return op->getAttrs().empty(); });
 
-    OpBuilder builder(module);
     if (module.getBodyRegion().empty()) {
       signalPassFailure();
       return;
     }
-
-    builder.setInsertionPointToStart(module.getBody(0));
-    builder.create<emitpy::ImportOp>(module->getLoc(), "torch", nullptr,
-                                     nullptr, nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttnn", nullptr, nullptr,
-                                     nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttir_cpu", nullptr,
-                                     nullptr, nullptr, nullptr);
 
     EmitPyTypeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());

@@ -11,7 +11,6 @@
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Pass/PassManager.h"
-#include "llvm/ADT/MapVector.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -70,17 +69,6 @@ struct ConvertTTNNToEmitPyPass
       signalPassFailure();
     }
 
-    // Set insertion point to start of first module child
-    //
-    builder.setInsertionPointToStart(module.getBody(0));
-
-    // Include headers
-    //
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttnn", nullptr, nullptr,
-                                     nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
-                                     nullptr, nullptr, nullptr);
-
     // If we are in the module-export path (i.e., `target-module=true`),
     // const-eval functions must also take `device` as an explicit argument so
     // they can avoid materializing `ttnn.get_device` in the function body.
@@ -122,57 +110,6 @@ struct ConvertTTNNToEmitPyPass
         return;
       }
     }
-
-    // Lower ImportedDeclaration func declarations to emitpy.import ops.
-    // These are private declarations created by TTNNFileSplit (if performed)
-    // to represent functions defined in other files.
-    lowerImportedDeclarations(module);
-  }
-
-private:
-  // Converts ImportedDeclaration func ops into emitpy.import ops within each
-  // file scope. Groups declarations by source file to produce a single import
-  // statement per source file.
-  void lowerImportedDeclarations(ModuleOp moduleOp) {
-    moduleOp.walk([&](emitpy::FileOp fileOp) {
-      // Group imported declarations by source file.
-      llvm::MapVector<StringRef, SmallVector<func::FuncOp>> importsByFile;
-      for (auto funcOp : fileOp.getOps<func::FuncOp>()) {
-        if (!ttmlir::utils::isImportedDeclarationFunc(funcOp)) {
-          continue;
-        }
-        auto sourceFile = ttmlir::utils::getImportedFrom(funcOp);
-        if (!sourceFile) {
-          funcOp.emitOpError("ImportedDeclaration missing tt.imported_from");
-          signalPassFailure();
-          return;
-        }
-        importsByFile[*sourceFile].push_back(funcOp);
-      }
-
-      // Create an emitpy.import op for each source file, inserted before
-      // the first imported declaration in the file.
-      OpBuilder builder(&getContext());
-      for (auto &[sourceFile, funcOps] : importsByFile) {
-        builder.setInsertionPoint(funcOps.front());
-
-        SmallVector<StringRef> memberNames;
-        for (auto funcOp : funcOps) {
-          memberNames.push_back(funcOp.getSymName());
-        }
-
-        auto membersAttr = builder.getStrArrayAttr(memberNames);
-        // member_aliases must match size of members_to_import; use empty
-        // strings to indicate no alias.
-        SmallVector<StringRef> emptyAliases(memberNames.size(), "");
-        auto aliasesAttr = builder.getStrArrayAttr(emptyAliases);
-
-        builder.create<emitpy::ImportOp>(funcOps.front()->getLoc(), sourceFile,
-                                         /*module_alias=*/nullptr, membersAttr,
-                                         aliasesAttr,
-                                         /*import_all=*/nullptr);
-      }
-    });
   }
 
   // This function is used to convert the const-eval functions to accept a

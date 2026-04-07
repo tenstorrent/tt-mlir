@@ -18,9 +18,9 @@ module {
 }
 
 // CHECK: module {
-// CHECK:   emitpy.import import "ttnn"
-// CHECK:   emitpy.import import "utils"
 // CHECK:   emitpy.file "main" {
+// CHECK:     emitpy.import import "ttnn"
+// CHECK:     emitpy.import import "utils"
 // CHECK:     emitpy.import from "consteval" import "consteval_forward"
 // CHECK:     func.func private @consteval_forward
 // CHECK:     emitpy.global @_cached_forward = #emitpy.opaque<"{}">
@@ -31,6 +31,9 @@ module {
 // CHECK:       emitpy.call_opaque "ttnn.add"
 // CHECK:   }
 // CHECK:   emitpy.file "consteval" {
+// CHECK:     emitpy.import import "ttnn"
+// CHECK:     emitpy.import import "utils"
+// CHECK:     emitpy.import import "ttir_cpu"
 // CHECK:     func.func @cpu_hoisted_const_eval_{{.*}}
 // CHECK:     func.func private @forward_const_eval_0(
 // CHECK:       call @cpu_hoisted_const_eval_{{.*}}
