@@ -2,6 +2,7 @@ add_mlir_conversion_library(TTMLIRTTIRToLinalg
   EltwiseBinary.cpp
   EltwiseUnary.cpp
   Pooling.cpp
+  Reduction.cpp
   TTIRToLinalg.cpp
   TTIRToLinalgPass.cpp
   Utils.cpp
@@ -17,4 +18,5 @@ add_mlir_conversion_library(TTMLIRTTIRToLinalg
   MLIRPass
   MLIRLinalgDialect
   MLIRArithDialect
+  MLIRSCFDialect
 )
