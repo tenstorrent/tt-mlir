@@ -432,6 +432,65 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(ttir.AllToAllOp)
+    def all_to_all_split(
+        self,
+        old_op: ttir.AllToAllOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.all_to_all_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            all_to_all_module = Module.create()
+            all_to_all_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(all_to_all_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="all_to_all_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    split_dim_attr = old_op.split_dim
+                    concat_dim_attr = old_op.concat_dim
+                    split_count_attr = old_op.split_count
+                    replica_groups_attr = old_op.replica_groups
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        split_dim_attr,
+                        concat_dim_attr,
+                        split_count_attr,
+                        replica_groups_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    all_to_all_builder._set_golden_tensor(new_op_result, old_op_result)
+                    all_to_all_builder._set_golden_tensor(in0, input0)
+                    all_to_all_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                all_to_all_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return all_to_all_module, all_to_all_builder
+
     ############### ttir.CollectiveBroadcastOp ###############
 
     @tag(ttir.CollectiveBroadcastOp)
@@ -510,6 +569,61 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(ttir.CollectiveBroadcastOp)
+    def collective_broadcast_split(
+        self,
+        old_op: ttir.CollectiveBroadcastOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.collective_broadcast_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            collective_broadcast_module = Module.create()
+            collective_broadcast_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(collective_broadcast_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="collective_broadcast_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    replica_groups_attr = old_op.replica_groups
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        replica_groups_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    collective_broadcast_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    collective_broadcast_builder._set_golden_tensor(in0, input0)
+                    collective_broadcast_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                collective_broadcast_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return collective_broadcast_module, collective_broadcast_builder
+
     ############### ttir.CollectivePermuteOp ###############
 
     @tag(ttir.CollectivePermuteOp)
@@ -586,6 +700,61 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
+
+    @split(ttir.CollectivePermuteOp)
+    def collective_permute_split(
+        self,
+        old_op: ttir.CollectivePermuteOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.collective_permute_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            collective_permute_module = Module.create()
+            collective_permute_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(collective_permute_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="collective_permute_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    source_target_pairs_attr = old_op.source_target_pairs
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        source_target_pairs_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    collective_permute_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    collective_permute_builder._set_golden_tensor(in0, input0)
+                    collective_permute_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                collective_permute_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return collective_permute_module, collective_permute_builder
 
     ############### ttir.ReduceScatterOp ###############
 
@@ -682,6 +851,65 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
+
+    @split(ttir.ReduceScatterOp)
+    def reduce_scatter_split(
+        self,
+        old_op: ttir.ReduceScatterOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.reduce_scatter_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            reduce_scatter_module = Module.create()
+            reduce_scatter_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(reduce_scatter_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="reduce_scatter_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    reduce_type_attr = old_op.reduce_type
+                    scatter_dim_attr = old_op.scatter_dim
+                    cluster_axis_attr = old_op.cluster_axis
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        reduce_type_attr,
+                        scatter_dim_attr,
+                        cluster_axis_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reduce_scatter_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    reduce_scatter_builder._set_golden_tensor(in0, input0)
+                    reduce_scatter_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                reduce_scatter_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return reduce_scatter_module, reduce_scatter_builder
 
     ############### ttir.AllReduceOp ###############
 
@@ -1078,6 +1306,61 @@ class TTIRBuilder(Builder):
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
+
+    @split(ttir.AllGatherOp)
+    def all_gather_split(
+        self,
+        old_op: ttir.AllGatherOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.all_gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            all_gather_module = Module.create()
+            all_gather_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(all_gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="all_gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    all_gather_dim_attr = old_op.all_gather_dim
+                    cluster_axis_attr = old_op.cluster_axis
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        all_gather_dim_attr,
+                        cluster_axis_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    all_gather_builder._set_golden_tensor(new_op_result, old_op_result)
+                    all_gather_builder._set_golden_tensor(in0, input0)
+                    all_gather_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                all_gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return all_gather_module, all_gather_builder
 
     ############### ttir.ToLayoutOp ###############
 
