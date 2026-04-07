@@ -1105,6 +1105,8 @@ class Builder(metaclass=BuilderMeta):
                         )
                     elif isinstance(op, ttir.EmptyOp):
                         continue
+                    elif isinstance(op, ttnn.DeallocateOp):
+                        continue
                     else:
                         (
                             parsed_op,
@@ -1326,9 +1328,10 @@ class Builder(metaclass=BuilderMeta):
 
             for block in nested_func_op.body:
                 for op in block.operations:
-                    if isinstance(op, func.ReturnOp) or isinstance(
-                        op,
-                        ttir.EmptyOp,
+                    if (
+                        isinstance(op, func.ReturnOp)
+                        or isinstance(op, ttir.EmptyOp)
+                        or isinstance(op, ttnn.DeallocateOp)
                     ):
                         continue
                     elif isinstance(op, func.CallOp):

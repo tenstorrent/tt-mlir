@@ -6499,27 +6499,6 @@ def ttnn_reduce_scatter_golden(
     )
 
 
-def ttnn_rand_golden(
-    size_attr: Attribute,
-    low_attr: FloatAttr,
-    high_attr: FloatAttr,
-    seed_attr: IntegerAttr,
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
-    # size = unpack_mlir_attr(size_attr)
-    size = ttnn.ir.ShapeAttr.maybe_downcast(size_attr).shape
-    low = unpack_mlir_attr(low_attr)
-    high = unpack_mlir_attr(high_attr)
-    seed = unpack_mlir_attr(seed_attr)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-
-    gen = torch.Generator()
-    gen.manual_seed(seed)
-    base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
-    rand_tensor = (base * (high - low) + low).to(output_dtype)
-    return GoldenMapTensor({0: rand_tensor}, (1, 1))
-
-
 ################ TTNN Layout/Device Op Golden Functions ###############
 
 
@@ -7015,8 +6994,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.GatherOp: ttir_gather_dim_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
-    # Tensor creation
-    ttnn.RandOp: ttnn_rand_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,

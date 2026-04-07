@@ -428,39 +428,3 @@ def test_reduce_scatter(
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
     )
-
-
-@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-@pytest.mark.parametrize("low,high,seed", [(0.0, 1.0, 0)])
-def test_rand(
-    shape: Shape,
-    dtype: torch.dtype,
-    low: float,
-    high: float,
-    seed: int,
-    request,
-    device,
-):
-    def module(builder: TTNNBuilder):
-        @builder.func([], [])
-        def rand(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
-            device = builder.get_device()
-            return builder.rand(
-                device,
-                shape,
-                dtype,
-                low=low,
-                high=high,
-                seed=seed,
-                unit_attrs=unit_attrs,
-            )
-
-    register_device_pipeline = create_custom_ttir_pipeline_fn("")
-    compile_and_execute_ttnn(
-        module,
-        device=device,
-        **get_request_kwargs(request),
-        custom_pipeline=register_device_pipeline,
-    )
-    print("DONE")
