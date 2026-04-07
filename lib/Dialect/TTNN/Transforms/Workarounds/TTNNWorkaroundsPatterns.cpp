@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LayerNormPostAllGatherDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LayerNormPreAllGatherZeroPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
@@ -618,6 +619,7 @@ public:
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
+          workarounds::decomposition::GroupNormChannelPadRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
           workarounds::decomposition::ArgMaxOpDimRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
