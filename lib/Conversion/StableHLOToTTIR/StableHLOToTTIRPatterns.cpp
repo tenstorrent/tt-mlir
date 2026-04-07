@@ -6163,7 +6163,21 @@ private:
 } // namespace
 
 namespace {
-// Conversion: stablehlo::SortOp -> ttir::SortOp + optional ttir::EmbeddingOp(s)
+// Conversion: stablehlo::SortOp -> ttir::TopKOp (optimized) OR ttir::SortOp +
+// optional ttir::EmbeddingOp(s)
+//
+// This pattern handles StableHLO's SortOp with two conversion strategies:
+//
+// OPTIMIZATION: TopK Pattern Detection
+// First, we check if the SortOp is followed by slice operations that extract
+// only the top-k elements. If detected, we convert directly to ttir::TopKOp:
+//   - Detects sort+slice patterns where slices start at index 0 with stride 1
+//   - Validates that all slices extract the same number of elements (k)
+//   - Creates ttir::TopKOp and replaces slice operations with TopK results
+//   - This is more efficient than full sort + slice for top-k use cases
+//
+// FALLBACK: Standard Sort Conversion
+// If TopK optimization is not applicable, we use the standard conversion:
 //
 // StableHLO's SortOp supports sorting tuples of tensors with an arbitrary
 // comparator function. This pattern lowers such SortOps into TTIR by
@@ -6198,8 +6212,9 @@ namespace {
 //       aligning all value tensors with the sorted indices of the key.
 //
 // Key implementation steps:
-// - Determine SortType (ValueOnly, ValueIndex, or KeyValue) based on input
-//   count and type.
+// - First: Try TopK optimization if sort+slice pattern is detected
+// - Fallback: Determine SortType (ValueOnly, ValueIndex, or KeyValue) based on
+//   input count and type.
 // - Emit ttir::SortOp using only the first input tensor.
 // - If needed, emit one or more ttir::EmbeddingOps to reorder the rest of the
 //   inputs.
@@ -6226,6 +6241,15 @@ public:
       return rewriter.notifyMatchFailure(srcOp,
                                          "Cannot determine sort direction");
     }
+
+    // Check if this sort is followed by slice operations that can be optimized
+    // to topk
+    if (auto topkInfo = detectSortSliceTopKPattern(srcOp, sortDim)) {
+      return convertToTopK(srcOp, adaptor, rewriter, *topkInfo, sortDim,
+                           *isDescending);
+    }
+
+    // Fall back to original sort logic if topk optimization is not applicable
 
     // Step 1: Type conversion and output tensor preparation for 'values'.
 
@@ -6404,6 +6428,206 @@ public:
 private:
   enum SortType { kValueOnly = 0, kValueIndex = 1, kKeyValue = 2 };
 
+  //===--------------------------------------------------------------------===//
+  // TopK Optimization Infrastructure
+  //===--------------------------------------------------------------------===//
+  // The following code implements an optimization that detects sort+slice
+  // patterns and converts them to more efficient TopK operations. This handles
+  // cases where users sort a tensor and then slice out only the top-k elements.
+
+  /// Information about a detected TopK pattern in sort+slice operations.
+  struct TopKInfo {
+    int64_t k;        /// Number of top elements to extract
+    bool canOptimize; /// Whether this pattern can be optimized to TopK
+    llvm::SmallSet<unsigned, 2>
+        usedResults; /// Track which sort results are used by slices
+    llvm::SmallVector<mlir::stablehlo::SliceOp, 4>
+        sliceOps; /// Store discovered slice operations
+  };
+
+  /// Detect if a sort operation is followed by slice operations that extract
+  /// top-k elements. This function checks if all users of the sort results are
+  /// slice operations that:
+  /// - Start from index 0 in the sort dimension
+  /// - Have stride 1 in the sort dimension
+  /// - Extract the same number of elements (k) from each used result
+  /// @param sortOp The sort operation to analyze
+  /// @param sortDim The dimension being sorted
+  /// @return TopKInfo if pattern detected, otherwise nullopt
+  std::optional<TopKInfo>
+  detectSortSliceTopKPattern(mlir::stablehlo::SortOp sortOp,
+                             int64_t sortDim) const {
+    TopKInfo info;
+    info.k = -1;
+    info.canOptimize = true;
+
+    // Check all users of each sort result
+    for (unsigned resultIdx = 0; resultIdx < sortOp.getNumResults();
+         ++resultIdx) {
+      auto result = sortOp.getResult(resultIdx);
+
+      // If result has no users, it's ignored - this is fine for topk
+      // optimization
+      if (result.use_empty()) {
+        continue;
+      }
+
+      info.usedResults.insert(resultIdx);
+
+      // Check all users of this result
+      for (auto &use : result.getUses()) {
+        Operation *userOp = use.getOwner();
+
+        // Check if the user is a slice operation
+        auto sliceOp = dyn_cast<mlir::stablehlo::SliceOp>(userOp);
+        if (!sliceOp) {
+          info.canOptimize = false;
+          break;
+        }
+
+        // Get slice parameters for the sort dimension
+        llvm::SmallVector<int64_t> startIndices(sliceOp.getStartIndices());
+        llvm::SmallVector<int64_t> limitIndices(sliceOp.getLimitIndices());
+        llvm::SmallVector<int64_t> strides(sliceOp.getStrides());
+
+        if (sortDim >= static_cast<int64_t>(startIndices.size()) ||
+            sortDim >= static_cast<int64_t>(limitIndices.size()) ||
+            sortDim >= static_cast<int64_t>(strides.size())) {
+          info.canOptimize = false;
+          break;
+        }
+
+        // Check if this is a top-k slice (starts at 0, stride of 1)
+        if (startIndices[sortDim] != 0 || strides[sortDim] != 1) {
+          info.canOptimize = false;
+          break;
+        }
+
+        int64_t sliceK = limitIndices[sortDim];
+
+        // First slice sets the k value, subsequent slices must match
+        if (info.k == -1) {
+          info.k = sliceK;
+        } else if (info.k != sliceK) {
+          // Different k values across slices, can't optimize
+          info.canOptimize = false;
+          break;
+        }
+
+        // Store the valid slice operation for later replacement
+        info.sliceOps.push_back(sliceOp);
+      }
+
+      if (!info.canOptimize) {
+        break;
+      }
+    }
+
+    // Check if we found a valid top-k pattern:
+    // - At least one result must be used (have slice operations)
+    // - All used results must have only slice operations
+    // - All slices must have the same k value
+    if (info.canOptimize && info.k > 0 && !info.usedResults.empty()) {
+      return info;
+    }
+
+    return std::nullopt;
+  }
+
+  /// Convert sort+slice pattern to TopK operation.
+  /// This creates a TopK operation and replaces all detected slice operations
+  /// with the corresponding TopK results (values and/or indices).
+  /// @param srcOp The original sort operation
+  /// @param adaptor The sort operation adaptor
+  /// @param rewriter Pattern rewriter for creating new operations
+  /// @param topkInfo Information about the detected TopK pattern
+  /// @param sortDim The dimension being sorted
+  /// @param isDescending Whether sort is in descending order
+  /// @return Success if conversion succeeded, failure otherwise
+  LogicalResult convertToTopK(mlir::stablehlo::SortOp srcOp,
+                              mlir::stablehlo::SortOp::Adaptor adaptor,
+                              ConversionPatternRewriter &rewriter,
+                              const TopKInfo &topkInfo, int64_t sortDim,
+                              bool isDescending) const {
+    Location loc = srcOp.getLoc();
+
+    // Determine the output types based on sort operation
+    SmallVector<Type> outputTypes;
+
+    // Values output type
+    auto valueType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResultTypes().front()));
+
+    // Update shape to reflect top-k size
+    SmallVector<int64_t> topkShape(valueType.getShape().begin(),
+                                   valueType.getShape().end());
+    topkShape[sortDim] = topkInfo.k;
+    auto topkValueType = RankedTensorType::get(
+        topkShape, valueType.getElementType(), valueType.getEncoding());
+    outputTypes.push_back(topkValueType);
+
+    // Indices output type (if needed)
+    if (isValueIndexSort(srcOp.getInputs())) {
+      auto indicesType = cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResultTypes()[1]));
+      auto topkIndicesType = RankedTensorType::get(
+          topkShape, indicesType.getElementType(), indicesType.getEncoding());
+      outputTypes.push_back(topkIndicesType);
+    } else {
+      // For topk, we always generate indices even for value-only or key-value
+      // sorts
+      auto indexType = rewriter.getI32Type();
+      auto topkIndicesType =
+          RankedTensorType::get(topkShape, indexType, valueType.getEncoding());
+      outputTypes.push_back(topkIndicesType);
+    }
+
+    // Create TopK operation
+    auto kAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkInfo.k));
+    auto dimAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(sortDim));
+    auto largestAttr =
+        rewriter.getBoolAttr(isDescending); // descending = largest first
+    auto sortedAttr =
+        rewriter.getBoolAttr(true); // topk results are always sorted
+
+    auto topkOp = rewriter.create<ttir::TopKOp>(
+        loc, outputTypes, adaptor.getInputs().front(), kAttr, dimAttr,
+        largestAttr, sortedAttr);
+
+    // Replace all detected slice operations with topk results
+    for (auto sliceOp : topkInfo.sliceOps) {
+      // Determine which result to use based on the slice input
+      Value sliceInput = sliceOp.getOperand();
+      Value replacement;
+
+      if (sliceInput == srcOp.getResult(0)) {
+        // Values result - first result of TopK
+        replacement = topkOp.getResult(0);
+      } else if (srcOp.getNumResults() > 1 &&
+                 sliceInput == srcOp.getResult(1)) {
+        // Indices result - second result of TopK
+        replacement = topkOp.getResult(1);
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Slice operation uses unexpected sort result");
+      }
+
+      // Replace slice operation with topk result
+      sliceOp->getResults().front().replaceAllUsesWith(replacement);
+      rewriter.eraseOp(sliceOp);
+    }
+
+    // Remove the original sort operation
+    rewriter.eraseOp(srcOp);
+
+    return success();
+  }
+
+  /// Check if the sort operation is a value-index sort (sort with iota
+  /// indices). This determines if the second input is generated from an iota
+  /// operation.
+  /// @param inputs The operands of the sort operation
+  /// @return True if this is a value-index sort, false otherwise
   bool isValueIndexSort(mlir::OperandRange inputs) const {
     if (inputs.size() != 2) {
       return false;
@@ -6419,6 +6643,12 @@ private:
     return isa_and_nonnull<mlir::stablehlo::IotaOp>(op);
   }
 
+  /// Determine the sort direction from the comparator region.
+  /// Looks for comparison operations to determine if sorting is ascending or
+  /// descending.
+  /// @param srcOp The sort operation to analyze
+  /// @return True for descending (GT), false for ascending (LT), failure if
+  /// undetermined
   mlir::FailureOr<bool> getSortDirection(mlir::stablehlo::SortOp &srcOp) const {
     Block &block = srcOp.getComparator().front();
     for (auto &op : block.getOperations()) {
