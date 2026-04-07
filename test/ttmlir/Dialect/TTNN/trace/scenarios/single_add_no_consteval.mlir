@@ -9,6 +9,7 @@ module {
   // CHECK: "ttnn.write_tensor"
   // CHECK-NOT: "ttnn.from_device"(%arg0)
   // CHECK-NOT: "ttnn.from_device"(%arg1)
+  // CHECK: "ttnn.deallocate"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
 
