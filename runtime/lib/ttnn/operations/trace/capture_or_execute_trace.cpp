@@ -65,10 +65,10 @@ static void runTraceProgramAndCaptureTrace(
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
 
-  // Outputs will be returned in the order of traceId, actual outputs, trace
-  // input slots, trace output slots
-  size_t expectedNumOutputs =
-      1 + op->outputs()->size() + op->inputs()->size() + op->outputs()->size();
+  // Outputs are returned in the order of: traceId, trace input slots, trace
+  // output slots. The trace output slots serve double duty as both the captured
+  // trace's output buffers and the actual outputs for the first invocation.
+  size_t expectedNumOutputs = 1 + op->inputs()->size() + op->outputs()->size();
   LOG_ASSERT(outputTensors.size() == expectedNumOutputs,
              "Mismatched number of output tensors, expected: ",
              expectedNumOutputs, " got: ", outputTensors.size());
@@ -85,12 +85,6 @@ static void runTraceProgramAndCaptureTrace(
       ::tt::runtime::ttnn::utils::getScalarFromTensor<uint32_t>(traceIdTensor);
   ::ttnn::MeshTraceId meshTraceId(traceId);
 
-  // Handle trace function outputs
-  for (size_t i = 0; i < op->outputs()->size(); i++) {
-    tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
-                                              outputTensors[currOutputIndex++]);
-  }
-
   // Handle trace input slots
   std::vector<::tt::runtime::Tensor> inputSlots;
   for (size_t i = 0; i < op->inputs()->size(); i++) {
@@ -104,7 +98,8 @@ static void runTraceProgramAndCaptureTrace(
     inputSlots.emplace_back(std::move(inputSlot));
   }
 
-  // Handle trace output slots
+  // Handle trace output slots. These are also used as the actual outputs
+  // for the first invocation (inserted into the tensor pool below).
   std::vector<::tt::runtime::Tensor> outputSlots;
   for (size_t i = 0; i < op->outputs()->size(); i++) {
     ::tt::runtime::Tensor &outputSlot = outputTensors[currOutputIndex++];
@@ -115,6 +110,15 @@ static void runTraceProgramAndCaptureTrace(
     // output slots need to be retained
     outputSlotWrapper.setRetain(true);
     outputSlots.emplace_back(std::move(outputSlot));
+  }
+
+  // Insert output slots into the tensor pool as the actual outputs for the
+  // first invocation. This is the same pattern used in executeTrace — the
+  // retained output slots serve as both the trace replay buffers and the
+  // outputs visible to the caller.
+  for (size_t i = 0; i < op->outputs()->size(); i++) {
+    tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
+                                              outputSlots[i]);
   }
 
   TraceData traceData{.traceId = meshTraceId,
