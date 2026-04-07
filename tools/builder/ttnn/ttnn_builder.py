@@ -9672,7 +9672,7 @@ class TTNNBuilder(Builder):
                                 if isinstance(device_module_op, ttcore.DeviceOp):
                                     for attr in device_module_op.attributes:
                                         if attr.name == "sym_name":
-                                            mesh_name = attr.attr
+                                            mesh_name = str(attr.attr)
                                         if attr.name == "device_attr":
                                             device_attr = (
                                                 ttcore.ir.DeviceAttr.maybe_downcast(
@@ -9727,12 +9727,15 @@ class TTNNBuilder(Builder):
                                         if isinstance(op, ttnn.GetDeviceOp) and hasattr(
                                             op, "mesh_offset"
                                         ):
-                                            print(
-                                                op.mesh_offset,
-                                                type(op.mesh_offset),
-                                                dir(op.mesh_offset),
+                                            mesh_offset_attr = (
+                                                ttnn.ir.MeshOffsetAttr.maybe_downcast(
+                                                    op.mesh_offset
+                                                )
                                             )
-                                            builder._mesh_offset = op.mesh_offset
+                                            builder._mesh_offset = [
+                                                mesh_offset_attr.x,
+                                                mesh_offset_attr.y,
+                                            ]
                                         elif (
                                             isinstance(op, func.ReturnOp)
                                             or isinstance(op, ttnn.DeallocateOp)
