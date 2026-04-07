@@ -1176,7 +1176,9 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 // This operation returns two outputs:
 //   [0] values (same data type as input)
 //   [1] indices (uint16 or uint32 depending on input shape)
-//       Issue page: https://github.com/tenstorrent/tt-mlir/issues/7852
+// TopK op pads the dimension to next power of 2, and uses UInt32 for indices if
+// added size >= uint16_t::max
+
 // Input is forced to BFloat16 unless it is already BFloat16 or BFP_BFloat8.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
 TTNNOperandsWorkarounds
@@ -1200,20 +1202,17 @@ TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
   }
 
   int32_t dimIndex = op.getDim();
-  // Handle negative indices
+  // Handle negative indices.
   if (dimIndex < 0) {
     dimIndex = inputType.getRank() + dimIndex;
   }
 
   // Calculate padded dim size to determine UInt16 vs UInt32 for indices output.
-  // TopK op pads the dimension to next power of 2, and uses UInt32 for indices
-  // if padded size >= uint16_t::max
   auto inputShape = inputType.getShape();
   int64_t dimSize = inputShape[dimIndex];
   int64_t paddedDimSize = llvm::PowerOf2Ceil(dimSize);
   bool useUint16Indices =
-      (dimIndex >= 0 && dimIndex < static_cast<int64_t>(inputShape.size()) &&
-       paddedDimSize <= std::numeric_limits<uint16_t>::max()); // 65535
+      paddedDimSize <= std::numeric_limits<uint16_t>::max(); // 65535
 
   wa::TTNNOperandWorkarounds outputIndicesWorkaround;
   if (useUint16Indices) {
