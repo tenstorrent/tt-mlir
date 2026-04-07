@@ -57,7 +57,7 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 // Reshape attribute if it is splat otherwise return nullptr.
-static DenseElementsAttr reshapeIfSplat(RankedTensorType type, Attribute attr) {
+static DenseElementsAttr reshapeIfSplat(ShapedType type, Attribute attr) {
   if (auto splat = llvm::dyn_cast<SplatElementsAttr>(attr)) {
     return splat.resizeSplat(type);
   }
@@ -77,12 +77,13 @@ static bool shouldFold(mlir::Operation *op) {
   return ttmlir::utils::volume(shapedType.getShape()) <= foldLimit;
 }
 
+// Helper to fold a tensor manipulation operation with a non-splat constant
+// argument using an index mapping function. The index mapping function takes
+// output coordinates and returns input coordinates.
 template <typename ElementType, typename Fun>
-static ::mlir::OpFoldResult foldNonSplatTMImpl(mlir::Operation *op,
-                                               DenseElementsAttr inputAttr,
-                                               Fun indexMap) {
-  ShapedType resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
-
+static ::mlir::OpFoldResult foldNonSplatTM(ShapedType resultType,
+                                           DenseElementsAttr inputAttr,
+                                           Fun indexMap) {
   auto inputValues = inputAttr.getValues<ElementType>();
   llvm::SmallVector<ElementType> outputValues;
   outputValues.reserve(resultType.getNumElements());
@@ -96,7 +97,9 @@ static ::mlir::OpFoldResult foldNonSplatTMImpl(mlir::Operation *op,
     int64_t inputIndex = mlir::linearize(inputCoord, inputStrides);
     outputValues.push_back(inputValues[inputIndex]);
 
-    // Increment output coordinates
+    // Increment output coordinates in row-major order. Increment the innermost
+    // dimension; if it reaches the dimension size, reset it to 0 and carry into
+    // the next outer dimension.
     for (int64_t dim = outputShape.size() - 1; dim >= 0; --dim) {
       if (++outputCoord[dim] < outputShape[dim]) {
         break;
@@ -108,26 +111,34 @@ static ::mlir::OpFoldResult foldNonSplatTMImpl(mlir::Operation *op,
   return mlir::DenseElementsAttr::get(resultType, outputValues);
 }
 
-// Helper to fold a constant tensor manipulation operation with a non-splat
-// argument using an index mapping function. The index mapping function takes
-// output coordinates and returns input coordinates.
+// Helper to fold a constant tensor manipulation operation using an index
+// mapping function. The index mapping function takes output coordinates and
+// returns input coordinates.
 template <typename Fun>
 static ::mlir::OpFoldResult
-foldNonSplatTM(mlir::Operation *op, mlir::Attribute inputAttr, Fun indexMap) {
-  auto denseAttr =
-      llvm::dyn_cast_if_present<mlir::DenseElementsAttr>(inputAttr);
-  if (!denseAttr || !shouldFold(op)) {
+constantFoldTM(mlir::Operation *op, mlir::Attribute inputAttr, Fun indexMap) {
+  if (!inputAttr) {
     return nullptr;
   }
 
   ShapedType resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
-  if (resultType.getElementType().isFloat()) {
-    return foldNonSplatTMImpl<llvm::APFloat>(op, denseAttr, indexMap);
-  }
-  if (resultType.getElementType().isInteger()) {
-    return foldNonSplatTMImpl<llvm::APInt>(op, denseAttr, indexMap);
+  if (auto foldResult = reshapeIfSplat(resultType, inputAttr)) {
+    return foldResult;
   }
 
+  if (!shouldFold(op)) {
+    return nullptr;
+  }
+
+  if (auto denseAttr =
+          llvm::dyn_cast_if_present<mlir::DenseElementsAttr>(inputAttr)) {
+    if (resultType.getElementType().isFloat()) {
+      return foldNonSplatTM<llvm::APFloat>(resultType, denseAttr, indexMap);
+    }
+    if (resultType.getElementType().isInteger()) {
+      return foldNonSplatTM<llvm::APInt>(resultType, denseAttr, indexMap);
+    }
+  }
   return nullptr;
 }
 
@@ -2745,18 +2756,6 @@ constantFoldSliceStatic(mlir::tt::ttir::SliceStaticOp op,
     return nullptr;
   }
 
-  if (auto foldResult = reshapeIfSplat(op.getResult().getType(), constInput)) {
-    return foldResult;
-  }
-
-  if (op.getResult().hasOneUse() &&
-      isa<mlir::tt::ttir::SliceStaticOp>(
-          op.getResult().use_begin()->getOwner())) {
-    // Don't fold if the result is consumed by another SliceStaticOp, as that
-    // would prevent efficient folding of consecutive SliceStaticOps.
-    return nullptr;
-  }
-
   auto inputShape = op.getInput().getType().getShape();
   llvm::SmallVector<int64_t> begins(inputShape.size());
   llvm::SmallVector<int64_t> step(inputShape.size());
@@ -2766,19 +2765,16 @@ constantFoldSliceStatic(mlir::tt::ttir::SliceStaticOp op,
     // Adjust negative begin.
     begins[i] = (begin < 0) ? (begin + inputShape[i]) : begin;
   }
-  if (auto foldResult = foldNonSplatTM(
-          op, constInput,
-          [&begins, &step](const llvm::SmallVector<int64_t> &outputCoord) {
-            llvm::SmallVector<int64_t> inputCoord(outputCoord.size());
-            for (size_t i = 0; i < inputCoord.size(); ++i) {
-              inputCoord[i] = begins[i] + step[i] * outputCoord[i];
-            }
-            return inputCoord;
-          })) {
-    return foldResult;
-  }
 
-  return nullptr;
+  return constantFoldTM(
+      op, constInput,
+      [&begins, &step](const llvm::SmallVector<int64_t> &outputCoord) {
+        llvm::SmallVector<int64_t> inputCoord(outputCoord.size());
+        for (size_t i = 0; i != inputCoord.size(); ++i) {
+          inputCoord[i] = begins[i] + step[i] * outputCoord[i];
+        }
+        return inputCoord;
+      });
 }
 
 // SliceStaticOp Folder
@@ -4461,28 +4457,15 @@ static mlir::OpFoldResult foldIdentityRepeat(mlir::tt::ttir::RepeatOp op) {
 
 static mlir::OpFoldResult constantFoldRepeat(mlir::tt::ttir::RepeatOp op,
                                              mlir::Attribute input) {
-  if (!input) {
-    return nullptr;
-  }
-
-  if (auto foldResult = reshapeIfSplat(op.getResult().getType(), input)) {
-    return foldResult;
-  }
-
-  auto inputShape = op.getInput().getType().getShape();
-  if (auto foldResult = foldNonSplatTM(
-          op, input,
-          [inputShape](const llvm::SmallVector<int64_t> &outputCoords) {
-            llvm::SmallVector<int64_t> inputCoords(outputCoords.size());
-            std::transform(outputCoords.begin(), outputCoords.end(),
-                           inputShape.begin(), inputCoords.begin(),
-                           std::modulus<int64_t>());
-            return inputCoords;
-          })) {
-    return foldResult;
-  }
-
-  return nullptr;
+  llvm::ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+  return constantFoldTM(
+      op, input, [inputShape](const llvm::SmallVector<int64_t> &outputCoords) {
+        llvm::SmallVector<int64_t> inputCoords(outputCoords.size());
+        std::transform(outputCoords.begin(), outputCoords.end(),
+                       inputShape.begin(), inputCoords.begin(),
+                       std::modulus<int64_t>());
+        return inputCoords;
+      });
 }
 
 // RepeatOp Folder
@@ -4560,31 +4543,20 @@ foldIdentityRepeatInterleave(mlir::tt::ttir::RepeatInterleaveOp op) {
 static mlir::OpFoldResult
 constantFoldRepeatInterleave(mlir::tt::ttir::RepeatInterleaveOp op,
                              mlir::Attribute input) {
-  if (!input) {
-    return nullptr;
-  }
-
-  if (auto foldResult = reshapeIfSplat(op.getResult().getType(), input)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = foldNonSplatTM(
-          op, input,
-          [dim = op.getDim(), repeats = op.getRepeats()](
-              const llvm::SmallVector<int64_t> &outputCoords) {
-            llvm::SmallVector<int64_t> inputCoords(outputCoords.size());
-            for (size_t i = 0; i < outputCoords.size(); ++i) {
-              inputCoords[i] = outputCoords[i];
-              if (i == static_cast<size_t>(dim)) {
-                inputCoords[i] /= repeats;
-              }
-            }
-            return inputCoords;
-          })) {
-    return foldResult;
-  }
-
-  return nullptr;
+  int32_t dim = op.getDim();
+  uint32_t repeats = op.getRepeats();
+  return constantFoldTM(
+      op, input,
+      [dim, repeats](const llvm::SmallVector<int64_t> &outputCoords) {
+        llvm::SmallVector<int64_t> inputCoords(outputCoords.size());
+        for (size_t i = 0; i != outputCoords.size(); ++i) {
+          inputCoords[i] = outputCoords[i];
+          if (i == static_cast<size_t>(dim)) {
+            inputCoords[i] /= repeats;
+          }
+        }
+        return inputCoords;
+      });
 }
 
 // RepeatInterleaveOp Folder
@@ -5331,31 +5303,15 @@ static mlir::OpFoldResult constantFoldPermute(mlir::tt::ttir::PermuteOp op,
     return nullptr;
   }
 
-  auto result = op.getResult();
-  if (auto foldResult = reshapeIfSplat(result.getType(), input)) {
-    return foldResult;
-  }
-
-  if (result.hasOneUse() &&
-      llvm::isa<ttir::PermuteOp>(result.use_begin()->getOwner()) &&
-      !op->hasAttr("decomposed")) {
-    // Don't constant fold yet if folding of consecutive permutes is possible
-    return nullptr;
-  }
-
   // Invert the permutation to permute output to input coordinates
   SmallVector<int64_t> invPerm =
       mlir::invertPermutationVector(op.getPermutation());
 
-  if (auto foldResult = foldNonSplatTM(
-          op, input, [invPerm](llvm::SmallVector<int64_t> coord) {
-            mlir::applyPermutationToVector(coord, invPerm);
-            return coord;
-          })) {
-    return foldResult;
-  }
-
-  return nullptr;
+  return constantFoldTM(op, input,
+                        [&invPerm](llvm::SmallVector<int64_t> coord) {
+                          mlir::applyPermutationToVector(coord, invPerm);
+                          return coord;
+                        });
 }
 
 // PermuteOp folder
