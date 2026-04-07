@@ -597,4 +597,31 @@ def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
   ];
 }
 
+def FuseDistributedCustomCallsPass : Pass<"fuse-distributed-custom-calls", "::mlir::ModuleOp">
+{
+  let summary = "Fuse custom_call ops with surrounding CCL ops into distributed variants.";
+  let description = [{
+    This pass pattern-matches custom_call ops (marked with `tt.has_custom_sharding`)
+    that are surrounded by CCL operations (all_gather inputs, all_slice output) and
+    fuses them into a single distributed custom_call that handles cross-device
+    communication internally.
+
+    For example, the pattern:
+      all_gather(local_input) -> gathered_input
+      all_gather(local_weight) -> gathered_weight
+      custom_call @tenstorrent.rms_norm(gathered_input, gathered_weight) -> gathered_result
+      sdy.all_slice(gathered_result) -> local_result
+
+    Is fused into:
+      custom_call @tenstorrent.distributed_rms_norm(local_input, local_weight) -> local_result
+
+    The distributed variant handles the cross-device reduction of statistics internally
+    (e.g., all-gather of partial RMS statistics), so external CCL ops are not needed.
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 #endif

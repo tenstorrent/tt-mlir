@@ -7,6 +7,7 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   DecomposeCustomCallTuples.cpp
   DecoupleConstFanout.cpp
   FlattenComposite.cpp
+  FuseDistributedCustomCalls.cpp
   PartiallyConvertSdyToStableHLO.cpp
   RegisterCustomShardingRule.cpp
   ReoutlineComposite.cpp
