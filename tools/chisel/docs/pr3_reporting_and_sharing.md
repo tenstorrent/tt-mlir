@@ -1,4 +1,4 @@
-# PR 2: Reporting + Cross-Program Tensor Sharing
+# PR 3: Reporting + Cross-Program Tensor Sharing
 
 ## Goal
 
@@ -163,9 +163,9 @@ for serialization instead of the old `TensorValue.snapshot` approach.
 
 ## Dependencies
 
-- **PR 1** — All chisel modules (context, callbacks, tensors, ops, executor, utils)
+- **PR 2** — Single Program Flow (context, callbacks, tensors, ops, executor, utils)
 
-No new runtime PR dependencies beyond what PR 1 requires. Multi-output ops
+No new runtime PR dependencies beyond what PR 2 requires. Multi-output ops
 (SortOp, MaxPool2dWithIndicesOp, etc.) are not supported until PR 0b lands —
 the report should handle the case where `getOpOutputRef` returns empty/None
 for these ops by skipping comparison and logging a warning.

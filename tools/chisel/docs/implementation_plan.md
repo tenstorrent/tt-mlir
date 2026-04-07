@@ -4,10 +4,11 @@
 
 This document describes the implementation plan for the new Chisel tool, split
 into 5 runtime PRs (0a-1, 0a-2a, 0a-2b, 0a-3, 0b), 1 metrics PR (0c), and
-4 Chisel PRs (1-4). The runtime PRs form a dependency chain
+5 Chisel PRs (1-5). The runtime PRs form a dependency chain
 (0a-1 → 0a-2a → 0a-2b → 0a-3) to keep each PR small and independently
-testable. PR 0b is independent. All runtime PRs must land before PR 3
-(orchestration). Chisel PRs 1-2 have no runtime dependencies.
+testable. PR 0b is independent. Chisel PR 1 requires 0a-1 + 0a-2a + 0c
+(op-level callbacks and metrics). All remaining 0a-* PRs must land before
+Chisel PR 2 (program-level callbacks and introspection).
 
 ## Key Design Decisions
 
@@ -38,11 +39,13 @@ graph TD
     PR0a1["PR 0a-1: GIL-Safety Fix"] --> PR0a2a["PR 0a-2a: Named Callback API"]
     PR0a2a --> PR0a2b["PR 0a-2b: Program-Level Hooks"]
     PR0a2b --> PR0a3["PR 0a-3: Introspection Bindings"]
-    PR1["PR 1: Scaffold + Data Structures"] --> PR2["PR 2: Logic Layer"]
-    PR2 --> PR3["PR 3: Orchestration"]
-    PR0a3 --> PR3
-    PR0c["PR 0c: Unified Metrics"] --> PR3
-    PR3 --> PR4["PR 4: Builder Integration"]
+    PR0a2a --> PR1["PR 1: Single Op Isolation"]
+    PR0c["PR 0c: Unified Metrics"] --> PR1
+    PR1 --> PR2["PR 2: Single Program Flow"]
+    PR0a3 --> PR2
+    PR2 --> PR3["PR 3: Reporting + Sharing"]
+    PR3 --> PR4["PR 4: Skip Mode"]
+    PR4 --> PR5["PR 5: Builder Integration"]
     PR0b["PR 0b: Multi-Output Refs"] -.-> Future["Future: Full Multi-Output Op Support"]
 
     style PR0a1 fill:#f9d77e,stroke:#d4a017
@@ -54,8 +57,9 @@ graph TD
     style Future fill:#e0e0e0,stroke:#999,stroke-dasharray: 5 5
 ```
 
-- **PRs 1-2** have no runtime dependencies — pure Python with no callback
-  registration, so the DebugHooks copy bug doesn't affect them.
+- **PR 1** (Single Op Isolation) requires **PR 0a-1** (GIL fix), **PR 0a-2a**
+  (named callback API for preOp/postOp registration), and **PR 0c** (unified
+  metrics for comparison). It does NOT need program-level hooks or introspection.
 - **PR 0a-1** (GIL fix) is minimal and safe — no API change, just const ref
   returns and move semantics. Can merge quickly.
 - **PR 0a-2a** (named callback API) refactors the `DebugHooks` API to support
@@ -66,10 +70,10 @@ graph TD
 - **PR 0a-3** (introspection bindings) adds `get_program_index`,
   `get_program_input_refs`, `get_program_output_refs`, `Tensor.global_id`, and
   `Binary.id`. Depends on PR 0a-2b (needs program callbacks to test).
-- **All 0a-* PRs** must land before **PR 3** — that's where Chisel registers
-  Python callbacks and queries program metadata.
-- **PR 0c** must land before **PR 3** — PR 3's `context.py` imports comparison
-  functions from `golden.metrics`. Can be developed in parallel with PRs 1-2.
+- **All 0a-* PRs** must land before **Chisel PR 2** — that's where Chisel
+  registers program-level Python callbacks and queries program metadata.
+- **PR 0c** must land before **Chisel PR 1** — comparison functions are used
+  in postOp. Can be developed in parallel with the 0a chain.
 - **PR 0b** is independent and not required for the initial integration.
   Multi-output ops (SortOp, MaxPool2dWithIndicesOp, etc.) will simply be
   unsupported until PR 0b lands. Chisel can skip them gracefully.
@@ -83,11 +87,12 @@ graph TD
 | 0a-2b | Program-Level Hooks | `preProgram`/`postProgram` in CallbackSet, `runProgramCallbacks()` | All 4 hooks fire in correct order test | PR 0a-2a |
 | 0a-3 | Introspection Bindings | `get_program_index`, `get_program_input/output_refs`, `Tensor.global_id`, `Binary.id` | Python test querying program metadata from callbacks | PR 0a-2b |
 | 0b | Multi-Output Refs | `getOpOutputRef` → `vector<TensorRef>` | Multi-output op extraction tests | None (independent) |
-| 0c | Unified Metrics | `tools/golden/metrics.py`, migrate builder + ttrt | test/python/golden/test_metrics.py | None (land before PR 3) |
-| 1 | Scaffold + Data Structures | CMakeLists.txt, `__init__.py`, tensors.py, ops.py | test_tensors.py, test_ops.py | None |
-| 2 | Logic Layer | executor.py, report.py | test_executor.py, test_report.py | PR 1 |
-| 3 | Orchestration | context.py, callbacks.py, utils.py | test_context.py, test_callbacks.py, test_utils.py | PR 2, PR 0a-3, PR 0c |
-| 4 | Builder Integration | (modifies builder_runtime.py, builder_apis.py) | test_builder_integration.py | PR 3 |
+| 0c | Unified Metrics | `tools/golden/metrics.py`, migrate builder + ttrt | test/python/golden/test_metrics.py | None (land before Chisel PR 1) |
+| 1 | Single Op Isolation | CMakeLists.txt, `__init__.py`, ops.py, executor.py, context.py (slim), callbacks.py (preOp/postOp), utils.py | test_ops.py, test_executor.py, test_context.py, test_callbacks.py, test_utils.py | PR 0a-1, PR 0a-2a, PR 0c |
+| 2 | Single Program Flow | tensors.py, context.py (full hierarchy), callbacks.py (4 callbacks), executor.py (pool-aware) | test_tensors.py, test_context.py (hierarchy), test_callbacks.py | PR 1, PR 0a-2b, PR 0a-3 |
+| 3 | Reporting + Cross-Program Sharing | report.py, global_tensor_pool, disk caching | test_report.py, test_tensors.py (caching), test_context.py (cross-program) | PR 2 |
+| 4 | Skip Mode | skip stash in preOp, golden replace in postOp | test_skip_mode.py | PR 3 |
+| 5 | Builder Integration | (modifies builder_runtime.py, builder_apis.py) | test_builder_integration.py | PR 4 |
 
 ## Runtime PRs
 
@@ -148,8 +153,8 @@ Add Python bindings for querying program metadata from callbacks:
 `get_program_index()`, `get_program_input_refs()`, `get_program_output_refs()`,
 `Binary.id`, `Tensor.global_id`.
 
-**All 0a-* PRs must land before PR 3.** Can be developed in parallel with
-PRs 1-2.
+**All 0a-* PRs must land before Chisel PR 2.** PR 0a-1 and 0a-2a can be
+developed in parallel with Chisel PR 1 planning.
 
 ### PR 0b: Multi-Output Refs ([detail](pr0b_multi_output_ref.md))
 
@@ -173,7 +178,7 @@ The unified module uses pure torch (no numpy), exposes `compute_pcc()`,
 `compute_atol()`, `compute_rtol()`, and `compute_metrics()`.
 Builder's `check_outputs()` keeps its signature but delegates internally.
 
-**Must land before PR 3.** Can be developed in parallel with PRs 1-2.
+**Must land before Chisel PR 1.** Can be developed in parallel with the 0a chain.
 
 ## Key Reference Files
 

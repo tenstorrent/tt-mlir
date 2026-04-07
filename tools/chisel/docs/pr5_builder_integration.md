@@ -1,4 +1,4 @@
-# PR 4: Builder Integration
+# PR 5: Builder Integration
 
 ## Goal
 
@@ -18,7 +18,7 @@ Chisel usable through the standard builder API.
 
 ### No New Files
 
-All Chisel code is already in place from PRs 1-3. This PR only modifies builder
+All Chisel code is already in place from PRs 1-4. This PR only modifies builder
 files.
 
 ## Implementation Details
@@ -226,4 +226,4 @@ def test_end_to_end_chisel(device, tmp_path):
 
 ## Dependencies
 
-- **PR 3** — `context.py`, `callbacks.py` (the Chisel library must be complete)
+- **PR 4** — Skip Mode (`context.py`, `callbacks.py` — the Chisel library must be complete)
