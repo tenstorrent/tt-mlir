@@ -6,6 +6,7 @@ endif()
 if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
   add_subdirectory(builder)
   add_subdirectory(golden)
+  add_subdirectory(chisel)
   add_subdirectory(profiler)
 
   if (TTMLIR_ENABLE_PYKERNEL)
