@@ -6,8 +6,8 @@
 #define TTMLIR_DIALECT_TTNN_DIAGNOSTICS_COMPILETIMESTATSOBSERVER_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationObserver.h"
+#include "ttmlir/Support/Logger.h"
 
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -77,7 +77,8 @@ public:
       totalValid += s.validResults;
     }
 
-    llvm::raw_ostream &os = llvm::errs();
+    std::string statsStr;
+    llvm::raw_string_ostream os(statsStr);
     os << "\n=== Greedy Optimizer Compile-Time Stats (func: " << funcName_
        << ") ===\n";
     os << "Total: " << llvm::format("%.0f", totalMs) << "ms across "
@@ -92,7 +93,8 @@ public:
                          s.crossProduct)
          << s.name << " (" << s.loc << ")\n";
     }
-    os << "\n";
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer, "{0}", statsStr);
   }
 
 private:

@@ -70,6 +70,12 @@ public:
             TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                          "Merged spill management trace into {0}/{1}",
                          decisionTraceDir, func.getName());
+          } else {
+            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                         "Failed to merge spill management trace for func "
+                         "{0}; layout propagation may not have written a "
+                         "decision trace to {1}.",
+                         func.getName(), decisionTraceDir);
           }
         }
       }

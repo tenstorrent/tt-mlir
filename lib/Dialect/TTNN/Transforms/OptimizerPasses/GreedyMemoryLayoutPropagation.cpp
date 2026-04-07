@@ -166,10 +166,16 @@ public:
                    func.getName(), legalConfigs.size());
 
       std::unique_ptr<LayoutPropagationObserver> observer;
-      if (enableCompileTimeStats) {
-        observer = std::make_unique<CompileTimeStatsObserver>();
-      } else if (enableDecisionTrace) {
+      if (enableDecisionTrace) {
+        if (enableCompileTimeStats) {
+          TTMLIR_TRACE(
+              ttmlir::LogComponent::GreedyOptimizer,
+              "Both decision-trace and compile-time-stats enabled; "
+              "using decision trace (options are mutually exclusive).");
+        }
         observer = std::make_unique<DecisionTraceObserver>();
+      } else if (enableCompileTimeStats) {
+        observer = std::make_unique<CompileTimeStatsObserver>();
       }
 
       MemoryLayoutPropagation propagation(
