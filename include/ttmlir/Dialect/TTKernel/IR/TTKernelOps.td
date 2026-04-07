@@ -1238,6 +1238,38 @@ def TTKernel_SubUnaryTileOp : TTKernel_SFPUOp<"sub_unary_tile", [TTKernel_UnaryO
     }];
 }
 
+def TTKernel_AddUnaryTileInt32Op : TTKernel_SFPUOp<"add_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Add by int32 scalar operation";
+    let description = [{
+      Performs element-wise addition of an int32 tile by an int32 scalar value.
+      DST[dst0_index] <- DST[dst0_index] + scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SubUnaryTileInt32Op : TTKernel_SFPUOp<"sub_unary_tile_int32", [TTKernel_UnaryOpTrait]> {
+    let summary = "Subtract by int32 scalar operation";
+    let description = [{
+      Performs element-wise subtraction of an int32 tile by an int32 scalar value.
+      DST[dst0_index] <- DST[dst0_index] - scalar
+      The DST register buffer must be in acquired state via *tile_regs_acquire* call.
+      This call is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, I32:$param);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_DivUnaryTileOp : TTKernel_SFPUOp<"div_unary_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Divide by scalar operation";
     let description = [{

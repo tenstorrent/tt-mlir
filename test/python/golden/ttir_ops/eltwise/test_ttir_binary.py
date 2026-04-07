@@ -440,6 +440,74 @@ def test_scalar_binary_ops(
     )
 
 
+# Scalar binary ops for int32
+def add_scalar_int32(
+    in0: Operand,
+    scalar_value: int,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=torch.int32))
+    return builder.add(in0, scalar, unit_attrs=unit_attrs)
+
+
+def subtract_scalar_int32(
+    in0: Operand,
+    scalar_value: int,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=torch.int32))
+    return builder.subtract(in0, scalar, unit_attrs=unit_attrs)
+
+
+scalar_binary_ops_int32 = [
+    (add_scalar_int32, 5),
+    (subtract_scalar_int32, 3),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn,scalar_value",
+    scalar_binary_ops_int32,
+    ids=[
+        "add_scalar_int32",
+        "subtract_scalar_int32",
+    ],
+)
+def test_scalar_binary_ops_int32(
+    test_fn: Callable,
+    scalar_value: int,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test binary operations with int32 scalar operands on ttmetal"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def scalar_op_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 # Binary bitwise ops (int only)
 def bitwise_and(
     in0: Operand,

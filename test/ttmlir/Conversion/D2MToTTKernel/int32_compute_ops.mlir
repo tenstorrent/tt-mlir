@@ -160,3 +160,29 @@ func.func @test_minimum_i32(%lhs: !ttype_i32, %rhs: !ttype_i32) -> (!ttype_i32) 
   %0 = "ttir.minimum"(%lhs, %rhs) : (!ttype_i32, !ttype_i32) -> !ttype_i32
   return %0 : !ttype_i32
 }
+
+// -----
+
+// Scalar int32 ops (add/sub with a constant splat tensor).
+
+!ttype_i32 = tensor<32x32xsi32>
+// CHECK-LABEL: func.func @test_add_scalar_i32
+func.func @test_add_scalar_i32(%in: !ttype_i32) -> (!ttype_i32) {
+  // CHECK: ttkernel.binop_with_scalar_tile_init
+  // CHECK: ttkernel.add_unary_tile_int32(
+  %cst = "ttir.constant"() {value = dense<5> : tensor<32x32xsi32>} : () -> !ttype_i32
+  %0 = "ttir.add"(%in, %cst) : (!ttype_i32, !ttype_i32) -> !ttype_i32
+  return %0 : !ttype_i32
+}
+
+// -----
+
+!ttype_i32 = tensor<32x32xsi32>
+// CHECK-LABEL: func.func @test_subtract_scalar_i32
+func.func @test_subtract_scalar_i32(%in: !ttype_i32) -> (!ttype_i32) {
+  // CHECK: ttkernel.binop_with_scalar_tile_init
+  // CHECK: ttkernel.sub_unary_tile_int32(
+  %cst = "ttir.constant"() {value = dense<3> : tensor<32x32xsi32>} : () -> !ttype_i32
+  %0 = "ttir.subtract"(%in, %cst) : (!ttype_i32, !ttype_i32) -> !ttype_i32
+  return %0 : !ttype_i32
+}
