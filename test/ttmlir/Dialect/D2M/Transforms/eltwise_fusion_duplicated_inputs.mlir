@@ -30,7 +30,8 @@ module {
     // CHECK-LABEL: func @test_duplicate_large_subgraph
     func.func @test_duplicate_large_subgraph(%arg0: tensor<2x32x3072xbf16>, %arg1: tensor<2x32x3072xbf16>, %arg2: tensor<2x32x3072xbf16>, %arg3: tensor<2x32x3072xbf16>, %arg4: tensor<2x32x3072xbf16>, %arg5: tensor<2x32x3072xbf16>, %arg6: tensor<2x32x3072xbf16>, %arg7: tensor<2x32x3072xbf16>) -> tensor<2x32x3072xbf16> {
 
-        // This is a subgraph from the GPT-OSS 20B.
+        // This graph fuses in such a way that the last fusion step is between the %2 clamp op and a fused generic op. This
+        // generic op takes %2 twice as input. This should fuse into a single generic op.
 
         // CHECK: d2m.generic
         // CHECK: d2m.tile_maximum
