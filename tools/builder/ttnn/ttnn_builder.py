@@ -8320,23 +8320,15 @@ class TTNNBuilder(Builder):
                 def decorated_func(*inputs):
                     in0 = inputs[0]
 
-                    mesh_shape_attr = (
-                        self._get_device_op.mesh_shape
-                        if hasattr(self._get_device_op, "mesh_shape")
-                        else ttnn.ir.MeshShapeAttr.get(
-                            old_ctx, *to_device_builder._mesh_shape
-                        )
+                    mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                        old_ctx, *self._mesh_shape
                     )
-                    mesh_offset_attr = (
-                        self._get_device_op.mesh_offset
-                        if hasattr(self._get_device_op, "mesh_offset")
-                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
+                    mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                        old_ctx, *self._mesh_offset
                     )
-
                     new_get_device_op = ttnn.GetDeviceOp(
                         mesh_shape=mesh_shape_attr,
                         mesh_offset=mesh_offset_attr,
-                        loc=self._get_device_op.location,
                     )
 
                     result = old_op.result.type
@@ -8662,23 +8654,15 @@ class TTNNBuilder(Builder):
                 def decorated_func(*inputs):
                     in0 = inputs[0]
 
-                    mesh_shape_attr = (
-                        self._get_device_op.mesh_shape
-                        if hasattr(self._get_device_op, "mesh_shape")
-                        else ttnn.ir.MeshShapeAttr.get(
-                            old_ctx, *distribute_tensor_builder._mesh_shape
-                        )
+                    mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                        old_ctx, *self._mesh_shape
                     )
-                    mesh_offset_attr = (
-                        self._get_device_op.mesh_offset
-                        if hasattr(self._get_device_op, "mesh_offset")
-                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
+                    mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                        old_ctx, *self._mesh_offset
                     )
-
                     new_get_device_op = ttnn.GetDeviceOp(
                         mesh_shape=mesh_shape_attr,
                         mesh_offset=mesh_offset_attr,
-                        loc=self._get_device_op.location,
                     )
 
                     result = old_op.result.type
@@ -8842,23 +8826,15 @@ class TTNNBuilder(Builder):
                 def decorated_func(*inputs):
                     in0 = inputs[0]
 
-                    mesh_shape_attr = (
-                        self._get_device_op.mesh_shape
-                        if hasattr(self._get_device_op, "mesh_shape")
-                        else ttnn.ir.MeshShapeAttr.get(
-                            old_ctx, *aggregate_tensor_builder._mesh_shape
-                        )
+                    mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                        old_ctx, *self._mesh_shape
                     )
-                    mesh_offset_attr = (
-                        self._get_device_op.mesh_offset
-                        if hasattr(self._get_device_op, "mesh_offset")
-                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
+                    mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                        old_ctx, *self._mesh_offset
                     )
-
                     new_get_device_op = ttnn.GetDeviceOp(
                         mesh_shape=mesh_shape_attr,
                         mesh_offset=mesh_offset_attr,
-                        loc=self._get_device_op.location,
                     )
 
                     result = old_op.result.type
@@ -9747,14 +9723,22 @@ class TTNNBuilder(Builder):
                                     continue
 
                                 for block in device_module_op.body:
-                                    builder._get_device_op = None
                                     for op in block.operations:
-                                        if isinstance(op, func.ReturnOp):
+                                        if isinstance(op, ttnn.GetDeviceOp) and hasattr(
+                                            op, "mesh_offset"
+                                        ):
+                                            print(
+                                                op.mesh_offset,
+                                                type(op.mesh_offset),
+                                                dir(op.mesh_offset),
+                                            )
+                                            builder._mesh_offset = op.mesh_offset
+                                        elif (
+                                            isinstance(op, func.ReturnOp)
+                                            or isinstance(op, ttnn.DeallocateOp)
+                                            or isinstance(op, ttnn.GetDeviceOp)
+                                        ):
                                             continue
-                                        elif isinstance(op, ttnn.DeallocateOp):
-                                            continue
-                                        elif isinstance(op, ttnn.GetDeviceOp):
-                                            builder._get_device_op = op
                                         elif isinstance(op, func.CallOp):
                                             sub_op_module_builder = (
                                                 builder.split_call_op(op)
@@ -9775,14 +9759,25 @@ class TTNNBuilder(Builder):
 
                     for block in entry.body:
                         sub_op_module_builder = None
-                        builder._get_device_op = None
                         for op in block.operations:
-                            if isinstance(op, func.ReturnOp):
+                            if isinstance(op, ttnn.GetDeviceOp) and hasattr(
+                                op, "mesh_offset"
+                            ):
+                                mesh_offset_attr = (
+                                    ttnn.ir.MeshOffsetAttr.maybe_downcast(
+                                        op.mesh_offset
+                                    )
+                                )
+                                builder._mesh_offset = [
+                                    mesh_offset_attr.x,
+                                    mesh_offset_attr.y,
+                                ]
+                            elif (
+                                isinstance(op, func.ReturnOp)
+                                or isinstance(op, ttnn.DeallocateOp)
+                                or isinstance(op, ttnn.GetDeviceOp)
+                            ):
                                 continue
-                            elif isinstance(op, ttnn.DeallocateOp):
-                                continue
-                            elif isinstance(op, ttnn.GetDeviceOp):
-                                builder._get_device_op = op
                             elif isinstance(op, func.CallOp):
                                 sub_op_module_builder = builder.split_call_op(op)
                                 if len(sub_op_module_builder) != 0:

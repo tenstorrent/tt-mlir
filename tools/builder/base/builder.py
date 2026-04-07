@@ -104,6 +104,7 @@ class Builder(metaclass=BuilderMeta):
         self._mesh_dict = mesh_dict
         self._mesh_shape = tuple(mesh_dict[0].values())
         self._mesh_name = mesh_name[0]
+        self._mesh_offset = [0] * len(self._mesh_shape)
 
         # Internal values to keep track
         self._root_module_insertion_point = None
