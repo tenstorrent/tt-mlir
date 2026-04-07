@@ -3247,6 +3247,8 @@ public:
       }
     }
 
+    rewriter.setInsertionPoint(outerMul);
+
     // Create RMSNormOp with output shape and dtype matching input.
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
