@@ -10,6 +10,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #pragma clang diagnostic pop
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
+#include "ttnn/operations/matmul/device/config/matmul_program_config_types.hpp"
 
 // Macros to wrap overloaded functions for use with
 // query_op_constraints/runtime. These create a generic lambda that forwards
@@ -67,6 +68,8 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType);
 ::ttnn::operations::unary::UnaryOpType
 toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
 
+::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRefT &tensorRef);
+
 ::ttnn::operations::unary::UnaryWithParam
 toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParamT &unaryWithParam);
 
@@ -74,6 +77,9 @@ bool inSystemMemory(const ::tt::target::ttnn::TensorRefT &tensorRef);
 
 const ::tt::target::ttnn::MemoryConfigT
 getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRefT &tensorRef);
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op);
 
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg);
