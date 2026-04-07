@@ -10,7 +10,7 @@ from collections import OrderedDict
 
 from ttmlir.dialects import ttnn
 
-from builder.base.builder_utils import Operand, Shape, create_custom_ttir_pipeline_fn
+from builder.base.builder_utils import Operand, Shape
 from builder.base.builder_enums import ReduceType
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn

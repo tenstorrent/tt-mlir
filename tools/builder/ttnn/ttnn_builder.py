@@ -8115,50 +8115,6 @@ class TTNNBuilder(Builder):
         new_op = ttnn_op(mesh_shape=mesh_shape_attr, mesh_offset=mesh_offset_attr)
         return new_op, {old_op.device: new_op.device}
 
-    @split(ttnn.GetDeviceOp)
-    def get_device_split(
-        self,
-        old_op: ttnn.GetDeviceOp,
-    ) -> Tuple[Module, TTNNBuilder]:
-        ttnn_op = self.get_opview_from_split(TTNNBuilder.get_device_split)
-        old_ctx = old_op.context
-        old_loc = Location.unknown(old_ctx)
-        with old_ctx, old_loc:
-            get_device_module = Module.create()
-            get_device_builder = TTNNBuilder(old_ctx, old_loc)
-            op_input_types: List[Type] = []
-            with InsertionPoint(get_device_module.body):
-                ordered_outputs = []
-
-                @func.func(*op_input_types, name="get_device_module")
-                def decorated_func():
-                    mesh_shape_attr = (
-                        old_op.mesh_shape
-                        if hasattr(old_op, "mesh_shape")
-                        else ttnn.ir.MeshShapeAttr.get(
-                            old_ctx, *get_device_builder._mesh_shape
-                        )
-                    )
-                    mesh_offset_attr = (
-                        old_op.mesh_offset
-                        if hasattr(old_op, "mesh_offset")
-                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
-                    )
-                    new_op = ttnn_op(
-                        mesh_shape=mesh_shape_attr,
-                        mesh_offset=mesh_offset_attr,
-                        loc=old_op.location,
-                    )
-                    ordered_outputs.append(new_op.result)
-                    return new_op
-
-                new_func_op = decorated_func.func_op
-                get_device_builder._func_ops_generated[new_func_op] = [
-                    [],
-                    ordered_outputs,
-                ]
-        return get_device_module, get_device_builder
-
     ############### ttnn.ToLayoutOp ###############
 
     @tag(ttnn.ToLayoutOp)
@@ -9759,28 +9715,46 @@ class TTNNBuilder(Builder):
             mesh_name = "mesh"
             mesh_dict = OrderedDict([("x", 1), ("y", 1)])
 
-            for entry in root_module.body.operations:
-                if isinstance(entry, ttcore.DeviceModuleOp):
-                    for device_op_module in entry.regions[0].blocks[0].operations:
-                        for device_module_op in (
-                            device_op_module.regions[0].blocks[0].operations
-                        ):
-                            if isinstance(device_module_op, ttcore.DeviceOp):
-                                for attr in device_module_op.attributes:
-                                    if attr.name == "sym_name":
-                                        mesh_name = attr.attr
-                                    if attr.name == "device_attr":
-                                        device_attr = (
-                                            ttcore.ir.DeviceAttr.maybe_downcast(
-                                                attr.attr
+            meshes = None
+            for named_attr in root_module.operation.attributes:
+                if named_attr.name != "ttcore.meshes":
+                    continue
+
+                meshes = ttcore.ir.MeshesAttr.maybe_downcast(named_attr.attr)
+                break
+
+            if meshes:
+                mesh = meshes.meshes[0]
+                mesh_name = mesh.name
+                shape = mesh.shape
+                mesh_shape = OrderedDict(
+                    x=1 if len(shape) == 1 else shape[0],
+                    y=shape[0] if len(shape) == 1 else shape[1],
+                )
+            else:
+                # Check if mesh information is stored in device attributes
+                for entry in root_module.body.operations:
+                    if isinstance(entry, ttcore.DeviceModuleOp):
+                        for device_op_module in entry.regions[0].blocks[0].operations:
+                            for device_module_op in (
+                                device_op_module.regions[0].blocks[0].operations
+                            ):
+                                if isinstance(device_module_op, ttcore.DeviceOp):
+                                    for attr in device_module_op.attributes:
+                                        if attr.name == "sym_name":
+                                            mesh_name = attr.attr
+                                        if attr.name == "device_attr":
+                                            device_attr = (
+                                                ttcore.ir.DeviceAttr.maybe_downcast(
+                                                    attr.attr
+                                                )
                                             )
-                                        )
-                                        mesh_dict = OrderedDict(
-                                            [
-                                                ("x", device_attr.mesh_shape[0]),
-                                                ("y", device_attr.mesh_shape[1]),
-                                            ]
-                                        )
+                                            mesh_dict = OrderedDict(
+                                                [
+                                                    ("x", device_attr.mesh_shape[0]),
+                                                    ("y", device_attr.mesh_shape[1]),
+                                                ]
+                                            )
 
             ttnn_builder = TTNNBuilder(
                 ctx, loc, mesh_name=mesh_name, mesh_dict=mesh_dict
@@ -9824,8 +9798,7 @@ class TTNNBuilder(Builder):
                                         if isinstance(op, func.ReturnOp):
                                             continue
                                         elif isinstance(op, ttnn.DeallocateOp):
-                                            continue  # ********* should add to module instead?
-                                            # sub_modules_and_builders[-1][0].body.operations.append(op)
+                                            continue
                                         elif isinstance(op, ttnn.GetDeviceOp):
                                             builder._get_device_op = op
                                         elif isinstance(op, func.CallOp):
@@ -9853,7 +9826,7 @@ class TTNNBuilder(Builder):
                             if isinstance(op, func.ReturnOp):
                                 continue
                             elif isinstance(op, ttnn.DeallocateOp):
-                                continue  # ********* should add to module isntead?
+                                continue
                             elif isinstance(op, ttnn.GetDeviceOp):
                                 builder._get_device_op = op
                             elif isinstance(op, func.CallOp):
