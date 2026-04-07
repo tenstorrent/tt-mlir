@@ -1132,14 +1132,13 @@ public:
         };
 
         // Create the appropriate unary scalar op based on the D2M op type
-        auto isIntTile = [&]() {
-          auto tileType = mlir::cast<ttcore::TileType>(op.getLhs().getType());
-          return llvm::isa<IntegerType>(tileType.getElementType());
-        };
+        const bool isIntTile = llvm::isa<IntegerType>(
+            mlir::cast<ttcore::TileType>(op.getLhs().getType())
+                .getElementType());
         if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          if (isIntTile()) {
+          if (isIntTile) {
             rewriter.create<ttkernel::AddUnaryTileInt32Op>(loc, dstIdx,
                                                            scalarParam);
           } else {
@@ -1148,7 +1147,7 @@ public:
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          if (isIntTile()) {
+          if (isIntTile) {
             rewriter.create<ttkernel::SubUnaryTileInt32Op>(loc, dstIdx,
                                                            scalarParam);
           } else {
