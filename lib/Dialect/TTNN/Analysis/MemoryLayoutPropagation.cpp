@@ -1182,10 +1182,23 @@ void MemoryLayoutPropagation::insertReturnDramSpills() {
         continue;
       }
 
+      Operation *definingOp = operand.getDefiningOp();
+      if (!definingOp) {
+        continue;
+      }
+
       TTNNLayoutAttr dramLayout =
           layout.withBufferType(BufferType::DRAM)
               .withMemoryLayout(TensorMemoryLayout::Interleaved);
       insertReshardOp(returnOp, i, dramLayout);
+
+      // insertReshardOp places the new op right before returnOp. Move it to
+      // right after the defining op so it doesn't end up after non-hoistable
+      // ops (e.g. mesh_shard) which would break trace hoisting.
+      Operation *spillOp = returnOp.getOperand(i).getDefiningOp();
+      if (spillOp && spillOp != definingOp) {
+        spillOp->moveAfter(definingOp);
+      }
 
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "Inserted to_memory_config to DRAM for func.return "
