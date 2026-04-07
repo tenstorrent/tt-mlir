@@ -60,6 +60,7 @@ def _compile_and_execute(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    enable_chisel: bool = False,
     **compile_kwargs,
 ) -> str:
     builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
@@ -89,6 +90,7 @@ def _compile_and_execute(
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
             dump_memory=dump_memory,
+            enable_chisel=enable_chisel,
         )
 
     elif target == "emitpy":
@@ -350,6 +352,7 @@ def compile_and_execute_shlo(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    enable_chisel: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -439,6 +442,7 @@ def compile_and_execute_shlo(
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
+        enable_chisel=enable_chisel,
     )
 
 
@@ -466,6 +470,7 @@ def compile_and_execute_ttnn(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    enable_chisel: bool = False,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -524,6 +529,9 @@ def compile_and_execute_ttnn(
         Whether to check relative tolerance during golden comparison
     dump_memory : bool
         Dump a per-op memory report into the artifact_dir.
+    enable_chisel : bool
+        Enable Chisel differential debugging (mutually exclusive with
+        enable_intermediate_verification).
     """
     artifact_dir = get_artifact_dir(
         output_root, "TTNNBuilder", test_base, save_artifacts
@@ -552,6 +560,7 @@ def compile_and_execute_ttnn(
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
+        enable_chisel=enable_chisel,
     )
 
 
@@ -579,6 +588,7 @@ def compile_and_execute_ttir(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     dump_memory: bool = False,
+    enable_chisel: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -662,6 +672,7 @@ def compile_and_execute_ttir(
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
         dump_memory=dump_memory,
+        enable_chisel=enable_chisel,
     )
 
 

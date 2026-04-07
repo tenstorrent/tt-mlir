@@ -643,6 +643,7 @@ def execute_fb(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
     dump_memory: bool = False,
+    enable_chisel: bool = False,
 ):
     """
     Execute a flatbuffer binary on device and compare device outputs against goldens.
@@ -687,6 +688,12 @@ def execute_fb(
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
+    if enable_chisel and enable_intermediate_verification:
+        raise ValueError(
+            "enable_chisel and enable_intermediate_verification are mutually "
+            "exclusive. Use one or the other."
+        )
+
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
@@ -719,7 +726,11 @@ def execute_fb(
         save_memory=dump_memory,
     )
 
-    if verify_intermediates or dump_memory:
+    if enable_chisel:
+        import chisel
+
+        chisel.bind()
+    elif verify_intermediates or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
             post_op_get_callback_fn(callback_runtime_config),

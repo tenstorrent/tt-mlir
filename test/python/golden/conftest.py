@@ -274,6 +274,8 @@ def get_request_kwargs(request):
         kwargs["check_pcc"] = False
     if request.config.getoption("--dump-memory"):
         kwargs["dump_memory"] = True
+    if request.config.getoption("--enable-chisel"):
+        kwargs["enable_chisel"] = True
     return kwargs
 
 
@@ -370,6 +372,11 @@ def pytest_addoption(parser):
         "--dump-memory",
         action="store_true",
         help="Dump device memory to disk after execution.",
+    )
+    parser.addoption(
+        "--enable-chisel",
+        action="store_true",
+        help="Enable Chisel differential debugging (per-op golden vs device comparison).",
     )
 
 
