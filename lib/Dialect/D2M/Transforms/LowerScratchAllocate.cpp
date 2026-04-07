@@ -13,7 +13,6 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "d2m-lower-scratch-allocate"
 
@@ -121,8 +120,6 @@ private:
       return success();
     }
 
-    Block &block = region.front();
-
     // Sort descending by size so larger allocations are placed first, giving
     // the best chance for smaller ones to be packed inside them.
     llvm::sort(allocations, [](const auto &a, const auto &b) {
@@ -131,11 +128,6 @@ private:
 
     computeLiveness(allocations, block, region);
     int64_t peakUsage = assignOffsets(allocations);
-
-    // Get the scratch operand value (CB block arg or memref.alloc).
-    int64_t scratchInputIdx = scratchInputsAttr[0];
-    Value scratchValue =
-        d2m::GenericOp::getOperandAlloc(region, scratchInputIdx);
 
     OpBuilder builder(&block, block.begin());
     builder.setInsertionPointAfterValue(scratchCB);

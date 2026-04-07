@@ -112,7 +112,8 @@ func.func @packing_non_conflicting() {
     %alloc_cb12 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %alloc_cb13 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
-    // CHECK: %[[SCRATCH:.*]] = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>,
+    // CHECK: d2m.get_cb(1)
+    // CHECK: %[[SCRATCH:.*]] = d2m.get_scratch_from_cb %{{.*}}
 
     // Slot 2 (5 tiles): defined and last-used here. Dies before slots 0/1.
     // CHECK: %[[SV2:.*]] = memref.subview %[[SCRATCH]][0, 0] [1, 5] [1, 1]
