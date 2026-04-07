@@ -93,4 +93,39 @@ module {
     %1 = "ttir.group_norm"(%arg0, %arg1, %arg2) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, channel_dim = 1 : i64, operandSegmentSizes = array<i32: 1, 0, 1, 1>}> : (tensor<1x480x1x64xbf16>, tensor<480xbf16>, tensor<480xbf16>) -> tensor<1x480x1x64xbf16>
     return %1 : tensor<1x480x1x64xbf16>
   }
+
+  // Test 5D group norm with NDHWC input (channel_dim=4): only spatial collapse,
+  // no permute needed. Spatial dims D*H*W = 4*8*8 = 256 are flattened.
+  func.func @forward_5d_ndhwc(%arg0: tensor<1x4x8x8x480xbf16>) -> tensor<1x4x8x8x480xbf16> {
+    // CHECK-NOT: "ttnn.permute"
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.group_norm"
+    // CHECK: "ttnn.reshape"
+    // CHECK-NOT: "ttnn.permute"
+    %1 = "ttir.group_norm"(%arg0) <{num_groups = 8 : i64, epsilon = 1.000000e-12 : f32, channel_dim = 4 : i64, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x4x8x8x480xbf16>) -> tensor<1x4x8x8x480xbf16>
+    return %1 : tensor<1x4x8x8x480xbf16>
+  }
+
+  // Test 5D group norm with NCDHW input (channel_dim=1): needs both permute
+  // (NCDHW -> NDHWC) and reshape (collapse spatial dims).
+  func.func @forward_5d_ncdhw(%arg0: tensor<1x480x4x8x8xbf16>) -> tensor<1x480x4x8x8xbf16> {
+    // CHECK: "ttnn.permute"
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.group_norm"
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.permute"
+    %1 = "ttir.group_norm"(%arg0) <{num_groups = 8 : i64, epsilon = 1.000000e-12 : f32, channel_dim = 1 : i64, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x480x4x8x8xbf16>) -> tensor<1x480x4x8x8xbf16>
+    return %1 : tensor<1x480x4x8x8xbf16>
+  }
+
+  // Test 5D group norm with NCDHW input and weight/bias.
+  func.func @forward_5d_ncdhw_weight_bias(%arg0: tensor<1x480x4x8x8xbf16>, %arg1: tensor<480xbf16>, %arg2: tensor<480xbf16>) -> tensor<1x480x4x8x8xbf16> {
+    // CHECK: "ttnn.permute"
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.group_norm"
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.permute"
+    %1 = "ttir.group_norm"(%arg0, %arg1, %arg2) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, channel_dim = 1 : i64, operandSegmentSizes = array<i32: 1, 0, 1, 1>}> : (tensor<1x480x4x8x8xbf16>, tensor<480xbf16>, tensor<480xbf16>) -> tensor<1x480x4x8x8xbf16>
+    return %1 : tensor<1x480x4x8x8xbf16>
+  }
 }
