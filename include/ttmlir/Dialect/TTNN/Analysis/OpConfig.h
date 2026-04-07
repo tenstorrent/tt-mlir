@@ -82,7 +82,15 @@ struct OpConfig {
     if (memLayout && isShardedMemoryLayout(memLayout.getValue()) &&
         outputLayout.getGrid()) {
       auto gs = outputLayout.getGrid().getShape();
-      return llvm::formatv("{0}/{1}/[{2}x{3}]", bufStr, memStr, gs[0], gs[1]);
+      std::string gridStr = "[";
+      for (size_t i = 0; i < gs.size(); ++i) {
+        if (i != 0) {
+          gridStr += "x";
+        }
+        gridStr += std::to_string(gs[i]);
+      }
+      gridStr += "]";
+      return llvm::formatv("{0}/{1}/{2}", bufStr, memStr, gridStr);
     }
     return llvm::formatv("{0}/{1}", bufStr, memStr);
   }

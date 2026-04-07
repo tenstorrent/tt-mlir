@@ -46,7 +46,8 @@ struct SDPARuleBook : OpRuleBook {
 };
 
 /// RotaryEmbedding / RotaryEmbeddingLlama:
-/// NULL hint only, no reshards. Only height-sharded inputs accepted.
+/// NULL hint only, no reshards. Rejects width-sharded and block-sharded
+/// inputs (only height-sharded or interleaved accepted).
 /// Cache tensors are DRAM-interleaved; resharding them is wasteful.
 struct RotaryEmbeddingRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter() const override;

@@ -28,7 +28,7 @@ namespace mlir::tt::ttnn {
 //     ConcatOp: device close hang,
 //     https://github.com/tenstorrent/tt-metal/issues/39419
 //
-// Reshard exploration: disabled for all data movement ops.
+// Reshard exploration: disabled for all data movement ops except ConcatOp.
 //===----------------------------------------------------------------------===//
 
 /// ConcatOp: sharded inputs/output re-enabled after tt-metal hang fix.
