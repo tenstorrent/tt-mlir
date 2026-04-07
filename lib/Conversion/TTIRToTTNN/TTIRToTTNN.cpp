@@ -1460,12 +1460,11 @@ public:
     Location loc = op.getLoc();
     Value input = adaptor.getInput();
 
-    assert(inputType.getRank() == 4 && "input must be a 4D tensor");
-
     int64_t channelDimIdx = adaptor.getChannelDim();
 
     // If channel_dim is not the last dimension, permute to move it
     // there. E.g. for NCHW (channel_dim=1), permute [0,2,3,1] -> NHWC.
+    // Works for any rank >= 4, e.g. NCDHW -> NDHWC with [0,2,3,4,1].
     bool needsPermute = channelDimIdx != rank - 1;
     llvm::SmallVector<int64_t> permutation;
     llvm::SmallVector<int64_t> inversePermutation;
@@ -1496,16 +1495,21 @@ public:
 
     // TTNN group_norm requires [N, 1, H*W, C].
     // Reshape to [N, 1, H*W, C] if not already in that form.
+    // For >4D inputs (e.g. 5D [N, D, H, W, C] after permute), collapse all
+    // spatial dimensions (dims 1..rank-2) into one.
     llvm::SmallVector<int64_t> preNormShape(inputShape.begin(),
                                             inputShape.end());
 
-    bool needsReshape = inputShape[1] != 1;
+    bool needsReshape = rank > 4 || inputShape[1] != 1;
     if (needsReshape) {
       int64_t n = inputShape[0];
-      int64_t c = inputShape[3];
-      int64_t hw = inputShape[1] * inputShape[2];
+      int64_t c = inputShape[rank - 1];
+      int64_t spatialProduct = 1;
+      for (int64_t i = 1; i < rank - 1; ++i) {
+        spatialProduct *= inputShape[i];
+      }
 
-      llvm::SmallVector<int64_t> reshapedShape = {n, 1, hw, c};
+      llvm::SmallVector<int64_t> reshapedShape = {n, 1, spatialProduct, c};
       llvm::SmallVector<int32_t> reshapedShapeI32(reshapedShape.begin(),
                                                   reshapedShape.end());
       RankedTensorType reshapedType =
