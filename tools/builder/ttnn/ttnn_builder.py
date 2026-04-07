@@ -8512,52 +8512,6 @@ class TTNNBuilder(Builder):
 
         return None, {}
 
-    @split(ttnn.DeallocateOp)
-    def deallocate_split(
-        self,
-        old_op: ttnn.DeallocateOp,
-    ) -> Tuple[Module, TTNNBuilder]:
-        ttnn_op = self.get_opview_from_split(TTNNBuilder.deallocate_split)
-
-        old_ctx = old_op.context
-        old_loc = Location.unknown(old_ctx)
-        with old_ctx, old_loc:
-            deallocate_module = Module.create()
-            deallocate_builder = TTNNBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
-            )
-            op_input_types = [old_op.input.type]
-
-            with InsertionPoint(deallocate_module.body):
-
-                ordered_inputs = []
-                ordered_outputs = []
-
-                @func.func(*op_input_types, name="deallocate_module")
-                def decorated_func(*inputs):
-                    in0 = inputs[0]
-
-                    ttnn_op(
-                        in0,
-                        force=old_op.force,
-                        loc=old_op.location,
-                    )
-
-                    input0 = self._get_golden_tensor(old_op.input)
-                    deallocate_builder._set_golden_tensor(in0, input0)
-                    deallocate_builder._annotate_presharded_arg(in0)
-                    ordered_inputs.append(in0)
-
-                    return
-
-                new_func_op = decorated_func.func_op
-                deallocate_builder._func_ops_generated[new_func_op] = [
-                    ordered_inputs,
-                    ordered_outputs,
-                ]
-
-        return deallocate_module, deallocate_builder
-
     # ----- Private CCL Helpers -----
 
     def _create_host_ttnn_tensor(
