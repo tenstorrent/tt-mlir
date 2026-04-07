@@ -13,13 +13,13 @@ def matmul(lhs, rhs, out, K, M, N, GY, GX):
     for k in range(K):
         for m in range(M):
             lhs_shard = remote_load(
-                lhs, [m, k], mcast_start_index=[cy, 0], mcast_shape=[1, GX]
+                lhs, [m, k]#, mcast_start_index=[cy, 0], mcast_shape=[1, GX]
             )
             for n in range(N):
                 rhs_shard = remote_load(
-                    rhs, [k, n], mcast_start_index=[0, cx], mcast_shape=[GY, 1]
+                    rhs, [k, n]#, mcast_start_index=[0, cx], mcast_shape=[GY, 1]
                 )
-                out_shard = lhs_shard + rhs_shard
+                out_shard = lhs_shard @ rhs_shard
                 remote_store(out, [m, n], out_shard)
 
 
@@ -84,8 +84,6 @@ def test_matmul():
     rhs = torch.randn(128, 128)
     out = torch.zeros(128, 128)
     grid = (2, 2)
-    GY = 2
-    GX = 2
     matmul(
         TensorLayout(lhs, [2, 2]),
         TensorLayout(rhs, [2, 2]),
@@ -93,14 +91,14 @@ def test_matmul():
         2,
         2,
         2,
-        GY,
-        GX,
-        grid=(GY, GX),
+        grid[0],
+        grid[1],
+        grid=grid,
     )
 
     golden = lhs @ rhs
     assert_pcc(golden, out)
 
 
-test_eltwise2()
-# test_matmul()
+# test_eltwise2()
+test_matmul()

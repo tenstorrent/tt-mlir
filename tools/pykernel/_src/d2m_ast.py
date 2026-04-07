@@ -38,7 +38,7 @@ class TensorLayout:
         self.blocked_grid_shape = TensorLayout._derive_blocked_grid_shape(
             list(tensor.shape), block_shape, tiled
         )
-        self.grid_shape = self.logical_grid_shape if grid_shape is None else grid_shape
+        self.grid_shape = self.blocked_grid_shape if grid_shape is None else grid_shape
         self.dtype = dtype
         self.tiled = tiled
         self.collapse = collapse
