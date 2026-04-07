@@ -6479,9 +6479,9 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     return emitOpError("input and output must have the same shape");
   }
 
-  // Input must be 4D.
-  if (inputType.getRank() != 4) {
-    return emitOpError("input must be a 4D tensor, got rank ")
+  // Input must be at least 4D (e.g. 4D [N, C, H, W] or 5D [N, C, D, H, W]).
+  if (inputType.getRank() < 4) {
+    return emitOpError("input must be at least a 4D tensor, got rank ")
            << inputType.getRank();
   }
 
