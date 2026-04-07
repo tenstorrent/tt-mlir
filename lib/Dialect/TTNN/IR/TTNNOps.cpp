@@ -3407,12 +3407,6 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 
   int64_t channelDim = inputShape[3];
 
-  if (channelDim % 32 != 0) {
-    return emitOpError("channel dimension (last dim) must be divisible by 32, "
-                       "got C=")
-           << channelDim;
-  }
-
   if (channelDim % numGroups != 0) {
     return emitOpError("channel dimension (last dim) must be divisible by "
                        "num_groups; got C=")
