@@ -321,19 +321,19 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
                          unaryWithParam.params.end()));
 }
 
-std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
-createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op) {
-  if (op.matmul_program_config.type ==
+static std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(
+    const ::tt::target::ttnn::MatmulProgramConfigUnion &matmul_program_config) {
+  if (matmul_program_config.type ==
       ::tt::target::ttnn::MatmulProgramConfig::NONE) {
     return std::nullopt;
   }
 
   ::ttnn::operations::matmul::MatmulProgramConfig matmulProgramConfig;
-  switch (op.matmul_program_config.type) {
+  switch (matmul_program_config.type) {
   case ::tt::target::ttnn::MatmulProgramConfig::
       MatmulMultiCoreReuseProgramConfig: {
-    auto *config =
-        op.matmul_program_config.AsMatmulMultiCoreReuseProgramConfig();
+    auto *config = matmul_program_config.AsMatmulMultiCoreReuseProgramConfig();
     return ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
         .compute_with_storage_grid_size =
             unifiedOpLib::operations::utils::toTTNNCoreCoord(
@@ -347,7 +347,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op) {
   case ::tt::target::ttnn::MatmulProgramConfig::
       MatmulMultiCoreReuseMultiCastProgramConfig: {
     auto *config =
-        op.matmul_program_config.AsMatmulMultiCoreReuseMultiCastProgramConfig();
+        matmul_program_config.AsMatmulMultiCoreReuseMultiCastProgramConfig();
     return ::ttnn::operations::matmul::
         MatmulMultiCoreReuseMultiCastProgramConfig{
             .compute_with_storage_grid_size =
@@ -371,8 +371,8 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op) {
   }
   case ::tt::target::ttnn::MatmulProgramConfig::
       MatmulMultiCoreReuseMultiCast1DProgramConfig: {
-    auto *config = op.matmul_program_config
-                       .AsMatmulMultiCoreReuseMultiCast1DProgramConfig();
+    auto *config =
+        matmul_program_config.AsMatmulMultiCoreReuseMultiCast1DProgramConfig();
     return ::ttnn::operations::matmul::
         MatmulMultiCoreReuseMultiCast1DProgramConfig{
             .compute_with_storage_grid_size =
@@ -402,7 +402,7 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op) {
   case ::tt::target::ttnn::MatmulProgramConfig::
       MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig: {
     auto *config =
-        op.matmul_program_config
+        matmul_program_config
             .AsMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig();
     return ::ttnn::operations::matmul::
         MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig{
@@ -420,6 +420,16 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op) {
   default:
     LOG_FATAL("Unsupported MatmulProgramConfig type");
   }
+}
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op) {
+  return createMatmulProgramConfigIfNeeded(op.matmul_program_config);
+}
+
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOpT op) {
+  return createMatmulProgramConfigIfNeeded(op.matmul_program_config);
 }
 
 ::ttnn::Conv2dConfig

@@ -21,6 +21,9 @@ using TensorArg = std::variant<const ::ttnn::Tensor *, ::ttnn::TensorSpec>;
 using MatmulOpResult =
     std::variant<::ttnn::graph::ConstraintQueryResponse,
                  ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
+using LinearOpResult =
+    std::variant<::ttnn::graph::ConstraintQueryResponse,
+                 ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
 
 struct MatmulResolvedParams {
   ::ttnn::DataType outputDataType;
@@ -38,6 +41,26 @@ resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT);
 MatmulOpResult callMatmul(
     CallType callType, const ::tt::target::ttnn::MatmulOpT &matmulOpT,
     TensorArg lhs, TensorArg rhs, ::ttnn::MeshDevice *device = nullptr,
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
+    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
+
+struct LinearResolvedParams {
+  ::ttnn::DataType outputDataType;
+  std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+      matmulProgramConfig;
+  std::optional<std::string> activation;
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
+  std::optional<::tt::tt_metal::DataType> outputDType;
+  std::optional<::ttnn::Tensor> biasTensor;
+};
+
+LinearResolvedParams
+resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT);
+
+LinearOpResult callLinear(
+    CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
+    TensorArg lhs, TensorArg rhs, std::optional<TensorArg> bias, ::ttnn::MeshDevice *device = nullptr,
     std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 

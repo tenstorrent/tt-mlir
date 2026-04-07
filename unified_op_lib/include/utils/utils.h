@@ -81,6 +81,9 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRefT &tensorRef);
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
 createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOpT &op);
 
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOpT op);
+
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg);
 
