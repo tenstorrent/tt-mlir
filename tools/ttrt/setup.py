@@ -82,7 +82,7 @@ if enable_ttmetal:
     runlibs += ["libtt_metal.so"]
 
 if enable_ttnn or enable_ttmetal:
-    runlibs += ["libdevice.so"]
+    runlibs += ["libtt-umd.so"]
     runlibs += ["libtt_stl.so"]
     runlibs += ["libtracy.so.0.10.0"]
 
