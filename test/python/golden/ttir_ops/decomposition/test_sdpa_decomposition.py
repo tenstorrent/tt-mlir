@@ -71,6 +71,10 @@ class SDPAShapes:
     def decode_mask(self):
         return (self.batch, 1, 1, self.kv_seq)
 
+    @property
+    def cur_pos(self):
+        return (self.batch,)
+
 
 DECODE_SHAPES = [
     pytest.param(
@@ -323,8 +327,9 @@ def test_sdpa_decode_decompose_with_mask(sdpa_shapes, target, request):
         sdpa_shapes.key,
         sdpa_shapes.value,
         sdpa_shapes.decode_mask,
+        sdpa_shapes.cur_pos,
     ]
-    dtypes = [torch.bfloat16] * 4
+    dtypes = [torch.bfloat16] * 4 + [torch.int32]
     scale = sdpa_shapes.scale
 
     def module(builder: TTIRBuilder):
@@ -334,6 +339,7 @@ def test_sdpa_decode_decompose_with_mask(sdpa_shapes, target, request):
             key: Operand,
             value: Operand,
             mask: Operand,
+            cur_pos: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
@@ -342,6 +348,9 @@ def test_sdpa_decode_decompose_with_mask(sdpa_shapes, target, request):
             k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
             v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
             m_data = torch.randn(sdpa_shapes.decode_mask, dtype=torch.bfloat16)
+            cur_pos_data = torch.full(
+                sdpa_shapes.cur_pos, sdpa_shapes.kv_seq - 1, dtype=torch.int32
+            )
             # Permute Q to standard SDPA shape for golden computation
             q_permuted = q_data.permute(1, 2, 0, 3)  # [B, H, 1, D]
             golden_sdpa = build_torch_golden(
@@ -353,13 +362,20 @@ def test_sdpa_decode_decompose_with_mask(sdpa_shapes, target, request):
                 query,
                 key,
                 value,
+                cur_pos_tensor=cur_pos,
                 attention_mask=mask,
                 is_causal=False,
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
             builder.set_goldens(
-                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {
+                    query: q_data,
+                    key: k_data,
+                    value: v_data,
+                    mask: m_data,
+                    cur_pos: cur_pos_data,
+                },
                 {result: golden},
             )
             return result
@@ -376,8 +392,9 @@ def test_sdpa_decode_decompose_no_mask(sdpa_shapes, target, request):
         sdpa_shapes.decode_query,
         sdpa_shapes.key,
         sdpa_shapes.value,
+        sdpa_shapes.cur_pos,
     ]
-    dtypes = [torch.bfloat16] * 3
+    dtypes = [torch.bfloat16] * 3 + [torch.int32]
     scale = sdpa_shapes.scale
 
     def module(builder: TTIRBuilder):
@@ -386,12 +403,16 @@ def test_sdpa_decode_decompose_no_mask(sdpa_shapes, target, request):
             query: Operand,
             key: Operand,
             value: Operand,
+            cur_pos: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
             q_data = torch.randn(sdpa_shapes.decode_query, dtype=torch.bfloat16)
             k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
             v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            cur_pos_data = torch.full(
+                sdpa_shapes.cur_pos, sdpa_shapes.kv_seq - 1, dtype=torch.int32
+            )
             q_permuted = q_data.permute(1, 2, 0, 3)
             golden_sdpa = build_torch_golden(q_permuted, k_data, v_data, scale=scale)
             golden = golden_sdpa.permute(2, 0, 1, 3)
@@ -399,12 +420,13 @@ def test_sdpa_decode_decompose_no_mask(sdpa_shapes, target, request):
                 query,
                 key,
                 value,
+                cur_pos_tensor=cur_pos,
                 is_causal=False,
                 scale=scale,
                 unit_attrs=unit_attrs,
             )
             builder.set_goldens(
-                {query: q_data, key: k_data, value: v_data},
+                {query: q_data, key: k_data, value: v_data, cur_pos: cur_pos_data},
                 {result: golden},
             )
             return result

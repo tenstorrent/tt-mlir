@@ -3341,7 +3341,7 @@ private:
 
     auto maskType = mlir::cast<RankedTensorType>(mask.getType());
     SmallVector<int64_t> broadcastShape(maskType.getShape());
-    broadcastShape[kSeqLenDim] = numHeads;
+    broadcastShape[kNumHeadsDim] = numHeads;
 
     auto broadcastType =
         ttnn::utils::RankedTensorTypeFactory::create(maskType, broadcastShape);
@@ -3358,17 +3358,14 @@ private:
   LogicalResult lowerToDecodeOp(ttir::ScaledDotProductAttentionOp op,
                                 OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
-    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
-    int64_t numHeads = queryType.getDimSize(kNumHeadsDim);
-
     // Permute query: [B, H, 1, D] -> [1, B, H, D]
     Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
         llvm::to_vector(kToDecodePermutation), rewriter, op.getLoc());
 
-    // Broadcast mask head dimension if needed.
-    Value attentionMask = broadcastMaskForDecode(
-        adaptor.getAttentionMask(), numHeads, rewriter, op.getLoc());
+    // Pass mask as-is; the decode op broadcasts internally.
+    // If later decomposed, SDPADecompositionPattern handles mask broadcasting.
+    Value attentionMask = adaptor.getAttentionMask();
 
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),

@@ -231,9 +231,27 @@ SDPADecompositionPattern::matchAndRewrite(ScaledDotProductAttentionOp op,
 
   // ---- Step 5: Add attention mask ----
   if (op.getAttentionMask()) {
+    Value mask = op.getAttentionMask();
+
+    // Broadcast mask along the heads dimension if needed.
+    // Mask may be [B, 1, Sq, Skv] while scores are [B, H, Sq, Skv].
+    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+    auto maskShape = maskType.getShape();
+    if (maskShape[kNumHeadsDim] == 1 && numHeads > 1) {
+      llvm::SmallVector<int64_t> broadcastShape(maskShape);
+      broadcastShape[kNumHeadsDim] = numHeads;
+      auto broadcastType = createResultType(maskType, broadcastShape);
+      llvm::SmallVector<int64_t> repeatDims = {1, numHeads, 1, 1};
+      mask = rewriter
+                 .create<RepeatOp>(
+                     loc, broadcastType, mask,
+                     ShapeAttr::get(rewriter.getContext(), repeatDims),
+                     /*memory_config=*/MemoryConfigAttr())
+                 .getResult();
+    }
+
     scores =
-        rewriter.create<AddOp>(loc, scoresType, scores, op.getAttentionMask())
-            .getResult();
+        rewriter.create<AddOp>(loc, scoresType, scores, mask).getResult();
   }
 
   // Generate positional mask (sliding window and/or causal).
