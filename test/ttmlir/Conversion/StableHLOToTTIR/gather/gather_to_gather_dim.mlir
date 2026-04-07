@@ -40,4 +40,16 @@ module attributes {} {
     %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [1], operand_batching_dims = [0], start_indices_batching_dims = [0], start_index_map = [1], index_vector_dim = 2>, slice_sizes = array<i64: 1, 1, 64>}> : (tensor<32x100x64xf32>, tensor<32x10x1xi32>) -> tensor<32x10x64xf32>
     return %0 : tensor<32x10x64xf32>
   }
+
+  // index_vector_dim=1 on 2D indices, offset_dims=[1] instead of collapsed_slice_dims.
+  // CHECK-LABEL: func.func @gather_batched_2d_indices_with_offset
+  func.func @gather_batched_2d_indices_with_offset(%operand: tensor<256x24xi1>, %start_indices: tensor<256x1xi32>) -> tensor<256x1xi1> {
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.gather_dim"
+    // CHECK-SAME: {dim = 1 : i32}
+    // CHECK-SAME: (tensor<256x24xi1>, tensor<256x1xi32>) -> tensor<256x1xi1>
+    %0 = "stablehlo.gather"(%operand, %start_indices) <{dimension_numbers = #stablehlo.gather<offset_dims = [1], operand_batching_dims = [0], start_indices_batching_dims = [0], start_index_map = [1], index_vector_dim = 1>, indices_are_sorted = true, slice_sizes = array<i64: 1, 1>}> : (tensor<256x24xi1>, tensor<256x1xi32>) -> tensor<256x1xi1>
+    return %0 : tensor<256x1xi1>
+  }
 }
