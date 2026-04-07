@@ -1,11 +1,16 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+"""
+Unified tensor comparison metrics — PCC, absolute error, relative error.
 
+Pure torch, no numpy dependency. Ported from the original chisel metrics
+module at runtime/tools/chisel/chisel/utils/metrics.py.
+"""
 import torch
 
 
-def _to_common_shape(x, y):
+def _to_common_shape(x: torch.Tensor, y: torch.Tensor):
     if x.shape == y.shape:
         return x, y
 
@@ -34,11 +39,11 @@ def _to_common_shape(x, y):
 
     # Last ditch attempt, we try to permute the dimensions
     # to match the other tensor
-    ttir_shapes = list(x.shape)
-    ttnn_shapes = list(y.shape)
-    if x.ndim == y.ndim and not len(set(ttir_shapes)) < len(ttir_shapes):
+    x_shapes = list(x.shape)
+    y_shapes = list(y.shape)
+    if x.ndim == y.ndim and not len(set(x_shapes)) < len(x_shapes):
         try:
-            permutation = [ttir_shapes.index(i) for i in ttnn_shapes]
+            permutation = [x_shapes.index(i) for i in y_shapes]
             y = y.permute(permutation)
             return x, y
         except Exception:
@@ -46,9 +51,9 @@ def _to_common_shape(x, y):
 
     # Last Last ditch attempt, try to merge the last two dimensions to match
     # the other tensor
-    if len(ttir_shapes) - len(ttnn_shapes) == 1:
-        sz = ttir_shapes[-1] * ttir_shapes[-2]
-        if sz == ttnn_shapes[-1]:
+    if len(x_shapes) - len(y_shapes) == 1:
+        sz = x_shapes[-1] * x_shapes[-2]
+        if sz == y_shapes[-1]:
             y = y.view(x.shape)
             return x, y
 
@@ -61,56 +66,60 @@ def _to_common_shape(x, y):
     return None, None
 
 
-def compute_atol(golden, result):
-    """Compute the maximum absolute error between two tensors."""
-    golden, result = _to_common_shape(golden, result)
-    if golden is None or result is None:
+def compute_atol(golden: torch.Tensor, calculated: torch.Tensor) -> float:
+    """Max absolute difference: max(|golden - calculated|)."""
+    golden, calculated = _to_common_shape(golden, calculated)
+    if golden is None or calculated is None:
         return -1
 
     golden = golden.to(torch.float32)
-    result = result.to(torch.float32)
+    calculated = calculated.to(torch.float32)
 
-    if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(result)):
+    if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
         return 0.0
 
-    if torch.all(torch.isinf(golden)) and torch.all(torch.isinf(result)):
-        if torch.all(golden == result):
+    if torch.all(torch.isinf(golden)) and torch.all(torch.isinf(calculated)):
+        if torch.all(golden == calculated):
             return 0.0
         return torch.inf
 
-    abs_err = torch.max(torch.abs(golden - result))
+    abs_err = torch.max(torch.abs(golden - calculated))
     return abs_err.item()
 
 
-def compute_rtol(golden, result):
-    """Compute the maximum relative error between two tensors."""
-    golden, result = _to_common_shape(golden, result)
-    if golden is None or result is None:
+def compute_rtol(golden: torch.Tensor, calculated: torch.Tensor) -> float:
+    """Max relative difference: max(|(golden - calculated) / (|golden| + eps)|)."""
+    golden, calculated = _to_common_shape(golden, calculated)
+    if golden is None or calculated is None:
         return -1
 
     golden = golden.to(torch.float32)
-    result = result.to(torch.float32)
+    calculated = calculated.to(torch.float32)
 
-    if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(result)):
+    if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
         return 0.0
 
-    if torch.all(torch.isinf(golden)) and torch.all(torch.isinf(result)):
-        if torch.all(golden == result):
+    if torch.all(torch.isinf(golden)) and torch.all(torch.isinf(calculated)):
+        if torch.all(golden == calculated):
             return 0.0
         return torch.inf
 
-    rel_err = torch.max(torch.abs((golden - result) / (torch.abs(golden) + 1e-8)))
+    rel_err = torch.max(torch.abs((golden - calculated) / (torch.abs(golden) + 1e-8)))
     return rel_err.item()
 
 
-def compute_pcc(golden, result):
-    """Compute the Pearson Correlation Coefficient between two tensors."""
-    golden, result = _to_common_shape(golden, result)
-    if golden is None or result is None:
+def compute_pcc(golden: torch.Tensor, calculated: torch.Tensor) -> float:
+    """Pearson correlation coefficient between two tensors.
+
+    Returns 1.0 for identical tensors, 0.0 for completely different,
+    -1 if shapes cannot be reconciled.
+    """
+    golden, calculated = _to_common_shape(golden, calculated)
+    if golden is None or calculated is None:
         return -1
 
     x = golden.to(torch.float32).flatten()
-    y = result.to(torch.float32).flatten()
+    y = calculated.to(torch.float32).flatten()
 
     if torch.all(torch.isnan(x)) and torch.all(torch.isnan(y)):
         return 1.0
@@ -125,8 +134,8 @@ def compute_pcc(golden, result):
     try:
         x = x[mask]
         y = y[mask]
-    except RuntimeError as e:
-        print(f"Warning: Masking failed with error: {e}")
+    except RuntimeError:
+        pass
 
     def equal(a, b, rtol=1e-2, atol=1e-2) -> float:
         """Normally NaN; for debugging we use equality-style fallback."""
