@@ -5109,6 +5109,170 @@ private:
   }
 };
 
+// Converts batched StableHLO gather into ttir.gather_dim when the gather is a
+// simple batched index-select along a single dimension.
+// This handles the common case where:
+// - operand_batching_dims and start_indices_batching_dims are present
+// - start_index_map has size 1 (indexing a single non-batch dimension)
+// - slice sizes are 1 for the indexed dimension and full for all other
+//   non-batch dimensions
+//
+// Example:
+//   operand: tensor<256x24x3xf32>, indices: tensor<256x1x1xi32>
+//   batching_dims = [0], start_index_map = [1], collapsed_slice_dims = [1]
+//   -> ttir.gather_dim(%operand, %reshaped_indices) {dim = 1}
+//      : (tensor<256x24x3xf32>, tensor<256x1x3xi32>) -> tensor<256x1x3xf32>
+class StableHLOGatherToGatherDimPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+  using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
+
+public:
+
+  StableHLOGatherToGatherDimPattern(TypeConverter &typeConverter,
+                                    MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::GatherOp>(typeConverter, context,
+                                                       /*benefit=*/3) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::GatherOp srcOp,
+                  mlir::stablehlo::GatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dimensionNumbers = srcOp.getDimensionNumbers();
+    auto operandBatchingDims = dimensionNumbers.getOperandBatchingDims();
+    auto startIndicesBatchingDims =
+        dimensionNumbers.getStartIndicesBatchingDims();
+    auto startIndexMap = dimensionNumbers.getStartIndexMap();
+    auto offsetDims = dimensionNumbers.getOffsetDims();
+    int64_t indexVectorDim = dimensionNumbers.getIndexVectorDim();
+
+    auto operandType =
+        mlir::cast<RankedTensorType>(srcOp.getOperand().getType());
+    auto operandShape = operandType.getShape();
+    auto startIndicesType =
+        mlir::cast<RankedTensorType>(srcOp.getStartIndices().getType());
+    auto startIndicesShape = startIndicesType.getShape();
+    auto sliceSizes = srcOp.getSliceSizes();
+
+    // Must have batching dims - otherwise other patterns handle it.
+    if (operandBatchingDims.empty() || startIndicesBatchingDims.empty()) {
+      return rewriter.notifyMatchFailure(srcOp, "No batching dims present");
+    }
+
+    // Must index exactly one dimension.
+    if (startIndexMap.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "start_index_map must have exactly one element");
+    }
+
+    // The indexed dimension must not be a batching dimension.
+    int64_t indexedDim = startIndexMap[0];
+    if (llvm::is_contained(operandBatchingDims, indexedDim)) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Indexed dimension must not be a batching dimension");
+    }
+
+    // The indexed dimension must be collapsed (slice size 1).
+    if (sliceSizes[indexedDim] != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Slice size for indexed dimension must be 1");
+    }
+
+    // All non-batch, non-indexed dimensions must have full slice sizes.
+    for (size_t i = 0; i < operandShape.size(); ++i) {
+      if (static_cast<int64_t>(i) == indexedDim ||
+          llvm::is_contained(operandBatchingDims, i)) {
+        continue;
+      }
+      if (sliceSizes[i] != operandShape[i]) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Non-batch, non-indexed dims must have full slice sizes");
+      }
+    }
+
+    // Batch dims must be the leading dims of the operand and must match
+    // between operand and start_indices.
+    if (operandBatchingDims.size() != startIndicesBatchingDims.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Operand and start indices batching dims size mismatch");
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto outputShape = outputType.getShape();
+
+    // Build the gather_dim index tensor. We need it to have the same rank
+    // and shape as the output (gather_dim / torch.gather semantics).
+    //
+    // Step 1: Reshape start_indices to remove index_vector_dim.
+    // e.g. 256x1x1 with index_vector_dim=2 -> 256x1
+    auto operand = adaptor.getOperands()[0];
+    auto startIndices = adaptor.getOperands()[1];
+
+    SmallVector<int64_t> reshapedIndicesShape;
+    for (int64_t i = 0; i < static_cast<int64_t>(startIndicesShape.size());
+         ++i) {
+      if (i != indexVectorDim) {
+        reshapedIndicesShape.push_back(startIndicesShape[i]);
+      }
+    }
+
+    Value indices = startIndices;
+    if (static_cast<int64_t>(reshapedIndicesShape.size()) !=
+        static_cast<int64_t>(startIndicesShape.size())) {
+      auto reshapedIndicesType = RankedTensorType::get(
+          reshapedIndicesShape, startIndicesType.getElementType(),
+          startIndicesType.getEncoding());
+      indices = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), reshapedIndicesType, startIndices,
+          rewriter.getI32ArrayAttr(
+              llvm::to_vector_of<int32_t>(reshapedIndicesShape)));
+    }
+
+    // Step 2: If the output has more dimensions than our reshaped indices
+    // (due to offset dims), we need to unsqueeze and broadcast.
+    // e.g. indices: 256x1, output: 256x1x3 -> unsqueeze to 256x1x1,
+    // then broadcast to 256x1x3.
+    int64_t outputRank = static_cast<int64_t>(outputShape.size());
+    int64_t indicesRank = static_cast<int64_t>(reshapedIndicesShape.size());
+
+    if (indicesRank < outputRank) {
+      // Insert size-1 dimensions for each offset dim position.
+      SmallVector<int64_t> unsqueezedShape(reshapedIndicesShape);
+      for (int64_t od : offsetDims) {
+        unsqueezedShape.insert(unsqueezedShape.begin() + od, 1);
+      }
+
+      auto indicesType = mlir::cast<RankedTensorType>(indices.getType());
+      auto unsqueezedType =
+          RankedTensorType::get(unsqueezedShape, indicesType.getElementType(),
+                                indicesType.getEncoding());
+      indices = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), unsqueezedType, indices,
+          rewriter.getI32ArrayAttr(
+              llvm::to_vector_of<int32_t>(unsqueezedShape)));
+
+      // Broadcast to match output shape.
+      if (unsqueezedShape != SmallVector<int64_t>(outputShape)) {
+        auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+            unsqueezedShape, outputShape);
+        auto broadcastType =
+            RankedTensorType::get(outputShape, indicesType.getElementType(),
+                                  indicesType.getEncoding());
+        indices = rewriter.create<ttir::BroadcastOp>(
+            srcOp.getLoc(), broadcastType, indices,
+            rewriter.getDenseI64ArrayAttr(broadcastDims));
+      }
+    }
+
+    // Step 3: Create gather_dim with the appropriate dimension.
+    rewriter.replaceOpWithNewOp<ttir::GatherDimOp>(
+        srcOp, outputType, operand, indices,
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim)));
+
+    return success();
+  }
+};
+
 // Pattern detection - Analyze gather indices to detect replicate padding:
 // - Verify single dimension gather
 // - Look for pattern like [0, 0, 0, 1, 2, 3] (leading repeated zeros = front
@@ -7820,6 +7984,7 @@ static void addClampOpConversionPattern(MLIRContext *ctx,
 static void addGatherOpConversionPattern(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLOGatherToGatherDimPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToSliceRepeatConcatPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToEmbeddingPattern>(typeConverter, ctx);
 }
