@@ -8332,7 +8332,7 @@ class TTNNBuilder(Builder):
                     )
 
                     result = old_op.result.type
-                    device = new_get_device_op.result
+                    device = new_get_device_op.device
                     memory_config_attr = old_op.memory_config
 
                     new_op = ttnn_op(
@@ -8666,7 +8666,7 @@ class TTNNBuilder(Builder):
                     )
 
                     result = old_op.result.type
-                    device = new_get_device_op.result
+                    device = new_get_device_op.device
                     config_attr = old_op.mapper_config
 
                     new_op = ttnn_op(
@@ -8838,7 +8838,7 @@ class TTNNBuilder(Builder):
                     )
 
                     result = old_op.result.type
-                    device = new_get_device_op.result
+                    device = new_get_device_op.device
                     config_attr = old_op.composer_config
 
                     new_op = ttnn_op(
