@@ -32,9 +32,9 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected output Tensor from callMatmul execution");
 
-  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 // ANCHOR_END: adding_an_op_matmul_runtime_operations
 
@@ -47,33 +47,17 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
           ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
           : std::nullopt;
 
-  auto outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig,
-             "Memory config must exist for device tensors");
+  target::ttnn::LinearOpT linearOpT;
+  op->UnPackTo(&linearOpT);
 
-  ::ttnn::DataType outputDataType = utils::getDataType(op->out());
+  unifiedOpLib::LinearOpResult result = unifiedOpLib::callLinear(
+      unifiedOpLib::CallType::EXECUTE, linearOpT, &lhs, &rhs,
+      bias.has_value() ? &bias.value() : nullptr);
 
-  std::optional<std::string> activation =
-      op->activation() ? std::make_optional(op->activation()->str())
-                       : std::nullopt;
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callLinear execution");
 
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
-
-  auto programConfig = utils::createMatmulProgramConfigIfNeeded(op);
-
-  ::ttnn::Tensor output = ::ttnn::linear(
-      lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, programConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-      /* optional_output_tensor=*/std::nullopt);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
