@@ -109,6 +109,10 @@ public:
 
     if (!enableL1ShardingLayouts) {
       clearShardedLayouts(tensorTypePossibleLayouts);
+
+      // Clear interleaved layouts that have L1 buffer type too, as we dont want
+      // to consider any L1 layouts if L1 sharding layouts are disabled.
+      clearL1InterleavedLayouts(tensorTypePossibleLayouts);
     }
 
     // Step 3: Walk operations and run per-op analyses.

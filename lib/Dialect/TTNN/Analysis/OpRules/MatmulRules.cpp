@@ -51,7 +51,7 @@ OutputHints MatmulRuleBook::getOutputHints(
     filtered.push_back(cfg);
   }
 
-  return OutputHints{filtered, {}, /*attemptL1Sharding=*/true};
+  return OutputHints{filtered, {}};
 }
 
 void MatmulRuleBook::applyOpSpecificAttrs(

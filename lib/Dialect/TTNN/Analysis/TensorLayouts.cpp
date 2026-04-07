@@ -46,4 +46,18 @@ void clearShardedLayouts(TensorTypeLayoutsMap &map) {
   }
 }
 
+void clearL1InterleavedLayouts(TensorTypeLayoutsMap &map) {
+  for (auto &[tensorType, scalarTypeMap] : map) {
+    for (auto &[scalarType, pageLayouts] : scalarTypeMap) {
+      for (auto &memLayouts : pageLayouts) {
+        auto &interleaved = memLayouts[static_cast<size_t>(
+            TensorMemoryLayoutIndex::Interleaved)];
+        llvm::erase_if(interleaved, [](const TTNNLayoutAttr &layout) {
+          return layout.hasL1BufferType();
+        });
+      }
+    }
+  }
+}
+
 } // namespace mlir::tt::ttnn
