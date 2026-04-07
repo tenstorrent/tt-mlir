@@ -421,6 +421,21 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MViewLayoutRewriter : public OpConversionPattern<d2m::ViewLayoutOp> {
+public:
+  using OpConversionPattern<d2m::ViewLayoutOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Erase views.
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -428,11 +443,12 @@ namespace mlir::tt {
 void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
                                   ttmetal::MathFidelity mathFidelity) {
-  patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
-               ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
-               ttmetal::D2MMeshShardRewriter,
-               ttmetal::D2MCreateGlobalSemaphoreRewriter,
-               ttmetal::D2MResetGlobalSemaphoreRewriter>(ctx);
+  patterns.add<
+      ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
+      ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
+      ttmetal::D2MMeshShardRewriter, ttmetal::D2MCreateGlobalSemaphoreRewriter,
+      ttmetal::D2MResetGlobalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
+      ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
 

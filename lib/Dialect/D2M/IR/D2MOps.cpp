@@ -1146,16 +1146,6 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
     return nullptr;
   }
 
-  if (auto inputType = mlir::dyn_cast<MemRefType>(consecutiveView.getType())) {
-    // Replace the input through the consecutive view.
-    setOperand(consecutiveView.getInput());
-
-    auto composedMap = consecutiveView.getRemapping().compose(getRemapping());
-    setRemappingAttr(AffineMapAttr::get(composedMap));
-
-    return getResult();
-  }
-
   // For tensor types, only fold if both are reblock-only views.
   // This avoids complexities around layout composing affine maps
   // with a bunch of irreducible operations like floorDiv and mod.
