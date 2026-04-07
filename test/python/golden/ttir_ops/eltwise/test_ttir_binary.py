@@ -332,74 +332,82 @@ def test_logical_ops(
 def add_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Add a scalar value to a tensor"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.add(in0, scalar, unit_attrs=unit_attrs)
 
 
 def multiply_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Multiply a tensor by a scalar value"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.multiply(in0, scalar, unit_attrs=unit_attrs)
 
 
 def subtract_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Subtract a scalar value from a tensor"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.subtract(in0, scalar, unit_attrs=unit_attrs)
 
 
 def div_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Divide a tensor by a scalar value"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.div(in0, scalar, unit_attrs=unit_attrs)
 
 
 def pow_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Raise a tensor to a scalar power"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.pow(in0, scalar, unit_attrs=unit_attrs)
 
 
 scalar_binary_ops = [
-    (add_scalar, 2.5),
-    (multiply_scalar, 3.0),
-    (subtract_scalar, 1.5),
-    (div_scalar, 3.0),
-    (pow_scalar, 2.0),
+    (add_scalar, 5),
+    (multiply_scalar, 3),
+    (subtract_scalar, 3),
+    (div_scalar, 3),
+    (pow_scalar, 2),
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+    ],
+    ids=["f32", "bf16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn,scalar_value",
@@ -421,7 +429,11 @@ def test_scalar_binary_ops(
     request,
     device,
 ):
-    """Test binary operations with scalar operands on ttmetal"""
+    """Test binary operations with scalar operands across f32, bf16, and i32 on ttmetal"""
+    int_dtypes = (torch.int32, torch.int64)
+    float_only_ops = ("multiply_scalar", "div_scalar", "pow_scalar")
+    if dtype in int_dtypes and test_fn.__name__ in float_only_ops:
+        pytest.skip(f"{test_fn.__name__} not supported for {dtype}")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -430,7 +442,7 @@ def test_scalar_binary_ops(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+            return test_fn(in0, scalar_value, dtype, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
@@ -440,65 +452,79 @@ def test_scalar_binary_ops(
     )
 
 
-# Scalar binary ops for int32
-def add_scalar_int32(
-    in0: Operand,
-    scalar_value: int,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value, dtype=torch.int32))
-    return builder.add(in0, scalar, unit_attrs=unit_attrs)
+# Scalar comparison ops
+
+SCALAR_CMP_VALUE = 5
 
 
-def subtract_scalar_int32(
-    in0: Operand,
-    scalar_value: int,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value, dtype=torch.int32))
-    return builder.subtract(in0, scalar, unit_attrs=unit_attrs)
+def _make_scalar_cmp_fn(op_name):
+    def fn(in0, scalar_value, dtype, builder, unit_attrs=None):
+        shape = builder.get_shape(in0)
+        scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
+        return getattr(builder, op_name)(in0, scalar, unit_attrs=unit_attrs)
+
+    fn.__name__ = f"{op_name}_scalar"
+    return fn
 
 
-scalar_binary_ops_int32 = [
-    (add_scalar_int32, 5),
-    (subtract_scalar_int32, 3),
+scalar_comparison_ops = [
+    _make_scalar_cmp_fn("eq"),
+    _make_scalar_cmp_fn("ne"),
+    _make_scalar_cmp_fn("gt"),
+    _make_scalar_cmp_fn("ge"),
+    _make_scalar_cmp_fn("lt"),
+    _make_scalar_cmp_fn("le"),
 ]
 
 
+def _make_scalar_cmp_golden(shape, dtype, op_name):
+    """Input with good coverage: eq/ne get half matching the scalar, half
+    random; relational ops get values spread around the scalar."""
+    n = 1
+    for d in shape:
+        n *= d
+    sv = SCALAR_CMP_VALUE
+
+    if op_name in ("eq_scalar", "ne_scalar"):
+        t = torch.randint(sv - 10, sv + 10, (n,)).to(torch.float32)
+        t[torch.randperm(n)[: n // 2]] = float(sv)
+        return t.reshape(shape).to(dtype)
+
+    if dtype in (torch.int32, torch.int64):
+        return torch.randint(sv - 10, sv + 11, (n,)).reshape(shape).to(dtype)
+    return (torch.rand(n) * 20 + (sv - 10)).reshape(shape).to(dtype)
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
-    "test_fn,scalar_value",
-    scalar_binary_ops_int32,
-    ids=[
-        "add_scalar_int32",
-        "subtract_scalar_int32",
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
     ],
+    ids=["f32", "bf16", "i32"],
 )
-def test_scalar_binary_ops_int32(
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("test_fn", scalar_comparison_ops)
+def test_scalar_comparison_ops(
     test_fn: Callable,
-    scalar_value: int,
     shape: Shape,
     dtype: torch.dtype,
     target: str,
     request,
     device,
 ):
-    """Test binary operations with int32 scalar operands on ttmetal"""
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
-        def scalar_op_wrapper(
+        def scalar_cmp_wrapper(
             in0: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+            golden = _make_scalar_cmp_golden(shape, dtype, test_fn.__name__)
+            builder.set_goldens(inputs={in0: golden})
+            return test_fn(in0, SCALAR_CMP_VALUE, dtype, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
