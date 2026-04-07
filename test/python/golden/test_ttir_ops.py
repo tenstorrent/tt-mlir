@@ -2019,9 +2019,6 @@ def test_collective_permute(
     request,
     device,
 ):
-    pytest.skip(
-        "Test failed during April 3 uplift: https://github.com/tenstorrent/tt-mlir/issues/7849"
-    )
     rank_in = len(test_shape)
     rank_mesh = len(mesh_shape)
 
@@ -2116,9 +2113,6 @@ def test_all_to_all(
     request,
     device,
 ):
-    pytest.skip(
-        "Test failed during April 3 uplift: https://github.com/tenstorrent/tt-mlir/issues/7849"
-    )
     split_count = len(replica_groups[0])
     if split_dim >= len(test_shape):
         pytest.skip("Split dimension is out of range")
@@ -2220,9 +2214,6 @@ def test_collective_broadcast(
     request,
     device,
 ):
-    pytest.skip(
-        "Test failed during April 3 uplift: https://github.com/tenstorrent/tt-mlir/issues/7849"
-    )
     rank_in = len(test_shape)
     rank_mesh = len(mesh_shape)
 
