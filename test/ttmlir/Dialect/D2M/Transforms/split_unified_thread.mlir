@@ -361,7 +361,8 @@ module attributes {ttcore.system_desc = #system_desc} {
   }
 
   // Test 9: Shared buffer pair — load local, store remote
-  // Verifies: DMA keeps store, compute gets reserve+push for aliased load
+  // Verifies: DMA store uses input (aliased load's) CB, compute reserve+push
+  // uses the same CB so both threads agree on the port.
   // CHECK-LABEL: func.func @test_shared_pair_load_local_store_remote
   func.func @test_shared_pair_load_local_store_remote(
       %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
@@ -370,9 +371,10 @@ module attributes {ttcore.system_desc = #system_desc} {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    // DMA: only the remote store
-    // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %{{.*}}
-    // Compute: reserve+push
+    // DMA: store uses input (aliased) operand's CB
+    // CHECK: %[[INPUT_CB:.*]] = d2m.get_cb(0) operand_index = 0
+    // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %[[INPUT_CB]]
+    // Compute: reserve+push using the same input CB
     // CHECK: }, {
     // CHECK: d2m.reserve %{{.*}}
     // CHECK: d2m.push %{{.*}}

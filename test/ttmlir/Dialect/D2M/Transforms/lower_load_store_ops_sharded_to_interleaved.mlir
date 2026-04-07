@@ -15,10 +15,10 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK: d2m.generic
   // CHECK-SAME: grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>
   // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-  // DMA: store in explicit CB form
-  // CHECK: %[[CB:.*]] = d2m.get_cb(1) operand_index = 1
+  // DMA: store uses the aliased (input) operand's CB
+  // CHECK: %[[CB:.*]] = d2m.get_cb(0) operand_index = 0
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %[[CB]]
-  // Compute: reserve + push for the aliased load side
+  // Compute: reserve + push using the same input CB
   // CHECK: }, {
   // CHECK: d2m.reserve %{{.*}}
   // CHECK: d2m.push %{{.*}}
