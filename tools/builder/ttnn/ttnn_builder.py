@@ -9727,7 +9727,7 @@ class TTNNBuilder(Builder):
                 mesh = meshes.meshes[0]
                 mesh_name = mesh.name
                 shape = mesh.shape
-                mesh_shape = OrderedDict(
+                mesh_dict = OrderedDict(
                     x=1 if len(shape) == 1 else shape[0],
                     y=shape[0] if len(shape) == 1 else shape[1],
                 )
