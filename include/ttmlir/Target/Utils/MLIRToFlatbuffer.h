@@ -733,16 +733,29 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
   return toNative(unaryOpType);
 }
 
+inline ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfigT
+toNative(ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfigT matmulConfigT;
+
+  matmulConfigT.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(matmulConfigAttr.getComputeWithStorageGridSize()));
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.out_subblock_h = matmulConfigAttr.getOutSubblockH();
+  matmulConfigT.out_subblock_w = matmulConfigAttr.getOutSubblockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
+
+  return matmulConfigT;
+}
+
 inline ::flatbuffers::Offset<
     ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
-  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseProgramConfig(
-      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
-      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
-      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN());
+  auto t = toNative(matmulConfigAttr);
+  return ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfig::Pack(*cache.fbb,
+                                                                     &t);
 }
 
 inline ::tt::target::ttnn::UnaryWithParamT
@@ -763,25 +776,71 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::ttnn::UnaryWithParam::Pack(*cache.fbb, &t);
 }
 
+inline ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfigT toNative(
+    ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfigT matmulConfigT;
+
+  matmulConfigT.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(matmulConfigAttr.getComputeWithStorageGridSize()));
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.out_subblock_h = matmulConfigAttr.getOutSubblockH();
+  matmulConfigT.out_subblock_w = matmulConfigAttr.getOutSubblockW();
+  matmulConfigT.out_block_h = matmulConfigAttr.getOutBlockH();
+  matmulConfigT.out_block_w = matmulConfigAttr.getOutBlockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
+  matmulConfigT.transpose_mcast = matmulConfigAttr.getTransposeMcast();
+  if (matmulConfigAttr.getFusedActivation()) {
+    matmulConfigT.fused_activation =
+        std::make_unique<::tt::target::ttnn::UnaryWithParamT>(
+            toNative(matmulConfigAttr.getFusedActivation()));
+  }
+  matmulConfigT.fuse_batch = matmulConfigAttr.getFuseBatch();
+
+  return matmulConfigT;
+}
+
 inline ::flatbuffers::Offset<
     ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfig>
 toFlatbuffer(
     FlatbufferObjectCache &cache,
     ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr matmulConfigAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
+  auto t = toNative(matmulConfigAttr);
+  return ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfig::Pack(
+      *cache.fbb, &t);
+}
+
+inline ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigT
+toNative(
+    ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigT
+      matmulConfigT;
+  matmulConfigT.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(matmulConfigAttr.getComputeWithStorageGridSize()));
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.out_subblock_h = matmulConfigAttr.getOutSubblockH();
+  matmulConfigT.out_subblock_w = matmulConfigAttr.getOutSubblockW();
+  matmulConfigT.out_block_h = matmulConfigAttr.getOutBlockH();
+  matmulConfigT.out_block_w = matmulConfigAttr.getOutBlockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
+  matmulConfigT.fuse_batch = matmulConfigAttr.getFuseBatch();
   if (matmulConfigAttr.getFusedActivation()) {
-    fusedActivation =
-        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
+    matmulConfigT.fused_activation =
+        std::make_unique<::tt::target::ttnn::UnaryWithParamT>(
+            toNative(matmulConfigAttr.getFusedActivation()));
   }
-  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseMultiCastProgramConfig(
-      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
-      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
-      matmulConfigAttr.getOutBlockH(), matmulConfigAttr.getOutBlockW(),
-      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
-      matmulConfigAttr.getTransposeMcast(), fusedActivation,
-      matmulConfigAttr.getFuseBatch());
+  matmulConfigT.mcast_in0 = matmulConfigAttr.getMcastIn0();
+  matmulConfigT.gather_in0 = matmulConfigAttr.getGatherIn0();
+  matmulConfigT.hop_cores = std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+      toNative(matmulConfigAttr.getHopCores()));
+  matmulConfigT.num_global_cb_receivers =
+      matmulConfigAttr.getNumGlobalCbReceivers();
+  matmulConfigT.untilize_out = matmulConfigAttr.getUntilizeOut();
+
+  return matmulConfigT;
 }
 
 inline ::flatbuffers::Offset<
@@ -789,23 +848,28 @@ inline ::flatbuffers::Offset<
 toFlatbuffer(
     FlatbufferObjectCache &cache,
     ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr matmulConfigAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
+  auto t = toNative(matmulConfigAttr);
+  return ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig::Pack(
+      *cache.fbb, &t);
+}
+
+inline ::tt::target::ttnn::
+    MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigT
+    toNative(ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+                 matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigT
+      matmulConfigT;
+
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
   if (matmulConfigAttr.getFusedActivation()) {
-    fusedActivation =
-        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
+    matmulConfigT.fused_activation =
+        std::make_unique<::tt::target::ttnn::UnaryWithParamT>(
+            toNative(matmulConfigAttr.getFusedActivation()));
   }
-  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseMultiCast1DProgramConfig(
-      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
-      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
-      matmulConfigAttr.getOutBlockH(), matmulConfigAttr.getOutBlockW(),
-      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
-      matmulConfigAttr.getFuseBatch(), fusedActivation,
-      matmulConfigAttr.getMcastIn0(), matmulConfigAttr.getGatherIn0(),
-      toFlatbuffer(cache, matmulConfigAttr.getHopCores()),
-      matmulConfigAttr.getNumGlobalCbReceivers(),
-      matmulConfigAttr.getUntilizeOut());
+
+  return matmulConfigT;
 }
 
 inline ::flatbuffers::Offset<
@@ -813,16 +877,10 @@ inline ::flatbuffers::Offset<
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
                  matmulConfigAttr) {
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
-  if (matmulConfigAttr.getFusedActivation()) {
-    fusedActivation =
-        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
-  }
+  auto t = toNative(matmulConfigAttr);
   return ::tt::target::ttnn::
-      CreateMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
-          *cache.fbb, matmulConfigAttr.getIn0BlockW(),
-          matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
-          fusedActivation);
+      MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig::Pack(*cache.fbb,
+                                                                  &t);
 }
 
 inline ::flatbuffers::Offset<::flatbuffers::String>
