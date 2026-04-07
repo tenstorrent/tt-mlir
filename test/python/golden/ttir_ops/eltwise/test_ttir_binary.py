@@ -390,11 +390,13 @@ def pow_scalar(
 
 
 scalar_binary_ops = [
+    (add_scalar, 2.5),
     (add_scalar, 5),
-    (multiply_scalar, 3),
+    (multiply_scalar, 3.7),
+    (subtract_scalar, 1.5),
     (subtract_scalar, 3),
-    (div_scalar, 3),
-    (pow_scalar, 2),
+    (div_scalar, 2.5),
+    (pow_scalar, 2.0),
 ]
 
 
@@ -413,11 +415,13 @@ scalar_binary_ops = [
     "test_fn,scalar_value",
     scalar_binary_ops,
     ids=[
-        "add_scalar",
-        "multiply_scalar",
-        "subtract_scalar",
-        "div_scalar",
-        "pow_scalar",
+        "add_2.5",
+        "add_5",
+        "multiply_3.7",
+        "subtract_1.5",
+        "subtract_3",
+        "div_2.5",
+        "pow_2.0",
     ],
 )
 def test_scalar_binary_ops(
@@ -432,8 +436,13 @@ def test_scalar_binary_ops(
     """Test binary operations with scalar operands across f32, bf16, and i32 on ttmetal"""
     int_dtypes = (torch.int32, torch.int64)
     float_only_ops = ("multiply_scalar", "div_scalar", "pow_scalar")
-    if dtype in int_dtypes and test_fn.__name__ in float_only_ops:
+    is_int = dtype in int_dtypes
+    is_fractional = scalar_value != int(scalar_value)
+
+    if is_int and test_fn.__name__ in float_only_ops:
         pytest.skip(f"{test_fn.__name__} not supported for {dtype}")
+    if is_int and is_fractional:
+        pytest.skip(f"fractional scalar {scalar_value} not valid for {dtype}")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
