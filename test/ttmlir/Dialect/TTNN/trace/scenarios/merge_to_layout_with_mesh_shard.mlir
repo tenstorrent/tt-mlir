@@ -14,6 +14,7 @@ module {
 
   // CHECK-LABEL: func.func private @run_and_capture_trace_0_merge_to_layout_mesh_shard
   // CHECK: "ttnn.write_tensor"
+  // CHECK: "ttnn.deallocate"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
 
