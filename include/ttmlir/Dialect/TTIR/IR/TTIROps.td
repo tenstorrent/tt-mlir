@@ -4924,15 +4924,12 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let hasFolder = 1;
 }
 
-def TTIR_GatherDimOp : TTIR_NamedOp<"gather_dim"> {
+def TTIR_GatherOp : TTIR_NamedOp<"gather"> {
   let summary = "Gather operation along a single dimension";
   let description = [{
-    The `gather_dim` operation gathers values from an input tensor along a
+    The `gather` operation gathers values from an input tensor along a
     given dimension using an index tensor. This corresponds to torch.gather
     semantics and maps directly to the tt-metal `ttnn::gather` device op.
-
-    This is distinct from the StableHLO-style `gather` op which has complex
-    multi-dimensional semantics.
 
     Parameters:
       - `input` (Tensor): The source tensor to gather from.
@@ -4941,7 +4938,7 @@ def TTIR_GatherDimOp : TTIR_NamedOp<"gather_dim"> {
 
     Example:
     ```mlir
-    %result = "ttir.gather_dim"(%input, %index)
+    %result = "ttir.gather"(%input, %index)
         <{dim = 0 : i32}> : (tensor<4x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
     ```
   }];

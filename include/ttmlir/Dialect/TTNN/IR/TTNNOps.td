@@ -2874,6 +2874,12 @@ def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createGatherOpOperandsWorkarounds();
+      }
+    }];
 }
 
 def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
