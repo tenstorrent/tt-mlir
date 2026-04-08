@@ -28,20 +28,20 @@ pytestmark = pytest.mark.frontend("ttir")
     ],
 )
 @pytest.mark.parametrize(
-    "optimizer_enabled",
+    "optimization_level",
     [
         pytest.param(
-            "true",
+            1,
             id="optimizer_true",
             marks=pytest.mark.skip(
                 reason="Optimizer enabled: skip all tests until builder can run with optimizer."
             ),
         ),
-        pytest.param("false", id="optimizer_false"),
+        pytest.param(0, id="optimizer_false"),
     ],
 )
 def test_conv2d_compute_config(
-    request, device, math_fidelity, fp32_dest_acc_en, optimizer_enabled
+    request, device, math_fidelity, fp32_dest_acc_en, optimization_level
 ):
     """Test conv2d with compute kernel config overrides for math fidelity and fp32 accumulation"""
 
@@ -88,7 +88,7 @@ def test_conv2d_compute_config(
     pipeline_options = [
         f"compute-cfg-math-fidelity={math_fidelity}",
         f"compute-cfg-fp32-dest-acc-en={fp32_dest_acc_en}",
-        f"enable-optimizer={optimizer_enabled}",
+        f"optimization-level={optimization_level}",
     ]
 
     compile_and_execute_ttir(
