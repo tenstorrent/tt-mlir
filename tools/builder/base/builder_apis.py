@@ -65,7 +65,7 @@ def _compile_and_execute(
     # Support deferred device: resolve after compilation so the optimizer
     # pipeline can use OpModel's mock device without conflicting with a
     # real device. Only supported for ttnn/ttmetal targets.
-    from conftest import DeferredDevice
+    # from conftest import DeferredDevice
 
     is_deferred = isinstance(device, DeferredDevice)
     if is_deferred:

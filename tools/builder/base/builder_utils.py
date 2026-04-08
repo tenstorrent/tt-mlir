@@ -350,6 +350,42 @@ def affine_map_from_lambda(fn):
     return AffineMap.get(num_dims, num_syms, exprs)
 
 
+class DeferredDevice:
+    """Device that opens after compilation, not before.
+
+    The optimizer pipeline uses OpModel's internal mock device during
+    compilation. If a real device is already open, mock device creation
+    fails. Pass ``DeferredDevice(request)`` as the ``device`` argument to
+    ``compile_and_execute_ttir`` so the real device is opened only for
+    execution.
+    """
+
+    def __init__(self, request):
+        self._request = request
+
+    def prepare(self):
+        """Close any cached device from prior tests so compilation can use
+        the mock device without conflict."""
+        global _current_device
+
+        if _current_device is not None:
+            tt_runtime.runtime.close_mesh_device(_current_device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+            clear_device_cache()
+
+    def open(self):
+        return self._request.getfixturevalue("device")
+
+    def close(self, device):
+        """Close the device and clear the fixture cache so the next test
+        can compile with a mock device."""
+        tt_runtime.runtime.close_mesh_device(device)
+        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
+        clear_device_cache()
+
+
 class Logger:
     def __init__(self, file_name=""):
         import logging
@@ -387,12 +423,27 @@ class Logger:
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
             self.logger.info(f"Logging to file: {self.file_name}")
+
+            # Configure module-level logger to use the same handler
+            self._configure_module_logger(file_handler, LEVEL)
         else:
             # Stream handler for logging to console
             console_handler = self.logging.StreamHandler(sys.stdout)
             console_handler.setLevel(LEVEL)
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
+
+            # Configure module-level logger to use the same handler
+            self._configure_module_logger(console_handler, LEVEL)
+
+    def _configure_module_logger(self, handler, level):
+        """Configure the module-level logger to use the same handler."""
+        global _module_logger
+        _module_logger.setLevel(level)
+        # Clear existing handlers to avoid duplicates
+        _module_logger.handlers.clear()
+        _module_logger.addHandler(handler)
+        _module_logger.propagate = False  # Don't propagate to parent loggers
 
     def get_logger(self):
         return self.logger
