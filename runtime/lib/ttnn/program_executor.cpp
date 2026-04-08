@@ -156,7 +156,7 @@ ProgramExecutor::ProgramExecutor(
 }
 
 void ProgramExecutor::runCallback(
-    const std::optional<debug::Hooks::CallbackFn> &callback,
+    const std::optional<debug::Hooks::OperationCallbackFn> &callback,
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
@@ -172,30 +172,24 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::runPreExecutionCallback(
-    const std::optional<debug::Hooks::CallbackFn> &callback,
+    const std::optional<debug::Hooks::ExecutionCallbackFn> &callback,
     Binary &executableHandle, ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafeBorrowShared(programContext);
-    // For pre-execution callback, we pass a null opContext
-    std::shared_ptr<void> opContextPtr = nullptr;
     (*callback)(executableHandle,
-                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
-                OpContext(opContextPtr, DeviceRuntime::TTNN));
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN));
   }
 }
 
 void ProgramExecutor::runPostExecutionCallback(
-    const std::optional<debug::Hooks::CallbackFn> &callback,
+    const std::optional<debug::Hooks::ExecutionCallbackFn> &callback,
     Binary &executableHandle, ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafeBorrowShared(programContext);
-    // For post-execution callback, we pass a null opContext
-    std::shared_ptr<void> opContextPtr = nullptr;
     (*callback)(executableHandle,
-                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
-                OpContext(opContextPtr, DeviceRuntime::TTNN));
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN));
   }
 }
 

@@ -662,14 +662,14 @@ void registerRuntimeBindings(nb::module_ &m) {
              std::optional<nb::callable> pre_exec_func,
              std::optional<nb::callable> post_exec_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-            std::optional<tt::runtime::debug::Hooks::CallbackFn> pre_op_cb =
-                std::nullopt;
-            std::optional<tt::runtime::debug::Hooks::CallbackFn> post_op_cb =
-                std::nullopt;
-            std::optional<tt::runtime::debug::Hooks::CallbackFn> pre_exec_cb =
-                std::nullopt;
-            std::optional<tt::runtime::debug::Hooks::CallbackFn> post_exec_cb =
-                std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                pre_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                post_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ExecutionCallbackFn>
+                pre_exec_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ExecutionCallbackFn>
+                post_exec_cb = std::nullopt;
 
             if (pre_op_func.has_value()) {
               pre_op_cb =
@@ -690,18 +690,16 @@ void registerRuntimeBindings(nb::module_ &m) {
             if (pre_exec_func.has_value()) {
               pre_exec_cb =
                   [pre_exec_func](tt::runtime::Binary Binary,
-                                  tt::runtime::CallbackContext programContext,
-                                  tt::runtime::OpContext opContext) {
-                    (*pre_exec_func)(Binary, programContext, opContext);
+                                  tt::runtime::CallbackContext programContext) {
+                    (*pre_exec_func)(Binary, programContext);
                   };
             }
             if (post_exec_func.has_value()) {
-              post_exec_cb =
-                  [post_exec_func](tt::runtime::Binary Binary,
-                                   tt::runtime::CallbackContext programContext,
-                                   tt::runtime::OpContext opContext) {
-                    (*post_exec_func)(Binary, programContext, opContext);
-                  };
+              post_exec_cb = [post_exec_func](
+                                 tt::runtime::Binary Binary,
+                                 tt::runtime::CallbackContext programContext) {
+                (*post_exec_func)(Binary, programContext);
+              };
             }
 
             return tt::runtime::debug::Hooks::get(pre_op_cb, post_op_cb,
