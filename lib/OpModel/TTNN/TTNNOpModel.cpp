@@ -1117,7 +1117,8 @@ template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
-    TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout,
+    ttcore::DataTypeAttr opDtypeAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1138,6 +1139,9 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
+  if (!outputDType && opDtypeAttr) {
+    outputDType = conversion::getDataType(opDtypeAttr.getValue());
+  }
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
@@ -1200,7 +1204,8 @@ template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
-    TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout,
+    ttcore::DataTypeAttr /*opDtypeAttr*/) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();

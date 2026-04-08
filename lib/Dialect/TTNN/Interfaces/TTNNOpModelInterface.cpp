@@ -151,9 +151,14 @@ getBinaryOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
 
+  ttcore::DataTypeAttr opDtypeAttr = nullptr;
+  if (auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(op.getOperation())) {
+    opDtypeAttr = dtypeOp.getDtypeAttr();
+  }
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShapeA,
-      inputs[0], inputShapeB, inputs[1], opConfig.outputLayout);
+      inputs[0], inputShapeB, inputs[1], opConfig.outputLayout, opDtypeAttr);
 }
 
 template <typename OpT>
