@@ -2529,8 +2529,9 @@ public:
       }
     }
 
-    // Handle 5D input (3D pooling) by decomposing into two 2D pooling passes.
-    // This works because max is associative: max(i,j,k) = max_i(max(j,k)).
+    // Handle 5D input (3D max pooling) by decomposing into two 2D max pooling
+    // passes.
+    // This works because max is associative: max(d,h,w) = max_d(max(h,w)).
     if (inputRank == 5) {
       return lowerReduceWindow5D(srcOp, adaptor, rewriter, *initValues,
                                  reductionOps, windowDimensions, windowStrides,
@@ -2759,9 +2760,9 @@ public:
 private:
   // Decompose a 5D reduce_window (3D pooling) into two sequential 2D max pool
   // operations. The 3D pooling window [kD, kH, kW] is factored as:
-  //   Pass 1: MaxPool2d over (H, W) with kernel [kH, kW]
-  //   Pass 2: MaxPool2d over (D)    with kernel [kD, 1]
-  // This is valid because max is associative: max(i,j,k) = max_i(max(j,k)).
+  //   Pass 1: Permute to [N,D,H,W,C], reshape to [N*D,H,W,C], MaxPool2d [kH,kW]
+  //   Pass 2: Reshape to [N,D,Hout*Wout,C], MaxPool2d [kD,1]
+  // This is valid because max is associative: max(d,h,w) = max_d(max(h,w)).
   LogicalResult
   lowerReduceWindow5D(mlir::stablehlo::ReduceWindowOp srcOp,
                       mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
@@ -2799,9 +2800,9 @@ private:
       }
     }
 
-    // Non-spatial dimensions are folded into batch, so they must have trivial
-    // window attributes. Stride > 1 would subsample, padding would change the
-    // output size - neither is handled by the batch-folding reshapes.
+    // Non-spatial dimensions (N and C) must use trivial windowing: stride 1 and
+    // no padding. Stride > 1 or non-zero padding on N or C would subsample or
+    // resize those axes; this decomposition only pools over D, H, and W.
     for (size_t dim : nonSpatialDims) {
       if (windowStrides[dim] != 1 || padding[dim * 2] != 0 ||
           padding[dim * 2 + 1] != 0) {
@@ -2911,17 +2912,23 @@ private:
       int64_t Hout = canonResultShape[3];
       int64_t Wout = canonResultShape[4];
 
-      // Pass 1: Pool over H, W.
-      // Reshape [N, C, D, H, W] -> [N*C*D, H, W, 1].
-      int64_t batchHW = N * C * D;
-      SmallVector<int64_t> shapeForHW = {batchHW, H, W, 1};
-      SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
+      // Pass 1: Pool over H, W with channels preserved (NHWC).
+      // [N, C, D, H, W] -> permute -> [N, D, H, W, C] -> reshape ->
+      // [N*D, H, W, C].
+      SmallVector<int64_t> permNCDHWToNDHWC = {0, 2, 3, 4, 1};
+      SmallVector<int64_t> shapeNDHWC = {N, D, H, W, C};
+      Value ndhwc = rewriter.create<ttir::PermuteOp>(
+          srcOp.getLoc(), RankedTensorType::get(shapeNDHWC, elemType, encoding),
+          input, permNCDHWToNDHWC);
 
+      int64_t batchND = N * D;
+      SmallVector<int64_t> shapeForHW = {batchND, H, W, C};
+      SmallVector<int32_t> shapeForHW32(shapeForHW.begin(), shapeForHW.end());
       Value reshapedHW = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(), RankedTensorType::get(shapeForHW, elemType, encoding),
-          input, rewriter.getI32ArrayAttr(shapeForHW32));
+          ndhwc, rewriter.getI32ArrayAttr(shapeForHW32));
 
-      SmallVector<int64_t> resultShapeHW = {batchHW, Hout, Wout, 1};
+      SmallVector<int64_t> resultShapeHW = {batchND, Hout, Wout, C};
       Value pooledHW =
           rewriter
               .create<ttir::MaxPool2dOp>(
@@ -2932,17 +2939,15 @@ private:
               .getResult();
 
       // Pass 2: Pool over D.
-      // Reshape [N*C*D, Hout, Wout, 1] -> [N*C, D, Hout*Wout, 1].
-      int64_t batchD = N * C;
+      // [N*D, Hout, Wout, C] -> [N, D, Hout*Wout, C].
       int64_t flatHW = Hout * Wout;
-      SmallVector<int64_t> shapeForD = {batchD, D, flatHW, 1};
+      SmallVector<int64_t> shapeForD = {N, D, flatHW, C};
       SmallVector<int32_t> shapeForD32(shapeForD.begin(), shapeForD.end());
-
       Value reshapedD = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(), RankedTensorType::get(shapeForD, elemType, encoding),
           pooledHW, rewriter.getI32ArrayAttr(shapeForD32));
 
-      SmallVector<int64_t> resultShapeD = {batchD, Dout, flatHW, 1};
+      SmallVector<int64_t> resultShapeD = {N, Dout, flatHW, C};
       Value pooledD =
           rewriter
               .create<ttir::MaxPool2dOp>(
@@ -2951,13 +2956,19 @@ private:
                   reshapedD, kernelD, strideD, dilationD, paddingD, ceilMode)
               .getResult();
 
-      // Reshape back to canonical 5D: [N*C, Dout, Hout*Wout, 1] ->
-      //                                [N, C, Dout, Hout, Wout].
+      // [N, Dout, Hout*Wout, C] (NHWC) -> permute -> [N, C, Dout, Hout*Wout] ->
+      // reshape -> canonical [N, C, Dout, Hout, Wout].
+      SmallVector<int64_t> permNHWCToNCDF = {0, 3, 1, 2};
+      SmallVector<int64_t> shapeNCDF = {N, C, Dout, flatHW};
+      Value ncdf = rewriter.create<ttir::PermuteOp>(
+          srcOp.getLoc(), RankedTensorType::get(shapeNCDF, elemType, encoding),
+          pooledD, permNHWCToNCDF);
+
       SmallVector<int32_t> canonResultShape32(canonResultShape.begin(),
                                               canonResultShape.end());
       Value result = rewriter.create<ttir::ReshapeOp>(
           srcOp.getLoc(),
-          RankedTensorType::get(canonResultShape, elemType, encoding), pooledD,
+          RankedTensorType::get(canonResultShape, elemType, encoding), ncdf,
           rewriter.getI32ArrayAttr(canonResultShape32));
 
       // Permute back to original layout if needed.
