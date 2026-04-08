@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/CommonFolders.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -3208,16 +3209,158 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
   }
   return success();
 }
+
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
 
+static ::mlir::OpFoldResult
+foldIdentityTypecast(mlir::tt::ttir::TypecastOp op) {
+  if (op.getType() == op.getInput().getType()) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+// Helper to check if a float cast can be folded based on the conversion status.
+static bool isFloatCastFoldSuccessful(llvm::APFloat::opStatus status) {
+  // Don't fold if the conversion failed, as runtime semantics don't match IEEE
+  // 754 in some special cases (e.g. overflow, NaN). Fold if the status is not
+  // OK solely because the conversion is inexact.
+  return status == llvm::APFloat::opOK || status == llvm::APFloat::opInexact;
+}
+
+// Helper to check if an integer constant cast can be safely folded.
+static bool isIntCastFoldSafe(const llvm::APInt &value,
+                              mlir::IntegerType sourceType,
+                              mlir::IntegerType targetType) {
+  unsigned targetWidth = targetType.getWidth();
+
+  if (targetType.isUnsigned()) {
+    if (!sourceType.isUnsigned() && value.isNegative()) {
+      // Don't fold if the value is negative and the target type is unsigned.
+      return false;
+    }
+    // Don't fold if the value overflows.
+    return value.isIntN(targetWidth);
+  }
+
+  if (targetType.isSigned()) {
+    if (!sourceType.isSigned()) {
+      // Don't fold if the value overflows/underflows. This is checked
+      // separately for unsigned source to avoid casting large positive
+      // integers to negative.
+      return value.isIntN(targetWidth - 1);
+    }
+    // Don't fold if the value overflows/underflows.
+    return value.isSignedIntN(targetWidth);
+  }
+
+  // Fold conversion to signless integer type only if it would be correct for
+  // both signed and unsigned target types.
+  return value.isIntN(targetWidth - 1);
+}
+
+static ::mlir::OpFoldResult
+constantFoldTypecast(mlir::tt::ttir::TypecastOp op,
+                     mlir::tt::ttir::TypecastOp::FoldAdaptor adaptor) {
+  auto input =
+      mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getInput());
+  if (!input) {
+    return nullptr;
+  }
+  if (!input.isSplat() && !shouldFold(op)) {
+    return nullptr;
+  }
+
+  // We ignore `conservative_folding` attribute of typecast op here, because it
+  // is meant for folding of consecutive ops without the known input. Constant
+  // folding will not cause issues that this attribute is designed to prevent,
+  // like the removal of narrowing conversions in conversion chains.
+
+  auto outputType = op.getResult().getType();
+  auto outputElementType = outputType.getElementType();
+  auto inputElementType = input.getElementType();
+
+  if (inputElementType.isFloat()) {
+    if (auto targetType = mlir::dyn_cast<FloatType>(outputElementType)) {
+      return constFoldCastOp<mlir::FloatAttr, mlir::FloatAttr, llvm::APFloat,
+                             llvm::APFloat, void>(
+          adaptor.getOperands(), outputType,
+          [targetType](llvm::APFloat value, bool &castStatus) -> llvm::APFloat {
+            bool losesInfo{};
+            llvm::APFloat::opStatus status =
+                value.convert(targetType.getFloatSemantics(),
+                              llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+            castStatus = isFloatCastFoldSuccessful(status);
+            return value;
+          });
+    }
+
+    if (auto targetType = mlir::dyn_cast<IntegerType>(outputElementType)) {
+      return constFoldCastOp<mlir::FloatAttr, mlir::IntegerAttr, llvm::APFloat,
+                             llvm::APInt, void>(
+          adaptor.getOperands(), outputType,
+          [targetType](const llvm::APFloat &value,
+                       bool &castStatus) -> llvm::APInt {
+            llvm::APSInt intValue(targetType.getWidth(),
+                                  targetType.isUnsigned());
+            bool isExact{};
+            llvm::APFloat::opStatus status = value.convertToInteger(
+                intValue, llvm::APFloat::rmTowardZero, &isExact);
+            castStatus = isFloatCastFoldSuccessful(status);
+            return intValue;
+          });
+    }
+  }
+
+  if (auto sourceType = mlir::dyn_cast<mlir::IntegerType>(inputElementType)) {
+    if (auto targetType = mlir::dyn_cast<FloatType>(outputElementType)) {
+      return constFoldCastOp<mlir::IntegerAttr, mlir::FloatAttr, llvm::APInt,
+                             llvm::APFloat, void>(
+          adaptor.getOperands(), outputType,
+          [sourceType, targetType](const llvm::APInt &value,
+                                   bool &castStatus) -> llvm::APFloat {
+            llvm::APFloat floatValue(targetType.getFloatSemantics());
+            // If target type is a signless integer, we treat it as signed to
+            // keep negative floats negative after conversion.
+            bool isSigned = !sourceType.isUnsigned();
+            llvm::APFloat::opStatus status = floatValue.convertFromAPInt(
+                value, isSigned, llvm::APFloat::rmNearestTiesToEven);
+            castStatus = isFloatCastFoldSuccessful(status);
+            return floatValue;
+          });
+    }
+
+    if (auto targetType = mlir::dyn_cast<IntegerType>(outputElementType)) {
+      return constFoldCastOp<mlir::IntegerAttr, mlir::IntegerAttr, llvm::APInt,
+                             llvm::APInt, void>(
+          adaptor.getOperands(), outputType,
+          [sourceType, targetType](const llvm::APInt &value,
+                                   bool &castStatus) -> llvm::APInt {
+            castStatus = isIntCastFoldSafe(value, sourceType, targetType);
+            if (sourceType.isUnsigned()) {
+              return value.zextOrTrunc(targetType.getWidth());
+            }
+            return value.sextOrTrunc(targetType.getWidth());
+          });
+    }
+  }
+
+  return nullptr;
+}
+
 // TypecastOp folder
 mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
-  if (getType() == getInput().getType()) {
-    return getInput();
+  if (auto foldResult = foldIdentityTypecast(*this)) {
+    return foldResult;
   }
-  return {};
+
+  if (auto foldResult = constantFoldTypecast(*this, adaptor)) {
+    return foldResult;
+  }
+
+  return nullptr;
 }
 
 static bool isNarrowingConversion(const ::mlir::tt::ttcore::DataType srcDtype,
