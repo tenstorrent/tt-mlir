@@ -162,9 +162,16 @@ inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {
   os << "debug::Hooks{\n"
      << "\t"
      << "preOperatorCallback: "
-     << static_cast<bool>(hooks.getPreOperatorCallback())
+     << static_cast<bool>(hooks.getPreOperatorCallback()) << ",\n"
+     << "\t"
      << "postOperatorCallback: "
      << static_cast<bool>(hooks.getPostOperatorCallback()) << ",\n"
+     << "\t"
+     << "preExecutionCallback: "
+     << static_cast<bool>(hooks.getPreExecutionCallback()) << ",\n"
+     << "\t"
+     << "postExecutionCallback: "
+     << static_cast<bool>(hooks.getPostExecutionCallback()) << "\n"
      << "}";
   return os;
 }

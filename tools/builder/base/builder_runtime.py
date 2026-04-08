@@ -767,8 +767,6 @@ def execute_fb(
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:
             raise TTBuilderRuntimeException(e)
-        finally:
-            tt_runtime.runtime.unregister_hooks()
 
         golden_outputs_torch = []
         outputs_torch = []
@@ -889,6 +887,9 @@ def execute_fb(
 
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
+
+    if verify_intermediates or dump_memory:
+        tt_runtime.runtime.unregister_hooks()
 
     return golden_report, output_tensors
 
