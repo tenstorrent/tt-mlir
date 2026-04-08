@@ -239,7 +239,7 @@ def build_rms_stats_golden(input_golden: GoldenMapTensor) -> GoldenMapTensor:
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("has_weight_bias", [False, True])
+@pytest.mark.parametrize("has_weight", [False, True])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 def test_rms_norm_post_all_gather(
     shape: Shape,

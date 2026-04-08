@@ -9424,12 +9424,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.SamplingOp: ttnn_sampling_golden,
     ttnn.AllReduceAsyncOp: ttnn_all_reduce_async_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
-<<<<<<< HEAD
     ttnn.MoeExpertTokenRemapOp: ttir_moe_expert_token_remap_golden,
     ttnn.MoeComputeOp: ttir_moe_compute_golden,
-=======
     ttnn.RMSNormPostAllGatherOp: ttnn_rms_norm_post_all_gather_golden,
->>>>>>> 76f7aa5ac3 (Add rms_norm_post_all_gather op in TTNN Dialect)
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
     debug.RegionStartOp: debug_region_start_golden,
