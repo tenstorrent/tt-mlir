@@ -79,6 +79,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         PUBLIC
         MLIRTTNNDialect
         MLIRTTNNAnalysis
+        MLIRTTNNDiagnostics
         MLIRTTCoreDialect
         PRIVATE
         TTMLIRTTIRToTTNN

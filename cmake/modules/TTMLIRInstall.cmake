@@ -24,6 +24,7 @@ set(ttmlir_export_targets
   TTMLIRTTNNUtils
   MLIRTTNNDialect
   MLIRTTNNAnalysis
+  MLIRTTNNDiagnostics
   MLIRTTNNTransforms
   MLIRTTNNValidation
   MLIRTTNNInterfaces
