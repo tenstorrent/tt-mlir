@@ -16,9 +16,11 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/StringRef.h"
 
-#include <shardy/dialect/sdy/ir/dialect.h>
+#include "shardy/dialect/sdy/ir/dialect.h"
+#include "stablehlo/dialect/StablehloOps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -75,6 +77,140 @@ public:
 
 private:
   std::string opName;
+};
+
+// Special handling for all tenstorrent.topk* composite ops.
+// Three different composite ops are supported:
+// - tenstorrent.topk: generated when both the values and indices are needed in
+// the graph.
+// - tenstorrent.topk_indices: generated when only the indices are needed in the
+// graph.
+// - tenstorrent.topk_values: generated when only the values are needed in the
+// graph.
+class TenstorrentTopKConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentTopKConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (!supportedOpNames.contains(srcOp.getName())) {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, srcOp.getName() +
+                     " composite op must have exactly one input operand.");
+    }
+
+    bool isTopKWithValues = srcOp.getName() == "tenstorrent.topk_values";
+    bool isTopKWithIndices = srcOp.getName() == "tenstorrent.topk_indices";
+    bool isTopKWithBoth = srcOp.getName() == "tenstorrent.topk";
+
+    if (isTopKWithBoth && srcOp->getNumResults() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk composite op must have exactly two results.");
+    }
+    if (isTopKWithValues && srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk_values composite op must have exactly one result.");
+    }
+    if (isTopKWithIndices && srcOp->getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "tenstorrent.topk_indices composite "
+                                         "op must have exactly one result.");
+    }
+
+    SmallVector<RankedTensorType, 2> resultTypes;
+    if (isTopKWithBoth) {
+      resultTypes = {
+          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
+          mlir::cast<RankedTensorType>(srcOp.getResult(1).getType())};
+    } else {
+      resultTypes = {
+          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType())};
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    IntegerAttr kAttr = IntegerAttr::get(rewriter.getIntegerType(32), 1);
+    IntegerAttr dimAttr = IntegerAttr::get(rewriter.getIntegerType(32), -1);
+    BoolAttr sortedAttr = BoolAttr::get(rewriter.getContext(), false);
+    BoolAttr largestAttr = BoolAttr::get(rewriter.getContext(), true);
+
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("k")) {
+        int64_t val = attr.getInt();
+        if (!llvm::isInt<32>(val)) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "k value is too large for i32: " + Twine(val));
+        }
+        kAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(val));
+      }
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+        int64_t val = attr.getInt();
+        if (!llvm::isInt<32>(val)) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "dim value is too large for i32: " + Twine(val));
+        }
+        dimAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(val));
+      }
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("largest")) {
+        largestAttr = attr;
+      }
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("sorted")) {
+        sortedAttr = attr;
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk composite op must have composite_attributes.");
+    }
+
+    auto inputType =
+        mlir::cast<RankedTensorType>(adaptor.getOperands()[0].getType());
+    RankedTensorType valuesType, indicesType;
+
+    if (isTopKWithBoth) {
+      valuesType = resultTypes[0];
+      indicesType = resultTypes[1];
+    } else if (isTopKWithValues) {
+      valuesType = resultTypes[0];
+      indicesType =
+          RankedTensorType::get(valuesType.getShape(), rewriter.getI32Type());
+    } else {
+      auto indicesResultType = resultTypes[0];
+      valuesType = RankedTensorType::get(indicesResultType.getShape(),
+                                         inputType.getElementType());
+      indicesType = indicesResultType;
+    }
+
+    auto input = adaptor.getOperands()[0];
+    auto topKOp = rewriter.create<ttir::TopKOp>(
+        srcOp.getLoc(), valuesType, indicesType, input, kAttr, dimAttr,
+        largestAttr, sortedAttr);
+
+    if (isTopKWithBoth) {
+      rewriter.replaceOp(srcOp, {topKOp.getValues(), topKOp.getIndices()});
+    } else if (isTopKWithValues) {
+      rewriter.replaceOp(srcOp, {topKOp.getValues()});
+    } else {
+      rewriter.replaceOp(srcOp, {topKOp.getIndices()});
+    }
+
+    return success();
+  }
+
+private:
+  llvm::SmallSet<llvm::StringRef, 3> supportedOpNames = {
+      "tenstorrent.topk",
+      "tenstorrent.topk_indices",
+      "tenstorrent.topk_values",
+  };
 };
 
 // Special handling for tenstorrent.uniform -> ttir.rand, as
@@ -468,6 +604,91 @@ public:
   }
 };
 
+// Special handling for tenstorrent.scaled_dot_product_attention ->
+// ttir.scaled_dot_product_attention
+// Extracts is_causal, scale from composite attributes and sets
+// operandSegmentSizes for AttrSizedOperandSegments
+class TenstorrentScaledDotProductAttentionConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentScaledDotProductAttentionConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.scaled_dot_product_attention") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands < 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.scaled_dot_product_attention composite op must have "
+          "at least 3 operands (query, key, value).");
+    }
+
+    // For now, frontend composite doesnt support attention_sink.
+    // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
+    if (numOperands > 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.scaled_dot_product_attention composite op must have "
+          "at most 4 operands (query, key, value, attention_mask). "
+          "Attention sink is not supported yet.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    SmallVector<NamedAttribute> namedAttrs;
+
+    bool isCausal = true;
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
+        isCausal = attr.getValue();
+        namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
+      }
+      if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
+        namedAttrs.push_back(rewriter.getNamedAttr(
+            "scale", rewriter.getF32FloatAttr(
+                         static_cast<float>(attr.getValueAsDouble()))));
+      }
+    }
+
+    // The composite's first 3 operands are always query, key, value.
+    // A 4th boundary input (attention_mask) is present only when
+    // is_causal is false and the frontend marked 4 inputs.
+    bool hasAttnMask = !isCausal && numOperands == 4;
+    SmallVector<Value> sdpaOperands = {adaptor.getOperands()[0],
+                                       adaptor.getOperands()[1],
+                                       adaptor.getOperands()[2]};
+    if (hasAttnMask) {
+      sdpaOperands.push_back(adaptor.getOperands()[3]);
+    }
+
+    // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
+    //   [query, key, value, attention_mask, attention_sink]
+    SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, sdpaOperands, namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -506,6 +727,8 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
+  patterns.add<TenstorrentTopKConversionPattern>(context);
+  patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt

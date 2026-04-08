@@ -19,8 +19,15 @@
 // Layout for single tile in L1
 #l1_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, (d0, d1) -> (0, d0, d1)>,
+  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
   memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
+  >
+
+// BF16 tile layout (dtype must match memref element type for ttnn.full / empty).
+#l1_layout_bf16 = #ttnn.ttnn_layout<
+  (d0, d1) -> (d0, d1),
+  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
+  memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>
   >
 
 module {
@@ -37,21 +44,8 @@ module {
     %metal_input_l1 = ttir.ttnn_metal_layout_cast %ttnn_input_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
     %metal_output_l1 = ttir.ttnn_metal_layout_cast %ttnn_output_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
 
-    // CHECK-NOT: memref.alloc()
-    // CHECK-NOT: d2m.stream_layout
-    %storage_in = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
-    %stream_input  = "d2m.stream_layout" (%metal_input_l1, %storage_in) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
-          : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>,
-             memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
-          -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
-
-    // CHECK-NOT: memref.alloc()
-    // CHECK-NOT: d2m.stream_layout
-    %storage_out = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
-    %stream_output  = "d2m.stream_layout" (%metal_output_l1, %storage_out) <{remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
-          : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>,
-             memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
-          -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
+    %view_input = d2m.view_layout %metal_input_l1 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
+    %view_output = d2m.view_layout %metal_output_l1 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: #ttnn.data_movement_kernel<symbol_ref = @read_kernel
@@ -67,8 +61,8 @@ module {
     // CHECK-SAME: common_rt_args = []
     // CHECK-SAME: page_size = 4096
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
-        ins(%stream_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
-        outs(%stream_output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
+        ins(%view_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
+        outs(%view_output : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>
@@ -83,17 +77,17 @@ module {
     %output_dram = "ttnn.to_memory_config"(%output_l1) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %output_dram : tensor<32x32xf32, #dram_layout>
   }
-  func.func @test_full() -> tensor<32x32xbf16, #l1_layout> {
+  func.func @test_full() -> tensor<32x32xbf16, #l1_layout_bf16> {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: ttnn.full
-    %1 = d2m.full {fill_value = 5.000000e-01 : f32, shape = array<i32: 32, 32>} : tensor<32x32xbf16, #l1_layout>
-    return %1 : tensor<32x32xbf16, #l1_layout>
+    %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #l1_layout_bf16>
+    return %1 : tensor<32x32xbf16, #l1_layout_bf16>
   }
-  func.func @test_empty() -> tensor<32x32xbf16, #l1_layout> {
+  func.func @test_empty() -> tensor<32x32xbf16, #l1_layout_bf16> {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: ttnn.empty
-    %1 = d2m.empty() : tensor<32x32xbf16, #l1_layout>
-    return %1 : tensor<32x32xbf16, #l1_layout>
+    %1 = d2m.empty() : tensor<32x32xbf16, #l1_layout_bf16>
+    return %1 : tensor<32x32xbf16, #l1_layout_bf16>
   }
   func.func private @read_kernel() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<

@@ -15,6 +15,9 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // Workaround which adds a high-precision DeviceComputeKernelConfig to
 // ReduceScatterOp when no config is present.
 // This sets fp32_dest_acc_en=true for improved numerical accuracy.
+// Related metal issues:
+// https://github.com/tenstorrent/tt-metal/issues/37883
+// https://github.com/tenstorrent/tt-metal/issues/37884
 class ReduceScatterConfigRewritePattern
     : public OpRewritePattern<ttnn::ReduceScatterOp> {
 public:

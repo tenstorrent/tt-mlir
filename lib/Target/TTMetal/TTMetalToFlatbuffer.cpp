@@ -58,20 +58,20 @@ struct CQBuilder {
   std::vector<flatbuffers::Offset<target::metal::BufferRef>> inputs;
   std::vector<flatbuffers::Offset<target::metal::BufferRef>> outputs;
   std::vector<flatbuffers::Offset<target::metal::Command>> commands;
-  OpPrintingFlags printFlags;
+  mlir::AsmState printState;
 
-  CQBuilder(flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {
-    printFlags = printFlags.elideLargeElementsAttrs()
-                     .elideLargeResourceString()
-                     .skipRegions()
-                     .enableDebugInfo()
-                     .assumeVerified();
-  }
+  CQBuilder(flatbuffers::FlatBufferBuilder *fbb, func::FuncOp entry)
+      : fbb(fbb), printState(entry, OpPrintingFlags()
+                                        .elideLargeElementsAttrs()
+                                        .elideLargeResourceString()
+                                        .skipRegions()
+                                        .enableDebugInfo()
+                                        .assumeVerified()) {}
 
   std::string getDebugString(mlir::Operation *op) {
     std::string str;
     llvm::raw_string_ostream os(str);
-    op->print(os, printFlags);
+    op->print(os, printState);
     return str;
   };
 
@@ -141,17 +141,6 @@ static target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
   const auto size = coreRange.getSize();
   return target::Dim2dRange(target::Dim2d(offset[0], offset[1]),
                             target::Dim2d(size[0], size[1]));
-}
-
-static ::tt::target::RoutingMode
-toFlatbuffer(ttmetal::RoutingMode routingMode) {
-  switch (routingMode) {
-  case ttmetal::RoutingMode::BidirLineMesh:
-    return ::tt::target::RoutingMode::BidirLineMesh;
-  case ttmetal::RoutingMode::UnidirRingTorus:
-    return ::tt::target::RoutingMode::UnidirRingTorus;
-  }
-  assert(false && "Unsupported RoutingMode");
 }
 
 static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
@@ -299,7 +288,7 @@ createShardedBufferConfigForL1Memref(
 
   auto memrefShardShape = shardLayout.getShardShape(memref);
   auto extendedMapping = extendMappingForHigherDimGrid(
-      device.getWorkerGrid().getMapping(), memrefGridShape.size());
+      device.getWorkerGrid().getVirtToPhysicalMap(), memrefGridShape.size());
 
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, extendedMapping);
@@ -427,7 +416,7 @@ memrefTypeToCircularBufferConfigFlatbuffer(
       shardLayout, device, memref, virtualGridInverseMapping);
 
   auto extendedMapping = extendMappingForHigherDimGrid(
-      device.getWorkerGrid().getMapping(), memrefGridShape.size());
+      device.getWorkerGrid().getVirtToPhysicalMap(), memrefGridShape.size());
 
   // We default to the worker grid shape since memrefGridShape may be larger
   // than the available grid due to block factors. Directly using the
@@ -560,15 +549,14 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
       virtualGridInverseMapping = mapAttr.getValue();
     }
 
-    // Hoisted CB buffers carry CBLayoutAttr (shard-only shape).
-    // Reconstruct a full [grid..shard..] + ShardLayoutAttr memref type so
-    // we fall through to the existing memrefTypeToFlatbuffer path, which
-    // already handles N-D grids, CB configs, and worker grid overrides.
+    // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
+    // Reconstruct a full [1x1 grid + shard] + ShardLayoutAttr memref type
+    // so we fall through to the existing memrefTypeToFlatbuffer path.
+    // CBs are always core-local (1x1 grid).
     if (auto cbLayout =
             mlir::dyn_cast<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-      auto gridShape = cbLayout.getGridShape();
       auto shardShape = memrefType.getShape();
-      SmallVector<int64_t> fullShape(gridShape.begin(), gridShape.end());
+      SmallVector<int64_t> fullShape(shardShape.size(), 1);
       fullShape.append(shardShape.begin(), shardShape.end());
       auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
           shardShape, memrefType.getElementType(), cbLayout.getBuffers());
@@ -697,12 +685,12 @@ ethernetConfigToFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::FabricConnectionConfig>
 fabricConnectionConfigToFlatbuffer(
     FlatbufferObjectCache &cache,
-    FabricConnectionConfigAttr fabricConnectionConfig) {
+    ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
   return target::CreateFabricConnectionConfig(
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
-      toFlatbuffer(fabricConnectionConfig.getRoutingMode()),
+      toFlatbuffer(cache, fabricConnectionConfig.getRoutingMode()),
       fabricConnectionConfig.getNumLinks());
 }
 
@@ -861,7 +849,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
     std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorInputs;
     std::vector<flatbuffers::Offset<target::metal::TensorRef>> tensorOutputs;
 
-    CQBuilder cqBuilder(&fbb);
+    CQBuilder cqBuilder(&fbb, entry);
     cqBuilder.name = entry.getSymName().data();
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());

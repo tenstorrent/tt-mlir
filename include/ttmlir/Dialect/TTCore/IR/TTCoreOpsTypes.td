@@ -37,8 +37,11 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
                         ArrayRefParameter<"int64_t">:$shape,
                         DefaultValuedParameter<
                           "AffineMap",
-                          "$_builder.getEmptyAffineMap()">:$mapping);
-  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` $mapping^)? `>`";
+                          "$_builder.getEmptyAffineMap()">:$virtToPhysicalMap,
+                        DefaultValuedParameter<
+                          "AffineMap",
+                          "$_builder.getEmptyAffineMap()">:$physicalToVirtMap);
+  let assemblyFormat = "`<` custom<DimensionList>($shape) (`,` `virt_to_physical_map` `=` $virtToPhysicalMap `,` `physical_to_virt_map` `=` $physicalToVirtMap^)? `>`";
 
   let extraClassDeclaration = [{
       static GridAttr get(::mlir::MLIRContext *context) {
@@ -46,7 +49,7 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
       }
 
       static GridAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape) {
-        return GridAttr::get(context, shape, AffineMap::get(context));
+        return GridAttr::get(context, shape, AffineMap::get(context), AffineMap::get(context));
       }
 
       static GridAttr get(::mlir::MLIRContext *context, std::int64_t rank) {
@@ -235,9 +238,9 @@ def TTCore_ViewLayoutAttr : TTCore_Attr<"ViewLayout", "view", [TTCore_DeviceLayo
   let summary = "View layout attribute in TT dialect";
   let description = [{
     Placeholder attr to indicate a view layout of a memref buffer.  Actual affine map
-    is encoded on the view_layout/stream_layout op itself.
+    is encoded on the view_layout op itself.
 
-    Only the view_layout or stream_layout ops should return memref's with this attribute.
+    Only the view_layout op should return memref's with this attribute.
     The view layout attribute is necessary for two reasons:
       - It provides a way to reblock the data view into a different shape (via affine map).
         Usually this would be some subblock of the original backing memory to chunk the data
@@ -289,25 +292,20 @@ def TTCore_CBLayoutAttr : TTCore_Attr<"CBLayout", "cb_layout", [MemRefLayoutAttr
   let description = [{
     Describes the layout of a core-local circular buffer in L1 memory.
     Unlike ShardLayoutAttr, this layout does not imply a grid+shard shape
-    split — the entire memref shape is the local buffer shape.
+    split — the entire memref shape is the per-core local buffer shape.
+    CBs are always core-local (implicitly 1x1 grid).
 
     - Stride: Stride of each dimension in bytes.
     - Buffers: Number of backing buffers (1 = single, 2 = double-buffered, etc.)
-    - GridShape: Physical grid shape for the buffer (resolved from the
-      external operand's device layout at stream insertion time).  Used at
-      conversion/serialization to construct the full [grid..shard..] +
-      ShardLayoutAttr type for CreateBufferOp.
   }];
   let parameters = (ins ArrayRefParameter<"int64_t">:$stride,
-                        "uint32_t":$buffers,
-                        ArrayRefParameter<"int64_t">:$gridShape);
+                        "uint32_t":$buffers);
 
-  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `,` `grid` `=` `[` custom<DimensionList>($gridShape) `]` `>`";
+  let assemblyFormat = "`<` custom<DimensionList>($stride) `,` $buffers `>`";
 
   let extraClassDeclaration = [{
     static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers);
     static CBLayoutAttr get(ArrayRef<int64_t> shape, Type elementType, uint32_t buffers);
-    static CBLayoutAttr get(::mlir::MLIRContext *context, ArrayRef<int64_t> shape, uint64_t elementSize, uint32_t buffers, ArrayRef<int64_t> gridShape);
 
     AffineMap getAffineMap() const;
 
@@ -681,6 +679,20 @@ def TTCore_LocalShapeAttr : TTCore_Attr<"LocalShape", "local_shape"> {
   }];
 }
 
+def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
+  let summary = "Fabric Connection Config attribute.";
+  let description = [{
+    Structure for configuring fabric connections for worker cores (in CCL ops).
+  }];
+
+  let parameters = (ins "NocIndex":$noc_index,
+                        "Topology":$topology,
+                        "uint32_t":$cluster_axis,
+                        "RoutingMode":$routing_mode,
+                        "uint32_t":$num_links);
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//
@@ -760,4 +772,41 @@ def TTCore_ArgumentTypeAttr : EnumAttr<TTCore_Dialect, TTCore_ArgumentType, "arg
 def TTCore_TopologyAttr : EnumAttr<TTCore_Dialect, TTCore_Topology, "topology"> {
   let assemblyFormat = "`<` $value `>`";
 }
+
+def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
+  let summary = "A range of cores in the core grid";
+  let description = [{
+    Defines a range of cores in the core grid.
+
+    Parameters:
+    - `start_coord`: Lower-left corner of the core range
+    - `end_coord`: Upper-right corner of the core range
+
+    Constraints:
+    - `start_coord` and `end_coord` must use non-negative core indices (lowering
+      uses unsigned TTNN core coordinates; negative values can wrap).
+    - The condition `start_coord` <= `end_coord` must be satisfied
+
+    Example:
+
+    ```mlir
+    // Define a core range spanning from (1,1) to (3,4)
+    // This represents a 3x4 rectangular grid of cores
+    #core_range = #ttcore.core_range<(1, 1), (3, 4)>
+    ```
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$start_coord, "CoreCoordAttr":$end_coord);
+  let assemblyFormat = "`<` custom<CoordBracketStyle>($start_coord) `,` custom<CoordBracketStyle>($end_coord) `>`";
+
+  let extraClassDeclaration = [{
+    bool intersects(CoreRangeAttr other) const;
+  }];
+
+  let genVerifyDecl = 1;
+}
+
+def TTCore_CoreRangeArrayAttr : TypedArrayAttrBase<
+    TTCore_CoreRangeAttr, "ordered array of ttcore core_range attributes">;
+
 #endif // TTMLIR_DIALECT_TTCore_IR_TTCOREOPSTYPES_TD

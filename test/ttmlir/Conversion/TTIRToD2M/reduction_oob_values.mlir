@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that reduction ops set the correct identity OOB fill values on their
@@ -32,12 +32,31 @@ module {
     return %0 : tensor<128x1xf32>
   }
 
+  // Mean uses the same 'zero' OOB fill as sum (identity for averaging).
+  // CHECK-LABEL: func @mean_reduce_C
+  func.func @mean_reduce_C(%arg: tensor<128x96xf32>) -> tensor<128x1xf32> {
+    // CHECK: d2m.empty{{.*}}#[[SUM_INPUT]]
+    // CHECK: d2m.tile_reduce_mean
+    %0 = "ttir.mean"(%arg) <{dim_arg = [-1: i32], keep_dim = true}> : (tensor<128x96xf32>) -> tensor<128x1xf32>
+    return %0 : tensor<128x1xf32>
+  }
+
   // CHECK-LABEL: func @eltwise_add
   func.func @eltwise_add(%a: tensor<128x96xf32>, %b: tensor<128x96xf32>) -> tensor<128x96xf32> {
     // CHECK: d2m.empty{{.*}}#[[ELT_LAYOUT]]
     // CHECK: d2m.tile_add
     %0 = "ttir.add"(%a, %b) : (tensor<128x96xf32>, tensor<128x96xf32>) -> tensor<128x96xf32>
     return %0 : tensor<128x96xf32>
+  }
+
+  // Min is decomposed to neg→max→neg by TTIRDecomposeMinReduction.
+  // CHECK-LABEL: func @min_reduce_R
+  // CHECK: d2m.tile_negative
+  // CHECK: d2m.tile_reduce_max
+  // CHECK: d2m.tile_negative
+  func.func @min_reduce_R(%arg: tensor<128x96xf32>) -> tensor<1x96xf32> {
+    %0 = "ttir.min"(%arg) <{dim_arg = [-2: i32], keep_dim = true}> : (tensor<128x96xf32>) -> tensor<1x96xf32>
+    return %0 : tensor<1x96xf32>
   }
 
   // Back-to-back ops: verify that redundant to_layout ops between generics
@@ -57,8 +76,11 @@ module {
 
   // CHECK-LABEL: func @sum_then_add
   // Reduction → eltwise: sum result feeds directly into add (no undef→undef
-  // to_layout between them).
-  // CHECK: %[[SUM_RES:.+]] = d2m.generic
+  // to_layout between them). Scaler fill closes before the sum generic (%5).
+  // CHECK: d2m.tile_fill
+  // CHECK: } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>,{{.*}}
+  // CHECK: %[[SUM_RES:[0-9]+]] = d2m.generic
+  // CHECK-NEXT: ins({{.*}}, %1 :
   // CHECK: d2m.tile_reduce_sum
   // CHECK: ins(%[[SUM_RES]],
   // CHECK: d2m.tile_add

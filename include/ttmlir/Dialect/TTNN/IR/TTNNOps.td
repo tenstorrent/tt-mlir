@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -100,6 +100,27 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
     let hasVerifier = 1;
 }
 
+def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
+    let summary = "Bitcast_convert op.";
+    let description = [{
+      This op reinterprets the bits of each element in
+      the input tensor as a data type of the output tensor.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_DataTypeAttr:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type": $resultType, "Value": $input, "ttcore::DataTypeAttr": $dtype),
+      [{
+        build($_builder, $_state, resultType, input, dtype, /*memory_config=*/nullptr);
+      }]>
+    ];
+
+    let hasVerifier = 1;
+}
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let summary = "ToDevice op.";
@@ -255,7 +276,7 @@ class TTNN_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
     ];
 }
 
-def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where", [ExplicateOperandBroadcastsTrait]> {
+def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
     let summary = "Eltwise where.";
     let description = [{
       Eltwise where operation.
@@ -308,6 +329,14 @@ def TTNN_CosOp : TTNN_ElementwiseUnaryOp<"cos"> {
     let summary = "Eltwise cosine.";
     let description = [{
       Eltwise cosine operation.
+    }];
+}
+
+def TTNN_AcosOp: TTNN_ElementwiseUnaryOp<"acos"> {
+    let summary = "Eltwise arccosine op.";
+    let description = [{
+      Performs an elementwise arccosine (`acos`) on the input tensor; result
+      range [0, π] for inputs in [-1, 1]. Floating-point tensors.
     }];
 }
 
@@ -446,6 +475,14 @@ def TTNN_SinOp : TTNN_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sine.";
     let description = [{
       Eltwise sine operation.
+    }];
+}
+
+def TTNN_AsinOp: TTNN_ElementwiseUnaryOp<"asin"> {
+    let summary = "Eltwise arcsine op.";
+    let description = [{
+      Performs an elementwise arcsine (`asin`) on the input tensor; result
+      range [-π/2, π/2] for inputs in [-1, 1]. Floating-point tensors.
     }];
 }
 
@@ -2360,6 +2397,80 @@ def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_Mem
     let hasVerifier = 1;
 }
 
+def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
+    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Layer normalization pre-all-gather op.";
+    let description = [{
+      Computes local partial statistics (Welford) for distributed layer
+      normalization on a width-sharded input tensor. Produces partial
+      statistics that should be all-gathered across devices before being
+      consumed by a post-all-gather normalization op.
+
+      Inputs:
+        - input: Input tensor (width-sharded in L1).
+        - residual_input: Optional residual tensor to add before computing
+            statistics. Must have the same shape as input.
+        - recip: Optional precomputed reciprocal tensor.
+
+      Attributes:
+        - dtype: Optional output data type. Defaults to BFloat16 in the
+            runtime if not specified.
+        - compute_config: Optional device compute kernel configuration.
+        - program_config: Optional LayerNormShardedMultiCoreProgramConfig.
+        - memory_config: Optional output memory configuration.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$residual_input,
+                         Optional<AnyRankedTensor>:$recip,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_LayerNormPostAllGatherOp : TTNN_Op<"layer_norm_post_all_gather",
+    [AttrSizedOperandSegments, TTNN_DtypeOpInterface, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Layer normalization post-all-gather op.";
+    let description = [{
+      Applies normalization using gathered statistics from a distributed
+      layer normalization pipeline. Takes the original input tensor and
+      the all-gathered partial statistics, computes the final normalized
+      output, and optionally scales by weight and shifts by bias.
+
+      Inputs:
+        - input: Original input tensor.
+        - stats: All-gathered statistics tensor from pre-all-gather phase.
+        - weight: Optional scale (gamma) tensor.
+        - bias: Optional shift (beta) tensor.
+
+      Attributes:
+        - epsilon: Small constant for numerical stability (default 1e-12).
+        - dtype: Optional output data type.
+        - compute_config: Optional device compute kernel configuration.
+        - program_config: Optional LayerNormShardedMultiCoreProgramConfig.
+        - memory_config: Optional output memory configuration.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$stats,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Group normalization op.";
     let description = [{
@@ -2742,6 +2853,29 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
     }];
 }
 
+def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Gather op.";
+    let description = [{
+      Gathers values from the input tensor along the given dimension using an
+      index tensor. This corresponds to torch.gather semantics and maps
+      directly to the tt-metal `ttnn::gather` device op.
+
+      Parameters:
+        - `input` (ttnn.Tensor): The source tensor to gather from.
+        - `index` (ttnn.Tensor): Indices specifying which values to gather.
+        - `dim` (int32_t): The dimension along which to gather.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$index,
+                         I32Attr:$dim,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let summary = "All gather op.";
     let description = [{
@@ -2807,6 +2941,28 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+}
+
+def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Asynchronous all reduce op.";
+    let description = [{
+        Asynchronous all-reduce collective communication operation. Performs a
+        reduction (e.g. sum) across all devices in a mesh and distributes the
+        result back to all devices, using async execution to overlap
+        communication with computation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis,
+                         OptionalAttr<UI32Attr>:$sub_device_id,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
@@ -3421,6 +3577,12 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -3452,7 +3614,42 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let hasVerifier = 1;
 }
 
-def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_latent_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+  let summary = "Paged flash multi-latent attention decode operation.";
+  let description = [{
+    Paged flash Multi-Latent Attention (MLA) for the decode phase. Combines
+    flash attention with multi-latent attention and paged KV cache support,
+    optimized for single-token decode.
+
+    Key difference from PagedScaledDotProductAttentionDecode: the value tensor
+    is optional (may be null for latent-only MLA) and head_dim_v specifies the
+    value head dimension separately.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       Optional<AnyRankedTensor>:$value,
+                       UI32Attr:$head_dim_v,
+                       AnyRankedTensor:$page_table,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(getOperation());
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
+def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "Scaled dot product attention operation.";
     let description = [{
       Scaled dot product attention.
@@ -3480,9 +3677,16 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          OptionalAttr<F32Attr>:$scale,
                          OptionalAttr<UI32Attr>:$sliding_window_size,
+                         Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createScaledDotProductAttentionOpOperandsWorkarounds(getOperation());
+      }
+    }];
 
     let hasVerifier = 1;
 }
@@ -3647,6 +3851,12 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
 
   let results = (outs AnyRankedTensor:$values,
                       AnyRankedTensor:$indices);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(*this);
+    }
+  }];
 
   let hasVerifier = 1;
 }

@@ -128,14 +128,14 @@ module {
     %key = emitpy.literal "5" : index
     // CHECK: emitpy.expression
     // CHECK: emitpy.subscript
+    // CHECK: emitpy.yield
     // CHECK: emitpy.assign %{{.*}} = %{{.*}} : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
-    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">) -> !emitpy.opaque<"None"> {
-    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"[ttnn.Tensor]">):
-      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
-      emitpy.assign %sub = %v : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
-      %none = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
-      emitpy.yield %none : !emitpy.opaque<"None">
+    %sub = emitpy.expression(%dict, %key) : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]"> {
+    ^bb0(%d: !emitpy.dict, %k: index):
+      %s = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
+      emitpy.yield %s : !emitpy.opaque<"[ttnn.Tensor]">
     }
+    emitpy.assign %sub = %value : (!emitpy.opaque<"[ttnn.Tensor]">, !emitpy.opaque<"[ttnn.Tensor]">)
     return
   }
 }
@@ -152,14 +152,14 @@ module {
     %key = "emitpy.constant"() <{value = #emitpy.opaque<"\"tensor_key\"">}> : () -> !emitpy.str
     // CHECK: emitpy.expression
     // CHECK: emitpy.subscript
+    // CHECK: emitpy.yield
     // CHECK: emitpy.assign %{{.*}} = %{{.*}} : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">)
-    emitpy.expression(%dict, %key, %value) : (!emitpy.dict, !emitpy.str, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"None"> {
-    ^bb0(%d: !emitpy.dict, %k: !emitpy.str, %v: !emitpy.opaque<"ttnn.Tensor">):
-      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, !emitpy.str) -> !emitpy.opaque<"ttnn.Tensor">
-      emitpy.assign %sub = %v : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">)
-      %none = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
-      emitpy.yield %none : !emitpy.opaque<"None">
+    %sub = emitpy.expression(%dict, %key) : (!emitpy.dict, !emitpy.str) -> !emitpy.opaque<"ttnn.Tensor"> {
+    ^bb0(%d: !emitpy.dict, %k: !emitpy.str):
+      %s = emitpy.subscript %d[%k] : (!emitpy.dict, !emitpy.str) -> !emitpy.opaque<"ttnn.Tensor">
+      emitpy.yield %s : !emitpy.opaque<"ttnn.Tensor">
     }
+    emitpy.assign %sub = %value : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">)
     return
   }
 }
@@ -180,14 +180,14 @@ module {
     %key = emitpy.literal "42" : index
     // CHECK: emitpy.expression
     // CHECK: emitpy.subscript
+    // CHECK: emitpy.yield
     // CHECK: emitpy.assign %{{.*}} = %{{.*}}
-    emitpy.expression(%dict, %key, %input) : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"None"> {
-    ^bb0(%d: !emitpy.dict, %k: index, %v: !emitpy.opaque<"ttnn.Tensor">):
-      %sub = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
-      emitpy.assign %sub = %v : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">)
-      %none = "emitpy.constant"() <{value = #emitpy.opaque<"None">}> : () -> !emitpy.opaque<"None">
-      emitpy.yield %none : !emitpy.opaque<"None">
+    %sub = emitpy.expression(%dict, %key) : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor"> {
+    ^bb0(%d: !emitpy.dict, %k: index):
+      %s = emitpy.subscript %d[%k] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
+      emitpy.yield %s : !emitpy.opaque<"ttnn.Tensor">
     }
+    emitpy.assign %sub = %input : (!emitpy.opaque<"ttnn.Tensor">, !emitpy.opaque<"ttnn.Tensor">)
     // CHECK: emitpy.subscript %{{.*}}[%{{.*}}]
     %output = emitpy.subscript %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
     return %output : !emitpy.opaque<"ttnn.Tensor">

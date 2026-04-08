@@ -356,19 +356,6 @@ struct TTIRToTTNNDevicePipelineOptions
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
 
-  Option<bool> enableBfp8Conversion{
-      *this, "enable-bfp8-conversion",
-      llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
-      llvm::cl::init(false)};
-
-  // Deprecated: use experimental-weight-dtype instead.
-  // Kept for backward compatibility with tt-xla auto-uplift.
-  Option<bool> experimentalBfp8Weights{
-      *this, "experimental-bfp8-weights",
-      llvm::cl::desc("Deprecated: use experimental-weight-dtype=bfp_bf8 "
-                     "instead. Converts weights to bfp8_b format."),
-      llvm::cl::init(false)};
-
   Option<WeightDtype> experimentalWeightDtype{
       *this, "experimental-weight-dtype",
       llvm::cl::desc("Experimental: Target dtype for weight conversion in "
@@ -385,8 +372,10 @@ struct TTIRToTTNNDevicePipelineOptions
   // And computeCfgFp32DestAccEn default value is true.
   // This is done as part of generality effort,
   // to boost accuracy on all operations exposing compute kernel config by
-  // default.
-  Option<OptionalMathFidelity> computeCfgMathFidelity{
+  // default. At optimization levels > 0, these are overridden to
+  // Undefined/false to defer to runtime defaults (see
+  // resolveOptimizationLevelOptions).
+  mutable Option<OptionalMathFidelity> computeCfgMathFidelity{
       *this, "compute-cfg-math-fidelity",
       llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
                      "compute kernel config."),
@@ -399,7 +388,7 @@ struct TTIRToTTNNDevicePipelineOptions
                      "Undefined math fidelity")),
       llvm::cl::init(OptionalMathFidelity::HiFi4)};
 
-  Option<bool> computeCfgFp32DestAccEn{
+  mutable Option<bool> computeCfgFp32DestAccEn{
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
                      "operations exposing compute kernel config."),
@@ -436,6 +425,34 @@ struct TTIRToTTNNDevicePipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
+  // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
+  // instead of the default TTNNOptimizer. This is an experimental alternative
+  // to the chain-based optimizer.
+  Option<bool> enableGreedyOptimizer{
+      *this, "enable-greedy-optimizer",
+      llvm::cl::desc(
+          "Use the greedy layout propagation optimizer instead of the "
+          "default chain-based TTNNOptimizer."),
+      llvm::cl::init(false)};
+
+  // Enable decision trace JSON output from the greedy optimizer passes.
+  Option<bool> enableDecisionTrace{
+      *this, "enable-decision-trace",
+      llvm::cl::desc("Enable greedy optimizer decision trace output."),
+      llvm::cl::init(false)};
+
+  // Output directory for decision trace JSON files.
+  Option<std::string> decisionTraceDir{
+      *this, "decision-trace-dir",
+      llvm::cl::desc("Output directory for decision trace JSON files."),
+      llvm::cl::init("ttrt-artifacts/decision_trace")};
+
+  // Enable per-op compile-time statistics from the greedy optimizer.
+  Option<bool> enableCompileTimeStats{
+      *this, "enable-compile-time-stats",
+      llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
@@ -455,6 +472,14 @@ struct TTIRToTTNNDevicePipelineOptions
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+    if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
+        optimizationLevel > 0) {
+      computeCfgMathFidelity = OptionalMathFidelity::Undefined;
+    }
+    if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
+        optimizationLevel > 0) {
+      computeCfgFp32DestAccEn = false;
     }
   }
 };
@@ -535,6 +560,14 @@ struct TTNNToEmitPyDevicePipelineOptions
   Option<bool> splitFiles{*this, "split-files",
                           llvm::cl::desc("Enables TTNNFileSplit pass"),
                           llvm::cl::init(true)};
+
+  Option<bool> createMainForTest{
+      *this, "create-main-for-test",
+      llvm::cl::desc(
+          "Create main_for_test wrapper for frontend-driven execution "
+          "(e.g. PythonModelRunner). Injects device as an explicit "
+          "argument into the forward function."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to TTNN backend pipeline options.

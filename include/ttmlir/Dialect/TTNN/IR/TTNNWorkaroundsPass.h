@@ -22,6 +22,7 @@ class SliceDynamicOp;
 class SliceStaticOp;
 class RotaryEmbeddingOp;
 class Conv3dOp;
+class TopKOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -334,8 +335,21 @@ public:
   static TTNNOperandsWorkarounds
   createSortOpOperandsWorkarounds(ttnn::SortOp op);
 
+  // Create workarounds for SDPA ops: cast f32 inputs to bf16.
+  // tt-metal SDPA only supports bf16/bfp8_b/bfp4_b.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/36717
+  static TTNNOperandsWorkarounds
+  createScaledDotProductAttentionOpOperandsWorkarounds(Operation *op);
+
+  static TTNNOperandsWorkarounds
+  createScaledDotProductAttentionDecodeOpOperandsWorkarounds(Operation *op);
+
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
+      Operation *op);
+
+  static TTNNOperandsWorkarounds
+  createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
 
   // Create workarounds for sparse_matmul op operands.
@@ -358,6 +372,14 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
   static TTNNOperandsWorkarounds
   createMoeExpertTokenRemapOpOperandsWorkarounds();
+
+  // Create workarounds for topk ops.
+  // Input must be BFloat16 or BFP_BFloat8.
+  // Output values must be same data type as input.
+  // Output indices must be uint16.
+  // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
+  static TTNNOperandsWorkarounds
+  createTopKOpOperandsWorkarounds(ttnn::TopKOp op);
 };
 
 } // namespace mlir::tt::ttnn::wa

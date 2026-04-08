@@ -256,3 +256,17 @@ func.func @test_uncollapsed_indivisible_bounce_grid(%arg0: tensor<1x5x1x19x32x32
   %1 = d2m.to_layout %arg0, %0 : tensor<1x5x1x19x32x32xbf16, #layout_indivisible_bounce_grid> into tensor<19x160x32xbf16> -> tensor<19x160x32xbf16>
   return %1 : tensor<19x160x32xbf16>
 }
+
+// Complex tiled mapping on an uncollapsed (>2D) grid should not collapse the intermediate untilized tensor to 2D.
+// The format conversion generic requires matching shard structure on input/output.
+#layout_tm_src = #ttcore.metal_layout<logical_shape = 5x1024x64, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+#layout_tm_dst = #ttcore.metal_layout<logical_shape = 5x1024x64, dim_alignments = 1x256x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded>
+
+func.func @complex_tiled_mapping_preserves_untilize_shape(%arg0: tensor<1x1x1x5x32x2x!ttcore.tile<32x32, f32>, #layout_tm_src>) -> tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst> {
+  // CHECK-LABEL: @complex_tiled_mapping_preserves_untilize_shape
+  // CHECK: d2m.tile_untilize_block
+  // CHECK-SAME: (tensor<5x32x2x!ttcore.tile<32x32, f32>>, tensor<5x1024x64xf32>) -> tensor<5x1024x64xf32>
+  %0 = d2m.empty() : tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst>
+  %1 = d2m.to_layout %arg0, %0 : tensor<1x1x1x5x32x2x!ttcore.tile<32x32, f32>, #layout_tm_src> into tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst> -> tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst>
+  return %1 : tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst>
+}

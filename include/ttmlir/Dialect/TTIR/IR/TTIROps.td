@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -426,6 +426,35 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
     }];
 }
 
+def TTIR_AcosOp: TTIR_ElementwiseUnaryOp<"acos"> {
+    let summary = "Eltwise arccosine op.";
+    let description = [{
+      The `acos` operation computes the arccosine (inverse cosine) of each element in the input tensor.
+
+      For each element, it returns the angle in radians whose cosine is the input value. The operation
+      returns values in the range [0, π]. Inputs are expected to lie in [-1, 1].
+
+      Example:
+      ```mlir
+      // Compute arccosine of all elements in %input
+      %result = ttir.acos(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [1.0, 0.5, 0.0, -1.0]
+      // Output tensor:
+      // [0.0, 1.047, 1.571, 3.142]  // values in radians
+
+      // Example with different values
+      %result = ttir.acos(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
+      // Input tensor:
+      // [0.707, 0.0, -0.5]
+      // Output tensor:
+      // [0.785, 1.571, 2.094]  // acos(√2/2) = π/4, acos(0) = π/2, acos(-0.5) = 2π/3
+      ```
+
+      Mathematical definition: acos(x) = cos⁻¹(x), where the result is in the range [0, π]
+    }];
+}
+
 def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
     let summary = "Elementwise floor operation.";
     let description = [{
@@ -589,6 +618,8 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
 
       Mathematical definition: neg(x) = -x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
@@ -884,6 +915,36 @@ def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
     }];
 }
 
+def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
+    let summary = "Eltwise arcsine op.";
+    let description = [{
+      The `asin` operation computes the arcsine (inverse sine) of each element in the input tensor.
+
+      For each element, it returns the angle in radians whose sine is the input value. The operation
+      returns values in the range [-π/2, π/2]. Inputs are expected to lie in [-1, 1].
+
+      Example:
+      ```mlir
+      // Compute arcsine of all elements in %input
+      %result = ttir.asin(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [0.0, 0.5, 1.0, -1.0]
+      // Output tensor:
+      // [0.0, 0.524, 1.571, -1.571]  // values in radians
+
+      // Example with different values
+      %result = ttir.asin(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
+      // Input tensor:
+      // [-0.5, 0.0, 0.707]
+      // Output tensor:
+      // [-0.524, 0.0, 0.785]  // asin(√2/2) = π/4
+      ```
+
+      Mathematical definition: asin(x) = sin⁻¹(x), where the result is in the range [-π/2, π/2]
+    }];
+}
+
+
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";
     let description = [{
@@ -944,6 +1005,27 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
 
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;
+}
+
+def TTIR_BitcastConvertOp : TTIR_ElementwiseUnaryOp<"bitcast_convert"> {
+    let summary = "Elementwise bitcast operation.";
+    let description = [{
+      The `bitcast_convert` operation reinterprets the bits of each element in
+      the input tensor as a data type of the output tensor. This leads to change
+      in numerical values in data.
+      Only same-bit-width element types are supported (e.g. ui32 -> f32).
+
+      Example:
+      ```mlir
+      // Reinterpret the raw bits of each ui32 element as f32.
+      // Input:  [0x3F800000, 0x40000000] (ui32)
+      // Output: [1.0,        2.0       ] (f32) — same bits, read as float
+      %result = ttir.bitcast_convert(%input) : (tensor<16384xui32>) -> tensor<16384xf32>
+      ```
+    }];
+
+    let hasVerifier = 1;
+    // TODO implement a hasCanonicalizeMethod later
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
@@ -3170,6 +3252,8 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
@@ -3693,65 +3777,6 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
     let hasVerifier = 1;
 }
 
-def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
-    let summary = "Gather operation.";
-    let description = [{
-      The `gather` operation collects slices from an input tensor at positions specified by start indices.
-
-      This operation is based on the StableHLO Gather operation (https://openxla.org/stablehlo/spec#gather) and
-      allows for flexible slicing and indexing of tensors. It can be used to implement operations like array
-      indexing, slicing, dynamic indexing, and more complex gathering patterns.
-
-      Example:
-      ```mlir
-      // Basic gather example: gather elements from a 2D tensor using indices
-      %input = ... : tensor<5x3xf32>         // Input tensor with shape [5,3]
-      %indices = ... : tensor<2xi64>         // Indices tensor with values [2, 1]
-      %result = ttir.gather(%input, %indices) {
-          offset_dims = [0],                 // Output dimensions that are gathered from input
-          collapsed_slice_dims = [0],        // Input dimensions that are collapsed
-          operand_batching_dims = [],        // Batch dimensions of the input
-          start_indices_batching_dims = [],  // Batch dimensions of the indices
-          start_index_map = [0],             // Maps indices to input dimensions
-          index_vector_dim = 0,              // Which dimension of indices contains the index vector
-          slice_sizes = [1, 3],              // Size of the slice to extract from each position
-          indices_are_sorted = false         // Whether indices are sorted
-      } : (tensor<5x3xf32>, tensor<2xi64>) -> tensor<3xf32>
-
-      // This gathers a slice of size [1,3] starting at position [2,0] from the input tensor,
-      // which results in the values from the third row of the input tensor.
-      ```
-
-      Inputs:
-      - `input` (Tensor): The tensor from which to gather values.
-      - `start_indices` (Tensor): Tensor containing the starting indices for slices.
-
-      Attributes:
-      - `offset_dims` (Array of Integer): Output dimensions that correspond to dimensions of the gathered slice.
-      - `collapsed_slice_dims` (Array of Integer): Input dimensions that are collapsed when gathering.
-      - `operand_batching_dims` (Array of Integer): Batch dimensions of the input tensor.
-      - `start_indices_batching_dims` (Array of Integer): Batch dimensions of the indices tensor.
-      - `start_index_map` (Array of Integer): Maps index values to input dimensions.
-      - `index_vector_dim` (Integer): Which dimension of indices contains the index vector.
-      - `slice_sizes` (Array of Integer): Size of the slice to extract from each position.
-      - `indices_are_sorted` (Boolean): Whether indices are sorted (for optimization).
-
-      Output:
-      - `result` (Tensor): The gathered tensor.
-    }];
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$start_indices,
-                         DenseI64ArrayAttr:$offset_dims,
-                         DenseI64ArrayAttr:$collapsed_slice_dims,
-                         DenseI64ArrayAttr:$operand_batching_dims,
-                         DenseI64ArrayAttr:$start_indices_batching_dims,
-                         DenseI64ArrayAttr:$start_index_map,
-                         SI64Attr:$index_vector_dim,
-                         DenseI64ArrayAttr:$slice_sizes,
-                         BoolAttr:$indices_are_sorted);
-    let results = (outs AnyRankedTensor:$result);
-}
-
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "2D average pooling operation.";
   let description = [{
@@ -4006,6 +4031,8 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     let hasVerifier = 1;
 
     let hasFolder = 1;
+
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_RearrangeOp : TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
@@ -4897,6 +4924,37 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let hasFolder = 1;
 }
 
+def TTIR_GatherDimOp : TTIR_NamedOp<"gather_dim"> {
+  let summary = "Gather operation along a single dimension";
+  let description = [{
+    The `gather_dim` operation gathers values from an input tensor along a
+    given dimension using an index tensor. This corresponds to torch.gather
+    semantics and maps directly to the tt-metal `ttnn::gather` device op.
+
+    This is distinct from the StableHLO-style `gather` op which has complex
+    multi-dimensional semantics.
+
+    Parameters:
+      - `input` (Tensor): The source tensor to gather from.
+      - `index` (Tensor): Indices specifying which values to gather.
+      - `dim` (int32_t): The dimension along which to gather.
+
+    Example:
+    ```mlir
+    %result = "ttir.gather_dim"(%input, %index)
+        <{dim = 0 : i32}> : (tensor<4x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$index,
+                       I32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR creation ops
 //===----------------------------------------------------------------------===//
@@ -4980,7 +5038,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
   let hasVerifier = 1;
 }
 
-def TTIR_FullOp : TTIR_CreationOp<"full"> {
+def TTIR_FullOp : TTIR_CreationOp<"full", [ConstantLike]> {
   let summary = "Creates a tensor filled with the specified value";
   let description = [{
     Tensor operation to create a tensor filled with a specified value.
@@ -5007,6 +5065,8 @@ def TTIR_FullOp : TTIR_CreationOp<"full"> {
   ];
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
@@ -5103,7 +5163,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
+def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros", [ConstantLike]> {
   let summary = "Creates a tensor filled with zeros.";
   let description = [{
     The `zeros` operation creates a tensor filled with zeros of the specified shape.
@@ -5138,9 +5198,11 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     This operation is useful for initializing tensors before filling them with computed values or as a
     starting point for accumulation operations.
   }];
+
+  let hasFolder = 1;
 }
 
-def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
+def TTIR_OnesOp : TTIR_NamedFullOp<"ones", [ConstantLike]> {
   let summary = "Creates a tensor filled with ones.";
   let description = [{
     The `ones` operation creates a tensor filled with ones of the specified shape.
@@ -5175,6 +5237,8 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
     This operation is useful for initializing tensors before scaling them or as a starting point for
     operations that require tensors filled with ones, such as creating masks or constant multipliers.
   }];
+
+  let hasFolder = 1;
 }
 
 def TTIR_EmptyOp : TTIR_Op<"empty", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTCore_CreationOpTrait, TTCore_NonCacheableTrait]> {
@@ -5290,7 +5354,7 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
 // TTIR ccl ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
+def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather", [TTIR_CCL]> {
     let summary = "All gather operation.";
     let description = [{
       All gather op.
@@ -5305,7 +5369,7 @@ def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
+def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce", [TTIR_CCL]> {
     let summary = "AllReduce operation.";
     let description = [{
       AllReduce op.
@@ -5320,7 +5384,25 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
+def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async", [TTIR_CCL]> {
+    let summary = "Asynchronous AllReduce operation.";
+    let description = [{
+      Asynchronous all-reduce collective communication operation. Performs a
+      reduction (e.g. sum) across all devices in a mesh and distributes the
+      result back to all devices, using async execution to overlap
+      communication with computation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter", [TTIR_CCL]> {
     let summary = "Reduce scatter operation.";
     let description = [{
       Reduce scatter op.
@@ -5334,7 +5416,7 @@ def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
+def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute", [TTIR_CCL]> {
     let summary = "Collective permute operation.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
@@ -5590,7 +5672,7 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let hasVerifier = 1;
 }
 
-def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
+def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all", [TTIR_CCL]> {
     let summary = "All to All operation.";
     let description = [{
       The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends
@@ -5618,7 +5700,7 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
 }
 
 
-def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
+def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast", [TTIR_CCL]> {
   let summary = "Collective Broadcast op";
   let description = [{
     The collective_broadcast operation distributes a tensor from a single source device to all
@@ -5743,8 +5825,39 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
   let hasVerifier = 1;
 }
 
+def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
+  let summary = "Paged flash multi-latent attention decode operation.";
+  let description = [{
+    Paged flash Multi-Latent Attention (MLA) for the decode phase. This is a
+    specialized attention kernel that combines flash attention with multi-latent
+    attention and paged KV cache support, optimized for single-token decode.
 
-def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention"> {
+    MLA compresses the KV cache using low-rank projections, significantly
+    reducing memory requirements for long-context inference. The paged variant
+    manages cache memory in fixed-size pages.
+
+    Key difference from PagedScaledDotProductAttentionDecode: the value tensor
+    is optional (may be null for latent-only MLA) and head_dim_v specifies the
+    value head dimension separately.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       Optional<AnyRankedTensor>:$value,
+                       UI32Attr:$head_dim_v,
+                       AnyRankedTensor:$page_table,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
     Scaled dot product attention.
@@ -5770,7 +5883,8 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        Optional<AnyRankedTensor>:$attention_mask,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                        OptionalAttr<F32Attr>:$scale,
-                       OptionalAttr<UI32Attr>:$sliding_window_size);
+                       OptionalAttr<UI32Attr>:$sliding_window_size,
+                       Optional<AnyRankedTensor>:$attention_sink);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5931,7 +6045,7 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
+def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch", [TTIR_CCL]> {
     let summary = "Dispatch tokens to expert devices for MoE computation.";
     let description = [{
       Routes tokens to devices holding their selected experts via all-to-all
@@ -5958,7 +6072,7 @@ def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
+def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine", [TTIR_CCL]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
       Inverse of dispatch: gathers expert computation results from expert devices

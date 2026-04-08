@@ -193,13 +193,23 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def ConvertTTIRCPUToEmitPy : Pass<"convert-ttir-cpu-to-emitpy", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR CPU-hoisted ops to EmitPy dialect.";
+  let description = [{
+    Lowers TTIR ops to EmitPy CallOpaqueOp calls targeting
+    `ttir_cpu.<mnemonic>` functions — pure-torch implementations that run
+    on the host CPU.
+  }];
+  let constructor = "createConvertTTIRCPUToEmitPyPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
+}
+
 def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
   let options = [
-    Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
-    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">,
     // `target-module` is forwarded from the TTNN EmitPy pipeline options.
     // Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
     Option<"targetModule", "target-module", "bool", /*default=*/"false",
@@ -218,6 +228,17 @@ def EmitPyConstEvalCaching : Pass<"emitpy-const-eval-caching", "::mlir::ModuleOp
           dict["key"] = callee(inputs...)
   }];
   let constructor = "createEmitPyConstEvalCachingPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
+def EmitPyFormExpressions : Pass<"emitpy-form-expressions", "::mlir::ModuleOp"> {
+  let summary = "Form EmitPy expression ops from known patterns.";
+  let description = [{
+    Post-conversion pass that wraps known patterns of single-use EmitPy ops
+    into `emitpy.expression` blocks so the Python translator can emit them
+    inline, producing more compact and readable code.
+  }];
+  let constructor = "createEmitPyFormExpressionsPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
@@ -320,7 +341,7 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
     }
   }];
   let constructor = "createConvertTTIRToLinalgPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect", "mlir::scf::SCFDialect"];
 }
 
 def ConvertTTNNToTTIR : Pass<"convert-ttnn-to-ttir", "::mlir::ModuleOp"> {
@@ -332,10 +353,10 @@ let summary = "Convert TTNN dialect to TTIR dialect.";
 def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
   let summary = "Conversion to exit D2M flow into TTNN";
   let description = [{
-    Conversion pass to convert from TTIR to TTNN by constructing a TTNN Generic op using the TTIRGeneric op.
-    For now assume, input into the TTIRGeneric will always be a stream layout, output is `ttnn_metal_layout_cast`.
-    The input to said stream is also from a cast op. This pass also lifts any ttir.empty with attached ttnn_layout
-    back into a ttnn.empty. The current version does not support intermediate tensor allocations.
+    Conversion pass to convert from D2M to TTNN by constructing a TTNN Generic op using the D2M GenericOp.
+    The input into the D2M GenericOp comes from a `ttir.ttnn_metal_layout_cast`, and the output also goes
+    through a cast op. This pass also lifts any d2m.empty with attached ttnn_layout back into a ttnn.empty.
+    The current version does not support intermediate tensor allocations.
 
     Example:
     Input IR:
@@ -343,13 +364,8 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
       %ttnn_output_l1 = ttir.empty() : tensor<32x32xf32, #l1_layout>
       %metal_input_l1 = ttir.ttnn_metal_layout_cast %ttnn_input_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
       %metal_output_l1 = ttir.ttnn_metal_layout_cast %ttnn_output_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
-      %storage = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
-      %stream  = "ttir.stream_layout" (%metal_input_l1, %storage)
-            : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>,
-              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
-            -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>
-      ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#ttir.thread<datamovement, @read_kernel>, #ttir.thread<datamovement, @write_kernel>, #ttir.thread<compute, @compute_kernel0>]}
-          ins(%stream : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>)
+      d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
+          ins(%metal_input_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
           outs(%metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
       %output_l1 = ttir.ttnn_metal_layout_cast
 

@@ -1057,6 +1057,26 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 }
 
 //===----------------------------------------------------------------------===//
+// BitcastConvertOp
+//===----------------------------------------------------------------------===//
+
+// BitcastConvertOp verification
+::mlir::LogicalResult mlir::tt::ttnn::BitcastConvertOp::verify() {
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (getDtype() != outputLayout.getDataType()) {
+    return emitOpError() << "Output tensor data type "
+                         << DataTypeEnumToString(outputLayout.getDataType())
+                         << " must match the data type of dtype attribute "
+                         << DataTypeEnumToString(getDtype()) << ".";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Typecast Op
 //===----------------------------------------------------------------------===//
 
@@ -3071,6 +3091,102 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank >= 2");
+  }
+
+  // If residual_input is present, its shape must match input shape.
+  if (getResidualInput()) {
+    RankedTensorType residualType = getResidualInput().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual_input shape must match input shape");
+    }
+  }
+
+  // Output shape must match input shape except the last dimension,
+  // which must be 2 * TILE_WIDTH (64) for the partial statistics
+  // (E(x) and E(x²)).
+  RankedTensorType outputType = getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("input and output must have the same rank");
+  }
+
+  // All dimensions except the last must match.
+  for (int64_t i = 0; i < inputType.getRank() - 1; ++i) {
+    if (inputShape[i] != outputShape[i]) {
+      return emitOpError() << "output dimension " << i << " (" << outputShape[i]
+                           << ") must match input dimension (" << inputShape[i]
+                           << ")";
+    }
+  }
+
+  // Last dimension must be 2 * TILE_WIDTH for layernorm statistics.
+  constexpr int64_t kExpectedLastDim = 2 * TILE_WIDTH;
+  if (outputShape.back() != kExpectedLastDim) {
+    return emitOpError()
+           << "output last dimension must be " << kExpectedLastDim
+           << " (2 * TILE_WIDTH) for layernorm partial statistics, got "
+           << outputShape.back();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormPostAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPostAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType statsType = getStats().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input must have rank >= 2.
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank >= 2");
+  }
+
+  // Stats must have rank >= 2.
+  if (statsType.getRank() < 2) {
+    return emitOpError("stats must have rank >= 2");
+  }
+
+  // Output shape must match input shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != lastDimSize) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != lastDimSize) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // GroupNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::GroupNormOp::verify() {
@@ -3288,6 +3404,39 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// GatherOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult GatherOp::verify() {
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType resultType = getResult().getType();
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t indexRank = indexType.getRank();
+
+  if (inputRank != indexRank) {
+    return emitOpError()
+           << "Input tensor and index tensor must have the same rank. "
+           << "Got input rank = " << inputRank
+           << ", index rank = " << indexRank;
+  }
+
+  int32_t dim = getDim();
+  if (dim >= inputRank || dim < -inputRank) {
+    return emitOpError() << "Dimension must be in the range [-" << inputRank
+                         << ", " << inputRank << "), got dim = " << dim;
+  }
+
+  if (indexType.getShape() != resultType.getShape()) {
+    return emitOpError(
+        "Index tensor and result tensor must have the same shape.");
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllReduceOp
 //===----------------------------------------------------------------------===//
 
@@ -3312,6 +3461,21 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceAsyncOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllReduceAsyncOp::verify() {
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
+
+  // Currently TTNN only supports the sum reduce types.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
+    return emitOpError("Invalid reduction op for all reduce async op.");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -4146,6 +4310,27 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << "' does not reference a function";
   }
 
+  // Verify that the input arguments to this op match the capture_callee
+  // function's arguments
+  auto captureInputTypes = captureFuncOp.getFunctionType().getInputs();
+  auto opInputs = this->getInputs();
+
+  if (captureInputTypes.size() != opInputs.size()) {
+    return emitOpError() << "Number of input arguments (" << opInputs.size()
+                         << ") does not match capture function '"
+                         << captureCalleeAttr.getValue() << "' input count ("
+                         << captureInputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opInputs.size(); ++i) {
+    if (opInputs[i].getType() != captureInputTypes[i]) {
+      return emitOpError() << "Input argument " << i << " type mismatch: "
+                           << "expected " << captureInputTypes[i]
+                           << " from capture function, but got "
+                           << opInputs[i].getType();
+    }
+  }
+
   FlatSymbolRefAttr traceFuncCalleeAttr;
   captureFuncOp.walk([&](func::CallOp callOp) {
     traceFuncCalleeAttr = callOp.getCalleeAttr();
@@ -4161,6 +4346,26 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!traceFuncOp) {
     return emitOpError() << "'" << traceFuncCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that the outputs of this op match the trace function's outputs
+  auto traceOutputTypes = traceFuncOp.getFunctionType().getResults();
+  auto opOutputs = this->getResults();
+
+  if (traceOutputTypes.size() != opOutputs.size()) {
+    return emitOpError() << "Number of output results (" << opOutputs.size()
+                         << ") does not match trace function '"
+                         << traceFuncCalleeAttr.getValue() << "' output count ("
+                         << traceOutputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opOutputs.size(); ++i) {
+    if (opOutputs[i].getType() != traceOutputTypes[i]) {
+      return emitOpError() << "Output result " << i << " type mismatch: "
+                           << "expected " << traceOutputTypes[i]
+                           << " from trace function, but got "
+                           << opOutputs[i].getType();
+    }
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {
@@ -4254,6 +4459,27 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!executeFuncOp) {
     return emitOpError() << "'" << executeCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that execute function takes exactly one trace_id argument
+  auto executeInputTypes = executeFuncOp.getFunctionType().getInputs();
+  if (executeInputTypes.size() != 1) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' must take exactly one trace_id argument, but has "
+           << executeInputTypes.size() << " arguments";
+  }
+
+  // Verify that the single argument is a trace_id tensor (scalar ui32 with
+  // TraceIdAttr encoding).
+  auto traceIdType =
+      mlir::dyn_cast<mlir::RankedTensorType>(executeInputTypes[0]);
+  if (!traceIdType || traceIdType.getRank() != 0 ||
+      !mlir::isa_and_present<ttnn::TraceIdAttr>(traceIdType.getEncoding())) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' argument must be a trace_id tensor (scalar ui32 with "
+              "TraceIdAttr encoding)";
   }
 
   return ::mlir::success();
@@ -4715,8 +4941,12 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   mlir::RankedTensorType sinType = getSinCache().getType();
   mlir::RankedTensorType outputType = getResult().getType();
 
-  if (cosType != sinType) {
-    return emitOpError("cos and sin tensor types must match.");
+  if (cosType.getElementType() != sinType.getElementType()) {
+    return emitOpError("cos and sin tensor dtypes must match.");
+  }
+
+  if (cosType.getShape() != sinType.getShape()) {
+    return emitOpError("cos and sin tensor shapes must match.");
   }
 
   SmallVector<RankedTensorType> inputTypes = {inputType, cosType, sinType,
@@ -5063,6 +5293,58 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError(
           "Cur pos tensor number of users must match query number of users.");
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+
+  // Verify ranks.
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key tensor must be a 4D tensor.");
+  }
+  if (pageTableType.getShape().size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor.");
+  }
+
+  // Verify element types.
+  if (!queryType.getElementType().isFloat()) {
+    return emitOpError("Query must be a float tensor.");
+  }
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type.");
+  }
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+
+  // Verify value if present.
+  if (getValue()) {
+    RankedTensorType valueType = getValue().getType();
+    if (valueType.getShape().size() != 4) {
+      return emitOpError("Value tensor must be a 4D tensor.");
+    }
+    if (queryType.getElementType() != valueType.getElementType()) {
+      return emitOpError("Query and value must have the same element type.");
+    }
+  }
+
+  // head_dim_v must be > 0.
+  if (getHeadDimV() == 0) {
+    return emitOpError("head_dim_v must be greater than 0.");
   }
 
   return success();

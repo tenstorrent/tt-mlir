@@ -4,7 +4,6 @@
 
 import os
 import ast
-import time
 import torch
 import numpy as np
 from functools import reduce
@@ -756,6 +755,30 @@ def execute_fb(
                 )
                 golden_inputs_torch.append(torch_tensor)
 
+        inputs = []
+        for i in golden_inputs_torch:
+            new_input = create_tensor(i, device.get_mesh_shape())
+            inputs.append(new_input)
+        converted_inputs = convert_input_layouts(
+            device,
+            inputs,
+            fbb=fbb,
+            program_index=program_index,
+        )
+
+        try:
+            runtime_outputs = tt_runtime.runtime.submit(
+                device,
+                fbb,
+                program_index,
+                converted_inputs,
+            )
+            tt_runtime.runtime.wait(runtime_outputs)
+        except Exception as e:
+            raise TTBuilderRuntimeException(e)
+        finally:
+            tt_runtime.runtime.unregister_hooks()
+
         golden_outputs_torch = []
         outputs_torch = []
         for i, o_dict in enumerate(output_dict):
@@ -770,106 +793,92 @@ def execute_fb(
                     o_dict["desc"]["layout"]["memory_desc"]["data_type"]
                 ),
             )
-            outputs_torch.append({0: torch_tensor})
+            num_shards = tt_runtime.runtime.get_num_shards(runtime_outputs[i])
+            outputs_torch.append(
+                {shard_id: torch_tensor.clone() for shard_id in range(num_shards)}
+            )
 
-        inputs = []
         outputs = []
-        for i in golden_inputs_torch:
-            new_input = create_tensor(i, device.get_mesh_shape())
-            inputs.append(new_input)
-        converted_inputs = convert_input_layouts(
-            device,
-            inputs,
-            fbb=fbb,
-            program_index=program_index,
-        )
-
         for i in outputs_torch:
-            new_output = create_tensor(i, (1, 1))
+            new_output = create_tensor(i, device.get_mesh_shape())
             outputs.append(new_output)
 
-        start_submit = time.perf_counter_ns()
-        try:
-            runtime_outputs = tt_runtime.runtime.submit(
-                device,
-                fbb,
-                program_index,
-                converted_inputs,
-            )
-            tt_runtime.runtime.wait(runtime_outputs)
-        except Exception as e:
-            raise TTBuilderRuntimeException(e)
-        finally:
-            tt_runtime.runtime.unregister_hooks()
-        end_submit = time.perf_counter_ns()
-        e2e_duration_nanoseconds_submit = end_submit - start_submit
-
-        e2e_duration_nanoseconds_output = 0
         for i, runtime_output_tensor in enumerate(runtime_outputs):
-            start_get_output = time.perf_counter_ns()
             output_host = tt_runtime.runtime.to_host(
                 runtime_output_tensor, untilize=True
-            )[0]
-            end_get_output = time.perf_counter_ns()
-            e2e_duration_nanoseconds_output += end_get_output - start_get_output
+            )
 
             if disable_golden:
                 continue
 
-            combined_output_tensor = output_host
+            output_device_tensors = [outputs[i]]
             if fbb.file_identifier != "TTM0":
-                combined_output_tensor = (
-                    tt_runtime.runtime.create_multi_device_host_tensor_from_shards(
-                        [output_host], {}, (1, 1)
+                output_device_tensors = tt_runtime.runtime.get_device_tensors(
+                    outputs[i]
+                )
+
+            program_golden_report[f"output_{i}"] = {}
+            program_output_tensors[f"device_output_{i}"] = {}
+            program_output_tensors[f"golden_output_{i}"] = {}
+            for device_id, shard in enumerate(output_host):
+                tt_runtime.runtime.memcpy(
+                    output_device_tensors[device_id],
+                    shard,
+                )
+
+                data_buffer = bytearray(
+                    output_device_tensors[device_id].get_data_buffer()
+                )
+
+                if len(data_buffer) == 0:
+                    output_shard_torch = torch.empty(
+                        output_device_tensors[device_id].get_shape(),
+                        dtype=runtime_dtype_to_torch_dtype(
+                            output_device_tensors[device_id].get_dtype()
+                        ),
                     )
+                else:
+                    output_shard_torch = torch.frombuffer(
+                        data_buffer,
+                        dtype=runtime_dtype_to_torch_dtype(
+                            output_device_tensors[device_id].get_dtype()
+                        ),
+                    ).reshape(output_device_tensors[device_id].get_shape())
+
+                golden_shard_torch = golden_outputs_torch[i][device_id]
+                results = check_outputs(
+                    golden_shard_torch,
+                    output_shard_torch,
+                    f"output_{i}_device_{device_id}",
+                    pcc,
+                    atol,
+                    rtol,
+                    check_pcc,
+                    check_atol,
+                    check_rtol,
                 )
-            tt_runtime.runtime.memcpy(
-                outputs[i],
-                combined_output_tensor,
-            )
+
+                program_golden_report[f"output_{i}"][device_id] = results
+                program_output_tensors[f"device_output_{i}"][
+                    device_id
+                ] = output_shard_torch
+                program_output_tensors[f"golden_output_{i}"][
+                    device_id
+                ] = golden_shard_torch
+
+                if save_artifacts:
+                    save_torch_tensor(
+                        output_shard_torch,
+                        program_artifact_dir,
+                        f"device_output_{i}_device_{device_id}.pt",
+                    )
+                    save_torch_tensor(
+                        golden_shard_torch,
+                        program_artifact_dir,
+                        f"golden_output_{i}_device_{device_id}.pt",
+                    )
+
             tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
-
-            data_buffer = bytearray(outputs[i].get_data_buffer())
-
-            if len(data_buffer) == 0:
-                output_tensor_torch = torch.empty(
-                    outputs[i].get_shape(),
-                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
-                )
-            else:
-                output_tensor_torch = torch.frombuffer(
-                    data_buffer,
-                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
-                ).reshape(outputs[i].get_shape())
-
-            golden_tensor_torch = golden_outputs_torch[i][0]
-            results = check_outputs(
-                golden_tensor_torch,
-                output_tensor_torch,
-                f"output_{i}",
-                pcc,
-                atol,
-                rtol,
-                check_pcc,
-                check_atol,
-                check_rtol,
-            )
-
-            program_golden_report[f"output_{i}"] = {0: results}
-            program_output_tensors[f"device_output_{i}"] = output_tensor_torch
-            program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
-
-            if save_artifacts:
-                save_torch_tensor(
-                    output_tensor_torch,
-                    program_artifact_dir,
-                    f"device_output_{i}.pt",
-                )
-                save_torch_tensor(
-                    golden_tensor_torch,
-                    program_artifact_dir,
-                    f"golden_output_{i}.pt",
-                )
 
             for loc, device_results in callback_runtime_config.golden_report.items():
                 program_golden_report[loc] = device_results
@@ -976,7 +985,7 @@ def execute_py(
                 and node.name[0:18] != "create_inputs_for_"
                 and not node.name.__contains__("_const_eval_")
                 # TODO(dmilinkovic): this is getting out of hand, issue #6386.
-                and not node.name.__contains__("hoisted_")
+                and not node.name.startswith("cpu_hoisted_")
                 and not node.name.startswith("consteval_")
             ):
                 program_names.append(node.name)
@@ -1064,6 +1073,8 @@ def execute_py(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        raise
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
     finally:
@@ -1163,6 +1174,8 @@ def execute_cpp(
     output_tensors = {}
     golden_report = {}
 
+    emitc_dylib_handle = None
+    exc_in_flight = False
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
         program_names = tt_runtime.runtime.test.get_so_programs(
@@ -1263,7 +1276,19 @@ def execute_cpp(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        exc_in_flight = True
+        raise
     except Exception as e:
+        exc_in_flight = True
         raise TTBuilderRuntimeException(e) from e
+    finally:
+        if emitc_dylib_handle is not None:
+            try:
+                tt_runtime.runtime.test.close_so(emitc_dylib_handle)
+            except Exception as close_exc:
+                if not exc_in_flight:
+                    raise TTBuilderRuntimeException(close_exc) from close_exc
+                print(f"close_so() failed during cleanup: {close_exc}")
 
     return golden_report, output_tensors

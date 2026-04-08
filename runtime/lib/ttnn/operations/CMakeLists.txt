@@ -12,6 +12,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce_async.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_combine.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_expert_token_remap.cpp
@@ -37,6 +38,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/global_semaphore/global_semaphore.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/assign.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat.cpp
@@ -63,6 +65,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/update_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_update_cache.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/layout/bitcast_convert.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_layout.cpp
@@ -77,6 +80,8 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/distributed_rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/group_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm_pre_all_gather.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm_post_all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/softmax.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/pool/pool2d.cpp
@@ -101,6 +106,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/split_query_key_value_and_split_heads.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_flash_multi_latent_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )

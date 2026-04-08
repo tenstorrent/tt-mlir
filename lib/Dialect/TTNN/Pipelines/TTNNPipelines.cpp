@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 
+#include "ttmlir/Conversion/TTIRToEmitPy/TTIRToEmitPy.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
@@ -70,6 +71,9 @@ void createTTNNPipelineTTIRPasses(
   // Infer kv_cache argument types from cache operations.
   pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
 
+  // Propagate per-arg weight_dtype annotations through TM ops to consumers.
+  pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
@@ -101,7 +105,6 @@ void createTTNNPipelineAnalysisPasses(
   }
   if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-    ttnn::TTNNOptimizerOptions optimizerOptions(options);
     // Wrap all Optimizer passes with device lifecycle management.
     DevicePassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
@@ -110,21 +113,64 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
-    pm.addPass(createDevicePassesWrapper(
-        [optimizerOptions, validationOptions](OpPassManager &innerPm) {
-          // All Optimizer passes will be run inside the wrapper.
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-          innerPm.addPass(mlir::createCanonicalizerPass());
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-                  validationOptions));
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-        },
-        wrapperOptions));
+    if (!options.enableGreedyOptimizer) {
+      // Default: chain-based TTNNOptimizer.
+      ttnn::TTNNOptimizerOptions optimizerOptions(options);
+      pm.addPass(createDevicePassesWrapper(
+          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
+            innerPm.addPass(mlir::createCanonicalizerPass());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                    validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          },
+          wrapperOptions));
+    } else {
+      // Greedy optimizer: two new passes replace TTNNOptimizer.
+      TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
+      propagationOptions.maxLegalLayouts = options.maxLegalLayouts;
+      propagationOptions.rowMajorEnabled = options.rowMajorEnabled;
+      propagationOptions.beamWidth = 8;
+      propagationOptions.enableL1ShardingLayouts =
+          options.memoryLayoutAnalysisEnabled;
+      propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
+      propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+      propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
+      propagationOptions.decisionTraceDir = options.decisionTraceDir;
+      propagationOptions.enableCompileTimeStats =
+          options.enableCompileTimeStats;
+
+      TTNNGreedyL1SpillManagementOptions spillOptions;
+      spillOptions.enableDecisionTrace = options.enableDecisionTrace;
+      spillOptions.decisionTraceDir = options.decisionTraceDir;
+
+      bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
+      pm.addPass(createDevicePassesWrapper(
+          [propagationOptions, spillOptions, validationOptions,
+           memLayoutEnabled](OpPassManager &innerPm) {
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
+                    propagationOptions));
+            if (memLayoutEnabled) {
+              innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(
+                  spillOptions));
+            }
+            innerPm.addPass(mlir::createCanonicalizerPass());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                    validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          },
+          wrapperOptions));
+    }
 #else
     llvm::llvm_unreachable_internal(
         "TTNNOptimizer passes require OpModel support to be enabled.");
@@ -256,11 +302,7 @@ void createTTIRToTTNNDevicePipeline(
     // (e.g., no i64/f64) and may produce incorrect results otherwise.
     // Element type normalization should be applied only to the ops in the
     // Device Module, since we aren't restricted with element types on CPU.
-    ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
-    elementTypeNormalizationOptions.enableBfp8Conversion =
-        options.enableBfp8Conversion;
-    devicePm.addPass(
-        ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+    devicePm.addPass(ttir::createElementTypeNormalization());
 
     createTTNNPipelineTTIRPasses(devicePm, options);
 
@@ -289,6 +331,7 @@ void createTTIRToTTNNDevicePipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
+    devicePm.addPass(createTTNNDecomposition());
 
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());
@@ -296,24 +339,13 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineWorkaroundPass(devicePm, options);
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
+    // Always added: per-arg "ttcore.weight_dtype" annotations may exist even
+    // without a global dtype. The pass is a no-op when no annotations exist
+    // and no global dtype is set.
     {
-      WeightDtype resolvedWeightDtype = options.experimentalWeightDtype;
-
-      // Handle deprecated experimental-bfp8-weights flag.
-      if (options.experimentalBfp8Weights) {
-        if (resolvedWeightDtype != WeightDtype::None) {
-          llvm::report_fatal_error(
-              "Cannot set both experimental-bfp8-weights and "
-              "experimental-weight-dtype. Use experimental-weight-dtype only.");
-        }
-        resolvedWeightDtype = WeightDtype::BFP_BFloat8;
-      }
-
-      if (resolvedWeightDtype != WeightDtype::None) {
-        TTNNWeightDtypeConversionOptions convOpts;
-        convOpts.targetDtype = resolvedWeightDtype;
-        devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
-      }
+      TTNNWeightDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalWeightDtype;
+      devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
@@ -339,6 +371,16 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(tt::ttnn::createTTNND2MFusing());
     }
 
+    // Const-eval pass which should pick up any const-evalable ops created in
+    // TTNN workarounds, weight dtype conversion, or any TTNN pass after the
+    // first const-eval pass.
+    //
+    // Without this pass, optimizer might L1-shard certain ops which would get
+    // const-evaled in the later const-eval pass.
+    if (options.enableConstEval) {
+      devicePm.addPass(transforms::createConstEvalHoistTransform());
+    }
+
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
     if (options.enableD2MFusing) {
@@ -362,10 +404,17 @@ void createTTIRToTTNNDevicePipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
-    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+
+    // Trace hoisting must run before layout decomposition because it adjusts
+    // layouts of function arguments (e.g. moving inputs to system_memory). It
+    // is much easier to work at the layout abstraction level than on individual
+    // ops after they have been decomposed.
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
     }
+
+    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 
@@ -493,6 +542,14 @@ void createTTNNToEmitPyDevicePipeline(
     } else {
       devicePm.addPass(createTTNNCreateInputGenerators());
     }
+
+    // Optionally create main_for_test wrapper for frontend-driven execution
+    // (e.g. PythonModelRunner). This must run after the input generator/loader
+    // pass so that _main already exists.
+    //
+    if (options.createMainForTest) {
+      devicePm.addPass(createTTNNCreateMainForTest());
+    }
   }
 
   devicePm.addPass(createTTNNPrepareConstEvalCaching());
@@ -503,38 +560,36 @@ void createTTNNToEmitPyDevicePipeline(
     devicePm.addPass(createTTNNFileSplit(fileSplitOptions));
   }
 
+  // Both paths (targetModule and TTNNCreateMainForTest) inject device as an
+  // explicit argument into the forward function. Const-eval functions also
+  // need device injected, but this can't be done as a separate MLIR pass
+  // because load_cached ops verify callee argument count between passes
+  // (issue #6746). Setting targetModule=true on the EmitPy pass tells it to
+  // handle const-eval device injection inside its runOnOperation, before
+  // applyFullConversion.
+  //
   ConvertTTNNToEmitPyOptions emitpyOptions;
-  emitpyOptions.targetModule = options.targetModule;
+  emitpyOptions.targetModule =
+      options.targetModule || options.createMainForTest;
   devicePm.addPass(createConvertTTNNToEmitPyPass(emitpyOptions));
 
   devicePm.addPass(createEmitPyConstEvalCachingPass());
 
+  devicePm.addPass(createEmitPyFormExpressionsPass());
+
   devicePm.addPass(createEmitPyNameVarsPass());
 }
 
-// Pipeline which lowers the CPU module from TTIR to EmitPy using
-// TTNN golden functions.
+// Pipeline which lowers the CPU module from TTIR to EmitPy.
+//
+// TTIR ops are converted directly to ttir_cpu.<op> calls, bypassing
+// TTNN lowering entirely.
 //
 void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
-  // Prepare CPU module TTIR ops for TTNN lowering.
-  //
-  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
-  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
-  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
-  cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
-
-  // Lower CPU module to TTNN.
-  //
-  createTTNNPipelineLoweringPasses(cpuPm);
-
-  // Lower CPU module to EmitPy.
-  //
-  ConvertTTNNToEmitPyOptions options;
-  options.enableGoldenMode = true;
-  options.targetModule = false;
-  cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
+  // Lower TTIR directly to EmitPy (ttir_cpu).
+  cpuPm.addPass(createConvertTTIRCPUToEmitPyPass());
 
   cpuPm.addPass(createEmitPyNameVarsPass());
 }

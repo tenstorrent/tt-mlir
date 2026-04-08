@@ -62,11 +62,20 @@ struct RankedTensorTypeFactory {
                                  ArrayRef<int64_t> tensorShape);
 };
 
+// Helper method to get the buffer type from the tensor layout encoding.
+BufferType getBufferTypeFromTensor(RankedTensorType tensorType);
+
 // Return the L1 memory usage of the output tensor of the given op.
 // Used within L1 interleaved policies and temporarily within L1 Interleaved
 // Fallback Analysis.
 //
 uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
+
+// Return the per-core L1 memory usage of a layout.
+// For sharded layouts, returns the shard size.
+// For L1 interleaved, returns total size / numCores since the grid attribute
+// is irrelevant for interleaved — data is distributed across all device cores.
+uint64_t getPerCoreL1Usage(TTNNLayoutAttr layout, uint64_t numCores);
 
 // Helper method to get the tensor layout attribute from the tensor value.
 TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);
@@ -140,19 +149,6 @@ UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
 // Compute the bounding box grid dimensions from a layout's shard grid.
 // Returns {gridX, gridY} representing the physical core grid extent.
 std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout);
-
-// Calculate optimal C_in_block for Conv3d based on channel count.
-// Finds the largest block size in [32, 128] (step 32) that evenly divides
-// in_channels. Returns 0 when no valid block size exists (TT-Metal will
-// use the full channel count).
-inline uint32_t calculateOptimalCInBlock(uint32_t in_channels) {
-  for (uint32_t i = 128; i >= 32; i -= 32) {
-    if (in_channels % i == 0) {
-      return i;
-    }
-  }
-  return 0;
-}
 
 } // namespace mlir::tt::ttnn::utils
 

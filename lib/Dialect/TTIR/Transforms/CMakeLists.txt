@@ -2,8 +2,10 @@ add_subdirectory(EraseInverseOps)
 add_subdirectory(HoistCPUOps)
 add_mlir_dialect_library(MLIRTTIRTransforms
         Broadcast.cpp
+        CPUBooleanNarrowing.cpp
         DecomposeComplexPermute.cpp
         DecomposeComplexReshape.cpp
+        DecomposeMinReduction.cpp
         GlobalDataFormatConversion.cpp
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
@@ -11,10 +13,12 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ElementTypeNormalization.cpp
         PredicateTypeAlignment.cpp
         InferKVCacheArgumentTypes.cpp
+        PropagateWeightDtype.cpp
         MoveReshapeToConstant.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp
+        RMSNormDecomposition.cpp
         RankNormalization.cpp
         Transforms.cpp
         TTIRFusing.cpp

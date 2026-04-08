@@ -90,6 +90,7 @@ public:
 private:
   /// Build expression for specific operation types
   FailureOr<std::string> buildCallOpaqueExpr(CallOpaqueOp op);
+  FailureOr<std::string> buildConstantExpr(ConstantOp op);
   FailureOr<std::string> buildLiteralExpr(LiteralOp op);
   FailureOr<std::string> buildSubscriptExpr(SubscriptOp op);
   FailureOr<std::string> buildGetAttrExpr(GetAttrOp op);
@@ -249,6 +250,8 @@ FailureOr<std::string> ExpressionBuilder::buildExpression(Value value) {
   FailureOr<std::string> result;
   if (auto callOp = dyn_cast<CallOpaqueOp>(defOp)) {
     result = buildCallOpaqueExpr(callOp);
+  } else if (auto constantOp = dyn_cast<ConstantOp>(defOp)) {
+    result = buildConstantExpr(constantOp);
   } else if (auto literalOp = dyn_cast<LiteralOp>(defOp)) {
     result = buildLiteralExpr(literalOp);
   } else if (auto subscriptOp = dyn_cast<SubscriptOp>(defOp)) {
@@ -270,7 +273,8 @@ FailureOr<std::string> ExpressionBuilder::buildCallOpaqueExpr(CallOpaqueOp op) {
   std::string expr;
   llvm::raw_string_ostream os(expr);
 
-  os << op.getCallee() << "(";
+  bool isList = (op.getCallee() == "util_create_list");
+  os << (isList ? "[" : op.getCallee().str() + "(");
 
   bool first = true;
   for (Value operand : op.getOperands()) {
@@ -286,8 +290,41 @@ FailureOr<std::string> ExpressionBuilder::buildCallOpaqueExpr(CallOpaqueOp op) {
     os << *operandExpr;
   }
 
-  os << ")";
+  os << (isList ? "]" : ")");
   return expr;
+}
+
+FailureOr<std::string> ExpressionBuilder::buildConstantExpr(ConstantOp op) {
+  Attribute attr = op.getValue();
+  if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
+    return oAttr.getValue().str();
+  }
+  if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
+    SmallString<128> strValue;
+    bool isSigned = true;
+    if (auto intType = dyn_cast<IntegerType>(iAttr.getType())) {
+      // Treat signless integers as signed.
+      isSigned = !intType.isUnsigned();
+    }
+    iAttr.getValue().toString(strValue, 10, isSigned);
+    return std::string{strValue.begin(), strValue.end()};
+  }
+  if (auto fAttr = dyn_cast<FloatAttr>(attr)) {
+    APFloat value = fAttr.getValue();
+    if (value.isInfinity()) {
+      return std::string(value.isNegative() ? "float('-inf')" : "float('inf')");
+    }
+    if (value.isNaN()) {
+      return std::string("float('nan')");
+    }
+    SmallString<128> strValue;
+    value.toString(strValue);
+    return std::string{strValue.begin(), strValue.end()};
+  }
+  if (auto sAttr = dyn_cast<StringAttr>(attr)) {
+    return ("\"" + sAttr.getValue() + "\"").str();
+  }
+  return op.emitOpError("unsupported constant attribute type in expression");
 }
 
 FailureOr<std::string> ExpressionBuilder::buildLiteralExpr(LiteralOp op) {
@@ -796,28 +833,8 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  Value target = op.getTarget();
-  Operation *targetDefOp = target.getDefiningOp();
-
-  if (auto subscriptOp = dyn_cast_or_null<SubscriptOp>(targetDefOp)) {
-    // Subscript assignment: dict[key] = value.
-    if (failed(emitter.emitOperand(subscriptOp.getContainer(),
-                                   "subscript_target"))) {
-      return failure();
-    }
-
-    os << "[";
-    if (failed(
-            emitter.emitOperand(subscriptOp.getIndex(), "subscript_index"))) {
-      return failure();
-    }
-    os << "]";
-
-  } else {
-    // Regular assignment: target = value.
-    if (failed(emitter.emitOperand(target, "target"))) {
-      return failure();
-    }
+  if (failed(emitter.emitOperand(op.getTarget(), "target"))) {
+    return failure();
   }
 
   os << " = ";
@@ -927,41 +944,8 @@ static LogicalResult printOperation(PythonEmitter &emitter, IfOp ifOp) {
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
 
-  // Check if this expression contains a subscript assignment.
   Block *bodyBlock = expressionOp.getBodyBlock();
-  bool isSubscriptAssignment = false;
-  AssignOp assignOp = nullptr;
 
-  for (Operation &bodyOp : bodyBlock->getOperations()) {
-    if (auto asgOp = dyn_cast<AssignOp>(&bodyOp)) {
-      if (dyn_cast_or_null<SubscriptOp>(asgOp.getTarget().getDefiningOp())) {
-        isSubscriptAssignment = true;
-        assignOp = asgOp;
-        break;
-      }
-    }
-  }
-
-  // Handle subscript assignment.
-  if (isSubscriptAssignment && assignOp) {
-    raw_indented_ostream &os = emitter.ostream();
-
-    for (auto [blockArg, operand] :
-         llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
-      emitter.registerDeferredValue(
-          blockArg, emitter.getOrCreateName(operand, "expr_arg"));
-    }
-
-    if (failed(printOperation(emitter, assignOp))) {
-      return failure();
-    }
-
-    os << "\n";
-
-    return success();
-  }
-
-  // Check if we should emit inline or not
   bool shouldInline = !expressionOp.getDoNotInline();
 
   if (shouldInline) {
@@ -1093,6 +1077,20 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
   // Print integer attributes.
   if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
     os << printInt(iAttr.getValue());
+    return success();
+  }
+  // Print float attributes.
+  if (auto fAttr = dyn_cast<FloatAttr>(attr)) {
+    APFloat value = fAttr.getValue();
+    if (value.isInfinity()) {
+      os << (value.isNegative() ? "float('-inf')" : "float('inf')");
+    } else if (value.isNaN()) {
+      os << "float('nan')";
+    } else {
+      SmallString<128> strValue;
+      value.toString(strValue);
+      os << strValue;
+    }
     return success();
   }
   // Print string attributes.

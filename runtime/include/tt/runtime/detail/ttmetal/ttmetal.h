@@ -8,7 +8,6 @@
 #define FMT_HEADER_ONLY
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/distributed_host_buffer.hpp"
-#include "tt-metalium/event.hpp"
 #include "tt-metalium/experimental/forge_backdoor/global_semaphore.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
@@ -136,6 +135,8 @@ void wait(const std::vector<Tensor> &tensors,
           std::optional<uint8_t> cqId = std::nullopt);
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking);
+
+uint32_t getNumShards(Tensor tensor);
 
 void memcpy(void *dst, Tensor src,
             std::optional<tt::target::DataType> dstDataType = std::nullopt);

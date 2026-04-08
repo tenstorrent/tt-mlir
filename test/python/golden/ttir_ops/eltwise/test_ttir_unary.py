@@ -24,6 +24,32 @@ def abs(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     return builder.abs(in0, unit_attrs=unit_attrs)
 
 
+def acos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    acos_0 = builder.acos(in0, unit_attrs=unit_attrs)
+
+    if str(in0.type.element_type) not in ["bf16", "f32"]:
+        raise ValueError("acos op only supports bf16 and f32 data types")
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
+    rand = torch.rand(in0.type.shape, dtype=dtype) * 2 - 1
+    input_golden = rand * 0.999
+    output_golden = torch.acos(input_golden)
+    builder.set_goldens({in0: input_golden}, {acos_0: output_golden})
+    return acos_0
+
+
+def asin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    asin_0 = builder.asin(in0, unit_attrs=unit_attrs)
+
+    if str(in0.type.element_type) not in ["bf16", "f32"]:
+        raise ValueError("asin op only supports bf16 and f32 data types")
+    dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
+    rand = torch.rand(in0.type.shape, dtype=dtype) * 2 - 1
+    input_golden = rand * 0.999
+    output_golden = torch.asin(input_golden)
+    builder.set_goldens({in0: input_golden}, {asin_0: output_golden})
+    return asin_0
+
+
 def atan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.atan(in0, unit_attrs=unit_attrs)
 
@@ -217,6 +243,8 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 unary_ops = [
     abs,
+    acos | Marks(pytest.mark.skip_config(["ttmetal"])),
+    asin | Marks(pytest.mark.skip_config(["ttmetal"])),
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil,
@@ -269,11 +297,6 @@ def test_unary_ops(
         logical_not,
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
-
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -360,11 +383,6 @@ def test_unary_ops_with_float_param(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def unary_ops_with_float_param(
@@ -484,6 +502,8 @@ def test_unaligned_shapes_neg(
 
 
 hoisted_unary_ops_float = [
+    acos,
+    asin,
     atan,
     cbrt,
     ceil,
@@ -530,7 +550,7 @@ hoisted_shapes = [
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_unary_ops_float(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -555,7 +575,7 @@ def test_cpu_hoistable_unary_ops_float(
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_unary_ops_float_integer(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -567,6 +587,32 @@ def test_cpu_hoistable_unary_ops_float_integer(
             unit_attrs: Optional[List[str]] = None,
         ):
             return test_fn(in0, builder, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=f"{request.node.name}",
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+def test_hoisted_leaky_relu(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_leaky_relu(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.leaky_relu(
+                in0, parameter=0.01, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
         module,

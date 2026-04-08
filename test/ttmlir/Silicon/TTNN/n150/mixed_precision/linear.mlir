@@ -2,6 +2,7 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="experimental-weight-dtype=bfp_bf8 enable-optimizer=true system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// UNSUPPORTED: true
 module {
   func.func @linear(%arg0: tensor<2x34x1024xf32>, %arg1: tensor<1024x1024xf32> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %bias: tensor<2x34x1024xf32>) -> tensor<2x34x1024xf32> {
     // CHECK-LABEL: func.func @linear

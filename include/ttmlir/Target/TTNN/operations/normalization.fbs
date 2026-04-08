@@ -80,6 +80,30 @@ table LayerNormOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table LayerNormPreAllGatherOp {
+  input: tt.target.ttnn.TensorRef;
+  residual_input: tt.target.ttnn.TensorRef;
+  recip: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType = BFloat16;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  program_config: tt.target.ttnn.LayerNormShardedMultiCoreProgramConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
+table LayerNormPostAllGatherOp {
+  input: tt.target.ttnn.TensorRef;
+  stats: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  epsilon: float = 1e-12;
+  dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  program_config: tt.target.ttnn.LayerNormShardedMultiCoreProgramConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table GroupNormOp {
   input: tt.target.ttnn.TensorRef;
   input_mask: tt.target.ttnn.TensorRef;

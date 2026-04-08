@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRD2MTransforms
         AddScratchInputs.cpp
         Allocate.cpp
+        DMAOptimizations.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp
         GenericApplyInterchange.cpp
@@ -11,7 +12,6 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericTileComputeLoops.cpp
         GridSelection.cpp
         InsertDstRegisterAccess.cpp
-        InsertStreams.cpp
         LinalgToAffine.cpp
         LowerScratchAllocate.cpp
         LowerToLayout.cpp
@@ -19,6 +19,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ElementwiseFusion.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
+        InsertSpillAndScratch.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
         LowerToExplicitForm.cpp
@@ -29,6 +30,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerDMAToFullyIndexedForm.cpp
         LowerLoadStoreOpsToDMA.cpp
         LowerLoadStoreOpsToExplicitCBForm.cpp
+        ExpandDMAReadCompositeView.cpp
         ConvertLocalLoadStoreOpsToAliasedCBs.cpp
 
         ADDITIONAL_HEADER_DIRS

@@ -98,7 +98,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                 .getResult();
         builder.create<d2m::YieldOp>(innerLoc, storeResult);
       },
-      ThreadType::Unified, grid, SmallVector<int64_t>{1, 1});
+      ThreadType::Unified, grid, SmallVector<int64_t>(rank, 1));
 
   return genericOp.getResult(0);
 }
@@ -113,17 +113,15 @@ public:
     ModuleOp module = getOperation();
     OpBuilder builder(&getContext());
 
-    // Process each function in the module to find unmaterialized view returns.
+    // Process each function in the module to find unmaterialized views.
     module.walk([&](func::FuncOp funcOp) {
+      // Case 1: Direct view return (should not happen with proper pipelines).
       funcOp.walk([&](func::ReturnOp returnOp) {
         builder.setInsertionPoint(returnOp);
 
         // Inspect each return operand to determine if it needs materialization.
         for (OpOperand &opOperand : returnOp->getOpOperands()) {
           Operation *definingOp = opOperand.get().getDefiningOp();
-
-          // Case 1: Direct view return (should not happen with proper
-          // pipelines).
           if (isViewOp(definingOp)) {
             // Insert a generic op to materialize the view before returning.
             // This ensures the tensor transformation represented by the view
@@ -131,30 +129,30 @@ public:
             Value materialized =
                 materializeView(builder, returnOp.getLoc(), opOperand.get());
             opOperand.set(materialized);
-            continue;
           }
+        }
+      });
 
-          // Case 2: View consumed by device-to-host ToHostOp before return.
-          // Pattern: %view = view_layout ... -> %host = to_host %view ->
-          // return %host. We need to materialize the view BEFORE the
-          // device-to-host transfer.
-          auto toLayoutOp =
-              mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp);
-          bool isToHostOp = mlir::isa_and_nonnull<d2m::ToHostOp>(definingOp) ||
-                            (toLayoutOp && toLayoutOp.isDeviceToHost());
-          if (isToHostOp) {
-            Value toHostInput = definingOp->getOperand(0);
-            Operation *inputDefiningOp = toHostInput.getDefiningOp();
+      // Case 2: View consumed by ToHostOp (or ToLayoutOp that is
+      // device-to-host). This can happen before the return, or in the middle of
+      // the function for the return-to-host-then-fetch-back pattern.
+      // Materialize the view BEFORE the device-to-host transfer.
+      funcOp.walk([&](Operation *op) {
+        auto toLayoutOp = mlir::dyn_cast_if_present<d2m::ToLayoutOp>(op);
+        bool isToHostOp = mlir::isa_and_nonnull<d2m::ToHostOp>(op) ||
+                          (toLayoutOp && toLayoutOp.isDeviceToHost());
 
-            if (isViewOp(inputDefiningOp)) {
-              // Materialize the view before the device-to-host transfer.
-              builder.setInsertionPoint(definingOp);
-              Value materialized =
-                  materializeView(builder, definingOp->getLoc(), toHostInput);
+        if (isToHostOp) {
+          Value toHostInput = op->getOperand(0);
+          Operation *inputDefiningOp = toHostInput.getDefiningOp();
 
-              // Update the ToHostOp to use the materialized value.
-              definingOp->setOperand(0, materialized);
-            }
+          if (isViewOp(inputDefiningOp)) {
+            // Materialize the view before the device-to-host transfer.
+            builder.setInsertionPoint(op);
+            Value materialized =
+                materializeView(builder, op->getLoc(), toHostInput);
+            // Update the ToHostOp to use the materialized value.
+            op->setOperand(0, materialized);
           }
         }
       });

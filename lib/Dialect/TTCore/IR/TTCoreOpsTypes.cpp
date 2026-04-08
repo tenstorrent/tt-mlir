@@ -592,22 +592,13 @@ CBLayoutAttr CBLayoutAttr::get(mlir::MLIRContext *context,
                                uint32_t buffers) {
   auto strides =
       ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
-  SmallVector<int64_t> emptyGrid;
-  return get(context, strides, buffers, emptyGrid);
+  return get(context, strides, buffers);
 }
 
 CBLayoutAttr CBLayoutAttr::get(ArrayRef<int64_t> shape, Type elementType,
                                uint32_t buffers) {
   return get(elementType.getContext(), shape, getElementSizeBytes(elementType),
              buffers);
-}
-
-CBLayoutAttr CBLayoutAttr::get(mlir::MLIRContext *context,
-                               ArrayRef<int64_t> shape, uint64_t elementSize,
-                               uint32_t buffers, ArrayRef<int64_t> gridShape) {
-  auto strides =
-      ttmlir::utils::calculateStrides(shape, static_cast<int64_t>(elementSize));
-  return get(context, strides, buffers, gridShape);
 }
 
 mlir::AffineMap CBLayoutAttr::getAffineMap() const {
@@ -1362,7 +1353,7 @@ int64_t MetalLayoutAttr::getHostVolume() const {
 //
 static mlir::AffineMap createL1Map(mlir::MLIRContext *context,
                                    GridAttr workerGrid) {
-  mlir::AffineMap workerMap = workerGrid.getMapping();
+  mlir::AffineMap workerMap = workerGrid.getVirtToPhysicalMap();
   // Take the workerMap and just add an additional dimension for the L1 shard
   // offset for each core.
   mlir::SmallVector<mlir::AffineExpr> workerMapExprs(workerMap.getResults());
@@ -1429,9 +1420,23 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 
   mlir::SmallVector<mlir::AffineExpr> workerGridExprs = {
       workerDeviceIdx, workerCoreY, workerCoreX};
-  auto workerGridMap =
+  auto virtToPhysicalMap =
       mlir::AffineMap::get(virtualGrid.size(), 0, workerGridExprs, context);
-  return GridAttr::get(context, virtualGrid, workerGridMap);
+
+  // Create the inverse map (physical to virtual).
+  // Physical coords are (device_id, y, x) and we map back to virtual coords.
+  // For the simple single-device case, this is just (d0, d1, d2) -> (d1, d2).
+  // i.e. skip the first dimension (device index) and map physical y, x back to
+  // virtual dimensions.
+  mlir::SmallVector<mlir::AffineExpr> physicalToVirtExprs;
+  for (size_t i = 0; i < virtualGrid.size(); ++i) {
+    physicalToVirtExprs.push_back(getAffineDimExpr(i + 1, context));
+  }
+  auto physicalToVirtMap = mlir::AffineMap::get(virtualGrid.size() + 1, 0,
+                                                physicalToVirtExprs, context);
+
+  return GridAttr::get(context, virtualGrid, virtToPhysicalMap,
+                       physicalToVirtMap);
 }
 
 //
@@ -1470,7 +1475,7 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
 
 static mlir::AffineMap createDramMap(::mlir::MLIRContext *context,
                                      GridAttr workerGrid, size_t numDramCores) {
-  mlir::AffineMap workerMap = workerGrid.getMapping();
+  mlir::AffineMap workerMap = workerGrid.getVirtToPhysicalMap();
   assert(workerMap.getNumResults() == PhysGridResultIdx::NumIndices);
 
   size_t elemSizeIndex = workerMap.getNumDims() * 2 + 2;
@@ -1669,7 +1674,7 @@ size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
     }
   }
 
-  auto physicalGridMapping = workerGrid.getMapping();
+  auto physicalGridMapping = workerGrid.getVirtToPhysicalMap();
   if (physicalGridMapping.getNumResults() != PhysGridResultIdx::NumIndices) {
     emitError() << "expected physical grid mapping to have "
                    "PhysGridResultIdx::NumIndices results";
@@ -1787,5 +1792,42 @@ void TTCoreDialect::registerTypes() {
 #define GET_TYPEDEF_LIST
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
       >();
+}
+
+bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
+  bool thisEndsBeforeOtherStarts =
+      this->getEndCoord().getX() < other.getStartCoord().getX();
+  bool thisStartsAfterOtherEnds =
+      this->getStartCoord().getX() > other.getEndCoord().getX();
+  bool thisEndsBelowOtherStarts =
+      this->getEndCoord().getY() < other.getStartCoord().getY();
+  bool thisStartsAboveOtherEnds =
+      this->getStartCoord().getY() > other.getEndCoord().getY();
+
+  return !(thisEndsBeforeOtherStarts || thisStartsAfterOtherEnds ||
+           thisEndsBelowOtherStarts || thisStartsAboveOtherEnds);
+}
+
+::llvm::LogicalResult CoreRangeAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::tt::ttcore::CoreCoordAttr startCoord,
+    mlir::tt::ttcore::CoreCoordAttr endCoord) {
+  if (startCoord.getX() < 0 || startCoord.getY() < 0) {
+    return emitError() << "start coordinates " << startCoord
+                       << " must be non-negative";
+  }
+  if (endCoord.getX() < 0 || endCoord.getY() < 0) {
+    return emitError() << "end coordinates " << endCoord
+                       << " must be non-negative";
+  }
+
+  if (startCoord.getX() > endCoord.getX() ||
+      startCoord.getY() > endCoord.getY()) {
+    return emitError() << "Start coordinates " << startCoord
+                       << " must be less than or equal to end coordinates "
+                       << endCoord;
+  }
+
+  return ::llvm::success();
 }
 } // namespace mlir::tt::ttcore

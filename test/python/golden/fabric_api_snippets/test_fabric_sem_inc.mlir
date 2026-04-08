@@ -3,14 +3,14 @@
 !l1_shard_layout = memref<1x1x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>
 
 module attributes {} {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = insert_mesh_shape_0xinsert_mesh_shape_1, chipIds = insert_chip_ids>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = insert_mesh_shape_0xinsert_mesh_shape_1, chipIds = insert_chip_ids>
   func.func @test_fabric_unicast(%arg0: !full_tensor_layout) -> !full_tensor_layout {
     %0 = "ttmetal.mesh_shard"(%arg0) <{shard_dims = array<i64: 0, 1>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: insert_mesh_shape_0, insert_mesh_shape_1>, shard_type = #ttcore.shard_type<devices>}> : (!full_tensor_layout) -> !mesh_shard_layout
     %1 = "ttmetal.create_buffer"() <{address = 104128 : i64}> : () -> !l1_shard_layout
     "ttmetal.enqueue_write_buffer"(%0, %1) : (!mesh_shard_layout, !l1_shard_layout) -> ()
     %semaphore = "ttmetal.create_global_semaphore"() <{address = 300736 : i64, initial_value = 10 : ui32, core_range = #ttmetal.core_range<0x0, 8x8>}> : () -> !ttmetal.global_semaphore
     "ttmetal.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttmetal.global_semaphore) -> ()
-    "ttmetal.enqueue_program"(%1, %semaphore, %1) <{cb_ports = array<i64: 0>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <global_semaphore[1]>]>, noc0>], operandSegmentSizes = array<i32: 2, 1>, fabricConnectionConfig = #ttmetal.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>}> : (!l1_shard_layout, !ttmetal.global_semaphore, !l1_shard_layout) -> ()
+    "ttmetal.enqueue_program"(%1, %semaphore, %1) <{cb_ports = array<i64: 0>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <global_semaphore[1]>]>, noc0>], operandSegmentSizes = array<i32: 2, 1>, fabricConnectionConfig = #ttcore.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>}> : (!l1_shard_layout, !ttmetal.global_semaphore, !l1_shard_layout) -> ()
     %alloc_1 = memref.alloc() : !mesh_shard_layout
     "ttmetal.enqueue_read_buffer"(%1, %alloc_1) : (!l1_shard_layout, !mesh_shard_layout) -> ()
     "ttmetal.finish"() : () -> ()
@@ -55,7 +55,7 @@ module attributes {} {
     %is_dst_device = arith.cmpi eq, %my_device_id, %dst_dev_id : i16
     scf.if %is_dst_device {
       // Destination device waits for semaphore inc
-      ttkernel.noc_semaphore_wait(%global_semaphore_ptr, %incr) : (!ttkernel.l1_addr_ptr, index) -> ()
+      "ttkernel.experimental::semaphore_wait"(%global_semaphore_ptr, %incr) : (!ttkernel.l1_addr_ptr, index) -> ()
     }
 
     // Close fabric connections

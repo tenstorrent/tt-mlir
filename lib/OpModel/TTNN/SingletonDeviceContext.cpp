@@ -9,6 +9,9 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
+#include <cstdlib>
+#include <string>
+
 namespace mlir::tt::ttnn::op_model {
 
 SingletonDeviceContext::~SingletonDeviceContext() {
@@ -63,7 +66,15 @@ void SingletonDeviceContext::setSystemDesc(ttcore::SystemDescAttr systemDesc) {
 void SingletonDeviceContext::openMockDevice(
     const size_t traceRegionSize,
     const std::optional<std::pair<size_t, size_t>> &meshShape) {
-  openDevice(traceRegionSize, /*isMock=*/true, meshShape);
+#ifdef TTMLIR_DISABLE_MOCK_DEVICE
+  bool disableMock = true;
+#else
+  bool disableMock = false;
+#endif
+  if (const char *env = std::getenv("TTMLIR_DISABLE_MOCK_DEVICE")) {
+    disableMock = std::string(env) != "0";
+  }
+  openDevice(traceRegionSize, /*isMock=*/!disableMock, meshShape);
 }
 
 void SingletonDeviceContext::openDevice(

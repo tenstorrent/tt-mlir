@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline | FileCheck %s
+// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline="enable-elementwise-fusion=true" | FileCheck %s
 
 // Tests are mainly checking that the operation sequence over the main FUSED compute kernel
 // are correct when lowered all the way down to emitc and that the compiler doesn't fail.
@@ -26,11 +26,11 @@
 
 // Verify the sequence of operations that should be fused together
 // This represents: cosh(x) = 0.5 * (exp(x) + exp(-x)) * y
-// First exp(x)
-// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
-// Then neg(x)
+// First neg(x)
 // CHECK: emitc.call_opaque "negative_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
 // Then exp(-x)
+// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
+// Then exp(x)
 // CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
 // Then div exp(x) / exp(-x)
 // CHECK: emitc.call_opaque "div_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()

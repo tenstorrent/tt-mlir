@@ -97,17 +97,6 @@ datatypeToDataformatEnumNameOpaqueAttr(Builder &builder,
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
 
-static emitc::OpaqueAttr floatTypeToDataformatOpaqueAttr(Builder &builder,
-                                                         Type type) {
-  if (type.isF32()) {
-    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float32");
-  }
-  if (type.isBF16()) {
-    return builder.getType<emitc::OpaqueAttr>("DataFormat::Float16_b");
-  }
-  llvm_unreachable("Unsupported float type for DataFormat conversion");
-}
-
 static emitc::OpaqueAttr
 datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
                                         ttcore::DataType dtype) {
@@ -243,18 +232,33 @@ public:
     return name;
   }
 
+  StringRef getReduceType(ttkernel::ReduceType reduceType) const {
+    switch (reduceType) {
+    case ttkernel::ReduceType::Max:
+      return "PoolType::MAX";
+    case ttkernel::ReduceType::Avg:
+      return "PoolType::AVG";
+    case ttkernel::ReduceType::Sum:
+      return "PoolType::SUM";
+    }
+  }
+
+  StringRef getReduceDim(ttkernel::ReduceDim reduceDim) const {
+    switch (reduceDim) {
+    case ttkernel::ReduceDim::Col:
+      return "ReduceDim::REDUCE_COL";
+    case ttkernel::ReduceDim::Row:
+      return "ReduceDim::REDUCE_ROW";
+    case ttkernel::ReduceDim::Scalar:
+      return "ReduceDim::REDUCE_SCALAR";
+    }
+  }
+
   std::pair<StringRef, StringRef>
   reduceTypeAndDimToString(ttkernel::ReduceTypeAttr reduceTypeAttr,
                            ttkernel::ReduceDimAttr reduceDimAttr) const {
-    StringRef reduceType =
-        reduceTypeAttr.getValue() == ttkernel::ReduceType::Max
-            ? "PoolType::MAX"
-            : "PoolType::SUM";
-    StringRef reduceDim = reduceDimAttr.getValue() == ttkernel::ReduceDim::Col
-                              ? "ReduceDim::REDUCE_COL"
-                          : reduceDimAttr.getValue() == ttkernel::ReduceDim::Row
-                              ? "ReduceDim::REDUCE_ROW"
-                              : "ReduceDim::REDUCE_SCALAR";
+    StringRef reduceType = getReduceType(reduceTypeAttr.getValue());
+    StringRef reduceDim = getReduceDim(reduceDimAttr.getValue());
     return {reduceType, reduceDim};
   }
 
@@ -388,11 +392,10 @@ public:
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), std::to_string(op.getTotalColTiles())));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp,
-                                        ttkernel::ExperimentalTileFillOp>) {
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::FillTileIntOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
-          floatTypeToDataformatOpaqueAttr(builder, op.getValue().getType()));
+          emitc::OpaqueAttr::get(op.getContext(), "DataFormat::Int32"));
       return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
@@ -441,17 +444,87 @@ public:
 } // namespace
 
 namespace {
-class TTKernelToEmitCCBPortRewriter
-    : public OpConversionPattern<ttkernel::CBPortOp> {
+class TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter
+    : public OpConversionPattern<ttkernel::GetMyLogicalMeshPositionOp> {
 public:
-  using OpConversionPattern<ttkernel::CBPortOp>::OpConversionPattern;
+  using OpConversionPattern<
+      ttkernel::GetMyLogicalMeshPositionOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttkernel::CBPortOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttkernel::GetMyLogicalMeshPositionOp op,
+                  ttkernel::GetMyLogicalMeshPositionOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
-        (Twine("static_cast<::tt::CB>(") + Twine(op.getPort()) + ")").str());
+    SmallVector<Value> operands;
+    operands.push_back(adaptor.getFcm());
+    operands.push_back(rewriter
+                           .create<emitc::LiteralOp>(
+                               op.getLoc(),
+                               rewriter.getType<emitc::OpaqueType>("uint64_t"),
+                               std::to_string(op.getDim()))
+                           .getResult());
+
+    auto opName = op.getOperation()->getName().getStringRef().drop_front(9);
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()), opName,
+        nullptr, nullptr, operands);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TTKernelToEmitCGetDeviceIdFromLogicalMeshPositionOpRewriter
+    : public OpConversionPattern<
+          ttkernel::GetDeviceIdFromLogicalMeshPositionOp> {
+public:
+  using OpConversionPattern<
+      ttkernel::GetDeviceIdFromLogicalMeshPositionOp>::OpConversionPattern;
+
+  // helper function thats like call opaque inintializer list
+  Value callOpaqueInitializerList(ConversionPatternRewriter &rewriter,
+                                  Location loc, emitc::OpaqueType type,
+                                  std::string callee,
+                                  SmallVector<Value> initializerList) const {
+    // Create the variable
+    auto var = rewriter.create<emitc::VariableOp>(
+        loc, emitc::LValueType::get(type),
+        emitc::OpaqueAttr::get(rewriter.getContext(), ""));
+
+    // Initialize it via VerbatimOp
+    std::string initStr = "{} = " + callee;
+    initStr += "{{";
+    for (size_t i = 0; i < initializerList.size(); ++i) {
+      if (i > 0) {
+        initStr += ", ";
+      }
+      initStr += "{}";
+    }
+    initStr += "};";
+    initializerList.insert(initializerList.begin(), var.getResult());
+    rewriter.create<emitc::VerbatimOp>(loc, initStr, initializerList);
+
+    // Load the value from the variable
+    auto loadOp = rewriter.create<emitc::LoadOp>(loc, type, var);
+    return loadOp.getResult();
+  }
+
+  LogicalResult
+  matchAndRewrite(ttkernel::GetDeviceIdFromLogicalMeshPositionOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Call std::array constructor to create an array out of the indices
+    auto arrTypeStr = "std::array<uint32_t, " +
+                      std::to_string(adaptor.getPositionIndices().size()) + ">";
+    auto arrType = emitc::OpaqueType::get(op.getContext(), arrTypeStr);
+    Value meshPositionArray =
+        callOpaqueInitializerList(rewriter, op.getLoc(), arrType, arrTypeStr,
+                                  adaptor.getPositionIndices());
+
+    // Call get_device_id_from_logical_mesh_position
+    auto opName = op.getOperation()->getName().getStringRef().drop_front(9);
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()), opName,
+        nullptr, nullptr, ValueRange{adaptor.getFcm(), meshPositionArray});
     return success();
   }
 };
@@ -989,6 +1062,24 @@ public:
   }
 };
 
+class PackReconfigDataFormatOpConversion
+    : public OpConversionPattern<ttkernel::PackReconfigDataFormatOp> {
+public:
+  using OpConversionPattern<
+      ttkernel::PackReconfigDataFormatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::PackReconfigDataFormatOp op,
+                  ttkernel::PackReconfigDataFormatOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::CallOpaqueOp>(op->getLoc(), TypeRange{},
+                                         "pack_reconfig_data_format",
+                                         ValueRange{adaptor.getOutCb()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 // Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
 // std::max.
 class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
@@ -1083,8 +1174,9 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCCBPortRewriter,
-        TTKernelToEmitCDPrintRewriter,
+        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
+        TTKernelToEmitCGetDeviceIdFromLogicalMeshPositionOpRewriter,
+        TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosSizeOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetArgValOp>,
@@ -1092,12 +1184,13 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CastToL1PtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetSemaphoreOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitMinOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SemaphoreWaitMinOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreWaitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SemaphoreWaitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocSemaphoreSetMulticastLoopbackOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::UnpackStallOnPackOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsAcquireOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsCommitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TileRegsWaitOp>,
@@ -1127,8 +1220,11 @@ public:
         // Datamovement
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::CopyBlockMatmulPartialsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::PackTileBlockOp>,
         TTKernelToEmitCPackReconfigL1AccToEmitCRewriter,
+        PackReconfigDataFormatOpConversion,
 
         // FPU Ops
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryOpInitCommonOp>,
@@ -1140,6 +1236,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitShortOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalMatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
@@ -1157,6 +1254,12 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AbsTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AcosTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AcosTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AsinTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryBitwiseTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinopWithScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseAndBinaryTilesOp>,
@@ -1176,6 +1279,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::DivUnaryTileOp>,
@@ -1188,6 +1292,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileIntOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::HardsigmoidTileInitOp>,
@@ -1224,6 +1329,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxInt32TileInitOp>,
@@ -1264,7 +1370,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanhTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalTileFillOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteColMaskTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalFillArangeTileOp>,
@@ -1310,13 +1415,11 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FabricSemIncOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FabricMulticastSemIncOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::CreateFabricConnectionManagerOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SetupFabricConnectionsOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CloseFabricConnectionsOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::GetLogicalMeshPositionOp>,
-        TTKernelToEmitCOpaqueRewriter<
-            ttkernel::GetDeviceIdFromLogicalMeshPositionOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,

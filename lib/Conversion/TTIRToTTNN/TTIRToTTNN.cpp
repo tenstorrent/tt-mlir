@@ -362,7 +362,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), reductionAxis, adaptor.getKeepDim(),
-        /*use_multicore=*/false, /*memoryConfig=*/nullptr);
+        /*use_multicore=*/true, /*memoryConfig=*/nullptr);
     return success();
   }
 };
@@ -1134,11 +1134,14 @@ public:
   LogicalResult
   matchAndRewrite(ttir::LinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
         adaptor.getTransposeB(), /*matmul_program_config=*/nullptr,
         /*activation=*/nullptr, /*compute_config=*/nullptr);
+    if (auto attr = op->getAttr("ttcore.weight_dtype")) {
+      newOp->setAttr("ttcore.weight_dtype", attr);
+    }
     return success();
   }
 };
@@ -1569,10 +1572,13 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MatmulOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::MatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getTransposeA(), adaptor.getTransposeB(),
         /*matmul_program_config=*/nullptr, /*activation=*/nullptr);
+    if (auto attr = op->getAttr("ttcore.weight_dtype")) {
+      newOp->setAttr("ttcore.weight_dtype", attr);
+    }
     return success();
   }
 };
@@ -1663,7 +1669,7 @@ public:
     auto programConfigAttr = createSparseMatmulProgramConfigAttr(
         rewriter.getContext(), aType, bType, deviceAttr);
 
-    rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<ttnn::SparseMatmulOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getSparsity(), op.getIsInputASparse(),
         op.getIsInputBSparse(), nnzAttr,
@@ -1671,6 +1677,9 @@ public:
         /*memory_config=*/nullptr,
         /*dtype=*/nullptr,
         /*compute_config=*/nullptr);
+    if (auto attr = op->getAttr("ttcore.weight_dtype")) {
+      newOp->setAttr("ttcore.weight_dtype", attr);
+    }
     return success();
   }
 };
@@ -1914,19 +1923,12 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Compute optimal C_in blocking for weight preparation.
-    // Uses the padded (tile-aligned) channel count since reshapeWeightForConv3d
-    // pads C/G to TILE_WIDTH internally.
-    constexpr int64_t TILE_WIDTH_CONST = ttcore::TileType::getDefaultShape()[1];
-    uint32_t paddedInChann =
-        llvm::divideCeil(static_cast<int64_t>(weightTy.getDimSize(1)),
-                         TILE_WIDTH_CONST) *
-        TILE_WIDTH_CONST;
-    uint32_t cInBlock = ttnn::utils::calculateOptimalCInBlock(paddedInChann);
-
-    // Permute + block + reshape weight
-    Value reshapedWeight = reshapeWeightForConv3d(
-        adaptor.getWeight(), weightTy, rewriter, op.getLoc(), cInBlock);
+    // Preserve TT-Metal's default conv3d behavior when no config is attached to
+    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
+    // otherwise the weights are pre-blocked differently from runtime defaults.
+    Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
+                                                  rewriter, op.getLoc(),
+                                                  /*cInBlock=*/0);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2459,6 +2461,30 @@ public:
 } // namespace
 
 namespace {
+class BitcastConvertOPConversionPattern
+    : public OpConversionPattern<ttir::BitcastConvertOp> {
+  using OpConversionPattern<ttir::BitcastConvertOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::BitcastConvertOp op,
+                  ttir::BitcastConvertOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = op.getType();
+    ttnn::TTNNLayoutAttr outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    ttcore::DataTypeAttr outputDataTypeAttr = ttcore::DataTypeAttr::get(
+        op.getContext(), outputLayoutAttr.getDataType());
+
+    rewriter.replaceOpWithNewOp<ttnn::BitcastConvertOp>(
+        op, this->getTypeConverter()->convertType(resultType),
+        adaptor.getInput(), outputDataTypeAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class TypecastOpConversionPattern
     : public OpConversionPattern<ttir::TypecastOp> {
   using OpConversionPattern<ttir::TypecastOp>::OpConversionPattern;
@@ -2491,6 +2517,29 @@ public:
   matchAndRewrite(ttir::AllReduceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
+        srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
+        adaptor.getInput(), adaptor.getReduceType(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()),
+        /*sub_device_id=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*num_links=*/nullptr,
+        /*topology=*/nullptr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class AllReduceAsyncOpConversionPattern
+    : public OpConversionPattern<ttir::AllReduceAsyncOp> {
+public:
+  using OpConversionPattern<ttir::AllReduceAsyncOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllReduceAsyncOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::AllReduceAsyncOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
         adaptor.getInput(), adaptor.getReduceType(),
         static_cast<uint32_t>(adaptor.getClusterAxis()),
@@ -2990,6 +3039,25 @@ public:
 } // namespace
 
 namespace {
+class GatherDimOpConversionPattern
+    : public OpConversionPattern<ttir::GatherDimOp> {
+  using OpConversionPattern<ttir::GatherDimOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(ttir::GatherDimOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getIndex(),
+        rewriter.getI32IntegerAttr(adaptor.getDim()),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class PermuteOpConversionPattern : public OpConversionPattern<ttir::PermuteOp> {
 public:
   using OpConversionPattern<ttir::PermuteOp>::OpConversionPattern;
@@ -3234,6 +3302,29 @@ public:
 } // namespace
 
 namespace {
+class PagedFlashMultiLatentAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<ttir::PagedFlashMultiLatentAttentionDecodeOp> {
+public:
+  using OpConversionPattern<
+      ttir::PagedFlashMultiLatentAttentionDecodeOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::PagedFlashMultiLatentAttentionDecodeOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PagedFlashMultiLatentAttentionDecodeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        static_cast<uint32_t>(adaptor.getHeadDimV()), adaptor.getPageTable(),
+        adaptor.getIsCausal(), adaptor.getAttentionMask(),
+        adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
+        adaptor.getScaleAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ScaledDotProductAttentionOpConversionPattern
     : public OpConversionPattern<ttir::ScaledDotProductAttentionOp> {
 public:
@@ -3331,7 +3422,7 @@ private:
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(),
+        adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink(),
         /*memory_config=*/nullptr);
 
     return success();
@@ -3552,7 +3643,9 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::LogOp, ttnn::LogOp>,
            ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
            ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
+           ElementwiseOpConversionPattern<ttir::AsinOp, ttnn::AsinOp>,
            ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,
+           ElementwiseOpConversionPattern<ttir::AcosOp, ttnn::AcosOp>,
            ElementwiseOpConversionPattern<ttir::Expm1Op, ttnn::Expm1Op>,
            ElementwiseOpConversionPattern<ttir::WhereOp, ttnn::WhereOp>,
            ElementwiseOpConversionPattern<ttir::TanOp, ttnn::TanOp>,
@@ -3579,6 +3672,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            SortOpConversionPattern,
+           BitcastConvertOPConversionPattern,
            TypecastOpConversionPattern,
            ClampOpConversionPattern<ttir::ClampScalarOp, ttnn::ClampScalarOp>,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,
@@ -3606,6 +3700,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConvTranspose2dOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
+           AllReduceAsyncOpConversionPattern,
            AllGatherOpConversionPattern,
            MeshPartitionOpConversionPattern,
            ReduceScatterOpConversionPattern,
@@ -3617,6 +3712,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
+           GatherDimOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
@@ -3625,6 +3721,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
+           PagedFlashMultiLatentAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,

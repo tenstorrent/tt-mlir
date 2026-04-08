@@ -8,8 +8,8 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -27,17 +27,40 @@ static constexpr int64_t kSeqLenDim = 2;
 // decode op.
 static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
 
-// Permutation to un-transpose key from [B, H, D, S] -> [B, H, S, D].
-static constexpr std::array<int64_t, 4> kUnTransposeKeyPermutation = {0, 1, 3,
-                                                                      2};
-
 struct SDPAFusing::SDPAComponents {
   Value query, key, value, mask;
+  Value attentionSink;
   std::optional<float> scale;
   MatmulOp attentionMatmul;
   SoftmaxOp softmax;
   Operation *scoreOp = nullptr;
 };
+
+// Normalize a shape to 4D by prepending 1s. Used for validation only, does not
+// mutate the IR.
+static SmallVector<int64_t> normalizeTo4D(ArrayRef<int64_t> shape) {
+  SmallVector<int64_t> result(4 - shape.size(), 1);
+  result.append(shape.begin(), shape.end());
+  return result;
+}
+
+// Squeeze the SDPA output back to the original rank if the inputs were
+// unsqueezed from < 4D.
+static Value squeezeToOriginalRank(Value v, RankedTensorType originalType,
+                                   PatternRewriter &rewriter, Location loc) {
+  auto currentType = mlir::cast<RankedTensorType>(v.getType());
+  if (currentType.getRank() == originalType.getRank()) {
+    return v;
+  }
+  auto newType = utils::RankedTensorTypeFactory::create(
+      currentType, originalType.getShape());
+  SmallVector<int32_t> shapeAttr(originalType.getShape().begin(),
+                                 originalType.getShape().end());
+  return rewriter
+      .create<ReshapeOp>(loc, newType, v, rewriter.getI32ArrayAttr(shapeAttr),
+                         /*memory_config=*/MemoryConfigAttr())
+      .getResult();
+}
 
 // ============================================================================
 // Layout / Transpose Utilities
@@ -70,14 +93,22 @@ bool SDPAFusing::isKeyTransposed(Value key, Value query, Value value) const {
   auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
   auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
 
-  if (!kType || !qType || !vType || kType.getRank() != 4 ||
-      qType.getRank() != 4 || vType.getRank() != 4) {
+  if (!kType || !qType || !vType) {
     return false;
   }
 
-  auto kShape = kType.getShape();
-  auto qShape = qType.getShape();
-  auto vShape = vType.getShape();
+  auto kRank = kType.getRank();
+  auto qRank = qType.getRank();
+  auto vRank = vType.getRank();
+
+  if (kRank < 3 || kRank > 4 || qRank < 3 || qRank > 4 || vRank < 3 ||
+      vRank > 4) {
+    return false;
+  }
+
+  auto kShape = normalizeTo4D(kType.getShape());
+  auto qShape = normalizeTo4D(qType.getShape());
+  auto vShape = normalizeTo4D(vType.getShape());
 
   int64_t qHeadDim = qShape[3];
   int64_t vSeqLen = vShape[kSeqLenDim];
@@ -93,7 +124,7 @@ bool SDPAFusing::isKeyTransposed(Value key, Value query, Value value) const {
 // ============================================================================
 
 std::optional<float> SDPAFusing::extractConstant(Value v) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto fullOp = v.getDefiningOp<FullOp>()) {
     if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
@@ -127,50 +158,17 @@ std::optional<float> SDPAFusing::extractConstant(Value v) const {
   return std::nullopt;
 }
 
-// ============================================================================
-// Q/K Extraction with Scale Handling
-// ============================================================================
-
 std::pair<Value, std::optional<float>>
-SDPAFusing::extractTensorWithScale(Value v) const {
-  std::optional<float> scale;
-
-  Value skipped =
-      ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
-  if (auto mulOp = skipped.getDefiningOp<MultiplyOp>()) {
+SDPAFusing::extractMultiplyWithConstant(Value v) const {
+  if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
     if (auto s = extractConstant(mulOp.getRhs())) {
-      scale = s;
-      return {mulOp.getLhs(), scale};
+      return {mulOp.getLhs(), s};
     }
     if (auto s = extractConstant(mulOp.getLhs())) {
-      scale = s;
-      return {mulOp.getRhs(), scale};
+      return {mulOp.getRhs(), s};
     }
   }
-
-  return {v, scale};
-}
-
-bool SDPAFusing::extractQKWithScales(Value a, Value b,
-                                     SDPAComponents &c) const {
-  auto [query, qScale] = extractTensorWithScale(a);
-  auto [key, kScale] = extractTensorWithScale(b);
-
-  bool hasPostMatmulScale = c.scale.has_value();
-  bool hasPreScale = qScale.has_value() || kScale.has_value();
-  if (hasPostMatmulScale && hasPreScale) {
-    return false;
-  }
-
-  c.query = query;
-  c.key = key;
-
-  if (hasPreScale) {
-    float qs = qScale.value_or(1.0f);
-    float ks = kScale.value_or(1.0f);
-    c.scale = qs * ks;
-  }
-  return true;
+  return {v, std::nullopt};
 }
 
 // ============================================================================
@@ -178,16 +176,39 @@ bool SDPAFusing::extractQKWithScales(Value a, Value b,
 // ============================================================================
 
 bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
-  if (auto whereOp = v.getDefiningOp<WhereOp>()) {
-    Value softmaxCandidate =
-        ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-            whereOp.getThird());
-    if (auto softmax = softmaxCandidate.getDefiningOp<SoftmaxOp>()) {
-      c.softmax = softmax;
-      return true;
+  // Peel optional slice_static. Some frontends pad the softmax input with
+  // extra columns via concat for numeric stability (preventing NaN when all
+  // attention scores are masked to -inf), then slice off the padding after
+  // softmax. The hardware SDPA op handles this internally, so we look through
+  // the slice here and the corresponding concat in matchScoreComputation.
+  //
+  // Verify the slice trims only the last dimension (starts at 0 with step 1
+  // and produces a smaller extent than the input).
+  if (auto sliceOp = v.getDefiningOp<SliceStaticOp>()) {
+    auto inputType = mlir::cast<RankedTensorType>(sliceOp.getInput().getType());
+    int64_t lastDim = inputType.getRank() - 1;
+
+    auto getI32 = [](ArrayAttr attr, int64_t idx) -> int32_t {
+      return mlir::cast<IntegerAttr>(attr[idx]).getInt();
+    };
+
+    bool isLastDimTrim =
+        getI32(sliceOp.getBegins(), lastDim) == 0 &&
+        getI32(sliceOp.getStep(), lastDim) == 1 &&
+        getI32(sliceOp.getEnds(), lastDim) < inputType.getShape()[lastDim];
+    if (isLastDimTrim) {
+      v = ttmlir::utils::lookThrough<TypecastOp>(sliceOp.getInput());
     }
+  }
+
+  // Peel optional where. Some frontends wrap softmax output with
+  // where(cond, zeros, softmax) to replace NaN rows with zeros when all
+  // attention scores in a row are masked to -inf. The third operand carries
+  // the actual softmax result.
+  if (auto whereOp = v.getDefiningOp<WhereOp>()) {
+    v = ttmlir::utils::lookThrough<TypecastOp>(whereOp.getThird());
   }
 
   if (auto softmax = v.getDefiningOp<SoftmaxOp>()) {
@@ -199,13 +220,30 @@ bool SDPAFusing::matchSoftmaxPath(Value v, SDPAComponents &c) const {
 }
 
 bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
+
+  // Peel optional concat — the other half of the softmax padding pattern
+  // described in matchSoftmaxPath. The concat appends extra columns to the
+  // score tensor before softmax; we skip it to reach the actual scores.
+  // Save the padding tensor as the attention sink for the SDPA decode op.
+  //
+  // Verify the concat is on the last dimension with exactly two inputs.
+  if (auto concatOp = v.getDefiningOp<ConcatOp>()) {
+    auto resultType =
+        mlir::cast<RankedTensorType>(concatOp.getResult().getType());
+    int64_t lastDim = resultType.getRank() - 1;
+
+    if (concatOp.getInputs().size() == 2 && concatOp.getDim() == lastDim) {
+      v = ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[0]);
+      c.attentionSink =
+          ttmlir::utils::lookThrough<TypecastOp>(concatOp.getInputs()[1]);
+    }
+  }
 
   if (auto linearOp = v.getDefiningOp<LinearOp>()) {
     c.scoreOp = linearOp;
-    if (!extractQKWithScales(linearOp.getA(), linearOp.getB(), c)) {
-      return false;
-    }
+    c.query = linearOp.getA();
+    c.key = linearOp.getB();
     if (linearOp.getBias()) {
       c.mask = linearOp.getBias();
     }
@@ -228,17 +266,15 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
 }
 
 bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
-  v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(v);
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
     if (auto scale = extractConstant(mulOp.getRhs())) {
       c.scale = scale;
-      v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-          mulOp.getLhs());
+      v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getLhs());
     } else if (auto scale = extractConstant(mulOp.getLhs())) {
       c.scale = scale;
-      v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp, TypecastOp>(
-          mulOp.getRhs());
+      v = ttmlir::utils::lookThrough<TypecastOp>(mulOp.getRhs());
     }
   }
 
@@ -246,8 +282,7 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
     if (auto divisor = extractConstant(divOp.getRhs())) {
       if (*divisor != 0.0f) {
         c.scale = 1.0f / *divisor;
-        v = ttmlir::utils::lookThrough<ToLayoutOp, ToMemoryConfigOp,
-                                       TypecastOp>(divOp.getLhs());
+        v = ttmlir::utils::lookThrough<TypecastOp>(divOp.getLhs());
       }
     }
   }
@@ -255,9 +290,8 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
   if (auto matmul = v.getDefiningOp<MatmulOp>()) {
     if (matmul != c.attentionMatmul) {
       c.scoreOp = matmul;
-      if (!extractQKWithScales(matmul.getA(), matmul.getB(), c)) {
-        return false;
-      }
+      c.query = matmul.getA();
+      c.key = matmul.getB();
       return true;
     }
   }
@@ -266,81 +300,44 @@ bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
 }
 
 // ============================================================================
-// Input Canonicalization (dtype/TM/mask)
+// Input Canonicalization
 // ============================================================================
 
-Value SDPAFusing::castToBF16IfNeeded(Value v, PatternRewriter &rewriter) {
-  auto vType = cast<RankedTensorType>(v.getType());
-  if (!vType.getElementType().isF32()) {
-    return v;
+std::pair<Value, std::optional<float>> SDPAFusing::analyzeQ(Value v) const {
+  // Look through typecast to find multiply-with-constant (pre-scale on Q).
+  Value skipped = ttmlir::utils::lookThrough<TypecastOp>(v);
+  auto [inner, scale] = extractMultiplyWithConstant(skipped);
+  if (scale) {
+    v = inner;
   }
 
-  auto dataType = ttcore::DataType::BFloat16;
-  auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
-  return rewriter.create<TypecastOp>(
-      v.getLoc(), castType, v,
-      ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
-}
-
-Value SDPAFusing::restoreElementTypeIfNeeded(Value v, Type elementType,
-                                             PatternRewriter &rewriter) {
-  auto vType = cast<RankedTensorType>(v.getType());
-  if (vType.getElementType() == elementType) {
-    return v;
-  }
-
-  auto dataType = ttcore::elementTypeToDataType(elementType);
-  auto castType = utils::RankedTensorTypeFactory::create(vType, dataType);
-  return rewriter.create<TypecastOp>(
-      v.getLoc(), castType, v,
-      ttcore::DataTypeAttr::get(rewriter.getContext(), dataType));
-}
-
-Type SDPAFusing::getTargetElementType(Value v) {
-  Type lastSeen = cast<RankedTensorType>(v.getType()).getElementType();
-  while (Operation *defOp = v.getDefiningOp()) {
-    if (isa<TypecastOp, ReshapeOp, PermuteOp, RepeatInterleaveOp>(defOp)) {
-      v = defOp->getOperand(0);
-      lastSeen = cast<RankedTensorType>(v.getType()).getElementType();
-      continue;
-    }
-
-    break;
-  }
-  return lastSeen;
-}
-
-std::pair<Value, Type> SDPAFusing::analyzeQ(Value v) const {
   if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
     v = typecastOp.getInput();
   }
 
-  if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
-    auto funcOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
-        loadCached, loadCached.getCalleeAttr());
-    if (funcOp) {
-      unsigned resultIdx = cast<OpResult>(v).getResultNumber();
-      for (auto &block : funcOp.getBody()) {
-        if (auto returnOp = dyn_cast<func::ReturnOp>(block.getTerminator())) {
-          Value innerV = returnOp.getOperand(resultIdx);
-          auto [originalTensor, scale] = extractTensorWithScale(innerV);
-          return {v, getTargetElementType(originalTensor)};
-        }
-      }
-    }
-  }
-
-  return {v, getTargetElementType(v)};
+  return {v, scale};
 }
 
-std::tuple<Value, Type, bool> SDPAFusing::analyzeK(Value v) const {
-  Type targetDtype = getTargetElementType(v);
+std::tuple<Value, bool, std::optional<float>>
+SDPAFusing::analyzeK(Value v) const {
   bool skippedTranspose = false;
+  std::optional<float> scale;
 
   while (Operation *defOp = v.getDefiningOp()) {
     if (isa<TypecastOp>(defOp)) {
       v = defOp->getOperand(0);
       continue;
+    }
+
+    // Walk through multiply-with-constant (pre-scale on K).
+    // The elementwise commute pass may place this before or after the permute.
+    if (!scale) {
+      auto [inner, s] = extractMultiplyWithConstant(v);
+      if (s) {
+        scale = s;
+        v = inner;
+        continue;
+      }
     }
 
     if (auto repeatOp = dyn_cast<RepeatInterleaveOp>(defOp)) {
@@ -362,12 +359,10 @@ std::tuple<Value, Type, bool> SDPAFusing::analyzeK(Value v) const {
     break;
   }
 
-  return {v, targetDtype, skippedTranspose};
+  return {v, skippedTranspose, scale};
 }
 
-std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
-  Type targetDtype = getTargetElementType(v);
-
+Value SDPAFusing::analyzeV(Value v) const {
   while (Operation *defOp = v.getDefiningOp()) {
     if (isa<TypecastOp>(defOp)) {
       v = defOp->getOperand(0);
@@ -385,38 +380,42 @@ std::pair<Value, Type> SDPAFusing::analyzeV(Value v) const {
     break;
   }
 
-  return {v, targetDtype};
-}
-
-Value SDPAFusing::prepareMask(Value v) const {
-  while (Operation *defOp = v.getDefiningOp()) {
-    if (isa<TypecastOp>(defOp)) {
-      v = defOp->getOperand(0);
-      continue;
-    }
-
-    if (auto repeatOp = dyn_cast<RepeatOp>(defOp)) {
-      v = repeatOp.getInput();
-      continue;
-    }
-
-    break;
-  }
   return v;
 }
 
-void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
+// Prepare SDPA inputs for the hardware op. This involves several steps:
+//
+//  1. Analyze Q, K, V to look through typecasts, repeat-interleave, multiply
+//     (pre-scale), and permute ops, extracting pre-scales and detecting key
+//     transposition.
+//  2. Combine pre-scales (from Q and K) into c.scale.
+//  3. Validate and accept the "prepared" (looked-through) versions of Q, K, V
+//     if their shapes are compatible.
+//  4. Un-transpose K if needed ([B, H, D, S] -> [B, H, S, D]).
+//  5. Unsqueeze the attention mask to 4D if it is lower-rank.
+//  6. Handle attention sink batch dimension from load_cached ops.
+//  7. Unsqueeze Q, K, V to 4D by prepending 1s if they are 3D. Some frontends
+//     squeeze away the head dimension when num_heads=1.
+bool SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                       PatternRewriter &rewriter) const {
-  auto [preparedQ, preparedQElementType] = analyzeQ(c.query);
-  auto [preparedK, preparedKElementType, skippedKTranspose] = analyzeK(c.key);
-  auto [preparedV, preparedVElementType] = analyzeV(c.value);
+  auto [preparedQ, qPreScale] = analyzeQ(c.query);
+  auto [preparedK, skippedKTranspose, kPreScale] = analyzeK(c.key);
+  Value preparedV = analyzeV(c.value);
+
+  // Reject ambiguous double-scaling (both post-matmul and pre-matmul scales).
+  bool hasPostScale = c.scale.has_value();
+  bool hasPreScale = qPreScale.has_value() || kPreScale.has_value();
+  if (hasPostScale && hasPreScale) {
+    return false;
+  }
+
+  // Combine pre-scales into c.scale.
+  if (hasPreScale) {
+    c.scale = qPreScale.value_or(1.0f) * kPreScale.value_or(1.0f);
+  }
 
   if (validateShapes(preparedQ, c.key, c.value)) {
-    c.query =
-        restoreElementTypeIfNeeded(preparedQ, preparedQElementType, rewriter);
-  } else {
-    c.query =
-        restoreElementTypeIfNeeded(c.query, preparedQElementType, rewriter);
+    c.query = preparedQ;
   }
 
   if (validateShapes(c.query, preparedK, preparedV)) {
@@ -429,11 +428,8 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                    c.attentionMatmul.getLoc());
   }
 
-  c.key = restoreElementTypeIfNeeded(c.key, preparedKElementType, rewriter);
-  c.value = restoreElementTypeIfNeeded(c.value, preparedVElementType, rewriter);
-
   if (c.mask) {
-    c.mask = prepareMask(c.mask);
+    c.mask = ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.mask);
 
     // tt-metal requires the attention mask to be a 4D tensor. TTIR fusing can
     // produce lower-rank masks when it folds matmul+add into linear and drops
@@ -451,9 +447,79 @@ void SDPAFusing::prepareInputsForSDPA(SDPAComponents &c,
                                  /*memory_config=*/MemoryConfigAttr())
               .getResult();
     }
-
-    c.mask = restoreElementTypeIfNeeded(c.mask, preparedQElementType, rewriter);
   }
+
+  if (c.attentionSink) {
+    c.attentionSink =
+        ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(c.attentionSink);
+
+    // If the sink still has a batch dimension > 1, it may come from a
+    // load_cached op where the repeat is baked inside the const_eval function.
+    // Look inside the const_eval, strip the repeat from its return value, and
+    // update the load_cached result type to match.
+    auto sinkType = mlir::cast<RankedTensorType>(c.attentionSink.getType());
+    if (sinkType.getRank() >= 1 && sinkType.getShape()[0] > 1) {
+      if (auto loadCached =
+              c.attentionSink.getDefiningOp<ttcore::LoadCachedOp>()) {
+        auto funcOp = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+            loadCached, loadCached.getCalleeAttr());
+        if (funcOp) {
+          unsigned resultIdx =
+              mlir::cast<OpResult>(c.attentionSink).getResultNumber();
+          auto &block = funcOp.getBody().front();
+          auto returnOp = cast<func::ReturnOp>(block.getTerminator());
+          Value innerV = returnOp.getOperand(resultIdx);
+
+          // Walk back through repeat inside the const_eval body.
+          Value stripped =
+              ttmlir::utils::lookThrough<TypecastOp, RepeatOp>(innerV);
+          if (stripped != innerV) {
+            // Update the const_eval function: return the pre-repeat value.
+            returnOp.setOperand(resultIdx, stripped);
+
+            auto strippedType =
+                mlir::cast<RankedTensorType>(stripped.getType());
+
+            // Update function signature return type.
+            auto funcType = funcOp.getFunctionType();
+            SmallVector<Type> newResultTypes(funcType.getResults());
+            newResultTypes[resultIdx] = strippedType;
+            funcOp.setType(FunctionType::get(
+                funcOp.getContext(), funcType.getInputs(), newResultTypes));
+
+            // Update load_cached result type.
+            loadCached.getResult(resultIdx).setType(strippedType);
+            c.attentionSink = loadCached.getResult(resultIdx);
+          }
+        }
+      }
+    }
+  }
+
+  // Unsqueeze Q, K, V to 4D by prepending 1s if needed. The SDPA op requires
+  // 4D inputs [B, H, S, D], but some frontends squeeze away the head dimension
+  // when num_heads=1, producing 3D tensors.
+  auto unsqueezeTo4D = [&](Value v) -> Value {
+    auto type = mlir::cast<RankedTensorType>(v.getType());
+    if (type.getRank() >= 4) {
+      return v;
+    }
+    SmallVector<int64_t> newShape(4 - type.getRank(), 1);
+    newShape.append(type.getShape().begin(), type.getShape().end());
+    auto newType = utils::RankedTensorTypeFactory::create(type, newShape);
+    SmallVector<int32_t> shapeAttr(newShape.begin(), newShape.end());
+    return rewriter
+        .create<ReshapeOp>(c.attentionMatmul.getLoc(), newType, v,
+                           rewriter.getI32ArrayAttr(shapeAttr),
+                           /*memory_config=*/MemoryConfigAttr())
+        .getResult();
+  };
+
+  c.query = unsqueezeTo4D(c.query);
+  c.key = unsqueezeTo4D(c.key);
+  c.value = unsqueezeTo4D(c.value);
+
+  return true;
 }
 
 // ============================================================================
@@ -467,9 +533,16 @@ Value SDPAFusing::unTransposeKeyIfNeeded(Value query, Value key, Value value,
     return key;
   }
 
+  // Use a rank-appropriate permutation to swap the last two dims.
+  auto keyRank = mlir::cast<RankedTensorType>(key.getType()).getRank();
+  SmallVector<int64_t> perm;
+  for (int64_t i = 0; i < keyRank; ++i) {
+    perm.push_back(i);
+  }
+  std::swap(perm[keyRank - 2], perm[keyRank - 1]);
+
   return ttir_to_ttnn::utils::generatePermute(
-      mlir::cast<TypedValue<RankedTensorType>>(key),
-      llvm::to_vector(kUnTransposeKeyPermutation), rewriter, loc);
+      mlir::cast<TypedValue<RankedTensorType>>(key), perm, rewriter, loc);
 }
 
 // ============================================================================
@@ -489,13 +562,18 @@ bool SDPAFusing::validateShapes(Value query, Value key, Value value) const {
     return false;
   }
 
-  auto qShape = qType.getShape();
-  auto kShape = kType.getShape();
-  auto vShape = vType.getShape();
+  auto qRank = qType.getRank();
+  auto kRank = kType.getRank();
+  auto vRank = vType.getRank();
 
-  if (qShape.size() != 4 || kShape.size() != 4 || vShape.size() != 4) {
+  if (qRank < 3 || qRank > 4 || kRank < 3 || kRank > 4 || vRank < 3 ||
+      vRank > 4) {
     return false;
   }
+
+  auto qShape = normalizeTo4D(qType.getShape());
+  auto kShape = normalizeTo4D(kType.getShape());
+  auto vShape = normalizeTo4D(vType.getShape());
 
   int64_t qHeadDim = qShape[3];
   int64_t vSeqLen = vShape[kSeqLenDim];
@@ -551,10 +629,6 @@ bool SDPAFusing::validateSemantics(const SDPAComponents &c) const {
     }
   }
 
-  if (c.scale.has_value() && (*c.scale <= 0.0f || *c.scale > 1.0f)) {
-    return false;
-  }
-
   return true;
 }
 
@@ -581,7 +655,9 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
     return failure();
   }
 
-  prepareInputsForSDPA(c, rewriter);
+  if (!prepareInputsForSDPA(c, rewriter)) {
+    return failure();
+  }
 
   return createSDPAOp(rewriter, c);
 }
@@ -592,25 +668,27 @@ SDPAFusing::matchAndRewrite(MatmulOp srcOp,
 
 mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
                                              SDPAComponents &c) const {
-  op_model::ScopedSingletonDeviceGuard deviceGuard(
-      c.attentionMatmul.getOperation());
-
   float scale = c.scale.value_or(1.0f);
   FloatAttr scaleAttr = rewriter.getF32FloatAttr(scale);
 
   auto originalOutputType =
       mlir::cast<RankedTensorType>(c.attentionMatmul.getResult().getType());
-  Type originalElementType = originalOutputType.getElementType();
 
-  // Cast inputs to bf16 if they are f32, since tt-metal SDPA only supports
-  // bf16/bfp8_b/bfp4_b. The output will be cast back to the original dtype.
-  // TODO(tt-metal): Remove this once tt-metal adds f32 support.
-  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/36717
-  c.query = castToBF16IfNeeded(c.query, rewriter);
-  c.key = castToBF16IfNeeded(c.key, rewriter);
-  c.value = castToBF16IfNeeded(c.value, rewriter);
-  if (c.mask) {
-    c.mask = castToBF16IfNeeded(c.mask, rewriter);
+  // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470:
+  // tt-metal's SDPA kernel computes exp((sink - max) * scale), applying scale
+  // to the attention sink. But the sink is already in scaled score space, so
+  // this double-scales it. Pre-multiply the sink by 1/scale to compensate.
+  if (c.attentionSink && scale != 0.0f && scale != 1.0f) {
+    auto sinkType = mlir::cast<RankedTensorType>(c.attentionSink.getType());
+    float invScale = 1.0f / scale;
+    auto deviceOp =
+        utils::getOrInsertDevice(rewriter, c.attentionMatmul.getOperation());
+    auto invScaleOp = rewriter.create<FullOp>(
+        c.attentionMatmul.getLoc(), sinkType,
+        rewriter.getF32FloatAttr(invScale), deviceOp.getResult());
+    c.attentionSink =
+        rewriter.create<MultiplyOp>(c.attentionMatmul.getLoc(), sinkType,
+                                    c.attentionSink, invScaleOp.getResult());
   }
 
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
@@ -630,8 +708,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
-            /*cur_pos_tensor=*/Value(),
-            /*attention_sink=*/Value(), scaleAttr,
+            /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
 
@@ -646,8 +723,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
         c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
-        /*cur_pos_tensor=*/Value(),
-        /*attention_sink=*/Value(), scaleAttr,
+        /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
 
@@ -656,8 +732,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         ttmlir::utils::inversePermutation(kToDecodePermutation), rewriter,
         c.attentionMatmul.getLoc());
 
-    finalResult =
-        restoreElementTypeIfNeeded(finalResult, originalElementType, rewriter);
+    finalResult = squeezeToOriginalRank(finalResult, originalOutputType,
+                                        rewriter, c.attentionMatmul.getLoc());
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
@@ -666,7 +742,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {c.query.getType()}, c.query, c.key, c.value, c.mask,
             /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-            /*sliding_window_size=*/IntegerAttr(),
+            /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
             /*memory_config=*/MemoryConfigAttr());
 
     if (!validationResult.isSuccess()) {
@@ -680,11 +756,12 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key, c.value,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr(),
+        /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
         /*memory_config=*/MemoryConfigAttr());
 
-    Value finalResult = restoreElementTypeIfNeeded(
-        sdpaOp.getResult(), originalElementType, rewriter);
+    Value finalResult =
+        squeezeToOriginalRank(sdpaOp.getResult(), originalOutputType, rewriter,
+                              c.attentionMatmul.getLoc());
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   }

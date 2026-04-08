@@ -14,6 +14,13 @@ _DURATION_KEY = "DEVICE KERNEL DURATION [ns]"
 _perf_results: list[dict] = []
 
 
+def _serialize_fidelity(val):
+    """Serialize math_fidelity to a string, handling both enums and strings."""
+    if hasattr(val, "name"):
+        return val.name
+    return str(val)
+
+
 def _flush_results():
     """Write the current results to disk so they survive a later crash."""
     profiler_dir = os.environ.get("TT_METAL_PROFILER_DIR")
@@ -62,16 +69,22 @@ def perf_device(request):
     ttnn_dtype = p.get("ttnn_dtype")
     dtype_str = ttnn_dtype.name if ttnn_dtype is not None else ""
 
+    mem_cfg_id = p.get("memory_config_id", "")
     _perf_results.append(
         {
             "test_node_id": request.node.nodeid,
             "jit": bool(p.get("jit_enabled", False)),
             "op": op_name,
             "dtype": dtype_str,
-            "memory_config_id": p.get("memory_config_id", ""),
-            "math_fidelity": p.get("math_fidelity", "HiFi4"),
+            "memory_config_id": mem_cfg_id,
+            "input_a_mem": p.get("input_a_mem", mem_cfg_id),
+            "input_b_mem": p.get("input_b_mem", mem_cfg_id),
+            "math_fidelity": _serialize_fidelity(p.get("math_fidelity", "HiFi4")),
             "h": p.get("h", 0),
             "w": p.get("w", 0),
+            "m": p.get("m", 0),
+            "k": p.get("k", 0),
+            "n": p.get("n", 0),
             "duration_ns": total_duration_ns,
             "num_programs": num_programs,
         }

@@ -20,12 +20,14 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Helper function to check if an operand is local (i.e., NOT a stream op
-// and NOT in a DMA-only generic op)
+// Helper function to check if an operand is local (i.e., NOT a stream/view op
+// that implies data movement, and NOT in a DMA-only generic op).
+// Reinterpret view_layout ops are local (just type casts).
 static bool isLocalOperand(Value operand, Operation *op) {
-  // Check if operand comes from stream_layout op
-  if (mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp())) {
-    return false;
+  if (auto viewOp = operand.getDefiningOp<ViewLayoutOp>()) {
+    // Reinterpret views are local (just type casts), but non-reinterpret
+    // views imply data rearrangement and are non-local.
+    return viewOp.getReinterpretLayout();
   }
 
   // Check if the operation is inside a DMA-only generic op
@@ -197,6 +199,17 @@ public:
               "skipping conversion");
           return;
         }
+        // Skip remote_loads whose local buffer has CBLayoutAttr.
+        // These are streaming circular buffers (hoisted by HoistCBAllocs)
+        // that require real data movement and must not be converted to
+        // reserve/push/wait.
+        Value localBuffer = remoteLoad.getLocalBuffer();
+        if (localBuffer) {
+          auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType());
+          if (bufType && mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
+            return;
+          }
+        }
         remoteLoadsToConvert.push_back(remoteLoad);
       }
     });
@@ -256,35 +269,31 @@ public:
         lastUse = lastUseOfAlloc ? lastUseOfAlloc : lastUseOfRemoteLoad;
       }
 
-      // Insert reserve, push, and wait where the alloc was, so they dominate
-      // all uses of the buffer (including view operations like collapse_shape
-      // that may occur before the remote_load)
-      rewriter.setInsertionPoint(allocOp);
+      {
+        // Insert reserve, push, and wait where the alloc was, so they
+        // dominate all uses of the buffer (including view operations like
+        // collapse_shape that may occur before the remote_load).
+        rewriter.setInsertionPoint(allocOp);
 
-      // Create reserve, push, and wait operations
-      rewriter.create<ReserveOp>(loc, assocCb);
-      rewriter.create<PushOp>(loc, assocCb);
-      auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
+        rewriter.create<ReserveOp>(loc, assocCb);
+        rewriter.create<PushOp>(loc, assocCb);
+        auto waitOp = rewriter.create<WaitOp>(loc, assocCb);
 
-      // Replace all uses of the alloc result and remote_load result with the
-      // wait result
-      rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
-      rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+        rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
+        rewriter.replaceAllUsesWith(remoteLoad.getResult(), waitOp.getResult());
+        rewriter.eraseOp(allocOp);
 
-      // Erase the alloc operation
-      rewriter.eraseOp(allocOp);
+        // Insert pop after the last use
+        if (lastUse) {
+          rewriter.setInsertionPointAfter(lastUse);
+        } else {
+          rewriter.setInsertionPointAfter(waitOp);
+        }
+        rewriter.create<PopOp>(loc, assocCb);
 
-      // Insert pop after the last use
-      if (lastUse) {
-        rewriter.setInsertionPointAfter(lastUse);
-      } else {
-        // No uses found, insert pop immediately after wait
-        rewriter.setInsertionPointAfter(waitOp);
+        // Erase the original remote_load operation
+        rewriter.eraseOp(remoteLoad);
       }
-      rewriter.create<PopOp>(loc, assocCb);
-
-      // Erase the original remote_load operation
-      rewriter.eraseOp(remoteLoad);
     }
 
     // Collect remote_store operations to convert
@@ -292,6 +301,17 @@ public:
     moduleOp->walk([&](RemoteStoreOp remoteStore) {
       Value memref = remoteStore.getMemref();
       if (isLocalOperand(memref, remoteStore.getOperation())) {
+        // Skip remote_stores whose local buffer has CBLayoutAttr.
+        // These are streaming circular buffers (hoisted by HoistCBAllocs)
+        // that require real data movement and must not be converted to
+        // reserve/push/wait/pop.
+        Value localBuffer = remoteStore.getLocalBuffer();
+        if (localBuffer) {
+          auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType());
+          if (bufType && mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
+            return;
+          }
+        }
         remoteStoresToConvert.push_back(remoteStore);
       }
     });

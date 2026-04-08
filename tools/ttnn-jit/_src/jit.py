@@ -4,7 +4,6 @@
 
 import os
 import inspect
-from typing import Literal
 
 import ttnn
 
@@ -38,6 +37,8 @@ class JitFunction:
         enable_cache: bool,
         math_fidelity: ttnn.MathFidelity,
         memory_config: ttnn.MemoryConfig,
+        fallback: bool = False,
+        extra_pipeline_options: str = "",
     ):
         self.func = func
         self.source_code = cleanup_source_code(func)
@@ -46,6 +47,15 @@ class JitFunction:
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
         self.memory_config = memory_config
+        self.extra_pipeline_options = extra_pipeline_options
+        if fallback and compile_only:
+            raise ValueError(
+                "fallback=True is incompatible with compile_only=True. "
+                "Fallback executes eagerly and returns a tensor, but "
+                "compile_only expects IR/flatbuffer artifacts."
+            )
+        self.fallback = fallback
+        self.fallback_used = False
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
@@ -102,6 +112,7 @@ class JitFunction:
 
     def __call__(self, *args, **kwargs):
         """Execute the JIT-compiled function."""
+        self.fallback_used = False
         device = args[0].device() if args else None
         assert device is not None, "Device is required"
         if not self.system_desc_path:
@@ -109,8 +120,24 @@ class JitFunction:
 
         sig = self._validate_arguments(args, kwargs)
         param_names = list(sig.parameters.keys())
+        original_kwargs = dict(kwargs)
         kwargs["_tensor_args"] = {param_names[i]: args[i] for i in range(len(args))}
 
+        try:
+            return self._compile_and_run(device, args, kwargs)
+        except Exception as e:
+            if self.fallback:
+                self.fallback_used = True
+                if self.debug:
+                    print(
+                        f"[ttnn-jit] JIT compilation/execution failed, "
+                        f"falling back to eager mode: {e}"
+                    )
+                return self.func(*args, **original_kwargs)
+            raise
+
+    def _compile_and_run(self, device, args, kwargs):
+        """Run the JIT compilation and execution pipeline."""
         # Cache hit, no need to compile.
         if self.cache and self.cache.contains(*args):
             fb_binary = self.cache.get(*args)
@@ -131,6 +158,8 @@ class JitFunction:
 
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
         options += memory_analyzer.get_l1_range_str()
+        if self.extra_pipeline_options:
+            options += f" {self.extra_pipeline_options}"
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")

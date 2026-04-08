@@ -15,8 +15,7 @@ from utils import (
     get_core_grid_from_device,
 )
 
-# Tests with matmul in the middle / end of an op chain are failing in D2MToTTNN.
-# Tests with matmul as the first op are passing. Issue #7419.
+
 def matmul_composite(input0, input1):
     a = ttnn.abs(input0)
     b = ttnn.matmul(a, input1)
@@ -47,6 +46,21 @@ INPUT_LAYOUTS = [
 ]
 
 
+def get_allocator_policy_override(
+    shapes,
+    ttnn_dtype: ttnn.DataType | None,
+    op,
+) -> str:
+    if (
+        ttnn_dtype == ttnn.DataType.BFLOAT8_B
+        and op in (matmul, matmul_composite)
+        and shapes
+        in ((128, 128, 256), (128, 128, 128), (128, 256, 256), (256, 256, 256))
+    ):
+        return "test-buffer-size-policy=max"
+    return ""
+
+
 @pytest.mark.parametrize(
     "shapes",
     MATMUL_SHAPES,
@@ -69,9 +83,9 @@ INPUT_LAYOUTS = [
 @pytest.mark.parametrize(
     "op",
     [
-        matmul,
+        matmul_composite,
     ],
-    ids=["matmul"],
+    ids=["matmul_composite"],
 )
 def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
     # Skip large matmuls for float32
@@ -91,6 +105,7 @@ def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
     k = TILE_SIZE if shapes[1] is None else shapes[1] * grid_dim
     n = TILE_SIZE if shapes[2] is None else shapes[2] * grid_dim
 
+    original_shapes = shapes
     # input is (m, k, n)
     shapes = [(m, k), (k, n)]
     input_tensors = []
@@ -115,6 +130,9 @@ def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
     compiled_op = ttnn_jit.jit(
         debug=True,
         compile_only=False,
+        extra_pipeline_options=get_allocator_policy_override(
+            original_shapes, ttnn_dtype, op
+        ),
     )(op)
 
     output = compiled_op(*input_tensors)

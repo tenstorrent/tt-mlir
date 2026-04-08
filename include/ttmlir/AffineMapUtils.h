@@ -24,15 +24,23 @@ namespace ttmlir::utils {
 /// Returns a new shape by applying `map` to the input shape.
 template <typename Vector>
 llvm::SmallVector<int64_t> evalShape(mlir::AffineMap map, Vector shape) {
-  mlir::SmallVector<int64_t> lastIndex;
+  // End point of the input box: (shape[0]-1, shape[1]-1, ...).
+  llvm::SmallVector<int64_t, 4> endCoord;
   for (auto dim : shape) {
-    lastIndex.push_back(dim - 1);
+    endCoord.push_back(dim - 1);
+  }
+  // Start (0,0,...); the other corner used for the extent formula.
+  llvm::SmallVector<int64_t, 4> startCoord(endCoord.size(), 0);
+
+  auto mappedEndCoord = map.compose(endCoord);
+  auto mappedStartCoord = map.compose(startCoord);
+
+  // Size in each dimension = (mapped end) - (mapped start) + 1.
+  llvm::SmallVector<int64_t, 4> result;
+  for (size_t i = 0; i < mappedEndCoord.size(); ++i) {
+    result.push_back(mappedEndCoord[i] - mappedStartCoord[i] + 1);
   }
 
-  auto result = map.compose(lastIndex);
-  for (auto &dim : result) {
-    dim += 1;
-  }
   return result;
 }
 
@@ -98,6 +106,35 @@ inline mlir::AffineMap affineMapTakeFrontResults(mlir::AffineMap map,
       llvm::seq<int64_t>(numResultsToTake, map.getNumResults())));
 }
 
+/// Returns a new affine map by dropping the specified dimension.
+// E.g.
+// input: (d0, d1, d2) -> (0, d1, d2), dimToRemove=0,
+//  then the output is: (d0, d1) -> (0, d0, d1)
+// input: (d0, d1, d2) -> (0, d1, d2), dimToRemove=1,
+//  then the output is: (d0, d1) -> (0, 0, d1)
+inline mlir::AffineMap dropDim(mlir::AffineMap map, unsigned dimToRemove) {
+  mlir::MLIRContext *ctx = map.getContext();
+  unsigned numDims = map.getNumDims();
+  assert(dimToRemove < numDims && "dim out of range");
+
+  llvm::SmallVector<mlir::AffineExpr> replacements;
+  for (unsigned i = 0; i < numDims; ++i) {
+    if (i < dimToRemove) {
+      // Dims before removed one stay the same.
+      replacements.push_back(getAffineDimExpr(i, ctx));
+    } else if (i == dimToRemove) {
+      // Replace removed dim with constant 0 (or could be any value).
+      replacements.push_back(getAffineConstantExpr(0, ctx));
+    } else {
+      // Dims after shift down by 1.
+      replacements.push_back(getAffineDimExpr(i - 1, ctx));
+    }
+  }
+
+  return map.replaceDimsAndSymbols(replacements, {}, numDims - 1,
+                                   map.getNumSymbols());
+}
+
 /// Returns a new affine map with only the selected result.
 inline mlir::AffineMap affineMapSelectOneOutput(mlir::AffineMap map,
                                                 unsigned selectedResult) {
@@ -158,6 +195,16 @@ createIdentityGridInverseMap(mlir::MLIRContext *context) {
   return mlir::AffineMap::get(2, 0, {zero, d0, d1}, context);
 }
 
+// Utility function to create an identity forward map for grid virtualization
+// Returns a map: (d0, d1) -> (0, d0, d1)
+inline mlir::AffineMap
+createIdentityGridForwardMap(mlir::MLIRContext *context) {
+  mlir::AffineExpr d0 = mlir::getAffineDimExpr(0, context);
+  mlir::AffineExpr d1 = mlir::getAffineDimExpr(1, context);
+  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
+  return mlir::AffineMap::get(2, 0, {zero, d0, d1}, context);
+}
+
 // Derives a grid inverse map _specifically_ for 2D->2D permutation index maps
 // that fit inside the target grid in both dimensions. In those cases, instead
 // of doing a standard reblocking (which behaves like a reshape), we can instead
@@ -166,11 +213,14 @@ createIdentityGridInverseMap(mlir::MLIRContext *context) {
 // Asserts if there is no inverse permutation possible.
 // If the index map provided is empty or identity, returns an identity grid
 // inverse map.
-inline mlir::AffineMap createGridInverseMapFor2DPermutation(
-    mlir::AffineMap indexMap, unsigned gridRank, mlir::MLIRContext *context) {
+inline std::pair<mlir::AffineMap, mlir::AffineMap>
+createGridForwardAndInverseMapFor2DPermutation(mlir::AffineMap indexMap,
+                                               unsigned gridRank,
+                                               mlir::MLIRContext *context) {
   // If no index_map or it's empty/identity, return identity grid inverse map
   if (!indexMap || indexMap.isEmpty() || indexMap.isIdentity()) {
-    return createIdentityGridInverseMap(context);
+    return {createIdentityGridForwardMap(context),
+            createIdentityGridInverseMap(context)};
   }
 
   // Extract grid portion of the index_map (first gridRank results).
@@ -198,8 +248,10 @@ inline mlir::AffineMap createGridInverseMapFor2DPermutation(
   for (auto result : invGridMap.getResults()) {
     invResults.push_back(result);
   }
+  auto invMap = mlir::AffineMap::get(gridRank, 0, invResults, context);
+  auto fwdMap = gridMap.insertResult(zero, 0);
 
-  return mlir::AffineMap::get(gridRank, 0, invResults, context);
+  return {fwdMap, invMap};
 }
 
 // Calculate a reblocking affine map from inputShape to outputShape.

@@ -181,7 +181,7 @@ func.func @test_lower_height_sharded_l1_5(
     // CHECK: %[[EMPTY0:.*]] = d2m.empty() {virtualGridForwardMapping = {{.*}}, virtualGridInverseMapping = {{.*}}} : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout4>
     // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<8x1x16x1x!ttcore.tile<32x32, bf16>, #layout4> -> tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout4>
     // CHECK: %[[RESULT:.*]] = d2m.generic
-    // CHECK-SAME: grid = #ttcore.grid<64x1, (d0, d1) ->
+    // CHECK-SAME: grid = #ttcore.grid<64x1, virt_to_physical_map = (d0, d1) ->
     // CHECK: ins(%[[VIEW0]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout4>)
     // CHECK: outs(%[[EMPTY0]] : tensor<64x1x2x1x!ttcore.tile<32x32, bf16>, #layout4>)
     // CHECK-DAG: d2m.tile_abs

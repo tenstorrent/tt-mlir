@@ -82,6 +82,17 @@ private:
     auto constevalFile =
         builder.create<FileOpTy>(moduleOp.getLoc(), kConstevalFileName);
 
+    // Clone the device symbol into both files so that ops inside each
+    // can resolve the device via lookupNearestSymbolFrom, then erase the
+    // original from the module.
+    if (auto deviceOp = ttcore::lookupDeviceOp(moduleOp)) {
+      builder.setInsertionPointToStart(&mainFile.getBodyRegion().front());
+      builder.clone(*deviceOp);
+      builder.setInsertionPointToStart(&constevalFile.getBodyRegion().front());
+      builder.clone(*deviceOp);
+      deviceOp->erase();
+    }
+
     // Move const-eval functions to the consteval file. Clone
     // CPU-hoisted declarations into both files so that func.call ops
     // in both files can resolve the symbol.

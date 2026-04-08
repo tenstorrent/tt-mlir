@@ -256,30 +256,48 @@ getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
   return ttmlir::utils::evalShape(gridResultMap, overallDeviceShape);
 }
 
+static bool hasL1MemorySpace(Value val) {
+  if (auto memrefType = mlir::dyn_cast<MemRefType>(val.getType())) {
+    return ttcore::isL1MemorySpace(ttcore::getMemorySpace(memrefType));
+  }
+  if (auto tensorType = mlir::dyn_cast<RankedTensorType>(val.getType())) {
+    if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            tensorType.getEncoding())) {
+      return ttcore::isL1MemorySpace(layout.getMemorySpace());
+    }
+  }
+  return false;
+}
+
 SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
-  // Handle view-like ops first.
   if (auto viewOp = tensorOrMemref.getDefiningOp<d2m::ViewOpInterface>()) {
+    if (!viewOp.isComposite() && hasL1MemorySpace(viewOp.getInput())) {
+      // Single-input aliasing views over L1 buffers inherit the backing
+      // buffer's physical grid.  The view only reinterprets the layout; it
+      // does not change physical core placement.
+      return getPhysicalGridShape(viewOp.getInput());
+    }
+
+    // DRAM-backed views: the backing buffer has no core-grid placement, so the
+    // physical execution grid must be inferred from the view's apparent shape.
+    // Composite views: multiple backing buffers exist so there is no single
+    // input to recurse into.
+    // In both cases, derive the grid from the view's output shape, collapsing
+    // to 2D if it exceeds the device.
     ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
     auto deviceGridShape = device.getWorkerGrid().getShape();
-    SmallVector<int64_t> outputGridShape;
     TT_assert(ttcore::hasDeviceLayout(tensorOrMemref));
-    outputGridShape = llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
+    SmallVector<int64_t> outputGridShape =
+        llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
 
     bool rankMismatch = outputGridShape.size() != deviceGridShape.size();
     bool outOfDeviceGridBounds = (outputGridShape[0] > deviceGridShape[0]) ||
                                  (outputGridShape[1] > deviceGridShape[1]);
 
-    // For views, assume that if direct 1:1 mapping to device grid shape is
-    // impossible, the physical grid shape is given by collapsing the ND grid
-    // to a 2D physical grid that fits within the device.  This is checked
-    // against actual gridAttr inverse map and output virtual grid shape in
-    // GenericOp::verify().
     if (rankMismatch || outOfDeviceGridBounds) {
       return llvm::to_vector<2>(
           collapseToPhysicalGrid2D(outputGridShape, deviceGridShape));
     }
-    // View virtual and physical grid shapes are equivalent if directly mappable
-    // to device grid.
     return SmallVector<int64_t>(outputGridShape);
   }
 
@@ -332,6 +350,27 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
   return gridShape;
 }
 
+// Map the box corners into the affine map output space.
+BoundingBox getProjectedBoundingBox(const BoundingBox &source, AffineMap map) {
+  TT_assert(map.getNumSymbols() == 0u);
+  TT_assert(source.start.size() == static_cast<size_t>(map.getNumDims()));
+  TT_assert(source.end.size() == static_cast<size_t>(map.getNumDims()));
+  auto mappedStart = map.compose(source.start);
+  auto mappedEnd = map.compose(source.end);
+  TT_assert(mappedStart.size() == map.getNumResults());
+  TT_assert(mappedEnd.size() == map.getNumResults());
+  BoundingBox result;
+  result.start.resize(mappedStart.size());
+  result.end.resize(mappedStart.size());
+  // If the map swaps corner order on an axis, min/max restore inclusive
+  // start/end.
+  for (unsigned i = 0, n = mappedStart.size(); i < n; ++i) {
+    result.start[i] = std::min(mappedStart[i], mappedEnd[i]);
+    result.end[i] = std::max(mappedStart[i], mappedEnd[i]);
+  }
+  return result;
+}
+
 std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
   // Direct check on the defining op.
   if (auto *defOp = val.getDefiningOp()) {
@@ -364,6 +403,9 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
 
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      if (viewOp.isComposite()) {
+        return std::nullopt;
+      }
       return getVirtualGridInverseMapping(viewOp.getInput());
     }
 
@@ -412,6 +454,9 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
 
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+      if (viewOp.isComposite()) {
+        return std::nullopt;
+      }
       return getVirtualGridForwardMapping(viewOp.getInput());
     }
 
@@ -433,10 +478,6 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
 std::optional<AffineMap> getAssociatedRemapping(Value val) {
   if (auto viewOp = val.getDefiningOp<ViewLayoutOp>()) {
     AffineMap map = viewOp.getRemapping();
-    return map;
-  }
-  if (auto streamOp = val.getDefiningOp<StreamLayoutOp>()) {
-    AffineMap map = streamOp.getRemapping();
     return map;
   }
   return std::nullopt;
@@ -618,6 +659,93 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device,
                        size_t pageSize, size_t baseOffset) {
   return getMemoryMapImpl(device, memrefAndView.first, pageSize,
                           memrefAndView.second, baseOffset);
+}
+
+static AffineMap canonicalStridedMap(MLIRContext *context,
+                                     ArrayRef<int64_t> shape, Type elementType,
+                                     AffineMap map) {
+  assert(map.isIdentity() && "Only identity maps are supported for now.");
+  auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
+  int64_t elementSizeBytes = tileType ? tileType.getSizeBytes()
+                                      : elementType.getIntOrFloatBitWidth() / 8;
+  int64_t currentStride = elementSizeBytes;
+  int64_t rank = shape.size();
+  mlir::AffineExpr strideExpr = mlir::getAffineConstantExpr(0, context);
+  for (int64_t i = rank - 1; i >= 0; i--) {
+    mlir::AffineExpr dim = mlir::getAffineDimExpr(i, context);
+    mlir::AffineExpr stride =
+        mlir::getAffineConstantExpr(currentStride, context);
+    strideExpr = dim * stride + strideExpr;
+    currentStride *= shape[i];
+  }
+  return mlir::AffineMap::get(shape.size(), 0, strideExpr, context);
+}
+
+AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input, bool isRemote) {
+  if (isRemote) {
+    // d2m::utils::getMemoryMap handles view tracing (applyViews) and
+    // VGM lookup (getVirtualGridForwardMapping) internally.
+    return d2m::utils::getMemoryMap(device, input,
+                                    /*pageSize=*/static_cast<size_t>(0));
+  }
+
+  // For local memrefs (including CB values), get the underlying memref type.
+  MemRefType inputType;
+  if (auto cbType = mlir::dyn_cast<CBType>(input.getType())) {
+    inputType = cbType.getUnderlyingAs<MemRefType>();
+  } else {
+    inputType = mlir::cast<MemRefType>(input.getType());
+  }
+  auto layoutMap = d2m::utils::resolveEffectiveAffineMap(input, inputType);
+  return canonicalStridedMap(device.getContext(), inputType.getShape(),
+                             inputType.getElementType(), layoutMap);
+}
+
+template <typename Builder>
+SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
+                            ValueRange index, bool isRemote) {
+  auto affineApply = [&](AffineMap map, ValueRange index) {
+    return builder.template create<affine::AffineApplyOp>(loc, map, index);
+  };
+
+  if (isRemote) {
+    assert(map.getNumResults() == 4);
+    // Break the map into respective gridY, gridX, offset "single result"
+    // parts. AffineApply only supports single result affine maps.
+    map = map.dropResults(0); // Drop the device index.
+    auto gridY = map.dropResults({1, 2});
+    auto gridX = map.dropResults({0, 2});
+    auto offset = map.dropResults({0, 1});
+    return {affineApply(gridY, index), affineApply(gridX, index),
+            affineApply(offset, index)};
+  }
+
+  assert(map.getNumResults() == 1);
+  return {affineApply(map, index)};
+}
+
+// Instantiate for the two types of builders.
+template SmallVector<Value> applyMap<OpBuilder>(OpBuilder &builder,
+                                                Location loc, AffineMap map,
+                                                ValueRange index,
+                                                bool isRemote);
+template SmallVector<Value>
+applyMap<PatternRewriter>(PatternRewriter &builder, Location loc, AffineMap map,
+                          ValueRange index, bool isRemote);
+
+std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
+  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                 builder.getIndexAttr(0));
+  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                builder.getIndexAttr(1));
+  SmallVector<Value> lbs(shardShape.size(), zero);
+  SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
+    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                             builder.getIndexAttr(dim));
+  }));
+  SmallVector<Value> step(shardShape.size(), one);
+  return std::make_tuple(lbs, ubs, step);
 }
 
 llvm::SmallVector<int64_t>

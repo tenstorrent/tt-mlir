@@ -78,8 +78,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
-          echo "Current tt-metal version: $CURRENT_TT_METAL_VERSION"
+          CURRENT_TT_METAL_VERSION_REF=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+          CURRENT_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/$CURRENT_TT_METAL_VERSION_REF --jq '.sha')
+          echo "Current tt-metal version ref: $CURRENT_TT_METAL_VERSION_REF"
+          echo "Current tt-metal version (resolved SHA): $CURRENT_TT_METAL_VERSION"
           echo "Custom tt-metal version: ${{ env.UPLIFTED_TT_METAL_VERSION }}"
 
           # Verify custom commit is on main metal branch
@@ -109,7 +111,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+          CURRENT_TT_METAL_VERSION_REF=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+          CURRENT_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/$CURRENT_TT_METAL_VERSION_REF --jq '.sha')
+          echo "Current tt-metal version ref: $CURRENT_TT_METAL_VERSION_REF"
+          echo "Current tt-metal version (resolved SHA): $CURRENT_TT_METAL_VERSION"
 
           # Fetch file hashes from current version
           CURRENT_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
@@ -156,8 +161,8 @@ jobs:
 
             ### Checklist
             - **Frontend CI passing links**
-              - [ ] [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe/actions/workflows/on-pr.yml):
-              - [ ] [tt-xla (mlir-uplift-qualification)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
+              - [ ] [tt-forge-onnx](https://github.com/tenstorrent/tt-forge-onnx/actions/workflows/on-pr.yml):
+              - [ ] [tt-xla (full-mlir-uplift-qualification.json)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
             - **Follow-up Actions**
               - [ ] **Issues filed** to follow up on incomplete changes (if any):
               - [ ] **Frontend fix PRs** ready (if needed by this uplift):

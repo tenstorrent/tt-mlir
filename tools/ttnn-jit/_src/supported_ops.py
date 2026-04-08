@@ -94,7 +94,6 @@ data_movement_ops = [
     "concat",
     "repeat",
     "embedding",
-    "gather",
 ]
 
 # CCL (collective communication) operations
@@ -103,31 +102,3 @@ ccl_ops = [
     "all_reduce",
     "reduce_scatter",
 ]
-
-# All supported operations (excluding composite ops that need expansion)
-all_ops = set(
-    unary_ops + binary_ops + reduction_ops + tm_ops + data_movement_ops + ccl_ops
-)
-
-
-def is_supported(op_name: str) -> bool:
-    """Check if an operation is directly supported (not requiring expansion)."""
-    return op_name in all_ops
-
-
-def get_op_category(op_name: str) -> str:
-    """Get the category of an operation."""
-    if op_name in unary_ops:
-        return "unary"
-    elif op_name in binary_ops:
-        return "binary"
-    elif op_name in reduction_ops:
-        return "reduction"
-    elif op_name in tm_ops:
-        return "tm"
-    elif op_name in data_movement_ops:
-        return "data_movement"
-    elif op_name in ccl_ops:
-        return "ccl"
-    else:
-        return "unsupported"

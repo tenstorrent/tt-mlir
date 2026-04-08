@@ -7,6 +7,7 @@
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
 namespace mlir::tt::ttmetal {
@@ -16,6 +17,15 @@ struct TTIRToTTMetalPipelineOptions
     : public PassPipelineOptions<TTIRToTTMetalPipelineOptions> {
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
+
+  ListOption<ttcore::Topology> meshTopology{
+      *this, "mesh-topology",
+      llvm::cl::desc("Set the per-axis topology for the mesh."),
+      llvm::cl::values(
+          clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"),
+          clEnumValN(ttcore::Topology::Disabled, "disabled",
+                     "Disabled topology"))};
 
   ListOption<int64_t> overrideDeviceShape{
       *this, "override-device-shape",
@@ -48,6 +58,11 @@ struct TTIRToTTMetalPipelineOptions
       *this, "max-dst-physical-size-tiles",
       llvm::cl::desc("Clamp DST's max physical size in tiles. 0 means unset."),
       llvm::cl::init(0)};
+
+  Option<bool> enableElementwiseFusion{
+      *this, "enable-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion of d2m.generic ops."),
+      llvm::cl::init(false)};
 
   ListOption<int64_t> matmulInterchange{
       *this, "matmul-interchange",
@@ -146,8 +161,9 @@ struct TTIRToTTMetalPipelineOptions
   // WIP pass option to control the allocator logic for sizing stream buffers.
   Option<std::string> testBufferSizePolicy{
       *this, "test-buffer-size-policy",
-      llvm::cl::desc("Set policy for sizing stream buffers ('min', 'max')."),
-      llvm::cl::init("max")};
+      llvm::cl::desc(
+          "Set policy for sizing stream buffers ('auto', 'min', 'max')."),
+      llvm::cl::init("auto")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
   // GenericOp.

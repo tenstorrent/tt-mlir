@@ -49,7 +49,7 @@ module {
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
     // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>(%[[SEM]])
-    // CHECK: ttkernel.noc_semaphore_wait(%[[PTR]], %c2)
+    // CHECK: ttkernel.experimental::semaphore_wait(%[[PTR]], %c2)
     return
   }
 
@@ -61,7 +61,7 @@ module {
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
     // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>(%[[SEM]])
-    // CHECK: ttkernel.noc_semaphore_wait(%[[PTR]], %c2)
+    // CHECK: ttkernel.experimental::semaphore_wait(%[[PTR]], %c2)
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c0)
     return
   }

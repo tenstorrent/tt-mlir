@@ -4,48 +4,11 @@
 
 import textwrap
 import inspect
-import importlib
 from typing import Callable
-from ttmlir.ir import *
 from ttnn_jit._src.tensor_translator import (
     _calculate_tile_shape,
     _get_logical_tensor_shape,
 )
-
-
-def discover_dialect_ops(dialect, denylist=None):
-    """
-    Return a mapping Dict[str, Callable] of available pybounded dialect ops.
-    """
-    # Convert string dialect names to their corresponding objects
-    if isinstance(dialect, str):
-        dialect = importlib.import_module(f"ttmlir.dialects.{dialect}")
-
-    denylist = set() if denylist is None else denylist
-    op_map = {}
-    ns = dialect.__name__.split("ttmlir.dialects.")[-1]
-    for attr_name in dir(dialect):
-        if attr_name.startswith("_"):
-            continue
-        op_obj = getattr(dialect, attr_name, None)
-        if (
-            op_obj is None
-            or not hasattr(op_obj, "OPERATION_NAME")
-            or not inspect.isclass(op_obj)
-        ):
-            continue
-
-        func_name = getattr(op_obj, "OPERATION_NAME")
-        name = func_name.removeprefix(ns + ".")
-        if name in denylist:
-            continue
-        func = getattr(dialect, name, None)
-
-        # must be the module-level function, and not the class
-        if inspect.isfunction(func):
-            op_map[name] = func
-
-    return op_map
 
 
 def cleanup_source_code(f: Callable):
@@ -70,19 +33,6 @@ def cleanup_source_code(f: Callable):
         source_code = "\n".join(lines[def_line_idx:])
 
     return source_code
-
-
-def get_num_pos_args(func: Callable):
-    sig = inspect.signature(func)
-    num_pos_args = len(
-        [
-            p
-            for p in sig.parameters.values()
-            if p.default == inspect.Parameter.empty
-            and p.kind != inspect.Parameter.VAR_KEYWORD
-        ]
-    )
-    return num_pos_args
 
 
 def get_maximal_block_sharding_grid(shape, core_grid):

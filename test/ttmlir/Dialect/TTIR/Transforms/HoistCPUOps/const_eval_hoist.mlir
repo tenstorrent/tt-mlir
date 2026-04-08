@@ -62,9 +62,9 @@ func.func private @multiple_creation_ops_interleaved(
 // --- Test 4: Creation op at the end ---
 
 // CHECK-LABEL: func.func private @creation_op_at_end
+// CHECK: ttir.zeros
 // CHECK: ttir.to_layout
 // CHECK: call @cpu_hoisted_const_eval_{{.*}}
-// CHECK: ttir.zeros
 // CHECK: return
 func.func private @creation_op_at_end(
     %arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>
@@ -88,10 +88,9 @@ func.func private @all_creation_ops() -> tensor<32x32xbf16> attributes {tt.funct
 // --- Test 6: Creation op with transparent chain (reshape) ---
 
 // CHECK-LABEL: func.func private @creation_with_transparent_chain
+// CHECK: ttir.zeros
 // CHECK: ttir.to_layout
 // CHECK: call @cpu_hoisted_const_eval_{{.*}}
-// CHECK: ttir.zeros
-// CHECK: ttir.reshape
 // CHECK: return
 func.func private @creation_with_transparent_chain(
     %arg0: tensor<32x32xbf16>

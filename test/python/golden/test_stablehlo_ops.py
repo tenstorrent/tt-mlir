@@ -187,6 +187,42 @@ def module_shift_right_logical(builder: StableHLOBuilder):
         return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
 
 
+def module_remainder(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def remainder(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.remainder(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_atan2(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def atan2(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.atan2(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_shift_left(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def shift_left(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.shift_left(in0, in1, unit_attrs=unit_attrs)
+
+
 def module_clamp(builder: StableHLOBuilder):
     @builder.func(
         [(128, 128), (128, 128), (128, 128)],
@@ -485,6 +521,8 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
         module_mul,
         module_pow,
         module_subtract,
+        module_remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
 def test_binary_ops(test_fn: Callable, target: str, request, device):
@@ -622,10 +660,6 @@ def test_sort(
 @pytest.mark.parametrize("dimension", [2, 1, 0], ids=["dim2", "dim1", "dim0"])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("is_stable", [False])
-@pytest.mark.skip_exec(
-    ("p150",),
-    reason="Flaky on p150 in CI, ticket: https://github.com/tenstorrent/tt-mlir/issues/7571",
-)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sort_key_value(
     shape: Shape,
@@ -999,6 +1033,7 @@ def test_stablehlo_multi_return_support(
         module_or_bool,
         module_xor_bool,
         module_shift_right_logical,
+        module_shift_left,
     ],
 )
 def test_logical_binary_ops(
@@ -1344,51 +1379,20 @@ def avg_pool_2d(
 @pytest.mark.parametrize(
     "shape,kernel_size,stride,padding",
     [
-        pytest.param(
-            (32, 32),
-            [3, 3],
-            [2, 2],
-            [1, 1, 1, 1],
-            id="rank2_k3s2p1",
-            marks=pytest.mark.xfail(reason="Golden comparison failure"),
-        ),
-        pytest.param(
-            (64, 64),
-            [2, 2],
-            [2, 2],
-            [0, 0, 0, 0],
-            id="rank2_k2s2p0",
-            marks=pytest.mark.xfail(reason="Golden comparison failure"),
-        ),
-        pytest.param(
-            (128, 128),
-            [3, 3],
-            [1, 1],
-            [1, 1, 1, 1],
-            id="rank2_k3s1p1",
-            marks=pytest.mark.xfail(reason="Golden comparison failure"),
-        ),
-        pytest.param(
-            (1, 32, 64, 64),
-            [1, 1, 3, 3],
-            [1, 1, 2, 2],
-            [0, 0, 0, 0, 1, 1, 1, 1],
-            id="rank4_k3s2p1",
-        ),
-        pytest.param(
-            (1, 64, 128, 128),
-            [1, 1, 2, 2],
-            [1, 1, 2, 2],
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            id="rank4_k2s2p0",
-        ),
-        pytest.param(
-            (1, 32, 64, 64),
-            [1, 1, 3, 3],
-            [1, 1, 1, 1],
-            [0, 0, 0, 0, 1, 1, 1, 1],
-            id="rank4_k3s1p1",
-        ),
+        ((32, 32), [3, 3], [2, 2], [1, 1, 1, 1]),
+        ((64, 64), [2, 2], [2, 2], [0, 0, 0, 0]),
+        ((128, 128), [3, 3], [1, 1], [1, 1, 1, 1]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 2, 2], [0, 0, 0, 0, 1, 1, 1, 1]),
+        ((1, 64, 128, 128), [1, 1, 2, 2], [1, 1, 2, 2], [0, 0, 0, 0, 0, 0, 0, 0]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]),
+    ],
+    ids=[
+        "rank2_k3s2p1",
+        "rank2_k2s2p0",
+        "rank2_k3s1p1",
+        "rank4_k3s2p1",
+        "rank4_k2s2p0",
+        "rank4_k3s1p1",
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -1419,51 +1423,20 @@ def test_max_pool_2d(
 @pytest.mark.parametrize(
     "shape,kernel_size,stride,padding",
     [
-        pytest.param(
-            (32, 32),
-            [3, 3],
-            [2, 2],
-            [1, 1, 1, 1],
-            id="rank2_k3s2p1",
-            marks=pytest.mark.xfail(reason="Golden comparison failure"),
-        ),
-        pytest.param(
-            (64, 64),
-            [2, 2],
-            [2, 2],
-            [0, 0, 0, 0],
-            id="rank2_k2s2p0",
-            marks=pytest.mark.xfail(reason="Golden comparison failure"),
-        ),
-        pytest.param(
-            (128, 128),
-            [3, 3],
-            [1, 1],
-            [1, 1, 1, 1],
-            id="rank2_k3s1p1",
-            marks=pytest.mark.xfail(reason="Golden comparison failure"),
-        ),
-        pytest.param(
-            (1, 32, 64, 64),
-            [1, 1, 3, 3],
-            [1, 1, 2, 2],
-            [0, 0, 0, 0, 1, 1, 1, 1],
-            id="rank4_k3s2p1",
-        ),
-        pytest.param(
-            (1, 64, 128, 128),
-            [1, 1, 2, 2],
-            [1, 1, 2, 2],
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            id="rank4_k2s2p0",
-        ),
-        pytest.param(
-            (1, 32, 64, 64),
-            [1, 1, 3, 3],
-            [1, 1, 1, 1],
-            [0, 0, 0, 0, 1, 1, 1, 1],
-            id="rank4_k3s1p1",
-        ),
+        ((32, 32), [3, 3], [2, 2], [1, 1, 1, 1]),
+        ((64, 64), [2, 2], [2, 2], [0, 0, 0, 0]),
+        ((128, 128), [3, 3], [1, 1], [1, 1, 1, 1]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 2, 2], [0, 0, 0, 0, 1, 1, 1, 1]),
+        ((1, 64, 128, 128), [1, 1, 2, 2], [1, 1, 2, 2], [0, 0, 0, 0, 0, 0, 0, 0]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]),
+    ],
+    ids=[
+        "rank2_k3s2p1",
+        "rank2_k2s2p0",
+        "rank2_k3s1p1",
+        "rank4_k3s2p1",
+        "rank4_k2s2p0",
+        "rank4_k3s1p1",
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
@@ -1812,7 +1785,6 @@ def module_reduce_window_max(builder: StableHLOBuilder):
         )
 
 
-@pytest.mark.xfail(reason="Golden comparison failure")
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
@@ -1824,6 +1796,72 @@ def test_reduce_window_op(test_fn: Callable, target: str, request, device):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        # Simple 1D indices - f32.
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),
+        pytest.param(
+            (8, 16, 32),
+            torch.float32,
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            # Complex indices - f32.
+            [1, 16, 1],
+        ),
+    ],
+    ids=[
+        "simple_1d-f32",
+        "complex_indices-f32",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_gather(
+    input_shape: Shape,
+    input_dtype: torch.dtype,
+    indices_shape: Tuple,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    target: str,
+    request,
+    device,
+):
+    def module_gather(builder: StableHLOBuilder):
+        @builder.func([input_shape], [input_dtype])
+        def gather_func(in0: Operand, builder: StableHLOBuilder):
+            indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
+
+            collapsed_slice_dims = start_index_map
+            operand_batching_dims = []
+            start_indices_batching_dims = []
+
+            if len(indices_shape) == 1 and len(start_index_map) == 1:
+                index_vector_dim = len(indices_shape)
+            else:
+                index_vector_dim = len(indices_shape) - 1
+
+            return builder.gather(
+                in0,
+                indices,
+                offset_dims=offset_dims,
+                collapsed_slice_dims=collapsed_slice_dims,
+                operand_batching_dims=operand_batching_dims,
+                start_indices_batching_dims=start_indices_batching_dims,
+                start_index_map=start_index_map,
+                index_vector_dim=index_vector_dim,
+                slice_sizes=slice_sizes,
+            )
+
+    compile_and_execute_shlo(
+        module_gather,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

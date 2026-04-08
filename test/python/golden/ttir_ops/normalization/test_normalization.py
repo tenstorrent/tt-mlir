@@ -48,11 +48,6 @@ def test_batch_norm(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func(shapes, dtypes)
         def batch_norm(
@@ -96,7 +91,7 @@ def test_batch_norm(
 )
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy", "emitc"])
 def test_rms_norm(
     shape: Shape,
     normalized_shape: List[int],
@@ -106,11 +101,6 @@ def test_rms_norm(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     # Determine input shapes
     shapes = [shape]
     if has_weight:
@@ -162,11 +152,6 @@ def test_rms_norm(
 def test_softmax(
     shape: Shape, dimension: int, numeric_stable: bool, target: str, request, device
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     # Create a wrapper function that captures dimension
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
@@ -190,7 +175,7 @@ def test_softmax(
 
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_softmax(
     shape: Shape,
     request,
@@ -240,11 +225,6 @@ def test_layer_norm(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     # Determine input shapes
     shapes = [shape]
     if has_weight:
@@ -294,24 +274,47 @@ def test_layer_norm(
         ((2, 4, 64), [64]),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_layer_norm(
     shape: Shape,
     normalized_shape: List[int],
+    has_weight: bool,
+    has_bias: bool,
     target: str,
     request,
     device,
 ):
+    # Determine input shapes
+    shapes = [shape]
+    if has_weight:
+        shapes.append(tuple(normalized_shape))
+    if has_bias:
+        shapes.append(tuple(normalized_shape))
+
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def layer_norm(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def layer_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+            builder = inputs[-1]
+            in0 = inputs[0]
+            weight = None
+            bias = None
+
+            if has_weight and len(inputs) > 1:
+                weight = inputs[1]
+            if has_bias:
+                if has_weight and len(inputs) > 2:
+                    bias = inputs[2]
+                elif not has_weight and len(inputs) > 1:
+                    bias = inputs[1]
+
             return builder.layer_norm(
                 in0,
                 normalized_shape=normalized_shape,
-                weight=None,
-                bias=None,
+                weight=weight,
+                bias=bias,
                 unit_attrs=["ttir.should_hoist"],
             )
 
@@ -333,10 +336,13 @@ def test_hoisted_layer_norm(
         (1, 1, 32, 512),
         (1, 1, 32, 4096),
         (1, 1, 32, 8192),
+        (1, 1, 128, 128),
+        (1, 1, 32, 68),
+        (1, 1, 37, 72),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("has_weight", [True])
+@pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])

@@ -110,16 +110,10 @@ class D2M_GenericRegionComputeFPUOrSFPUBinary<string mnemonic, list<Trait> trait
     bool supportsTileOrScalarRhs() { return true; }
     bool isFPUBinaryOp() { return true; }
 
-    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
-      auto rhsType = this->getOperand(1).getType();
-      // If RHS is a scalar (not a tile), only load LHS from DST (SFPU path)
-      if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
-        return {0};
-      }
-      // Both operands are tiles - FPU reads directly from CBs, no DST load needed
-      return {};
-    }
+    // Returns the operand indices that need to be loaded from the dst register.
+    // For FPU, we don't load from DST.
+    // For SFPU (either via f32 operands or scalar operands) we load from DST.
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister();
   }];
 }
 
@@ -153,10 +147,10 @@ defvar D2M_TileComputeOpTraitBundle = [
 // Type constraint that accepts either a Tile or a scalar value (float/int)
 def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
 
-def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure]> {
     let summary = "D2M Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tiles element-wise on the FPU,
+        The `tile_add` operation adds two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or adds a scalar value to each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
@@ -166,10 +160,10 @@ def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure, D
     let hasFolder = 1;
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure]> {
     let summary = "D2M Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tiles element-wise on the FPU,
+        The `tile_sub` operation subtracts two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or subtracts a scalar value from each element in the input tile if rhs is a scalar (SFPU path).
     }];
 
@@ -179,10 +173,10 @@ def D2M_TileSubOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_sub", [Pure, D
     let hasFolder = 1;
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileMulOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_mul", [Pure]> {
     let summary = "D2M Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tiles element-wise on the FPU,
+        The `tile_mul` operation multiplies two tiles element-wise on the FPU (or SFPU if one of the operands is a float32),
         or multiplies each element in the input tile by a scalar value if rhs is a scalar (SFPU path).
     }];
 
@@ -268,10 +262,30 @@ def D2M_TileCosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cos", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileAcosOp : D2M_GenericRegionComputeUnaryDstOp<"tile_acos", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Acos Op";
+    let description = [{
+        The `tile_acos` operation computes the arccosine of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Tan Op";
     let description = [{
         The `tile_tan` operation computes the tangent function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileAtanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_atan", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Atan Op";
+    let description = [{
+        The `tile_atan` operation computes the arctangent of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -312,6 +326,16 @@ def D2M_TileSinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sin", D2M_TileCompu
     let summary = "D2M Tile Sin Op";
     let description = [{
         The `tile_sin` operation computes the sine function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileAsinOp : D2M_GenericRegionComputeUnaryDstOp<"tile_asin", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Asin Op";
+    let description = [{
+        The `tile_asin` operation computes the arcsine of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -635,8 +659,30 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_Tile
   }];
 }
 
+def D2M_TileReduceMeanOp : D2M_GenericRegionComputeOp<"tile_reduce_mean", D2M_TileComputeOpTraitBundle> {
+  let summary = "D2M Tile Reduce Mean Op";
+  let description = [{
+        The `tile_reduce_mean` operation computes the mean of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- avg<dims>(A * B, C)
+    }];
+
+  let arguments = (ins TTCore_Tile:$a,
+                       TTCore_Tile:$b,
+                       TTCore_Tile:$c,
+                       D2M_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$result);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {2};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+  }];
+}
+
 // TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
-def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [D2M_SkipOpEltwiseFusionTrait]> {
   let summary = "D2M Tile Broadcast Op";
   let description = [{
     The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
@@ -751,7 +797,7 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 //===----------------------------------------------------------------------===//
 
 def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
-    let summary = "D2M Tile Fill Op";
+    let summary = "D2M Fill Tile Op";
     let description = [{
         The `tile_fill` operation creates a tile filled with a constant scalar value.
         All elements in the resulting tile will have the same value as the input scalar.
@@ -761,7 +807,7 @@ def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
         for element-wise operations.
     }];
 
-    let arguments = (ins AnyFloat:$value);
+    let arguments = (ins AnyTypeOf<[AnyFloat, AnyInteger]>:$value);
     let results = (outs TTCore_Tile:$result);
 
     let assemblyFormat = [{
@@ -774,9 +820,11 @@ def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
           return {};
         }
         bool getDstRegInPlace() { return false; }
-        // The operand is a scalar (float), not a tile
+        // Operand 0 is the fill scalar (not a tile). Other indices must be
+        // false so passes that query isScalarOperand(1) for tile+scalar rhs do
+        // not treat tile_fill as in-place on store.
         bool isScalarOperand(int64_t operandIdx) {
-          return true;
+          return operandIdx == 0;
         }
     }];
 }
@@ -904,6 +952,17 @@ def D2M_SetL1AccumulateOp : D2M_GenericRegionOp<"set_l1_accumulate"> {
     let assemblyFormat = [{ `(` $enable `)` attr-dict }];
 }
 
+def D2M_UnpackStallOnPackOp : D2M_GenericRegionOp<"unpack_stall_on_pack"> {
+  let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
+  let description = [{
+    Inserted between consecutive linalg.generics in a fused region when
+    the intermediate result is written to L1 by one generic and immediately
+    read by the next, and the usual tile_regs_acquire semwait is not present
+    (single-tile shard path).
+  }];
+  let assemblyFormat = [{ attr-dict }];
+}
+
 def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Transpose Op";
     let description = [{
@@ -958,7 +1017,8 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
                          I64Attr:$numElems,
-                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape,
+                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape);
     let results = (outs D2M_MemTx:$result);
 
     let builders =
@@ -966,29 +1026,41 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       // Fully indexed unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Fully indexed multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+      }]>,
+
+      // Fully indexed unicast, with destination device range
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Shard-level multicast (no indices on either, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
+
+      // Shard-level unicast (no src indices, grid indices on dst, numElems = 0), with destination device range
+      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+      }]>
     ];
 
-    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)?  `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
 
     let hasVerifier = 1;
 
@@ -1062,11 +1134,16 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+      }]>,
+      // Fully indexed form
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems);
       }]>,
     ];
 
-    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
 
     let hasVerifier = 1;
 
@@ -1098,13 +1175,13 @@ def D2M_NullTxOp : D2M_GenericRegionDatamovementOp<"null_tx", [Pure]> {
 
     let builders =
     [
-      OpBuilder<(ins),
+      OpBuilder<(ins "DMAType":$dmaType),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), dmaType));
       }]>
     ];
 
-    let assemblyFormat = [{ attr-dict }];
+    let assemblyFormat = [{ attr-dict `:` qualified(type($result)) }];
 }
 
 def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
@@ -1115,7 +1192,7 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 
     let arguments = (ins D2M_MemTx:$mem_tx);
 
-    let assemblyFormat = [{ $mem_tx attr-dict }];
+    let assemblyFormat = [{ $mem_tx attr-dict `:` qualified(type($mem_tx)) }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1461,24 +1538,47 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         Variadic<Index>:$indices,
         Arg<Optional<AnyRankedTensorOrMemRef>, "the local buffer to store from",
         [MemRead]>:$localBuffer,
-        Optional<D2M_CB>:$cb);
-
+        Optional<D2M_CB>:$cb,
+        Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape,
+        Optional<D2M_GlobalSemaphore>:$semaphore,
+        Variadic<Index>:$semaphoreIndices
+        );
     let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let builders = [
       // Explicit CB form (with CB, no result)
       OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
       [{
-        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb);
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, /*startDevice=*/ValueRange{}, /*deviceMcastShape=*/ValueRange{}, /*semaphore=*/Value{}, /*semaphoreIndices=*/ValueRange());
       }]>,
       // Implicit form with local buffer and result (required)
       OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer),
       [{
-        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{});
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, /*startDevice=*/ValueRange{}, /*deviceMcastShape=*/ValueRange{}, /*semaphore=*/Value{}, /*semaphoreIndices=*/ValueRange());
+      }]>,
+      // Explicit CB form (with CB, no result); with destination device range
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb, "ValueRange":$startDevice, "ValueRange":$deviceMcastShape, "Value":$semaphore, "ValueRange":$semaphoreIndices),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb, startDevice, deviceMcastShape, semaphore, semaphoreIndices);
+      }]>,
+      // Implicit form with local buffer and result (required); with destination device range
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer, "ValueRange":$startDevice, "ValueRange":$deviceMcastShape, "Value":$semaphore, "ValueRange":$semaphoreIndices),
+      [{
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{}, startDevice, deviceMcastShape, semaphore, semaphoreIndices);
       }]>
     ];
 
-    let assemblyFormat = [{ $memref `[` $indices `]` ($localBuffer^)? (`from` $cb^)? attr-dict `:` type($memref) (`,` type($localBuffer)^)? (`from` type($cb)^)? (`->` type($result)^)? }];
+    let assemblyFormat = [{
+      $memref `[` $indices `]`
+      ($localBuffer^)?
+      (`from` $cb^)?
+      (`devices` `startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)?
+      (`semaphore` `increment` $semaphore^ `[` $semaphoreIndices `]`)?
+      attr-dict `:` type($memref)
+      (`,` type($localBuffer)^)?
+      (`from` type($cb)^)?
+      (`->` type($result)^)?
+    }];
 
     let hasVerifier = 1;
 
@@ -1610,19 +1710,24 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
     }];
 
     let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
-                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape,
+                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict `:` type($semaphore) }];
+    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? (`startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)? attr-dict `:` type($semaphore) }];
 
     let builders =
     [
       OpBuilder<(ins "Value":$semaphore, "Value":$value),
       [{
-        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange());
+        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange(), ValueRange(), ValueRange());
       }]>,
       OpBuilder<(ins "Value":$semaphore, "Value":$value, "ValueRange":$dstCoreIndex),
       [{
-        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange());
+        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      OpBuilder<(ins "Value":$semaphore, "Value":$value, "ValueRange":$dstCoreIndex, "ValueRange":$startDevice, "ValueRange":$deviceMcastShape),
+      [{
+        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange(), startDevice, deviceMcastShape);
       }]>,
     ];
 }
@@ -1712,6 +1817,60 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
     }];
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Generic Region Control Ops (Used in TTMetal Lowering)
+//===----------------------------------------------------------------------===//
+
+def D2M_SpatialYieldOp : D2M_GenericRegionOp<"spatial_yield", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+    let summary = "Yield op for spatial op.";
+    let description = [{
+      Yield operation for spatial op.
+    }];
+
+    let arguments = (ins Variadic<AnyRankedTensor>:$values);
+
+    let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
+
+    let hasVerifier = 1;
+
+    let extraClassDefinition = [{
+      bool $cppClass::bufferizesToMemoryRead(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      bool $cppClass::bufferizesToMemoryWrite(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        return false;
+      }
+      mlir::bufferization::AliasingValueList $cppClass::getAliasingValues(
+          mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+        mlir::bufferization::AliasingValueList result;
+        return result;
+      }
+      mlir::FailureOr<mlir::bufferization::BufferLikeType> $cppClass::getBufferType(
+          mlir::Value, const mlir::bufferization::BufferizationOptions &,
+          const mlir::bufferization::BufferizationState &,
+          ::llvm::SmallVector<mlir::Value> &) {
+        return mlir::failure();
+      }
+      mlir::LogicalResult $cppClass::bufferize(
+          mlir::RewriterBase &rewriter,
+          const mlir::bufferization::BufferizationOptions &,
+          mlir::bufferization::BufferizationState &state) {
+        rewriter.eraseOp(*this);
+        return mlir::success();
+      }
+    }];
+}
 class D2M_CBOp<string mnemonic, list<Trait> traits = []> : D2M_GenericRegionOp<mnemonic,
   traits #
   [ MemoryEffects<[MemRead, MemWrite]>
@@ -2201,6 +2360,17 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
     let hasVerifier = 1;
 }
 
+def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
+    let summary = "Mesh position op.";
+    let description = [{
+      Return the mesh position for the current device at the given dimension.
+    }];
+
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
+    let results = (outs Index:$result);
+}
+
+
 //===----------------------------------------------------------------------===//
 // D2M Remote Access ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
@@ -2399,4 +2569,43 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
 
   let hasVerifier = 1;
 }
+
+def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
+  [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>]> {
+  let summary = "Device synchronize op.";
+  let description = [{
+    The different devices in a mesh are not running ops in a synchronized manner
+    (devices can be running different ops in the program) so in ops where we are transferring data between devices,
+    we need to ensure that receiving devices have started the op before senders send data to them.
+
+    This op allows us to do this in two steps:
+    1) receiver devices inform senders that they have started the op by incrementing the sync_semaphore on the sender device
+    2) senders wait for all receivers that they have to send to using a semaphore wait
+
+    To ensure correct behaviour, we have to correctly set senderStartDevice, senderDeviceMcastShape, and
+    numReceivers based on which devices are sending to which receivers. Note that the senders and receivers
+    to be specified are in terms of the own device's perspective.
+
+    Example 1: All gather on a 1x8 mesh along cluster axis 1:
+      We have to set senderStartDevice to [0, 0], senderDeviceMcastShape to [1, 8], and numReceivers to 7 for ALL devices.
+
+    Example 2: broadcast CCL from device x to all other devices in 1x8 mesh:
+      - on device x, senderStartDevice/senderDeviceMcastShape will be empty since it is not receiving any data from other devices, but
+      numReceivers will be 7 since it is sending to all other devices
+      - on other devices, senderStartDevice will be device x, senderDeviceMcastShape will be empty, and numReceivers will be 0 (not sending to anyone)
+
+    Pre-condition: sync_semaphore is initialized to 0.
+    Post-condition: Receiver devices are guaranteed to have started their op
+      and so we can send data to them.
+  }];
+
+  let arguments = (ins
+    D2M_GlobalSemaphore:$sync_semaphore,
+    Variadic<Index>:$senderStartDevice,
+    Variadic<Index>:$senderDeviceMcastShape,
+    I32Attr:$numReceivers,
+    Variadic<Index>:$coreIndices
+  );
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

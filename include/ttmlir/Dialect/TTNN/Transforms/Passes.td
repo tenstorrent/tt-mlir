@@ -51,6 +51,16 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNDecomposition : Pass<"ttnn-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose TTNN ops into primitive equivalents.";
+  let description = [{
+    This pass decomposes TTNN ops that cannot be handled by any available
+    fused kernel into sequences of primitive TTNN ops. Unlike workarounds,
+    these decompositions are permanent and functional - they apply when no
+    suitable kernel exists for the given op configuration (e.g. shape).
+  }];
+}
+
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{
@@ -134,6 +144,38 @@ def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
     Option<"tensorLoadFilePrefix", "tensor-load-file-prefix", "std::string", /*default=*/"\"arg\"",
            "Prefix for input tensor files">,
   ];
+}
+
+def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp"> {
+  let summary = "Create main_for_test wrapper for frontend-driven execution.";
+  let description = [{
+    This pass creates a `main_for_test` function that wraps the forward function
+    (`_main`) for use by frontend execution drivers like PythonModelRunner.
+
+    The generated function accepts the same input tuple as the forward function
+    plus a device argument. It moves each input tensor to the device with the
+    appropriate memory configuration, then calls the forward function.
+
+    Given a forward function after tuplification and input loading:
+
+    ```mlir
+    func.func @_main(%arg0: tuple<tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> { ... }
+    func.func @load_inputs_for__main() -> tuple<tensor<32x32xbf16>> { ... }
+    func.func @main() -> i32 { ... }
+    ```
+
+    The pass will add:
+
+    ```mlir
+    func.func @main_for_test(%arg0: tuple<tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : ...
+      %1 = "ttnn.to_device"(%0, %arg1) {memory_config = ...} : ...
+      %2 = ttcore.tuple %1 : ...
+      %3 = call @_main(%2) : ...
+      return %3 : ...
+    }
+    ```
+  }];
 }
 
 def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
@@ -371,13 +413,13 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
 }
 
 def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert weight tensors to a specified dtype in matmul and linear operations.";
+  let summary = "Convert weight tensors to a specified dtype in matmul, linear, and sparse_matmul operations.";
   let description = [{
-    This pass converts weight tensors in matrix multiplication and linear
-    operations to a specified data type while keeping activations and outputs
-    in high precision (bf16/f32).
+    This pass converts weight tensors in matrix multiplication, linear, and
+    sparse matrix multiplication operations to a specified data type while
+    keeping activations and outputs in high precision (bf16/f32).
 
-    For matmul/linear operations:
+    For matmul/linear/sparse_matmul operations:
       - Inserts ttnn.typecast operations to convert weights to the target dtype
       - Only converts weights that trace back to constant/parameter arguments
       - Keeps activation inputs and outputs in their original precision
@@ -575,6 +617,53 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   let description = [{
     This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
+}
+
+def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
+  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let description = [{
+    This pass uses Belady's optimal page replacement algorithm to enforce L1
+    memory budgets by spilling tensors to DRAM when necessary.
+  }];
+  let options = [
+    Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
+           "Enable decision trace JSON output.">,
+    Option<"decisionTraceDir", "decision-trace-dir", "std::string",
+           "\"ttrt-artifacts/decision_trace\"",
+           "Directory for decision trace JSON output.">,
+  ];
+}
+
+def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagation", "::mlir::ModuleOp"> {
+  let summary = "Greedy edge-based memory layout propagation for all operands.";
+  let description = [{
+    This pass performs edge-based layout propagation using a greedy algorithm
+    or beam search to find optimal tensor layouts across the module.
+  }];
+  let options = [
+    Option<"maxLegalLayouts", "max-legal-layouts", "int64_t", "64",
+           "Override maximum number of sharded layouts for legal layout analysis.">,
+    Option<"rowMajorEnabled", "row-major-enabled", "bool", "false",
+           "Enable row major layout generation in legal layout analysis.">,
+    Option<"beamWidth", "beam-width", "int64_t", "8",
+           "Beam width for layout propagation (1=greedy, >1=beam search).">,
+    Option<"enableL1ShardingLayouts", "enable-l1-sharding-layouts",
+           "bool", "true",
+           "Enable L1 sharding layouts. Disabled at opt-level 1.">,
+    Option<"maxInputCandidatesPerOperand", "max-input-candidates-per-operand",
+           "int64_t", "64",
+           "Maximum number of input candidates per operand before truncation.">,
+    Option<"maxReshardCandidates", "max-reshard-candidates",
+           "int64_t", "8",
+           "Maximum number of reshard candidates per tensor type.">,
+    Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
+           "Enable decision trace JSON output.">,
+    Option<"decisionTraceDir", "decision-trace-dir", "std::string",
+           "\"ttrt-artifacts/decision_trace\"",
+           "Directory for decision trace JSON output.">,
+    Option<"enableCompileTimeStats", "enable-compile-time-stats", "bool", "false",
+           "Print per-op compile-time statistics at DEBUG level.">,
+  ];
 }
 
 #endif

@@ -1225,7 +1225,8 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
   // Create a new RemoteStoreOp with bufferized operands and result
   mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
       rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
-      localBufferBufferized, /*cb=*/Value{});
+      localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
+      getSemaphore(), getSemaphoreIndices());
 
   return mlir::success();
 }
@@ -1602,6 +1603,46 @@ static mlir::OpFoldResult foldScalarIdentity(mlir::Operation *op,
   return nullptr;
 }
 
+// Shared implementation for D2M_GenericRegionComputeFPUOrSFPUBinary ops.
+// Returns the operand indices that need to be loaded from the dst register.
+// For FPU, we don't load from DST.
+// For SFPU (either via f32 operands or scalar operands) we load from DST.
+static SmallVector<int64_t>
+getOperandsLoadFromDstRegisterFPUOrSFPUBinary(Operation *op) {
+  assert(op->getNumOperands() == 2 && "Binary operation must have 2 operands");
+  auto lhsType = op->getOperand(0).getType();
+  auto rhsType = op->getOperand(1).getType();
+
+  // If either operand is a float32, use SFPU to maintain accuracy. Load both
+  // operands from DST.
+  if (mlir::tt::ttcore::getDataType(lhsType) ==
+          mlir::tt::ttcore::DataType::Float32 ||
+      mlir::tt::ttcore::getDataType(rhsType) ==
+          mlir::tt::ttcore::DataType::Float32) {
+    return {0, 1};
+  }
+
+  // If RHS is a scalar (not a tile), only load LHS from DST (SFPU path).
+  if (!mlir::isa<mlir::tt::ttcore::TileType>(rhsType)) {
+    return {0};
+  }
+  // Both operands are tiles (not float32) - FPU reads directly from CBs, no
+  // DST load needed.
+  return {};
+}
+
+SmallVector<int64_t> TileAddOp::getOperandsLoadFromDstRegister() {
+  return getOperandsLoadFromDstRegisterFPUOrSFPUBinary(getOperation());
+}
+
+SmallVector<int64_t> TileSubOp::getOperandsLoadFromDstRegister() {
+  return getOperandsLoadFromDstRegisterFPUOrSFPUBinary(getOperation());
+}
+
+SmallVector<int64_t> TileMulOp::getOperandsLoadFromDstRegister() {
+  return getOperandsLoadFromDstRegisterFPUOrSFPUBinary(getOperation());
+}
+
 mlir::OpFoldResult TileAddOp::fold(FoldAdaptor adaptor) {
   return foldScalarIdentity(getOperation(), adaptor.getRhs(),
                             [](auto v) { return v.isZero(); });
@@ -1795,6 +1836,15 @@ mlir::LogicalResult YieldOp::verify() {
   if (!generic || !generic.hasPureTensorSemantics()) {
     return emitOpError()
            << "used outside of generic op with pure tensor semantics";
+  }
+
+  return ::mlir::success();
+}
+mlir::LogicalResult SpatialYieldOp::verify() {
+  auto spatial = getOperation()->getParentOfType<SpatialOp>();
+  if (!spatial || !spatial.hasPureTensorSemantics()) {
+    return emitOpError()
+           << "used outside of spatial op with pure tensor semantics";
   }
 
   return ::mlir::success();

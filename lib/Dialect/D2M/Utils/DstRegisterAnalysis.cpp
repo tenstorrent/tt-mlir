@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -24,14 +23,20 @@ namespace {
 enum class DstExecutionClass { FPU, SFPU };
 
 static DstExecutionClass classifyComputeOp(Operation *op) {
-  if (mlir::isa<TileMatmulOp, TileReduceMaxOp, TileReduceSumOp>(op)) {
+  if (mlir::isa<TileMatmulOp, TileReduceMaxOp, TileReduceSumOp,
+                TileReduceMeanOp>(op)) {
     return DstExecutionClass::FPU;
   }
 
   if (mlir::isa<TileAddOp, TileSubOp, TileMulOp>(op)) {
     TT_assertv(op->getNumOperands() == 2u,
                "expected binary op for tile add/sub/mul");
+    Type lhsType = op->getOperand(0).getType();
     Type rhsType = op->getOperand(1).getType();
+    if (ttcore::getDataType(lhsType) == ttcore::DataType::Float32 ||
+        ttcore::getDataType(rhsType) == ttcore::DataType::Float32) {
+      return DstExecutionClass::SFPU;
+    }
     if (mlir::isa<ttcore::TileType>(rhsType)) {
       return DstExecutionClass::FPU;
     }
@@ -64,7 +69,9 @@ static DstExecutionClass classifyLinalgExecutionClass(linalg::GenericOp op) {
   return execClass;
 }
 
-static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
+static std::optional<int64_t>
+getMaxDstTilesForLinalgOp(linalg::GenericOp op,
+                          unsigned maxDstPhysicalSizeTiles) {
   TT_assertv(op.getOutputs().size() == 1u,
              "expected exactly one linalg.generic output");
   auto outputShapedType =
@@ -82,6 +89,10 @@ static std::optional<int64_t> getMaxDstTilesForLinalgOp(linalg::GenericOp op) {
   unsigned dstLogicalSizeTiles =
       ttcore::getOpChipDescAttr(op).getDstLogicalSizeTiles(
           tileType.getElementType());
+  if (maxDstPhysicalSizeTiles > 0) {
+    dstLogicalSizeTiles =
+        std::min(dstLogicalSizeTiles, maxDstPhysicalSizeTiles);
+  }
   int64_t maxDstTiles =
       classifyLinalgExecutionClass(op) == DstExecutionClass::FPU
           ? static_cast<int64_t>(dstLogicalSizeTiles)
@@ -144,7 +155,8 @@ struct PendingDSTPackingResult {
 
 static std::optional<DSTPackingRegionInfo>
 computeDSTPackingForRegion(d2m::GenericOp generic,
-                           ArrayRef<linalg::GenericOp> linalgOps) {
+                           ArrayRef<linalg::GenericOp> linalgOps,
+                           unsigned maxDstPhysicalSizeTiles) {
   DSTPackingRegionInfo results;
   SmallVector<PendingDSTPackingResult> pendingResults;
   SmallVector<int64_t> numDstFlipsPerOp;
@@ -173,7 +185,8 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     }
     sawMultiTileShard = true;
 
-    std::optional<int64_t> maxDstTiles = getMaxDstTilesForLinalgOp(linalgOp);
+    std::optional<int64_t> maxDstTiles =
+        getMaxDstTilesForLinalgOp(linalgOp, maxDstPhysicalSizeTiles);
     if (!maxDstTiles) {
       linalgOp.emitOpError("failed to compute max DST tile capacity");
       return std::nullopt;
@@ -199,14 +212,12 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     results.numTilesPerResult = 1;
     results.numOuterLoopIters = 1;
     for (Value outputValue : singleTileOutputValues) {
-      if (!results.perResult
-               .try_emplace(outputValue,
-                            DSTPackingPerResultInfo{/*numDstFlips=*/1,
-                                                    /*numTilesPerFlip=*/1})
-               .second) {
-        generic.emitOpError("expected unique linalg.generic output values");
-        return std::nullopt;
-      }
+      // Fused generics may have multiple linalg ops writing to the same output
+      // buffer (e.g., intermediate reuse after elementwise fusion). Skip
+      // duplicates since the packing info is identical for the same Value.
+      results.perResult.try_emplace(
+          outputValue, DSTPackingPerResultInfo{/*numDstFlips=*/1,
+                                               /*numTilesPerFlip=*/1});
     }
     return results;
   }
@@ -249,13 +260,18 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
       return std::nullopt;
     }
 
-    if (!results.perResult
-             .try_emplace(
-                 pending.outputValue,
-                 DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip})
-             .second) {
-      generic.emitOpError("expected unique linalg.generic output values");
-      return std::nullopt;
+    // Fused generics may have multiple linalg ops writing to the same output
+    // buffer with potentially different DST constraints. Keep the most
+    // restrictive (smallest numTilesPerFlip) to avoid DST overflow for ops
+    // that need more DST slots per tile (e.g., clamp uses binary_max +
+    // binary_min, consuming 2 DST slots per tile vs 1 for a plain SFPU op).
+    auto [perResultIt, inserted] = results.perResult.try_emplace(
+        pending.outputValue,
+        DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip});
+    if (!inserted &&
+        pending.numTilesPerFlip < perResultIt->second.numTilesPerFlip) {
+      perResultIt->second =
+          DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip};
     }
   }
 
@@ -278,7 +294,8 @@ const DSTPackingRegionInfo *DSTPackingInfo::lookup(Region *region) const {
   return &it->second;
 }
 
-DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
+DstRegisterAnalysis::DstRegisterAnalysis(Operation *op,
+                                         unsigned maxDstPhysicalSizeTiles) {
   op->walk([&](d2m::GenericOp generic) {
     if (!generic.isUnifiedForm()) {
       generic.emitOpError("expected unified form for DST packing analysis");
@@ -298,7 +315,8 @@ DstRegisterAnalysis::DstRegisterAnalysis(Operation *op) {
 
     for (const auto &[parentRegion, linalgOps] : linalgOpsByParentRegion) {
       std::optional<DSTPackingRegionInfo> regionPackingInfo =
-          computeDSTPackingForRegion(generic, linalgOps);
+          computeDSTPackingForRegion(generic, linalgOps,
+                                     maxDstPhysicalSizeTiles);
       if (!regionPackingInfo) {
         continue;
       }

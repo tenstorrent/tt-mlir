@@ -193,7 +193,7 @@ public:
         std::vector<TTNNLayoutAttr> inputLayouts =
             utils::extractInputLayouts(operation);
 
-        TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+        TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                      "Validating operation {} at {} with {} input layouts, "
                      "with {} output layouts, {} first output layout",
                      operation->getName(), operation->getLoc(),
@@ -205,7 +205,7 @@ public:
             op_constraint_validation::validateOperation(operation, inputLayouts,
                                                         configs[0]);
         if (originalResult.isNotImplemented()) {
-          TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+          TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                        "Operation {} at {} not supported for validation: {}",
                        operation->getName(), operation->getLoc(),
                        originalResult.errorMessage);
@@ -226,7 +226,7 @@ public:
               // Output layout mismatch - need to update the IR to match the
               // expected layout and insert necessary conversions back to the
               // expected layout.
-              TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+              TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                            "Operation {} at {} passed validation but output "
                            "layout index {} mismatch: expected output layout: "
                            "{}, backend output layout: {}",
@@ -243,7 +243,7 @@ public:
                 operation, inputLayouts, inputLayouts, originalResult, configs);
           } else {
             TTMLIR_TRACE(
-                ttmlir::LogComponent::OpValidation,
+                ttmlir::LogComponent::ValidationFallback,
                 "Operation {} at {} passed validation with original config",
                 operation->getName(), operation->getLoc());
           }
@@ -254,7 +254,7 @@ public:
           // ToLayout ops)
           if (originalResult.status ==
               op_constraint_validation::ValidationStatus::OutOfMemoryError) {
-            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+            TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                          "OOM error detected, trying config fallbacks first "
                          "for operation {} at {}",
                          operation->getName(), operation->getLoc());
@@ -275,7 +275,7 @@ public:
           if (!fixed && originalResult.status !=
                             op_constraint_validation::ValidationStatus::
                                 OutOfMemoryError) {
-            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+            TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                          "Trying config fallbacks for non-OOM error (status: "
                          "{}) at operation {} at {}",
                          op_constraint_validation::validationStatusToString(
@@ -287,7 +287,7 @@ public:
 
           if (fixed) {
             operationsFixed++;
-            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+            TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
           } else {
@@ -303,7 +303,7 @@ public:
     });
 
     // Log validation summary
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                  "Operation validation {}: {} operations checked{}, {} fixed",
                  validationFailed ? "FAILED" : "complete",
                  totalOperationsChecked,
@@ -380,14 +380,14 @@ bool tryFallbacks(Operation *operation,
   }
 
   if (originalInputLayouts.empty()) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                  "No TTNN input layouts found for operation {} at {}",
                  operation->getName(), operation->getLoc());
     return false;
   }
 
   TTMLIR_DEBUG(
-      ttmlir::LogComponent::OpValidation,
+      ttmlir::LogComponent::ValidationFallback,
       "Testing fallback combinations for operation {} at {} with {} operands",
       operation->getName(), operation->getLoc(), originalInputLayouts.size());
 
@@ -441,7 +441,7 @@ bool tryFallbacks(Operation *operation,
               return false;
             });
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                "Generated {} combinations, testing by distance",
                allCombinations.size());
 
@@ -455,14 +455,14 @@ bool tryFallbacks(Operation *operation,
 
     if (!result.isSuccess()) {
       failedAttempts++;
-      TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+      TTMLIR_TRACE(ttmlir::LogComponent::ValidationFallback,
                    "Combination failed (status: {}): {}",
                    static_cast<int>(result.status), result.errorMessage);
 
       // Check if we've exceeded the maximum attempts (if limit is set)
       if (maxAttempts > 0 &&
           failedAttempts >= static_cast<size_t>(maxAttempts)) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+        TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                      "Reached maximum fallback attempts ({}) for operation {} "
                      "at {}. Terminating early.",
                      maxAttempts, operation->getName(), operation->getLoc());
@@ -473,7 +473,7 @@ bool tryFallbacks(Operation *operation,
     // Found working solution, apply transformations
     applyFallbackTransformations(operation, originalInputLayouts,
                                  candidate.layouts, result, configs);
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                  "Found working fallback combination with {} operands after {} "
                  "failed attempts",
                  candidate.layouts.size(), failedAttempts);
@@ -527,9 +527,10 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // Define the 2 target layouts for fallbacks
   std::vector<Layout> targetLayouts = {Layout::RowMajor, Layout::Tile};
 
-  // Define the 2 buffer types for fallbacks
-  std::vector<BufferType> targetBufferTypes = {BufferType::DRAM,
-                                               BufferType::SystemMemory};
+  // Only DRAM for fallbacks. SystemMemory cannot be used as tt-metal allocator
+  // rejects it and asserts. Anyway, there should not be a need to fallback to
+  // system memory.
+  std::vector<BufferType> targetBufferTypes = {BufferType::DRAM};
 
   for (Layout targetLayout : targetLayouts) {
     for (ttcore::DataType targetDataType : targetDataTypes) {
@@ -570,7 +571,7 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   }
 
   TTMLIR_TRACE(
-      ttmlir::LogComponent::OpValidation,
+      ttmlir::LogComponent::ValidationFallback,
       "Generated {} unique fallback layouts from {} target combinations",
       fallbackLayoutsSet.size(),
       targetDataTypes.size() * targetLayouts.size() * targetBufferTypes.size());
@@ -833,7 +834,7 @@ void applyInputOperandChange(Operation *operation, size_t operandIndex,
   operation->setOperand(operandIndex, toLayoutOp.getResult());
 
   TTMLIR_DEBUG(
-      ttmlir::LogComponent::OpValidation,
+      ttmlir::LogComponent::ValidationFallback,
       "Applied input operand change for operation {} operand {}: "
       "layout {} -> {}, memory layout {} -> {}, buffer type {} -> {}, data "
       "type {} -> {}",
@@ -852,7 +853,7 @@ void applyInputOperandChange(Operation *operation, size_t operandIndex,
 void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
                              TTNNLayoutAttr actualOutputLayout,
                              TTNNLayoutAttr expectedOutputLayout) {
-  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                "Applying output layout revert for operation {} result {}: "
                "actual layout {}, expected layout {}",
                operation->getName(), resultIndex, actualOutputLayout,
@@ -878,7 +879,7 @@ void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
                                                            "_revert_layout"),
                        currentResultType, result, expectedOutputLayout);
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                "Inserted revert ToLayout op after operation {} to restore "
                "expected layout",
                operation->getName());
@@ -887,7 +888,7 @@ void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
   for (auto &use : uses) {
     Operation *useOp = use.first;
     useOp->setOperand(use.second, revertToLayoutOp.getResult());
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                  "Updated consumer {}@{} to use reverted layout",
                  useOp->getName(), useOp->getLoc());
   }
@@ -987,7 +988,7 @@ bool tryConfigFallbacks(Operation *operation,
               Conv2dConfigGenerator configGenerator(
                   &convOp, baseConfig, currentSearchSpace, filterOutFn);
 
-              TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+              TTMLIR_TRACE(ttmlir::LogComponent::ValidationFallback,
                            "Trying slice config: {} with {} act_block_h values",
                            stringifyEnum(sliceType),
                            currentSearchSpace.actBlockHOverride.size());
@@ -1008,7 +1009,7 @@ bool tryConfigFallbacks(Operation *operation,
                   workingConfig = configAttr;
                   workingResult = result;
                   TTMLIR_DEBUG(
-                      ttmlir::LogComponent::OpValidation,
+                      ttmlir::LogComponent::ValidationFallback,
                       "Found working config with slice type {} after {} "
                       "failed attempts",
                       stringifyEnum(sliceType), failedAttempts);
@@ -1016,7 +1017,7 @@ bool tryConfigFallbacks(Operation *operation,
                 }
 
                 failedAttempts++;
-                TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+                TTMLIR_TRACE(ttmlir::LogComponent::ValidationFallback,
                              "Config fallback failed (status: {}): {}",
                              static_cast<int>(result.status),
                              result.errorMessage);
@@ -1025,7 +1026,7 @@ bool tryConfigFallbacks(Operation *operation,
                 // set)
                 if (maxAttempts > 0 &&
                     failedAttempts >= static_cast<size_t>(maxAttempts)) {
-                  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                                "Reached maximum fallback attempts ({}) for "
                                "operation {} at {}. Terminating early.",
                                maxAttempts, operation->getName(),
@@ -1034,7 +1035,7 @@ bool tryConfigFallbacks(Operation *operation,
                 }
               }
             }
-            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+            TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                          "No working config found after {} failed attempts",
                          failedAttempts);
             return false;
@@ -1053,7 +1054,7 @@ bool tryConfigFallbacks(Operation *operation,
       applyOutputLayoutChange(operation, i, workingResult, configs[i]);
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                  "Found working config fallback for operation {} at {}",
                  operation->getName(), operation->getLoc());
     return true;
@@ -1071,7 +1072,7 @@ void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig) {
     convTranspose2dOp.setConv2dConfigAttr(newConfig);
   }
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                "Applied config change to operation {} at {}: new config = {}",
                operation->getName(), operation->getLoc(), newConfig);
 }

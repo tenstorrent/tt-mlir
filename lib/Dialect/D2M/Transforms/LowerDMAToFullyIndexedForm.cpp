@@ -4,18 +4,12 @@
 
 #include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/AffineMapUtils.h"
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -26,90 +20,11 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERDMATOFULLYINDEXEDFORM
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
-getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
-  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                 builder.getIndexAttr(0));
-  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                builder.getIndexAttr(1));
-  SmallVector<Value> lbs(shardShape.size(), zero);
-  SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
-    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                             builder.getIndexAttr(dim));
-  }));
-  SmallVector<Value> step(shardShape.size(), one);
-  return std::make_tuple(lbs, ubs, step);
-}
-
 static size_t getElementSizeBytes(MemRefType memref) {
   mlir::Type elementType = memref.getElementType();
   auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
   return tileType ? tileType.getSizeBytes()
                   : elementType.getIntOrFloatBitWidth() / 8;
-}
-
-static AffineMap canonicalStridedMap(MLIRContext *context,
-                                     ArrayRef<int64_t> shape, Type elementType,
-                                     AffineMap map) {
-  assert(map.isIdentity() && "Only identity maps are supported for now.");
-  auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
-  int64_t elementSizeBytes = tileType ? tileType.getSizeBytes()
-                                      : elementType.getIntOrFloatBitWidth() / 8;
-  int64_t currentStride = elementSizeBytes;
-  int64_t rank = shape.size();
-  mlir::AffineExpr strideExpr = mlir::getAffineConstantExpr(0, context);
-  for (int64_t i = rank - 1; i >= 0; i--) {
-    mlir::AffineExpr dim = mlir::getAffineDimExpr(i, context);
-    mlir::AffineExpr stride =
-        mlir::getAffineConstantExpr(currentStride, context);
-    strideExpr = dim * stride + strideExpr;
-    currentStride *= shape[i];
-  }
-  return mlir::AffineMap::get(shape.size(), 0, strideExpr, context);
-}
-
-static AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input,
-                              bool isRemote) {
-  if (isRemote) {
-    // d2m::utils::getMemoryMap handles view tracing (applyViews) and
-    // VGM lookup (getVirtualGridForwardMapping) internally.
-    return d2m::utils::getMemoryMap(device, input, /*pageSize=*/0);
-  }
-
-  // For local memrefs (including CB values), get the underlying memref type.
-  MemRefType inputType;
-  if (auto cbType = mlir::dyn_cast<CBType>(input.getType())) {
-    inputType = cbType.getUnderlyingAs<MemRefType>();
-  } else {
-    inputType = mlir::cast<MemRefType>(input.getType());
-  }
-  auto layoutMap = d2m::utils::resolveEffectiveAffineMap(input, inputType);
-  return canonicalStridedMap(device.getContext(), inputType.getShape(),
-                             inputType.getElementType(), layoutMap);
-}
-
-template <typename Builder>
-static SmallVector<Value> applyMap(Builder &builder, Location loc,
-                                   AffineMap map, ValueRange index,
-                                   bool isRemote) {
-  auto affineApply = [&](AffineMap map, ValueRange index) {
-    return builder.template create<affine::AffineApplyOp>(loc, map, index);
-  };
-
-  if (isRemote) {
-    assert(map.getNumResults() == 4);
-    // Break the map into respective gridY, gridX, offset "single result"
-    // parts. AffineApply only supports single result affine maps.
-    map = map.dropResults(0); // Drop the device index.
-    auto gridY = map.dropResults({1, 2});
-    auto gridX = map.dropResults({0, 2});
-    auto offset = map.dropResults({0, 1});
-    return {affineApply(gridY, index), affineApply(gridX, index),
-            affineApply(offset, index)};
-  }
-
-  assert(map.getNumResults() == 1);
-  return {affineApply(map, index)};
 }
 
 // Calculates coalescing factor using analytical method with sampling fallback.
@@ -200,7 +115,8 @@ static size_t calculateCoalescingFactorWithFallback(
 // generateFullyIndexedDMAOps to abstract over DMAReadOp vs DMAWriteOp creation.
 using CreateDMAOpFn = llvm::function_ref<Value(
     OpBuilder &builder, Location loc, SmallVector<Value> &remoteIndices,
-    SmallVector<Value> &localIndices, size_t coalescingFactor)>;
+    SmallVector<Value> &localIndices, size_t coalescingFactor,
+    SmallVector<Value> &startDevice, SmallVector<Value> &deviceMcastShape)>;
 
 // Generate fully-indexed DMA operations with proper coalescing.
 // Returns the last DMA transaction value (for waiting).
@@ -210,7 +126,8 @@ static Value generateFullyIndexedDMAOps(
     OpBuilder &builder, Location loc, SmallVector<Value> gridIndices,
     ArrayRef<int64_t> shardShape, AffineMap remoteMemoryMap,
     AffineMap localMemoryMap, size_t coalescingFactor, size_t shardVolume,
-    CreateDMAOpFn createDMAOp) {
+    SmallVector<Value> startDevice, SmallVector<Value> deviceMcastShape,
+    DMAType txType, CreateDMAOpFn createDMAOp) {
 
   if (coalescingFactor == shardVolume) {
     // Fully contiguous: single DMA operation.
@@ -225,16 +142,17 @@ static Value generateFullyIndexedDMAOps(
     }
 
     remoteIndices =
-        applyMap(builder, loc, remoteMemoryMap, remoteIndices, true);
-    localIndices = applyMap(builder, loc, localMemoryMap, localIndices, false);
+        utils::applyMap(builder, loc, remoteMemoryMap, remoteIndices, true);
+    localIndices =
+        utils::applyMap(builder, loc, localMemoryMap, localIndices, false);
 
     return createDMAOp(builder, loc, remoteIndices, localIndices,
-                       coalescingFactor);
+                       coalescingFactor, startDevice, deviceMcastShape);
   }
 
   // Strided/non-contiguous: generate loops with guarded DMAs.
-  auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
-  auto nullDmaTx = builder.create<NullTxOp>(loc);
+  auto [lbs, ubs, steps] = utils::getLoopBounds(builder, loc, shardShape);
+  auto nullDmaTx = builder.create<NullTxOp>(loc, txType);
 
   scf::LoopNest loopNest = scf::buildLoopNest(
       builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
@@ -246,10 +164,10 @@ static Value generateFullyIndexedDMAOps(
         SmallVector<Value> localIndices = llvm::to_vector(iters);
 
         // Apply memory maps.
-        remoteIndices = applyMap(loopBuilder, innerLoc, remoteMemoryMap,
-                                 remoteIndices, true);
-        localIndices = applyMap(loopBuilder, innerLoc, localMemoryMap,
-                                localIndices, false);
+        remoteIndices = utils::applyMap(loopBuilder, innerLoc, remoteMemoryMap,
+                                        remoteIndices, true);
+        localIndices = utils::applyMap(loopBuilder, innerLoc, localMemoryMap,
+                                       localIndices, false);
 
         // Create guarded DMA operation based on coalescing factor.
         Value cfExpr = loopBuilder.create<arith::ConstantOp>(
@@ -282,7 +200,7 @@ static Value generateFullyIndexedDMAOps(
         auto predicate = loopBuilder.create<arith::CmpIOp>(
             innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
 
-        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc);
+        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc, txType);
 
         // Build guarded DMA.
         auto ifExpr = loopBuilder.create<scf::IfOp>(
@@ -290,8 +208,9 @@ static Value generateFullyIndexedDMAOps(
             true /*addThenBlock*/, true /*addElseBlock*/);
 
         auto thenBuilder = ifExpr.getThenBodyBuilder();
-        Value dmaTx = createDMAOp(thenBuilder, innerLoc, remoteIndices,
-                                  localIndices, coalescingFactor);
+        Value dmaTx =
+            createDMAOp(thenBuilder, innerLoc, remoteIndices, localIndices,
+                        coalescingFactor, startDevice, deviceMcastShape);
         thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
         auto elseBuilder = ifExpr.getElseBodyBuilder();
@@ -340,8 +259,8 @@ public:
     ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(remoteShapedType);
 
     ttcore::DeviceAttr device = ttcore::lookupDevice(op);
-    AffineMap remoteMemoryMap = getMemoryMap(device, remoteMemref, true);
-    AffineMap localMemoryMap = getMemoryMap(device, localMemref, false);
+    AffineMap remoteMemoryMap = utils::getMemoryMap(device, remoteMemref, true);
+    AffineMap localMemoryMap = utils::getMemoryMap(device, localMemref, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
     size_t coalescingFactor = calculateCoalescingFactorWithFallback(
@@ -353,9 +272,12 @@ public:
 
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
-        coalescingFactor, shardVolume,
+        coalescingFactor, shardVolume, /*startDevice=*/ValueRange(),
+        /*deviceMcastShape=*/ValueRange(), DMAType::Read,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
-            SmallVector<Value> &localIdx, size_t cf) {
+            SmallVector<Value> &localIdx, size_t cf,
+            SmallVector<Value> &startDevice,
+            SmallVector<Value> &deviceMcastShape) {
           return b.create<DMAReadOp>(l, remoteMemref, remoteIdx, localMemref,
                                      localIdx, b.getI64IntegerAttr(cf));
         });
@@ -391,7 +313,8 @@ public:
     if (op.isMcast()) {
       // Mcast write: local-to-local, compute local memory map and apply to
       // zero indices to get the fully-indexed form.
-      AffineMap localMemoryMap = getMemoryMap(device, localMemref, false);
+      AffineMap localMemoryMap =
+          utils::getMemoryMap(device, localMemref, false);
 
       MemRefType localType = op.getSrcMemRefType();
       ArrayRef<int64_t> shardShape = localType.getShape();
@@ -404,7 +327,7 @@ public:
         localIndices.push_back(zero);
       }
       localIndices =
-          applyMap(rewriter, loc, localMemoryMap, localIndices, false);
+          utils::applyMap(rewriter, loc, localMemoryMap, localIndices, false);
 
       Value newTx = rewriter.create<DMAWriteOp>(
           loc, localMemref, localIndices, dstMemref, localIndices,
@@ -427,8 +350,8 @@ public:
     ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(remoteShapedType);
     ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(remoteShapedType);
 
-    AffineMap remoteMemoryMap = getMemoryMap(device, dstMemref, true);
-    AffineMap localMemoryMap = getMemoryMap(device, localMemref, false);
+    AffineMap remoteMemoryMap = utils::getMemoryMap(device, dstMemref, true);
+    AffineMap localMemoryMap = utils::getMemoryMap(device, localMemref, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
     size_t coalescingFactor = calculateCoalescingFactorWithFallback(
@@ -437,14 +360,20 @@ public:
 
     size_t shardVolume = ttmlir::utils::volume(shardShape);
     SmallVector<Value> gridIndices(op.getDstIndices());
+    SmallVector<Value> startDevice(op.getStartDevice());
+    SmallVector<Value> deviceMcastShape(op.getDeviceMcastShape());
 
     Value newTx = generateFullyIndexedDMAOps(
         rewriter, loc, gridIndices, shardShape, remoteMemoryMap, localMemoryMap,
-        coalescingFactor, shardVolume,
+        coalescingFactor, shardVolume, startDevice, deviceMcastShape,
+        DMAType::Write,
         [&](OpBuilder &b, Location l, SmallVector<Value> &remoteIdx,
-            SmallVector<Value> &localIdx, size_t cf) {
+            SmallVector<Value> &localIdx, size_t cf,
+            SmallVector<Value> &startDevice,
+            SmallVector<Value> &deviceMcastShape) {
           return b.create<DMAWriteOp>(l, localMemref, localIdx, dstMemref,
-                                      remoteIdx, cf);
+                                      remoteIdx, cf, startDevice,
+                                      deviceMcastShape);
         });
 
     rewriter.replaceOp(op, newTx);

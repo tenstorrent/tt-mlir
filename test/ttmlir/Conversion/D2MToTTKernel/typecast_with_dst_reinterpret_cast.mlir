@@ -10,8 +10,8 @@ module {
 
   // CHECK-LABEL: func.func @test_typecast_f32_to_bf16
   func.func @test_typecast_f32_to_bf16() attributes {d2m.thread = #d2m.thread<compute>} {
-    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x8x!ttcore.tile<32x32, bf16>, #l1_>>
+    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, bf16>, #l1_>>
     %arg0 = d2m.wait %cb0 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x8x!ttcore.tile<32x32, f32>, #l1_>
     %arg1 = d2m.reserve %cb1 : !d2m.cb<memref<1x8x!ttcore.tile<32x32, bf16>, #l1_>> -> memref<1x8x!ttcore.tile<32x32, bf16>, #l1_>
     %c0 = arith.constant 0 : index

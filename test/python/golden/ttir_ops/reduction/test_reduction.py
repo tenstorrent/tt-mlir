@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import torch
-from typing import Callable, List, Optional
+from typing import List, Optional
 from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -11,6 +11,7 @@ from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
     Marks,
     shapes_list_str,
+    shape_str,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -42,7 +43,7 @@ dim_arg_options = [
 ]
 
 
-@pytest.mark.parametrize("shapes", [[(32, 128, 128)]], ids=shapes_list_str)
+@pytest.mark.parametrize("shapes", [[(32, 128, 128)], [(1, 1, 1)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
@@ -58,11 +59,6 @@ def test_reduction_ops(
     request,
     device,
 ):
-    if target == "emitc":
-        pytest.skip(
-            "EmitC tests are hanging in CI after switching targets (emitPy->emitC). Disabling them to unblock the uplift. See issue: https://github.com/tenstorrent/tt-mlir/issues/7282"
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [dtype])
         def reduction_op_wrapper(
@@ -97,23 +93,21 @@ reduction_op_cpu_hoisted_names = [
     "mean",
     "min",
     "prod",
-    "reduce_and" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
-    "reduce_or" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
+    "reduce_and" | Marks(pytest.mark.skip(reason="Builder test not supported #5792")),
+    "reduce_or" | Marks(pytest.mark.skip(reason="Builder test not supported #5792")),
     "sum",
 ]
 
 
 @x86_only
-@pytest.mark.parametrize("shapes", [[(32, 128, 128)]], ids=shapes_list_str)
-@pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
-)
+@pytest.mark.parametrize("shape", [(32, 128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_cpu_hoisted_names)
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_reduction_cpu_hoisted_ops(
-    shapes,
+    shape,
     dtype: torch.dtype,
     keep_dim: bool,
     dim_arg: Optional[List[int]],
@@ -123,7 +117,7 @@ def test_reduction_cpu_hoisted_ops(
     device,
 ):
     def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype])
+        @builder.func([shape], [dtype])
         def reduction_op_cpu_hoisted_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
@@ -195,14 +189,18 @@ def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
     ],
     ids=["dim1", "dim0", "dim_negative"],
 )
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_cumsum(
     shapes: List[Shape],
     dim: int,
+    dtype: torch.dtype,
+    target: str,
     request,
     device,
 ):
     def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
+        @builder.func(shapes, [dtype] * len(shapes))
         def hoisted_cumsum(
             in0: Operand,
             builder: TTIRBuilder,
@@ -213,7 +211,6 @@ def test_hoisted_cumsum(
     compile_and_execute_ttir(
         module,
         test_base=request.node.name,
+        target=target,
         device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )

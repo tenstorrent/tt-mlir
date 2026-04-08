@@ -21,7 +21,7 @@
 
 namespace mlir::tt::ttnn::optimizer_utils {
 
-AffineMap createSingleDeviceVirtualToPhysicalAffineMap(
+std::pair<AffineMap, AffineMap> createSingleDeviceVirtualToPhysicalAffineMaps(
     MLIRContext *context,
     const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
     const llvm::ArrayRef<int64_t> physicalGridShape) {
@@ -31,37 +31,57 @@ AffineMap createSingleDeviceVirtualToPhysicalAffineMap(
   switch (tensorMemoryLayout) {
   case mlir::tt::ttnn::TensorMemoryLayout::WidthSharded: {
     // Create affine map that maps width sharded virtual grid 1xN to the
-    // physical grid gridShape[0] x gridShape[1]
+    // physical grid gridShape[0] x gridShape[1] and the inverse.
     AffineExpr virtualWidth = mlir::getAffineDimExpr(1, context); // d1
     AffineExpr workerCoreW =
         mlir::getAffineConstantExpr(physicalGridShape[1], context);
-    AffineMap widthMap = mlir::AffineMap::get(
+    AffineMap virtToPhysicalMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0,
         {workerDeviceIdx, virtualWidth.floorDiv(workerCoreW),
          virtualWidth % workerCoreW},
         context);
-    return widthMap;
+    AffineExpr physicalY = mlir::getAffineDimExpr(1, context); // d1
+    AffineExpr physicalX = mlir::getAffineDimExpr(2, context); // d2
+    AffineMap physicalToVirtMap = mlir::AffineMap::get(
+        /*dimCount=*/3, /*symbolCount=*/0,
+        {mlir::getAffineConstantExpr(0, context),
+         physicalY * workerCoreW + physicalX},
+        context);
+    return {virtToPhysicalMap, physicalToVirtMap};
   }
   case mlir::tt::ttnn::TensorMemoryLayout::HeightSharded: {
     // Create affine map that maps height sharded virtual grid Mx1 to the
-    // physical grid gridShape[0] x gridShape[1]
+    // physical grid gridShape[0] x gridShape[1] and the inverse.
     AffineExpr virtualHeight = mlir::getAffineDimExpr(0, context); // d0
     AffineExpr workerCoreW =
         mlir::getAffineConstantExpr(physicalGridShape[1], context);
-    AffineMap heightMap = mlir::AffineMap::get(
+    AffineMap virtToPhysicalMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0,
         {workerDeviceIdx, virtualHeight.floorDiv(workerCoreW),
          virtualHeight % workerCoreW},
         context);
-    return heightMap;
+
+    AffineExpr physicalY = mlir::getAffineDimExpr(1, context); // d1
+    AffineExpr physicalX = mlir::getAffineDimExpr(2, context); // d2
+    AffineMap physicalToVirtMap = mlir::AffineMap::get(
+        /*dimCount=*/3, /*symbolCount=*/0,
+        {physicalY * workerCoreW + physicalX,
+         mlir::getAffineConstantExpr(0, context)},
+        context);
+    return {virtToPhysicalMap, physicalToVirtMap};
   }
   default:
   case mlir::tt::ttnn::TensorMemoryLayout::BlockSharded: {
     AffineExpr d0 = mlir::getAffineDimExpr(0, context); // d0
     AffineExpr d1 = mlir::getAffineDimExpr(1, context); // d1
-    AffineMap blockMap = mlir::AffineMap::get(
+    AffineMap virtToPhysicalMap = mlir::AffineMap::get(
         /*dimCount=*/2, /*symbolCount=*/0, {workerDeviceIdx, d0, d1}, context);
-    return blockMap;
+
+    AffineExpr physicalY = mlir::getAffineDimExpr(1, context); // d1
+    AffineExpr physicalX = mlir::getAffineDimExpr(2, context); // d2
+    AffineMap physicalToVirtMap = mlir::AffineMap::get(
+        /*dimCount=*/3, /*symbolCount=*/0, {physicalY, physicalX}, context);
+    return {virtToPhysicalMap, physicalToVirtMap};
   }
   }
 }
@@ -97,33 +117,47 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
     }
   };
 
-  // Build map from BufferMemLayoutKey to representative layout with
-  // ignorePhysicalLayout.
-  std::unordered_map<BufferMemLayoutKey, TTNNLayoutAttr, BufferMemLayoutKeyHash>
-      layoutKeyToAttr;
+  // For each unique (bufferType, memLayout), collect:
+  //   - A representative partial layout (with ignorePhysicalLayout=true)
+  //   - The unique opSpecificAttrs from configs with that same memLayout
+  //
+  // MatmulProgramConfig depends on the tensor memory layout type
+  // (width_sharded uses mcast_in0=true, height_sharded uses mcast_in0=false,
+  // block_sharded uses a 2D config). Pairing a program config generated for
+  // one memLayout type with a different memLayout would produce invalid
+  // configs.
+  struct LayoutGroup {
+    TTNNLayoutAttr partialLayout;
+    std::vector<OpConfig::OpSpecificAttrs> uniqueAttrs;
+    llvm::DenseSet<OpConfig::OpSpecificAttrs> seenAttrs;
+  };
 
-  // Collect unique (bufferType, memLayout) pairs and build the map in one pass.
+  std::unordered_map<BufferMemLayoutKey, LayoutGroup, BufferMemLayoutKeyHash>
+      groups;
+
   for (const OpConfig &config : consumerConfigs) {
     assert(config.outputLayout &&
            "Matmul/Linear configs must have valid output layout");
 
     BufferMemLayoutKey key{config.outputLayout.getBufferType(),
                            config.outputLayout.getMemLayout().getValue()};
-    if (layoutKeyToAttr.find(key) == layoutKeyToAttr.end()) {
+
+    auto &group = groups[key];
+    if (!group.partialLayout) {
       TTNNLayoutAttr layout = config.outputLayout;
-      layoutKeyToAttr[key] = layout.withIgnorePhysicalLayout(true);
+      group.partialLayout = layout.withIgnorePhysicalLayout(true);
+    }
+    if (group.seenAttrs.insert(config.opSpecificAttrs).second) {
+      group.uniqueAttrs.push_back(config.opSpecificAttrs);
     }
   }
 
-  // Collect unique op-specific attrs.
-  std::vector<OpConfig::OpSpecificAttrs> opAttrs =
-      getUniqueOpSpecificAttrs(consumerConfigs);
-
-  // Generate Cartesian product.
+  // Build test configs: each partial layout is paired only with
+  // opSpecificAttrs from configs of the same (bufferType, memLayout) group.
   llvm::SmallVector<OpConfig> testConfigs;
-  for (const auto &[layoutKey, partialLayout] : layoutKeyToAttr) {
-    for (const OpConfig::OpSpecificAttrs &attrs : opAttrs) {
-      testConfigs.push_back(OpConfig(partialLayout, attrs));
+  for (const auto &[layoutKey, group] : groups) {
+    for (const OpConfig::OpSpecificAttrs &attrs : group.uniqueAttrs) {
+      testConfigs.push_back(OpConfig(group.partialLayout, attrs));
     }
   }
 

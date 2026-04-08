@@ -6,6 +6,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -24,17 +25,21 @@ getTraceCacheKeys(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                                    op->execute_program_id())};
 }
 
-static void copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
-                       const ::ttnn::Tensor &srcTensor,
-                       ::ttnn::Tensor &dstTensor) {
+static void copyTensorFromHostToDevice(const ::ttnn::Tensor &srcTensor,
+                                       ::ttnn::Tensor &dstTensor) {
 
-  if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
-    ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
-    return;
-  }
+  LOG_ASSERT(srcTensor.storage_type() == ::ttnn::StorageType::HOST &&
+                 dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
+             "srcTensor must be on host and dstTensor must be on device");
 
-  LOG_ASSERT(::tt::runtime::workaround::Env::get().traceImplicitFromDevice,
-             "traceImplicitFromDevice workaround must be enabled.");
+  ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
+}
+
+static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
+                                         ::ttnn::Tensor &dstTensor) {
+  LOG_ASSERT(srcTensor.storage_type() == ::ttnn::StorageType::DEVICE &&
+                 dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
+             "srcTensor must be on device and dstTensor must be on device");
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
   ::tt::tt_metal::tensor_impl::copy_to_device(hostSrcTensor, dstTensor);
 }
@@ -113,10 +118,11 @@ static void runTraceProgramAndCaptureTrace(
   }
 
   TraceData traceData{.traceId = meshTraceId,
-                      .inputTensors = inputSlots,
-                      .outputTensors = outputSlots};
+                      .inputTensors = std::move(inputSlots),
+                      .outputTensors = std::move(outputSlots),
+                      .generationId = traceCache.getGenerationId()};
   auto [mainProgramKey, captureExecuteKey] = getTraceCacheKeys(op, context);
-  traceCache.insert(mainProgramKey, captureExecuteKey, traceData);
+  traceCache.insert(mainProgramKey, captureExecuteKey, std::move(traceData));
 }
 
 static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
@@ -140,16 +146,32 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
         traceData.inputTensors[i].as<::tt::runtime::ttnn::TTNNTensorWrapper>(
             DeviceRuntime::TTNN);
 
-    // If the input tensor versions match (i.e. has been constant since the
-    // previous trace) then we can skip the copy
-    // TODO (#3606): We should model this in the compiler somehow. Currently
-    // it's done implicitly by the runtime.
+    // Constants/parameters and KV cache tensors live on device and persist
+    // across trace executions, so their versions are expected to match.
+    // Regular inputs live on host and change between executions, so a version
+    // mismatch is the expected case — we copy them from host to device below.
     if (inputTensorWrapper.getVersion() == inputSlotWrapper.getVersion()) {
       continue;
     }
 
-    copyTensor(input, inputTensorWrapper.getTensor(),
-               inputSlotWrapper.getTensor());
+    if (input->desc()->layout()->memory_desc()->storage_type() ==
+        ::tt::target::ttnn::StorageType::Device) {
+      // Device-resident tensors (constants/parameters/KV cache) can be
+      // legitimately updated by the user (e.g. weight updates during
+      // training). This is handled by copying the new device tensor into the
+      // trace input slot on device.
+      LOG_DEBUG("Device-resident tensor version changed "
+                "(constant/parameter or KV cache). Input index: ",
+                i, ", expected version: ", inputSlotWrapper.getVersion());
+      copyTensorFromDeviceToDevice(inputTensorWrapper.getTensor(),
+                                   inputSlotWrapper.getTensor());
+    } else {
+      // Regular inputs reside on host and are copied into their trace input
+      // slots on device. A version mismatch is expected here since the host
+      // tensor can change.
+      copyTensorFromHostToDevice(inputTensorWrapper.getTensor(),
+                                 inputSlotWrapper.getTensor());
+    }
 
     // Input slot will now contain identical data as the input tensor
     // Thus we can synchronize their versions
@@ -193,6 +215,7 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   if (!traceCache->contains(mainProgramKey, captureExecuteKey)) {
     LOG_DEBUG("Trace cache miss, running program and capturing trace");
+    traceCache->incrementGeneration();
     runTraceProgramAndCaptureTrace(op, context, *traceCache);
     debug::Stats::get().incrementStat("TraceCacheMiss");
     debug::Stats::get().incrementStat("CapturedTrace");
@@ -201,6 +224,28 @@ void run(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
 
   TraceData *traceData = traceCache->get(mainProgramKey, captureExecuteKey);
   LOG_ASSERT(traceData, "TraceData must be populated in TraceCache");
+
+  // Check if the trace is stale by comparing the generation id of the trace
+  // with the current generation id of the cache.
+  //
+  // If the trace is stale, that means that we have new allocations on the
+  // device since the trace was captured, so we need to re-capture it again.
+  // Otherwise, we would possibly be overwriting new allocations when replaying
+  // (executing) the stale trace.
+  if (traceData->generationId < traceCache->getGenerationId()) {
+    LOG_DEBUG("Trace is stale (captured at gen ", traceData->generationId,
+              ", current gen ", traceCache->getGenerationId(),
+              "), invalidating and recapturing");
+
+    // Remove the stale trace from the cache and recapture it.
+    traceCache->erase(mainProgramKey, captureExecuteKey);
+    runTraceProgramAndCaptureTrace(op, context, *traceCache);
+
+    debug::Stats::get().incrementStat("TraceCacheMiss");
+    debug::Stats::get().incrementStat("TraceStaleRecapture");
+    return;
+  }
+
   LOG_DEBUG("Trace cache hit, executing trace directly");
   executeTrace(op, context, *traceData);
   debug::Stats::get().incrementStat("ExecutedTrace");
