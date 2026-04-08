@@ -171,6 +171,20 @@ void ProgramExecutor::runCallback(
   }
 }
 
+void ProgramExecutor::runPostExecutionCallback(
+    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
+    ProgramContext *programContext) {
+  if (callback) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafeBorrowShared(programContext);
+    // For post-execution callback, we pass a null opContext
+    std::shared_ptr<void> opContextPtr = nullptr;
+    (*callback)(executableHandle,
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                OpContext(opContextPtr, DeviceRuntime::TTNN));
+  }
+}
+
 void ProgramExecutor::execute() {
   ZoneScopedN("program_execute");
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
@@ -195,6 +209,8 @@ void ProgramExecutor::execute() {
                 op, context.get());
     dumpPerfCountersIfNeeded();
   }
+  runPostExecutionCallback(debug::Hooks::get().getPostExecutionCallback(),
+                           executableHandle, context.get());
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }

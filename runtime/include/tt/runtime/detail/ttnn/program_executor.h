@@ -36,6 +36,13 @@ public:
               ProgramContext *programContext);
 
   /**
+   * Executes post execution callback if registered
+   */
+  void runPostExecutionCallback(
+      std::optional<::tt::runtime::debug::Hooks::CallbackFn> callback,
+      Binary &executableHandle, ProgramContext *programContext);
+
+  /**
    * Executes all operations in the program
    */
   void execute();

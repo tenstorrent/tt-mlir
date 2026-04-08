@@ -600,6 +600,14 @@ def post_op_get_callback_fn(callback_runtime_config):
     return partial(post_op_callback, callback_runtime_config)
 
 
+def post_exec_callback(callback_runtime_config, binary, program_context, op_context):
+    pass
+
+
+def post_exec_get_callback_fn(callback_runtime_config):
+    return partial(post_exec_callback, callback_runtime_config)
+
+
 def convert_golden_intermediates_to_torch(
     goldens: Dict[str, Dict[int, GoldenMapTensor]],
 ) -> Dict[str, Dict[int, torch.Tensor]]:
@@ -723,6 +731,7 @@ def execute_fb(
         tt_runtime.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
             post_op_get_callback_fn(callback_runtime_config),
+            post_exec_get_callback_fn(callback_runtime_config),
         )
 
     for program_index in program_indices:

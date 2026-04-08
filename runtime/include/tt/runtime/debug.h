@@ -79,7 +79,8 @@ struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static const Hooks &
   get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
-      std::optional<CallbackFn> postOperatorCallback = std::nullopt);
+      std::optional<CallbackFn> postOperatorCallback = std::nullopt,
+      std::optional<CallbackFn> postExecutionCallback = std::nullopt);
 #else
   constexpr static Hooks get() { return Hooks(); }
 #endif
@@ -100,22 +101,34 @@ struct Hooks {
 #endif
   }
 
+  std::optional<CallbackFn> getPostExecutionCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return postExecutionCallback;
+#else
+    return std::nullopt;
+#endif
+  }
+
   void unregisterHooks() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     preOperatorCallback = std::nullopt;
     postOperatorCallback = std::nullopt;
+    postExecutionCallback = std::nullopt;
 #endif
   }
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   Hooks(std::optional<CallbackFn> preOperatorCallback,
-        std::optional<CallbackFn> postOperatorCallback)
+        std::optional<CallbackFn> postOperatorCallback,
+        std::optional<CallbackFn> postExecutionCallback)
       : preOperatorCallback(preOperatorCallback),
-        postOperatorCallback(postOperatorCallback) {}
+        postOperatorCallback(postOperatorCallback),
+        postExecutionCallback(postExecutionCallback) {}
 
   mutable std::optional<CallbackFn> preOperatorCallback;
   mutable std::optional<CallbackFn> postOperatorCallback;
+  mutable std::optional<CallbackFn> postExecutionCallback;
 
 #else
   constexpr Hooks() = default;
