@@ -55,12 +55,9 @@ jobs:
           LABELS: community
       - name: Send Notification
         if: ${{ steps.is_organization_member.outputs.is_member == 'false' }}
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@v3.0.1
         with:
+          webhook: ${{ secrets.SLACK_CHANNEL_WEBHOOK_URL }}
+          webhook-type: webhook-trigger
           payload: |
-            {
-              "text": "A new ${{ steps.set-variables.outputs.EVENT_TYPE }} has been created by a non-org member `${{ steps.set-variables.outputs.USERNAME }}`: ${{ steps.set-variables.outputs.EVENT_URL }}",
-              "channel": "C07R5GYEW8J"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_CHANNEL_WEBHOOK_URL }}
+            text: "A new ${{ steps.set-variables.outputs.EVENT_TYPE }} has been created by a non-org member `${{ steps.set-variables.outputs.USERNAME }}`: ${{ steps.set-variables.outputs.EVENT_URL }}"

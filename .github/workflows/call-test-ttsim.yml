@@ -78,7 +78,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download ttrt run wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: ttrt-whl-${{ inputs.build_image_name }}
 
@@ -96,12 +96,10 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download TTSim binary
-        uses: robinraju/release-downloader@daf26c55d821e836577a15f77d86ddc078948b05 # v1.12
-        with:
-          repository: tenstorrent/ttsim
-          tag: ${{ inputs.ttsim-version }}
-          fileName: ${{ matrix.ttsim_asset }}
-          out-file-path: /tmp/ttsim
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download ${{ inputs.ttsim-version }} --pattern "${{ matrix.ttsim_asset }}" -R tenstorrent/ttsim -D /tmp/ttsim
 
       - name: Install TTSim
         run: |
@@ -177,7 +175,7 @@ jobs:
 
       - name: Upload TTSim test report xml
         if: success() || failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports-ttsim-${{ matrix.arch }}
           path: test_reports
@@ -186,7 +184,7 @@ jobs:
       - name: Show TTSim test report
         continue-on-error: true
         if: success() || failure()
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@v6
         with:
           report_paths: test_reports/ttsim_*.xml
           check_name: TTSim golden tests (${{ matrix.arch }})
