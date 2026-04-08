@@ -292,9 +292,11 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 
-  // Run lowering to LLVM pass.
-  ttir::TTIRToLLVMCPUPipelineOptions ttirToCPUOptions;
-  ttir::createTTIRToLLVMCPUPipeline(pm, ttirToCPUOptions);
+  // Run pipeline for lowering the CPU module to LLVM.
+  OpPassManager &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+  ttir::SHLOAndTTIRToLLVMPipelineOptions cpuOptions;
+  ttir::createSHLOAndTTIRToLLVMPipeline(cpuPm, cpuOptions);
 }
 
 //===----------------------------------------------------------------------===//

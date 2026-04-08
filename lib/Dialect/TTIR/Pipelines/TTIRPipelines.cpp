@@ -272,43 +272,40 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   }
 }
 
-void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
-                                 const TTIRToLLVMCPUPipelineOptions &options) {
-
-  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
-
+void createSHLOAndTTIRToLLVMPipeline(
+    OpPassManager &pm, const SHLOAndTTIRToLLVMPipelineOptions &options) {
 #ifdef TTMLIR_ENABLE_STABLEHLO
   // Directly convert any hoisted SHLO ops into linalg ops.
-  cpuPm.addPass(::mlir::stablehlo::createStablehloLegalizeToLinalgPass());
+  pm.addPass(::mlir::stablehlo::createStablehloLegalizeToLinalgPass());
 #endif
 
   // Decomp TTIR to reduce number of conversions we need to support in
   // Linalg/Tosa.
   mlir::tt::TTIRToTTIRDecompositionOptions decompOptions;
   decompOptions.decompConfig = mlir::tt::DecompMode::CPUFallback;
-  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
+  pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
-  cpuPm.addPass(mlir::createCanonicalizerPass());
-  cpuPm.addPass(mlir::createCSEPass());
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(mlir::createCSEPass());
 
   // Narrow boolean-producing ops back to i1. ElementTypeNormalization widens
   // i1 → bf16 for hardware, but CPUs handle i1 natively.
-  cpuPm.addPass(ttir::createTTIRCPUBooleanNarrowing());
+  pm.addPass(ttir::createTTIRCPUBooleanNarrowing());
 
   // Lower TTIR to mix of linalg direct, TOSA (which we can subsequently lower
   // to linalg), and Tensor dialect ops.
-  cpuPm.addPass(createConvertTTIRToLinalgPass());
+  pm.addPass(createConvertTTIRToLinalgPass());
 
   // Lower Tosa to linalg/tensor/arith, which we can lower to LLVM.
   TosaToLinalgOptions tosaToLinalgOptions;
   tosaToLinalgOptions.aggressiveReduceConstant = true;
-  tosa::addTosaToLinalgPasses(cpuPm, tosaToLinalgOptions, {}, {});
+  tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, {}, {});
   // Add tosa-to-tensor/arith passes to handle tosa.const operations
-  cpuPm.addPass(createTosaToTensorPass());
-  cpuPm.addPass(createTosaToArithPass());
+  pm.addPass(createTosaToTensorPass());
+  pm.addPass(createTosaToArithPass());
 
-  ttir::createLinalgToLLVMPipeline(cpuPm, options);
-  cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
+  ttir::createLinalgToLLVMPipeline(pm, options);
+  pm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
 }
 
 //===----------------------------------------------------------------------===//
