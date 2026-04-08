@@ -37,10 +37,6 @@ static bool isSupportedScalarType(Type type) {
 static void rewriteOperand(IRRewriter &rewriter, DMAOpInterface dma,
                            OpOperand &dmaOperand, unsigned operandIndex) {
   MemRefType memref = mlir::cast<MemRefType>(dmaOperand.get().getType());
-  if (dmaOperand.get().getDefiningOp()) {
-    std::tie(memref, std::ignore) =
-        applyViews(dmaOperand.get().getDefiningOp());
-  }
   rewriter.setInsertionPoint(dma);
   Operation *buf = rewriter.create<GetArgOp>(
       dma.getLoc(), memref, operandIndex,
