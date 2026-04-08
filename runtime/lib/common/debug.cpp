@@ -24,14 +24,18 @@ const Env &Env::get(bool dumpKernels, bool loadKernels,
 const Hooks &
 Hooks::get(std::optional<debug::Hooks::CallbackFn> preOperatorCallback,
            std::optional<debug::Hooks::CallbackFn> postOperatorCallback,
+           std::optional<debug::Hooks::CallbackFn> preExecutionCallback,
            std::optional<debug::Hooks::CallbackFn> postExecutionCallback) {
   static Hooks config(preOperatorCallback, postOperatorCallback,
-                      postExecutionCallback);
+                      preExecutionCallback, postExecutionCallback);
   if (preOperatorCallback.has_value()) {
     config.preOperatorCallback = preOperatorCallback;
   }
   if (postOperatorCallback.has_value()) {
     config.postOperatorCallback = postOperatorCallback;
+  }
+  if (preExecutionCallback.has_value()) {
+    config.preExecutionCallback = preExecutionCallback;
   }
   if (postExecutionCallback.has_value()) {
     config.postExecutionCallback = postExecutionCallback;

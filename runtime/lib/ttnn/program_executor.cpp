@@ -171,6 +171,20 @@ void ProgramExecutor::runCallback(
   }
 }
 
+void ProgramExecutor::runPreExecutionCallback(
+    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
+    ProgramContext *programContext) {
+  if (callback) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafeBorrowShared(programContext);
+    // For pre-execution callback, we pass a null opContext
+    std::shared_ptr<void> opContextPtr = nullptr;
+    (*callback)(executableHandle,
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN),
+                OpContext(opContextPtr, DeviceRuntime::TTNN));
+  }
+}
+
 void ProgramExecutor::runPostExecutionCallback(
     std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     ProgramContext *programContext) {
@@ -190,6 +204,8 @@ void ProgramExecutor::execute() {
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+  runPreExecutionCallback(debug::Hooks::get().getPreExecutionCallback(),
+                          executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());

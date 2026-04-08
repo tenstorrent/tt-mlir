@@ -319,6 +319,14 @@ def post_op_get_callback_fn(callback_runtime_config):
     return partial(post_op_callback, callback_runtime_config)
 
 
+def pre_exec_callback(callback_runtime_config, binary, program_context, op_context):
+    pass
+
+
+def pre_exec_get_callback_fn(callback_runtime_config):
+    return partial(pre_exec_callback, callback_runtime_config)
+
+
 def post_exec_callback(callback_runtime_config, binary, program_context, op_context):
     pass
 
