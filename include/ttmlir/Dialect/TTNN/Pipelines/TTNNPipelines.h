@@ -21,10 +21,26 @@ class MeshDevice;
 } // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
-// TTIR to TTNN Device pipeline options.
+// ============================================================
+// TTIRToTTNNCommonPipeline - baseline pipeline for lowering TTIR to TTNN.
 //
-struct TTIRToTTNNDevicePipelineOptions
-    : public PassPipelineOptions<TTIRToTTNNDevicePipelineOptions> {
+// It performs the actual heavy-lifting for the TTIR -> TTNN conversion -
+// decompositions, TTIR -> TTNN dialect conversion, optimizer, fusings...
+//
+// Target-specific pipelines (Runtime, EmitPy, EmitC) latch onto the output of
+// this pipeline and perform additional passes, as required by targets.
+//
+// If CPU-hoisting is enabled, `ttcore.cpu_module` op gets created
+// (if it doesn't already exist) and gets populated with TTIR ops.
+// These ops don't get lowered to TTNN, and it's up to the
+// target-specific pipelines to lower these TTIR ops to ops executable on the
+// host CPU, since each target handles CPU-hoisting differently.
+// ============================================================
+
+// TTIR to TTNN common pipeline options.
+//
+struct TTIRToTTNNCommonPipelineOptions
+    : public PassPipelineOptions<TTIRToTTNNCommonPipelineOptions> {
   // Optimization level controls multiple optimization passes.
   // Level 0 (default): All optimizer passes disabled.
   // Level 1: All optimizer passes enabled. Memory layout analysis is disabled.
@@ -488,10 +504,28 @@ struct TTIRToTTNNDevicePipelineOptions
   }
 };
 
-// TTNN to EmitC Device pipeline options.
+// ============================================================
+// Target-specific pipelines, which receive the output of the
+// TTIRToTTNNCommonPipeline and produce IR ready for translation
+// to the specific target (e.g. TTNN Runtime, EmitC, EmitPy).
+// ============================================================
+
+// TTNN common to Runtime pipeline options.
 //
-struct TTNNToEmitCDevicePipelineOptions
-    : public PassPipelineOptions<TTNNToEmitCDevicePipelineOptions> {
+// Currently, inherits from SHLOAndTTIRToLLVMPipelineOptions, since the only
+// thing that the Runtime pipeline does after the common pipeline is lowering
+// the CPU module to LLVM.
+//
+struct TTNNCommonToRuntimePipelineOptions
+    : public ttir::SHLOAndTTIRToLLVMPipelineOptions {};
+
+// TTNN common to EmitC pipeline options.
+//
+// TODO(dmilinkovic): will be extended with CPU-hoisting specific options once
+// CPU-hoisting is supported on EmitC - issue #6100.
+//
+struct TTNNCommonToEmitCPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitCPipelineOptions> {
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
@@ -527,10 +561,10 @@ struct TTNNToEmitCDevicePipelineOptions
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
-// TTNN to EmitPy Device pipeline options.
+// TTNN common to EmitPy pipeline options.
 //
-struct TTNNToEmitPyDevicePipelineOptions
-    : public PassPipelineOptions<TTNNToEmitPyDevicePipelineOptions> {
+struct TTNNCommonToEmitPyPipelineOptions
+    : public PassPipelineOptions<TTNNCommonToEmitPyPipelineOptions> {
   Option<bool> targetModule{
       *this, "target-module",
       llvm::cl::desc("Tailor passes for Python module target. When enabled, "
@@ -574,22 +608,20 @@ struct TTNNToEmitPyDevicePipelineOptions
       llvm::cl::init(false)};
 };
 
-// TTIR to TTNN backend pipeline options.
-//
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTIRToLLVMCPUPipelineOptions to reuse the options.
-//
-struct TTIRToTTNNBackendPipelineOptions
-    : public TTIRToTTNNDevicePipelineOptions,
-      public ttir::TTIRToLLVMCPUPipelineOptions {};
+// ============================================================
+// End-to-end pipelines, which lower TTIR to specific TTNN targets.
+// ============================================================
 
-// TTIR to EmitC end-to-end pipeline options.
+// TTIR to TTNN Runtime pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTNNToEmitCDevicePipelineOptions to reuse the options.
+struct TTIRToTTNNRuntimePipelineOptions
+    : public TTIRToTTNNCommonPipelineOptions,
+      public TTNNCommonToRuntimePipelineOptions {};
+
+// TTIR to EmitC pipeline options.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                    public TTNNToEmitCDevicePipelineOptions {
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                    public TTNNCommonToEmitCPipelineOptions {
   TTIRToEmitCPipelineOptions() {
     // TODO(dmilinkovic): Remove once CPU-hoisting is supported on EmitC - issue
     // #6100.
@@ -599,11 +631,8 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
 
 // TTIR to EmitPy pipeline options.
 //
-// Inherits from TTIRToTTNNDevicePipelineOptions and
-// TTNNToEmitPyDevicePipelineOptions to reuse the options.
-//
-struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
-                                     public TTNNToEmitPyDevicePipelineOptions {
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
+                                     public TTNNCommonToEmitPyPipelineOptions {
 };
 
 // ============================================================
