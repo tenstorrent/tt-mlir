@@ -504,6 +504,9 @@ struct TTIRToTTNNCommonPipelineOptions
   }
 };
 
+void createTTIRToTTNNCommonPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options);
+
 // ============================================================
 // Target-specific pipelines, which receive the output of the
 // TTIRToTTNNCommonPipeline and produce IR ready for translation
@@ -608,6 +611,15 @@ struct TTNNCommonToEmitPyPipelineOptions
       llvm::cl::init(false)};
 };
 
+void createTTNNCommonToRuntimePipeline(
+    OpPassManager &pm, const TTNNCommonToRuntimePipelineOptions &options);
+
+void createTTNNCommonToEmitCPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitCPipelineOptions &options);
+
+void createTTNNCommonToEmitPyPipeline(
+    OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options);
+
 // ============================================================
 // End-to-end pipelines, which lower TTIR to specific TTNN targets.
 // ============================================================
@@ -634,6 +646,15 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
 struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
                                      public TTNNCommonToEmitPyPipelineOptions {
 };
+
+void createTTIRToTTNNRuntimePipeline(
+    OpPassManager &pm, const TTIRToTTNNRuntimePipelineOptions &options);
+
+void createTTIRToEmitCPipeline(OpPassManager &pm,
+                               const TTIRToEmitCPipelineOptions &options);
+
+void createTTIRToEmitPyPipeline(OpPassManager &pm,
+                                const TTIRToEmitPyPipelineOptions &options);
 
 // ============================================================
 // Other pipelines.
