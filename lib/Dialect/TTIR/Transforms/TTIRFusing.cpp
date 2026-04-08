@@ -2497,7 +2497,8 @@ private:
   // it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
-      ttir::FullOp power = getFullOpThroughTMChain(xCubed.getRhs());
+      ttir::FullOp power = dyn_cast_or_null<ttir::FullOp>(
+          getScalarThroughTMChain(xCubed.getRhs()));
       if (!power) {
         return nullptr;
       }
