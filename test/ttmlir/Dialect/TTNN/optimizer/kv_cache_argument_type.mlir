@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=false" -o %t %s -mlir-print-local-scope
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1" -o %t %s -mlir-print-local-scope
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that KV cache arguments stay tiled and are not forced to row-major layout.

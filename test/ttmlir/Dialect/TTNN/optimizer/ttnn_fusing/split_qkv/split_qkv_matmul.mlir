@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s | FileCheck %s
 
 // Test SplitQueryKeyValueAndSplitHeadsFusing for matmul (no bias) and linear (with bias).
 // Three matmuls/linears sharing the same LHS, each followed by slice -> reshape -> permute,

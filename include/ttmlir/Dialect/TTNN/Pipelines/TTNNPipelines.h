@@ -426,13 +426,14 @@ struct TTIRToTTNNDevicePipelineOptions
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
   // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
-  // instead of the default TTNNOptimizer. This is an experimental alternative
-  // to the chain-based optimizer.
-  Option<bool> enableGreedyOptimizer{
+  // instead of the chain-based TTNNOptimizer. Enabled by default when
+  // optimization level >= 1.
+  mutable Option<bool> enableGreedyOptimizer{
       *this, "enable-greedy-optimizer",
       llvm::cl::desc(
           "Use the greedy layout propagation optimizer instead of the "
-          "default chain-based TTNNOptimizer."),
+          "chain-based TTNNOptimizer. If not explicitly set, enabled when "
+          "optimization level >= 1."),
       llvm::cl::init(false)};
 
   // Enable decision trace JSON output from the greedy optimizer passes.
@@ -472,6 +473,9 @@ struct TTIRToTTNNDevicePipelineOptions
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+    if (enableGreedyOptimizer.getNumOccurrences() == 0) {
+      enableGreedyOptimizer = (optimizationLevel >= 1);
     }
     if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
         optimizationLevel > 0) {
