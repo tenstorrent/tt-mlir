@@ -340,7 +340,7 @@ static mlir::sdy::TensorShardingPerValueAttr convertShardingsForComplexTypes(
        llvm::zip_equal(shardings.getShardings(), originalTypes)) {
     auto rtt = mlir::dyn_cast<RankedTensorType>(type);
     if (rtt && mlir::isa<ComplexType>(rtt.getElementType())) {
-      // Append a closed, empty DimensionShardingAttr for the trailing dim.
+      // Append "{}" to sharding spec
       SmallVector<mlir::sdy::DimensionShardingAttr> dims(
           sharding.getDimShardings().begin(),
           sharding.getDimShardings().end());
@@ -385,7 +385,6 @@ public:
       newResultTypes.push_back(converted);
     }
 
-    // Update sharding annotations for the new trailing dimension.
     auto newInShardings = convertShardingsForComplexTypes(
         op.getContext(), op.getInShardings(),
         op.getBody().getArgumentTypes());
