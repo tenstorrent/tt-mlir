@@ -1676,6 +1676,37 @@ def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine",
+    [TTNN_MemoryConfigOpInterface]> {
+    let summary = "Reduce and combine phase of the MoE pipeline.";
+    let description = [{
+      Takes dense blocks of expert-computed tokens from the MoE compute kernel,
+      sparsifies them, and sends tokens back to their originating devices via
+      fabric. The dense input tensor is height-sharded across a token-parallel x
+      data-parallel core grid.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$dense_input_tensor,
+                         AnyRankedTensor:$dense_activations_tensor,
+                         AnyRankedTensor:$dense_token_maps_tensor,
+                         AnyRankedTensor:$dense_token_counts_tensor,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$batch_size,
+                         UI32Attr:$seq_size,
+                         UI32Attr:$select_experts_k,
+                         UI32Attr:$experts,
+                         OptionalAttr<UI32Attr>:$axis,
+                         TTCore_TopologyAttr:$topology,
+                         UI32Attr:$num_links,
+                         UI32Attr:$num_token_parallel_cores,
+                         UI32Attr:$num_data_parallel_cores,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap"> {
     let summary = "Remap global expert routing to local device experts with sparsity.";
     let description = [{

@@ -23,6 +23,7 @@
 #include "operations/ccl/moe_expert_token_remap.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
+#include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
@@ -480,6 +481,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     return operations::ccl::run(op->type_as_AllToAllCombineOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SelectiveReduceCombineOp: {
+    return operations::ccl::run(op->type_as_SelectiveReduceCombineOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
     return operations::ccl::run(op->type_as_MoeExpertTokenRemapOp(),

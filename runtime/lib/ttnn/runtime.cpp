@@ -1262,6 +1262,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AllToAllCombineOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::SelectiveReduceCombineOp: {
+    tensorRef = opContext.type_as_SelectiveReduceCombineOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     tensorRef = opContext.type_as_ArangeOp()->out();
     break;
@@ -1770,6 +1774,16 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_AllToAllCombineOp()->input_tensor(),
                   opContext.type_as_AllToAllCombineOp()->expert_metadata(),
                   opContext.type_as_AllToAllCombineOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SelectiveReduceCombineOp: {
+    tensorRefs = {
+        opContext.type_as_SelectiveReduceCombineOp()->dense_input_tensor(),
+        opContext.type_as_SelectiveReduceCombineOp()
+            ->dense_activations_tensor(),
+        opContext.type_as_SelectiveReduceCombineOp()->dense_token_maps_tensor(),
+        opContext.type_as_SelectiveReduceCombineOp()
+            ->dense_token_counts_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {

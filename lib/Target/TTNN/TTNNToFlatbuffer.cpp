@@ -1249,6 +1249,35 @@ createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
       static_cast<uint32_t>(op.getOutputShardDim()), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SelectiveReduceCombineOp>
+createOp(FlatbufferObjectCache &cache, SelectiveReduceCombineOp op) {
+  auto denseInputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseInputTensor()));
+  auto denseActivationsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseActivationsTensor()));
+  auto denseTokenMapsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenMapsTensor()));
+  auto denseTokenCountsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenCountsTensor()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
+  return ::tt::target::ttnn::CreateSelectiveReduceCombineOp(
+      *cache.fbb, denseInputTensor, denseActivationsTensor,
+      denseTokenMapsTensor, denseTokenCountsTensor, output, op.getHiddenSize(),
+      op.getBatchSize(), op.getSeqSize(), op.getSelectExpertsK(),
+      op.getExperts(), op.getAxis().value_or(0), topology, op.getNumLinks(),
+      op.getNumTokenParallelCores(), op.getNumDataParallelCores(),
+      memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>
 createOp(FlatbufferObjectCache &cache, MoeExpertTokenRemapOp op) {
   auto topkTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4357,6 +4386,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);
       allToAllCombineOp) {
     return createOperation(cache, createOp(cache, allToAllCombineOp),
+                           debugString, locInfo);
+  }
+  if (auto selectiveReduceCombineOp = dyn_cast<SelectiveReduceCombineOp>(op);
+      selectiveReduceCombineOp) {
+    return createOperation(cache, createOp(cache, selectiveReduceCombineOp),
                            debugString, locInfo);
   }
   if (auto moeExpertTokenRemapOp = dyn_cast<MoeExpertTokenRemapOp>(op);

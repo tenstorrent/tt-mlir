@@ -114,6 +114,25 @@ table AllToAllCombineOp {
   memory_config: tt.target.ttnn.MemoryConfig;
 }
 
+table SelectiveReduceCombineOp {
+  dense_input_tensor: tt.target.ttnn.TensorRef;
+  dense_activations_tensor: tt.target.ttnn.TensorRef;
+  dense_token_maps_tensor: tt.target.ttnn.TensorRef;
+  dense_token_counts_tensor: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  hidden_size: uint32;
+  batch_size: uint32;
+  seq_size: uint32;
+  select_experts_k: uint32;
+  experts: uint32;
+  axis: uint32;
+  topology: tt.target.Topology;
+  num_links: uint32;
+  num_token_parallel_cores: uint32;
+  num_data_parallel_cores: uint32;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
 table MoeExpertTokenRemapOp {
   topk_tensor: tt.target.ttnn.TensorRef;
   expert_mapping: tt.target.ttnn.TensorRef;

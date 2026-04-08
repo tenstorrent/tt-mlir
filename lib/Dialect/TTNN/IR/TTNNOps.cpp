@@ -2716,6 +2716,29 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// SelectiveReduceCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult SelectiveReduceCombineOp::verify() {
+  // Verify select_experts_k > 0
+  if (getSelectExpertsK() == 0) {
+    return emitOpError("select_experts_k must be positive");
+  }
+
+  // Verify experts > 0
+  if (getExperts() == 0) {
+    return emitOpError("experts must be positive");
+  }
+
+  // Verify hidden_size > 0
+  if (getHiddenSize() == 0) {
+    return emitOpError("hidden_size must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MoeExpertTokenRemapOp
 //===----------------------------------------------------------------------===//
 

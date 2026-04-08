@@ -3925,6 +3925,50 @@ public:
 };
 } // namespace
 
+// SelectiveReduceCombineOp conversion pattern
+//
+namespace {
+class SelectiveReduceCombineOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SelectiveReduceCombineOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SelectiveReduceCombineOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SelectiveReduceCombineOp srcOp,
+                  mlir::tt::ttnn::SelectiveReduceCombineOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SelectiveReduceCombineOp>
+        emitter(srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getDenseInputTensor()),
+        emitter.emit(srcOp.getDenseActivationsTensor()),
+        emitter.emit(srcOp.getDenseTokenMapsTensor()),
+        emitter.emit(srcOp.getDenseTokenCountsTensor()),
+        emitter.emit(srcOp.getHiddenSize()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getSeqSize()),
+        emitter.emit(srcOp.getSelectExpertsK()),
+        emitter.emit(srcOp.getExperts()),
+        emitter.emit(srcOp.getAxis()),
+        emitter.emit(srcOp.getTopology()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getNumTokenParallelCores()),
+        emitter.emit(srcOp.getNumDataParallelCores()),
+        /*worker_cores=*/emitter.emit(std::nullopt),
+        /*mux_core_range_set=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getMemoryConfig()),
+        /*optional_output_tensor=*/emitter.emit(std::nullopt),
+        /*optional_cross_device_semaphore=*/emitter.emit(std::nullopt)};
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // MoeExpertTokenRemapOp conversion pattern
 //
 namespace {
@@ -5204,6 +5248,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllToAllDispatchOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllToAllCombineOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SelectiveReduceCombineOpConversionPattern>(typeConverter, ctx);
   patterns.add<MoeExpertTokenRemapOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
