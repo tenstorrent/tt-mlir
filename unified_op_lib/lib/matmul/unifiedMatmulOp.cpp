@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -174,6 +174,87 @@ callLinear(CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
                           /*core_grid=*/std::nullopt,
                           /*output_tile=*/std::nullopt,
                           /* optional_output_tensor=*/std::nullopt);
+  }
+  }
+}
+
+SparseMatmulResolvedParams resolveSparseMatmulParams(
+    const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT) {
+
+  SparseMatmulResolvedParams params;
+
+  if (sparseMatmulOpT.nnz != 0) {
+    params.nnz = std::make_optional(static_cast<uint32_t>(sparseMatmulOpT.nnz));
+  }
+
+  auto matmulProgramConfig =
+      operations::utils::createMatmulProgramConfigIfNeeded(sparseMatmulOpT);
+  LOG_ASSERT(matmulProgramConfig.has_value(),
+             "SparseMatmulOp requires program_config to be set at compile "
+             "time");
+  params.matmulProgramConfig = matmulProgramConfig.value();
+
+  if (sparseMatmulOpT.compute_config) {
+    params.computeConfig = operations::utils::createDeviceComputeKernelConfig(
+        *sparseMatmulOpT.compute_config);
+  }
+
+  if (sparseMatmulOpT.out) {
+    params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
+        operations::utils::getTensorRefMemoryConfig(*sparseMatmulOpT.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*sparseMatmulOpT.out) ||
+                   params.outputMemoryConfig.has_value(),
+               "Memory config must exist for device tensors");
+  }
+
+  return params;
+}
+
+SparseMatmulOpResult
+callSparseMatmul(CallType callType,
+                 const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT,
+                 TensorArg a, TensorArg b, TensorArg sparsity,
+                 ::ttnn::MeshDevice *device,
+                 std::optional<::ttnn::MemoryConfig> outputMemoryConfig,
+                 std::optional<::tt::tt_metal::DataType> outputDType) {
+  SparseMatmulResolvedParams params =
+      resolveSparseMatmulParams(sparseMatmulOpT);
+  if (outputMemoryConfig.has_value()) {
+    params.outputMemoryConfig = outputMemoryConfig;
+  }
+  if (outputDType.has_value()) {
+    params.outputDType = outputDType;
+  }
+
+  switch (callType) {
+  case CallType::QUERY_OP_CONSTRAINTS: {
+    ::ttnn::graph::ConstraintQueryResponse response;
+    response.error_message =
+        "Constraint query not implemented for SparseMatmulOp yet";
+    return response;
+  }
+  case CallType::QUERY_OP_RUNTIME: {
+    ::ttnn::graph::RuntimeQueryResponse response;
+    response.error_message =
+        "Runtime query not implemented for SparseMatmulOp yet";
+    return response;
+  }
+  case CallType::EXECUTE: {
+    const auto &input_a = *std::get<const ::ttnn::Tensor *>(a);
+    const auto &input_b = *std::get<const ::ttnn::Tensor *>(b);
+    const auto &input_sparsity = *std::get<const ::ttnn::Tensor *>(sparsity);
+
+    return ::ttnn::sparse_matmul(
+        input_a, input_b, input_sparsity,
+        /*program_config=*/params.matmulProgramConfig,
+        /*nnz=*/params.nnz,
+        /*is_input_a_sparse=*/sparseMatmulOpT.is_input_a_sparse,
+        /*is_input_b_sparse=*/sparseMatmulOpT.is_input_b_sparse,
+        /*memory_config=*/params.outputMemoryConfig,
+        /*dtype=*/std::nullopt,
+        /*compute_kernel_config=*/params.computeConfig,
+        /*core_grid=*/std::nullopt,
+        /*output_tile=*/std::nullopt);
   }
   }
 }
