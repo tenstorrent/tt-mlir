@@ -293,6 +293,32 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
+def EmitPyAddImports : Pass<"emitpy-add-imports", "::mlir::ModuleOp"> {
+  let summary = "Add Python import statements to EmitPy IR.";
+  let description = [{
+    Adds Python import statements to the EmitPy IR:
+
+    1. Module-level imports (`import ttnn`, `import utils`, `import ttir_cpu`).
+       If FileOps exist (i.e., file splitting was performed), these are added
+       to each file scope. Otherwise, they are added to the module scope.
+       `import ttir_cpu` is only added to scopes that contain CPU-hoisted code.
+
+    2. Imported-declaration imports (`from <file> import <func>`). These are
+       generated from ImportedDeclaration func ops created by TTNNFileSplit,
+       and are placed in the same scope as the declaration they correspond to.
+
+    This pass runs after EmitPyLinkModules so that all modules have been merged
+    and the final file structure is known.
+
+    Note: the module-level imports are hardcoded. If the number of required
+    modules grows, consider a more scalable approach (e.g., scanning call
+    sites or having each conversion pass register its import requirements,
+    as well as ensuring that imports are deduplicated).
+  }];
+  let constructor = "createEmitPyAddImportsPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",

@@ -307,7 +307,7 @@ def compile_and_run_sdpa(module_fn, target, request):
         target=target,
         **get_request_kwargs(request),
         device=DeferredDevice(request),
-        pipeline_options=["enable-optimizer=true"],
+        pipeline_options=["optimization-level=1"],
         save_artifacts=True,
     )
 

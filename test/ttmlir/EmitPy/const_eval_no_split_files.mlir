@@ -12,6 +12,7 @@
 // CHECK-NOT: # File:
 // CHECK: import ttnn
 // CHECK: import utils
+// CHECK: import ttir_cpu
 // CHECK-NOT: from consteval import
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}(
 // CHECK:   ttir_cpu.add(

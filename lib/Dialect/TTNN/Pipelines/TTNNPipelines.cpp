@@ -665,6 +665,10 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   // Link Device and CPU modules into the root module.
   //
   pm.addPass(createEmitPyLinkModulesPass());
+
+  // Add module-level Python import statements.
+  //
+  pm.addPass(createEmitPyAddImportsPass());
 }
 
 // Complete pipeline for lowering TTNN to EmitPy.
@@ -680,6 +684,7 @@ void createTTNNToEmitPyPipeline(
   createTTNNToEmitPyDevicePipeline(pm, options);
   createTTIRToEmitPyCPUPipeline(pm);
   pm.addPass(createEmitPyLinkModulesPass());
+  pm.addPass(createEmitPyAddImportsPass());
 }
 
 //===----------------------------------------------------------------------===//
