@@ -320,10 +320,13 @@ def get_request_kwargs(request):
     Dict[str, Any]
         A dictionary containing request-related arguments.
     """
+    from builder.base.builder_utils import Logger
+
     kwargs = {
         "test_base": request.node.name,
         "output_root": request.config.getoption("--path"),
         "system_desc_path": request.config.getoption("--sys-desc"),
+        "logger": Logger(request.config.getoption("--builder-log-file")),
     }
     if request.config.getoption("--save-artifacts"):
         kwargs["save_artifacts"] = True
@@ -401,6 +404,12 @@ def pytest_addoption(parser):
         "--save-artifacts",
         action="store_true",
         help="Save generated artifacts (flatbuffers, mlir files, etc.) to disk",
+    )
+    parser.addoption(
+        "--builder-log-file",
+        action="store",
+        default="",
+        help="Path to log file for builder module logging",
     )
     parser.addoption(
         "--print-ir",

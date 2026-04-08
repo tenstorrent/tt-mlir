@@ -107,6 +107,7 @@ def _compile_and_execute(
                 bypass_ops=builder._bypass_ops,
                 enable_intermediate_verification=enable_intermediate_verification,
                 save_artifacts=compile_kwargs.get("save_artifacts", False),
+                logger=compile_kwargs.get("logger", None),
                 artifact_dir=compile_kwargs.get("artifact_dir", "."),
                 dump_memory=dump_memory,
             )
@@ -123,6 +124,7 @@ def _compile_and_execute(
                 check_rtol=check_rtol,
                 input_output_goldens=input_output_goldens,
                 save_artifacts=compile_kwargs.get("save_artifacts", False),
+                logger=compile_kwargs.get("logger", None),
                 artifact_dir=compile_kwargs.get("artifact_dir", "."),
             )
 
@@ -142,6 +144,7 @@ def _compile_and_execute(
                 check_rtol=check_rtol,
                 input_output_goldens=input_output_goldens,
                 save_artifacts=compile_kwargs.get("save_artifacts", False),
+                logger=compile_kwargs.get("logger", None),
                 artifact_dir=compile_kwargs.get("artifact_dir", "."),
             )
     finally:
@@ -179,6 +182,7 @@ def build_module(
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    logger=None,
 ) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
     """
     Build an MLIR `Module` from a Python emission function using the chosen builder.
@@ -225,8 +229,11 @@ def build_module(
     with ctx, loc:
         new_module = _compile(mod, builder)
 
-        print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
-        print(new_module)
+        if logger:
+            logger.get_logger().info(
+                f"`{mod.__name__}` successfully transformed into a MLIR module."
+            )
+            logger.get_logger().debug(str(new_module))
 
         if save_artifacts:
             os.makedirs(artifact_dir, exist_ok=True)
@@ -246,6 +253,7 @@ def compile_and_execute_d2m(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
@@ -329,6 +337,7 @@ def compile_and_execute_d2m(
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
@@ -356,6 +365,7 @@ def compile_and_execute_shlo(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     ttir_pipeline_options: Optional[List[str]] = None,
@@ -445,6 +455,7 @@ def compile_and_execute_shlo(
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
         ttir_pipeline_options=ttir_pipeline_options,
@@ -474,6 +485,7 @@ def compile_and_execute_ttnn(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
@@ -560,6 +572,7 @@ def compile_and_execute_ttnn(
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
@@ -587,6 +600,7 @@ def compile_and_execute_ttir(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
@@ -670,6 +684,7 @@ def compile_and_execute_ttir(
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
@@ -697,6 +712,7 @@ def compile_ttir_to_flatbuffer(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
@@ -791,6 +807,7 @@ def compile_ttir_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            logger=logger,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -803,6 +820,7 @@ def compile_ttir_to_flatbuffer(
         target=target,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
@@ -818,6 +836,7 @@ def compile_ttnn_to_flatbuffer(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
@@ -877,6 +896,7 @@ def compile_ttnn_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            logger=logger,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -891,6 +911,7 @@ def compile_ttnn_to_flatbuffer(
         pipeline_options=pipeline_options,
         print_ir=print_ir,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
     )
@@ -904,6 +925,7 @@ def compile_d2m_to_flatbuffer(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
@@ -977,6 +999,7 @@ def compile_d2m_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            logger=logger,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -989,6 +1012,7 @@ def compile_d2m_to_flatbuffer(
         target=target,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
@@ -1004,6 +1028,7 @@ def compile_stablehlo_to_flatbuffer(
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     ttir_pipeline_options: List[str] = [],
@@ -1096,6 +1121,7 @@ def compile_stablehlo_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            logger=logger,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1104,8 +1130,11 @@ def compile_stablehlo_to_flatbuffer(
     input_output_goldens, intermediate_goldens = builder.golden_map
 
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options), print_ir=print_ir)
-    print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
-    print(module)
+    if logger:
+        logger.get_logger().info(
+            f"`{fn.__name__}` successfully ran stablehlo-pipeline."
+        )
+        logger.get_logger().debug(str(module))
 
     if save_artifacts:
         filename = os.path.join(artifact_dir, "stablehlo_compiled.mlir")
@@ -1115,8 +1144,11 @@ def compile_stablehlo_to_flatbuffer(
     stablehlo_to_ttir_pipeline(
         module, " ".join(shlo_to_ttir_pipeline_options), print_ir=print_ir
     )
-    print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
-    print(module)
+    if logger:
+        logger.get_logger().info(
+            f"`{fn.__name__}` successfully transformed into a TTIR MLIR module."
+        )
+        logger.get_logger().debug(str(module))
 
     if save_artifacts:
         filename = os.path.join(artifact_dir, "ttir_compiled.mlir")
@@ -1131,6 +1163,7 @@ def compile_stablehlo_to_flatbuffer(
         target=target,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
+        logger=logger,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
@@ -1148,6 +1181,7 @@ def compile_ttir_module_to_flatbuffer(
     target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
+    logger=None,
     argument_types_string: Optional[str] = None,
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = None,
@@ -1306,7 +1340,8 @@ def compile_ttir_module_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    print(f"{target} pipeline ran successfully.")
+    if logger:
+        logger.get_logger().info(f"{target} pipeline ran successfully.")
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
     try:
@@ -1322,7 +1357,10 @@ def compile_ttir_module_to_flatbuffer(
         with open(output_file_bin, "w") as f:
             f.write(compiled_bin)
     if save_artifacts:
-        print(f"Writing compiled flatbuffer to {output_file_bin}")
+        if logger:
+            logger.get_logger().info(
+                f"Writing compiled flatbuffer to {output_file_bin}"
+            )
         os.makedirs(artifact_dir, exist_ok=True)
         if target == "emitpy":
             with open(output_file_bin, "w") as f:
@@ -1574,7 +1612,10 @@ def experimental_build_stablehlo_module(
             func_op = module.body.operations[-1]
             func_op.attributes["topology"] = topology_attr
 
-        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
+        if logger:
+            logger.get_logger().info(
+                f"`{fn.__name__}` successfully transformed into a MLIR module."
+            )
         base = fn.__name__ if base is None else base
         filename = get_target_path(
             output_root, "stablehlo-builder-artifacts", "stablehlo.mlir", base
@@ -1583,6 +1624,7 @@ def experimental_build_stablehlo_module(
         if save_artifacts:
             with open(filename, "w") as f:
                 f.write(str(module))
-                print(module)
+                if logger:
+                    logger.get_logger().debug(str(module))
 
         return module, stablehlo_builder

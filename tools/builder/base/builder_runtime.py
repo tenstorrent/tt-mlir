@@ -294,6 +294,7 @@ def check_outputs(
     check_atol,
     check_rtol,
     raise_exception=True,
+    logger=None,
 ):
     cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
         golden_tensor,
@@ -309,7 +310,10 @@ def check_outputs(
                     f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
                 )
             else:
-                print(f"Program level golden for {tensor_name} matched. pcc={cal_pcc}")
+                if logger:
+                    logger.info(
+                        f"Program level golden for {tensor_name} matched. pcc={cal_pcc}"
+                    )
 
         if check_atol:
             if cal_atol > atol:
@@ -317,9 +321,10 @@ def check_outputs(
                     f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
                 )
             else:
-                print(
-                    f"Program level atol check for {tensor_name} passed. atol={cal_atol}"
-                )
+                if logger:
+                    logger.info(
+                        f"Program level atol check for {tensor_name} passed. atol={cal_atol}"
+                    )
 
         if check_rtol:
             if cal_rtol > rtol:
@@ -327,9 +332,10 @@ def check_outputs(
                     f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
                 )
             else:
-                print(
-                    f"Program level rtol check for {tensor_name} passed. rtol={cal_rtol}"
-                )
+                if logger:
+                    logger.info(
+                        f"Program level rtol check for {tensor_name} passed. rtol={cal_rtol}"
+                    )
 
     result = "pass"
     if (
@@ -422,6 +428,7 @@ class CallbackRuntimeConfig:
         goldens={},
         bypass_ops=None,
         save_artifacts: bool = False,
+        logger=None,
         artifact_dir: str = ".",
         verify_intermediates: bool = False,
         save_memory: bool = False,
@@ -436,6 +443,7 @@ class CallbackRuntimeConfig:
         self.goldens = goldens
         self.bypass_ops = bypass_ops if bypass_ops else []
         self.save_artifacts = save_artifacts
+        self.logger = logger
         self.artifact_dir = artifact_dir
         self.verify_intermediates = verify_intermediates
         self.save_memory = save_memory
@@ -518,6 +526,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
                 callback_runtime_config.check_atol,
                 callback_runtime_config.check_rtol,
                 raise_exception=False,
+                logger=callback_runtime_config.logger,
             )
             results["debug_info"] = tt_runtime.runtime.get_op_debug_str(op_context)
 
@@ -536,7 +545,8 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
             device_results[device_id] = results
         except Exception as e:
-            print(e)
+            if callback_runtime_config.logger:
+                callback_runtime_config.logger.error(f"Error in golden callback: {e}")
             return
 
     callback_runtime_config.golden_report[loc] = device_results
@@ -641,6 +651,7 @@ def execute_fb(
     enable_intermediate_verification: bool = False,
     bypass_ops: List[str] = None,
     save_artifacts: bool = False,
+    logger=None,
     artifact_dir: str = ".",
     dump_memory: bool = False,
 ):
@@ -714,6 +725,7 @@ def execute_fb(
         goldens=golden_intermediate_torch_tensors,
         bypass_ops=bypass_ops,
         save_artifacts=save_artifacts,
+        logger=logger,
         artifact_dir=artifact_dir,
         verify_intermediates=verify_intermediates,
         save_memory=dump_memory,
@@ -856,6 +868,7 @@ def execute_fb(
                     check_pcc,
                     check_atol,
                     check_rtol,
+                    logger=logger,
                 )
 
                 program_golden_report[f"output_{i}"][device_id] = results
@@ -913,6 +926,7 @@ def execute_py(
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
+    logger=None,
     artifact_dir: str = ".",
 ):
     """
@@ -1041,6 +1055,7 @@ def execute_py(
                         check_pcc,
                         check_atol,
                         check_rtol,
+                        logger=logger,
                     )
 
                     program_golden_report[f"output_{i}"] = {0: results}
@@ -1096,6 +1111,7 @@ def execute_cpp(
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
+    logger=None,
     artifact_dir: str = ".",
 ):
     """
@@ -1244,6 +1260,7 @@ def execute_cpp(
                         check_pcc,
                         check_atol,
                         check_rtol,
+                        logger=logger,
                     )
 
                     program_golden_report[f"output_{i}"] = {0: results}
@@ -1289,6 +1306,7 @@ def execute_cpp(
             except Exception as close_exc:
                 if not exc_in_flight:
                     raise TTBuilderRuntimeException(close_exc) from close_exc
-                print(f"close_so() failed during cleanup: {close_exc}")
+                if logger:
+                    logger.error(f"close_so() failed during cleanup: {close_exc}")
 
     return golden_report, output_tensors
