@@ -6,6 +6,8 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
+permissions:
+  packages: write
 
 jobs:
   delete-package-versions:
@@ -15,6 +17,8 @@ jobs:
       - uses: snok/container-retention-policy@v3.0.0
         with:
           account: tenstorrent
+          # Action can't run with github.token permissions, we need to use a PAT bot token
+          # with package write permissions. Action only accepts classic PAT
           token: ${{ secrets.GH_TOKEN }}
           image-names: "tt-mlir*ci* tt-mlir*ird*"
           cut-off: 4w

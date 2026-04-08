@@ -84,7 +84,7 @@ jobs:
       if: failure() && steps.lint.outcome == 'failure'
       with:
         # The GitHub token (or a personal access token)
-        github_token: ${{ secrets.GH_TOKEN }}
+        github_token: ${{ github.token }}
         # The path to the clang-tidy fixes generated above
         clang_tidy_fixes: ${{ steps.strings.outputs.build-output-dir }}/clang-tidy-fixes.yaml
         # Optionally set to true if you want the Action to request

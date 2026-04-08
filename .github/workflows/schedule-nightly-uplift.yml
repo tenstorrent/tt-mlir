@@ -23,6 +23,12 @@ on:
         type: boolean
         default: false
 
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   uplift-pr:
     runs-on: ubuntu-latest
@@ -168,7 +174,7 @@ jobs:
               - [ ] **Frontend fix PRs** ready (if needed by this uplift):
           labels: uplift
           delete-branch: true
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ github.token }}
 
       - name: Approve Pull Request
         if: ${{ steps.create-pr.outputs.pull-request-number }}

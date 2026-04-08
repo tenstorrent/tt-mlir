@@ -16,6 +16,7 @@ on:
     branches: [ "main" ]
 
 permissions:
+  actions: write
   checks: write
   packages: write
   pull-requests: write
@@ -94,7 +95,7 @@ jobs:
           { name: "tenstorrent/tt-xla", workflow-name: "manual-benchmark.yml" }
         ]
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
       TARGET_REPO: ${{ matrix.projects.name }}
       WORKFLOW_NAME: ${{ matrix.projects.workflow-name }}
     steps:

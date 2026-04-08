@@ -6,6 +6,7 @@ on:
     - cron: '0 4 * * *'  # Runs at 04:00 UTC every day
 
 permissions:
+  actions: read
   checks: write
   packages: write
   contents: write

@@ -6,6 +6,7 @@ on:
     branches: [ "main" ]
 
 permissions:
+  actions: write
   checks: write
   packages: write
   contents: read
@@ -60,7 +61,7 @@ jobs:
       - name: Set test durations
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "This is main branch, getting test durations"
           rm -rf _test_durations_d

@@ -8,6 +8,11 @@ on:
     - cron: '0 7 * * *'  # Runs at 07:00 UTC every day (staggered from tt-metal uplift)
   workflow_dispatch:  # Manual trigger
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   uplift-pr:
     runs-on: ubuntu-latest
@@ -70,7 +75,7 @@ jobs:
           body: "This PR uplifts the model-explorer version in ${{ env.MODEL_EXPLORER_PATH }} to the latest commit ${{ env.LATEST_MODEL_EXPLORER_VERSION }} from previous version ${{ env.CURRENT_MODEL_EXPLORER_VERSION }}"
           labels: uplift
           delete-branch: true
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ github.token }}
 
       - name: Approve Pull Request
         if: env.VERSION_CHANGED == 'true' && steps.create-pr.outputs.pull-request-number
