@@ -14,6 +14,8 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 
+#include "tt-metalium/tensor_accessor_args.hpp"
+
 namespace tt::runtime::ttmetal {
 
 namespace target = ::tt::target;
@@ -158,6 +160,32 @@ std::vector<std::uint32_t> processKernelArgs(
               .as<MetalTensor>(DeviceRuntime::TTMetal);
       std::uint32_t scalarValue = std::get<std::uint32_t>(metalTensor);
       argsVec.push_back(scalarValue);
+      break;
+    }
+
+    // For TensorAccessor arg, we construct TensorAccessorArgs from the
+    // referenced buffer and append its compile-time or runtime args.
+    // Unlike other arg types, this pushes multiple uint32_t values.
+    case target::metal::KernelArgType::KernelArgTensorAccessor: {
+      const auto *arg = kernelArg->arg_as_KernelArgTensorAccessor();
+      const target::metal::BufferRef *buffer =
+          reinterpret_cast<const target::metal::BufferRef *>(
+              argRefs->Get(arg->operand_idx()));
+      LOG_ASSERT(meshBuffers.find(buffer->global_id()) != meshBuffers.end(),
+                 "Buffer id referenced by TensorAccessor arg is no longer "
+                 "alive or was never created ",
+                 logger::Buffer(buffer->global_id()));
+
+      auto meshBuffer = meshBuffers.at(buffer->global_id());
+      tt_metal::TensorAccessorArgs tensorAccessorArgs(*meshBuffer);
+
+      if constexpr (isCompileTime) {
+        auto ctArgs = tensorAccessorArgs.get_compile_time_args();
+        argsVec.insert(argsVec.end(), ctArgs.begin(), ctArgs.end());
+      } else {
+        auto rtArgs = tensorAccessorArgs.get_common_runtime_args();
+        argsVec.insert(argsVec.end(), rtArgs.begin(), rtArgs.end());
+      }
       break;
     }
 

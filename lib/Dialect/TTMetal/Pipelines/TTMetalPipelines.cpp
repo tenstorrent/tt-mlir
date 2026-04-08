@@ -239,7 +239,9 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MScheduleDMA());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
-  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  if (!options.useTensorAccessorDMA) {
+    pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  }
 
   // Normalize thread arguments: promote d2m.get_cb ops and any remaining
   // additional arguments into the thread block argument list so that the
@@ -296,7 +298,10 @@ void createD2MToTTMetalPipeline(
 void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  {
+    D2MToTTKernelOptions.ttnnMode = options.ttnnMode;
+    D2MToTTKernelOptions.useTensorAccessorDMA = options.useTensorAccessorDMA;
+  }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());

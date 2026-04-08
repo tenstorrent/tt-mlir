@@ -196,6 +196,16 @@ struct TTIRToTTMetalPipelineOptions
   Option<bool> enableL1Acc{*this, "enable-l1-acc",
                            llvm::cl::desc("Enable L1 accumulation."),
                            llvm::cl::init(false)};
+
+  // Option to use TensorAccessor-based DMA lowering instead of the
+  // fully-indexed form. When enabled, D2MLowerDMAToFullyIndexedForm is skipped
+  // and shard-level DMA ops are lowered to TTKernel TensorAccessor ops in
+  // ConvertD2MToTTKernel.
+  Option<bool> useTensorAccessorDMA{
+      *this, "use-tensor-accessor-dma",
+      llvm::cl::desc("Use TensorAccessor-based DMA lowering instead of "
+                     "fully-indexed form."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(

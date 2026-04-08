@@ -22,7 +22,8 @@ namespace mlir::tt {
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const d2m::AssociatedDMAWaits &associatedDMAWaits,
-    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode);
+    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode,
+    bool useTensorAccessorDMA = false);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass();
 std::unique_ptr<OperationPass<ModuleOp>>

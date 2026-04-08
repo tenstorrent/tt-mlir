@@ -724,6 +724,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
+  case ttkernel::ArgType::TensorAccessor: {
+    argType = target::metal::KernelArgType::KernelArgTensorAccessor;
+    arg = target::metal::CreateKernelArgTensorAccessor(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);

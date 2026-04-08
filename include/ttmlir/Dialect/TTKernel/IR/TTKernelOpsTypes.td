@@ -181,9 +181,14 @@ def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
   let extraClassDeclaration = [{
     static ArgSpecAttr setArgSpec(func::FuncOp func, ArgSpecAttr argSpec);
     // Returns the appended argument index.
-    static size_t appendCompileTimeArg(func::FuncOp func, ArgAttr arg);
+    // numSlots: number of CTA/CRTA uint32_t slots this arg occupies at
+    // runtime.  Defaults to 1.  When > 1 the implementation reserves
+    // additional placeholder entries so that subsequent indices are correct.
+    static size_t appendCompileTimeArg(func::FuncOp func, ArgAttr arg,
+                                       size_t numSlots = 1);
     // Returns the appended argument index.
-    static size_t appendRuntimeArg(func::FuncOp func, ArgAttr arg);
+    static size_t appendRuntimeArg(func::FuncOp func, ArgAttr arg,
+                                   size_t numSlots = 1);
   }];
 }
 
