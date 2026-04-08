@@ -1175,13 +1175,17 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 // Factory method to create a set of workarounds for topk op.
 // This operation returns two outputs:
 //   [0] values (same data type as input)
-//   [1] indices (uint16)
+//   [1] indices (uint16 or uint32 depending on input shape)
+// TopK op pads the dimension to next power of 2, and uses UInt32 for indices if
+// added size >= uint16_t::max
+
 // Input is forced to BFloat16 unless it is already BFloat16 or BFP_BFloat8.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
     ttnn::TopKOp op) {
-  auto inputElementType = op.getInputTensor().getType().getElementType();
+  auto inputType = op.getInputTensor().getType();
+  auto inputElementType = inputType.getElementType();
   std::optional<ttcore::DataType> inputDataType =
       ttcore::elementTypeToDataType(inputElementType);
 
@@ -1197,8 +1201,27 @@ TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
     outputValuesWorkaround.tensorDataTypeWorkaround = *inputDataType;
   }
 
+  int32_t dimIndex = op.getDim();
+  // Handle negative indices.
+  if (dimIndex < 0) {
+    dimIndex = inputType.getRank() + dimIndex;
+  }
+
+  // Calculate padded dim size to determine UInt16 vs UInt32 for indices output.
+  auto inputShape = inputType.getShape();
+  int64_t dimSize = inputShape[dimIndex];
+  int64_t paddedDimSize = llvm::PowerOf2Ceil(dimSize);
+  bool useUint16Indices =
+      paddedDimSize <= std::numeric_limits<uint16_t>::max(); // 65535
+
   wa::TTNNOperandWorkarounds outputIndicesWorkaround;
-  outputIndicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  if (useUint16Indices) {
+    outputIndicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  } else {
+    // If the dimension size exceeds uint16 max, we need to use uint32 for
+    // indices.
+    outputIndicesWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+  }
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(inputWorkaround)
