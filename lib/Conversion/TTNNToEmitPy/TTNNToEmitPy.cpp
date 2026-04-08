@@ -4449,6 +4449,42 @@ public:
 };
 } // namespace
 
+// TopKRouterGpt op conversion pattern
+//
+namespace {
+class TopKRouterGptOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKRouterGptOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.topk_router_gpt";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.topk_router_gpt";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKRouterGptOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKRouterGptOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKRouterGptOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight(), "weight_tensor"),
+        emitter.emit(srcOp.getBias(), "bias_tensor"),
+        emitter.emit(srcOp.getK(), "k"),
+        emitter.emit(srcOp.getNumExperts(), "num_experts"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // TopK op conversion pattern
 //
 namespace {
@@ -4525,7 +4561,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ReductionOpConversionPattern<mlir::tt::ttnn::MeanOp>,
                ReductionOpConversionPattern<mlir::tt::ttnn::MinOp>,
                ReductionOpConversionPattern<mlir::tt::ttnn::SumOp>,
-               ArgMaxOpConversionPattern>(typeConverter, ctx);
+               ArgMaxOpConversionPattern,
+               TopKRouterGptOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops

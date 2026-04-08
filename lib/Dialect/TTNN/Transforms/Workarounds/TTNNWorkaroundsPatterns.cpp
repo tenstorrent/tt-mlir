@@ -34,6 +34,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -607,7 +608,8 @@ public:
           workarounds::decomposition::RMSNormConfigRewritePattern,
           workarounds::decomposition::
               DistributedRMSNormWidthShardInputRewritePattern,
-          workarounds::decomposition::ReduceScatterConfigRewritePattern>(
+          workarounds::decomposition::ReduceScatterConfigRewritePattern,
+          workarounds::decomposition::TopKRouterGptDecompositionRewritePattern>(
           &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);

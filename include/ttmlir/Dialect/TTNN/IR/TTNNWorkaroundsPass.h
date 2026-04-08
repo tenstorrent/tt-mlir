@@ -23,6 +23,7 @@ class SliceStaticOp;
 class RotaryEmbeddingOp;
 class Conv3dOp;
 class TopKOp;
+class TopKRouterGptOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -380,6 +381,13 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/40086
   static TTNNOperandsWorkarounds
   createTopKOpOperandsWorkarounds(ttnn::TopKOp op);
+
+  // Create workarounds for topk_router_gpt op.
+  // The kernel always returns both outputs (expert_indices, expert_weights) in
+  // ROW_MAJOR layout in L1. expert_indices is always forced to UInt16
+  // (unconditionally, unlike TopKOp which uses UInt16 or UInt32 depending on
+  // dimension size). expert_weights is always forced to BFloat16.
+  static TTNNOperandsWorkarounds createTopKRouterGptOpOperandsWorkarounds();
 };
 
 } // namespace mlir::tt::ttnn::wa

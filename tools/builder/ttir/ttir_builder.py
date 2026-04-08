@@ -15159,7 +15159,7 @@ class TTIRBuilder(Builder):
     def topk_split(
         self,
         old_op: ttir.TopKOp,
-    ) -> Tuple[torch.Module, TTIRBuilder]:
+    ) -> Tuple[Module, TTIRBuilder]:
         ttir_op = self.get_opview_from_split(TTIRBuilder.topk_split)
 
         old_ctx = old_op.context
@@ -15210,6 +15210,190 @@ class TTIRBuilder(Builder):
                 ]
 
         return topk_module, topk_builder
+
+    ############### ttir.TopKRouterGptOp ###############
+
+    @tag(ttir.TopKRouterGptOp)
+    def topk_router_gpt(
+        self,
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        k: int,
+        num_experts: int = 128,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult]:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.topk_router_gpt)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        k_attr = IntegerAttr.get(IntegerType.get_signless(32), k)
+        num_experts_attr = IntegerAttr.get(IntegerType.get_signless(32), num_experts)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        input2 = self._get_golden_tensor(in2)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_indices, golden_weights = op_golden_function(
+            input0, input1, input2, k_attr, num_experts_attr, mlir_output_type
+        )
+        indices_type = self._create_ranked_tensor_type(
+            golden_indices.shape, golden_indices.dtype
+        )
+        weights_type = self._create_ranked_tensor_type(
+            golden_weights.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            indices_type,
+            weights_type,
+            in0,
+            in1,
+            in2,
+            k=k_attr,
+            num_experts=num_experts_attr,
+            loc=loc,
+        )
+        op_expert_indices = op.expert_indices
+        op_expert_weights = op.expert_weights
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_expert_indices, golden_indices)
+        self._set_golden_tensor(op_expert_weights, golden_weights)
+
+        return op_expert_indices, op_expert_weights
+
+    @parse(ttir.TopKRouterGptOp)
+    def topk_router_gpt_parser(
+        self,
+        old_op: ttir.TopKRouterGptOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.topk_router_gpt_parser)
+        inp = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        bias = global_dict[old_op.bias]
+        k_attr = old_op.k
+        num_experts_attr = old_op.num_experts
+
+        indices_type = old_op.expert_indices.type
+        weights_type = old_op.expert_weights.type
+
+        new_op = ttir_op(
+            indices_type,
+            weights_type,
+            inp,
+            weight,
+            bias,
+            k=k_attr,
+            num_experts=num_experts_attr,
+            loc=old_op.location,
+        )
+        new_op_indices = new_op.expert_indices
+        new_op_weights = new_op.expert_weights
+
+        golden_input = self._get_golden_tensor(inp)
+        golden_weight = self._get_golden_tensor(weight)
+        golden_bias = self._get_golden_tensor(bias)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_indices, golden_weights = op_golden_function(
+            golden_input,
+            golden_weight,
+            golden_bias,
+            k_attr,
+            num_experts_attr,
+            weights_type.element_type,
+        )
+        self._set_golden_tensor(new_op_indices, golden_indices)
+        self._set_golden_tensor(new_op_weights, golden_weights)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.expert_indices] = new_op_indices
+        op_map_dictionary[old_op.expert_weights] = new_op_weights
+        return new_op, op_map_dictionary
+
+    @split(ttir.TopKRouterGptOp)
+    def topk_router_gpt_split(
+        self,
+        old_op: ttir.TopKRouterGptOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.topk_router_gpt_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+
+            module = Module.create()
+            builder = TTIRBuilder(old_ctx, old_loc, self._mesh_shape, self._mesh_dict)
+            op_input_types = [
+                old_op.input.type,
+                old_op.weight.type,
+                old_op.bias.type,
+            ]
+
+            with InsertionPoint(module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="topk_router_gpt_module")
+                def decorated_func(*inputs):
+                    in0, in1, in2 = inputs[0], inputs[1], inputs[2]
+
+                    indices_type = old_op.expert_indices.type
+                    weights_type = old_op.expert_weights.type
+
+                    new_op = ttir_op(
+                        indices_type,
+                        weights_type,
+                        in0,
+                        in1,
+                        in2,
+                        old_op.k,
+                        old_op.num_experts,
+                        loc=old_op.location,
+                    )
+                    new_op_indices = new_op.expert_indices
+                    new_op_weights = new_op.expert_weights
+
+                    old_golden_indices = self._get_golden_tensor(old_op.expert_indices)
+                    old_golden_weights = self._get_golden_tensor(old_op.expert_weights)
+                    builder._set_golden_tensor(new_op_indices, old_golden_indices)
+                    builder._set_golden_tensor(new_op_weights, old_golden_weights)
+                    for old_in, new_in in zip(
+                        [old_op.input, old_op.weight, old_op.bias],
+                        [in0, in1, in2],
+                    ):
+                        builder._set_golden_tensor(
+                            new_in, self._get_golden_tensor(old_in)
+                        )
+                        builder._annotate_presharded_arg(new_in)
+                        ordered_inputs.append(new_in)
+                    ordered_outputs.append(new_op_indices)
+                    ordered_outputs.append(new_op_weights)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return module, builder
 
     ############### ttir.GatherDimOp ###############
 

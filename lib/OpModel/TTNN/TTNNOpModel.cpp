@@ -4027,6 +4027,92 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// TopKRouterGptOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<TopKRouterGptOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
+    TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> biasShape,
+    TTNNLayoutAttr biasLayout, uint32_t k, uint32_t numExperts,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto weightSpecExp =
+      detail::convertToTensorSpec(device, weightShape, weightLayout);
+  if (!weightSpecExp) {
+    return weightSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+
+  auto biasSpecExp = detail::convertToTensorSpec(device, biasShape, biasLayout);
+  if (!biasSpecExp) {
+    return biasSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec biasSpec = biasSpecExp.get();
+
+  auto topKRouterGptQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::topk_router_gpt, device,
+                                inputSpec, weightSpec, biasSpec, k, numExperts);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     topKRouterGptQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<TopKRouterGptOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+    llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout, uint32_t k,
+    uint32_t numExperts, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto weightSpecExp =
+      detail::convertToTensorSpec(device, weightShape, weightLayout);
+  if (!weightSpecExp) {
+    return weightSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+
+  auto biasSpecExp = detail::convertToTensorSpec(device, biasShape, biasLayout);
+  if (!biasSpecExp) {
+    return biasSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec biasSpec = biasSpecExp.get();
+
+  auto topKRouterGptQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::experimental::topk_router_gpt, device,
+                            inputSpec, weightSpec, biasSpec, k, numExperts);
+  };
+
+  return operation::getOpRuntime(topKRouterGptQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ArgMaxOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(

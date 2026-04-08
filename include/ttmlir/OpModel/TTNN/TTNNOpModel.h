@@ -1027,6 +1027,26 @@ struct OpModel<SortOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// TopKRouterGptOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<TopKRouterGptOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
+      TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> biasShape,
+      TTNNLayoutAttr biasLayout, uint32_t k, uint32_t numExperts,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+               llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
+               uint32_t k, uint32_t numExperts, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 

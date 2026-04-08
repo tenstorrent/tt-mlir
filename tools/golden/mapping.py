@@ -4728,6 +4728,40 @@ def ttir_topk_golden(
     return values.to(output_dtype), indices.to(torch.uint16)
 
 
+def ttir_topk_router_gpt_golden(
+    input_tensor: GoldenMapTensor,
+    weight_tensor: GoldenMapTensor,
+    bias_tensor: GoldenMapTensor,
+    k_attr: IntegerAttr,
+    _num_experts_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    k = unpack_mlir_attr(k_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    # Fused linear projection: router_logits = input @ weight + bias
+    # Use bfloat16 to match device precision and preserve top-k ordering.
+    router_logits = torch.matmul(
+        input_tensor.to(torch.bfloat16), weight_tensor.to(torch.bfloat16)
+    )
+    router_logits = router_logits + bias_tensor.to(torch.bfloat16)
+
+    # Select top-k experts.  Output shape is [B, k] (the semantic shape).
+    # The k_padded hardware constraint is handled by a TTNN workaround pass.
+    topk_values, topk_indices = torch.topk(
+        router_logits, k=k, dim=-1, largest=True, sorted=True
+    )
+
+    # Softmax over the top-k logits (matches kernel: cols k..31 are masked to
+    # -inf before softmax, so only the top-k positions contribute).
+    expert_weights = torch.softmax(topk_values, dim=-1)
+
+    expert_indices = topk_indices.to(torch.uint16)
+    expert_weights = expert_weights.to(output_dtype)
+
+    return expert_indices, expert_weights
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -6777,6 +6811,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReduceAndOp: ttir_reduce_and_golden,
     ttir.ReduceOrOp: ttir_reduce_or_golden,
     ttir.TopKOp: ttir_topk_golden,
+    ttir.TopKRouterGptOp: ttir_topk_router_gpt_golden,
     # Tensor manipulation
     ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
