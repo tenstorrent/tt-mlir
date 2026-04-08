@@ -71,7 +71,9 @@ private:
   void execute(const target::metal::CreateGlobalSemaphoreCommand *command);
   void execute(const target::metal::ResetGlobalSemaphoreCommand *command);
 
-  std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
+  std::uint64_t generateUniqueProgramRuntimeId() {
+    return nextProgramRuntimeId++;
+  }
 
 private:
   distributed::MeshDevice *meshDevice;
@@ -424,12 +426,13 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     auto devices = meshDevice->get_devices();
     auto meshShape = meshDevice->shape();
 
-    auto op_id = getUniqueProgramRuntimeId();
+    // We use the same opId for all programs in the workload.
+    auto opId = generateUniqueProgramRuntimeId();
     for (auto &[range, program] : meshWorkload.get_programs()) {
+      program.set_runtime_id(opId);
       for (auto coord : range) {
         size_t linearIdx = coord.to_linear_index(meshShape);
         auto deviceId = devices[linearIdx]->id();
-        program.set_runtime_id(op_id);
         profiler::addProgramProfileHostMetadata(deviceId, program, loc);
       }
     }
