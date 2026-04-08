@@ -30,7 +30,6 @@ from ttmlir.passes import (
     stablehlo_to_ttir_pipeline,
     ttir_to_emitpy_pipeline,
 )
-import _ttmlir_runtime as tt_runtime
 
 # ----- Typedefs -----
 
@@ -362,7 +361,9 @@ class DeferredDevice:
     def prepare(self):
         """Close any cached device from prior tests so compilation can use
         the mock device without conflict."""
+        # Expected to be used through pytest
         from conftest import _current_device, clear_device_cache
+        import _ttmlir_runtime as tt_runtime
 
         if _current_device is not None:
             tt_runtime.runtime.close_mesh_device(_current_device)
@@ -377,6 +378,8 @@ class DeferredDevice:
     def close(self, device):
         """Close the device and clear the fixture cache so the next test
         can compile with a mock device."""
+        import _ttmlir_runtime as tt_runtime
+
         tt_runtime.runtime.close_mesh_device(device)
         tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
         from conftest import clear_device_cache
