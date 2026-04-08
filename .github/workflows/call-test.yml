@@ -86,7 +86,7 @@ jobs:
         rm -f *.whl
 
     - name: Download ttrt run whls
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8
       with:
         name: ttrt-whl-${{ matrix.build.image }}
 

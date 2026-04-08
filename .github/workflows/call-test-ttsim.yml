@@ -78,7 +78,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download ttrt run wheels
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: ttrt-whl-${{ inputs.build_image_name }}
 

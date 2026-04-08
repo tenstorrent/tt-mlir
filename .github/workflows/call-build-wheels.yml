@@ -102,7 +102,7 @@ jobs:
           python-version: '3.12'
 
       - name: Download wheel
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.build.name }}-wheel
           path: ./dist
