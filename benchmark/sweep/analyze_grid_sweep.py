@@ -140,6 +140,21 @@ def main():
     if override:
         print_table("Shared Operand — Grid Override Strategies", override, agg)
 
+    # --- K-dim parallelism sweep ---
+    k_isolated = [c for c in all_configs if "k_dim_parallelism_sweep" in c]
+    if k_isolated:
+        for grid in ["g1x10", "g5x10", "g10x10"]:
+            subset = sorted([c for c in k_isolated if f"-{grid}-" in c])
+            if subset:
+                print_table(f"K-dim isolated matmul — grid {grid}", subset, agg)
+
+    k_shared = [c for c in all_configs if "shared_k_dim_sweep" in c]
+    if k_shared:
+        for grid in ["g1x10", "g5x10", "g10x10"]:
+            subset = sorted([c for c in k_shared if f"-{grid}-" in c])
+            if subset:
+                print_table(f"K-dim shared operand — grid {grid}", subset, agg)
+
     # --- Virtual grid ---
     vgrid = [c for c in all_configs if "vgrid_multiply[" in c]
     if vgrid:
@@ -161,6 +176,22 @@ def main():
             if b > 0:
                 ratio = a / b
                 print(f"  {label}: {a}ns vs {b}ns = {ratio:.2f}x")
+
+    # K-dim sweep: serial-K vs full-K at each K size
+    print("\n  -- K-dim isolated: serial-K (1x10) vs full-K (10x10) --")
+    for k in [2, 5, 10, 20]:
+        compare(
+            f"  isolated k{k}t: g1x10 vs g10x10",
+            f"test_k_dim_parallelism_sweep[ttmetal-g1x10-k{k}t]",
+            f"test_k_dim_parallelism_sweep[ttmetal-g10x10-k{k}t]",
+        )
+    print("\n  -- K-dim shared: serial-K (1x10) vs full-K (10x10) --")
+    for k in [2, 5, 10]:
+        compare(
+            f"  shared k{k}t: g1x10 vs g10x10",
+            f"test_shared_k_dim_sweep[ttmetal-g1x10-k{k}t]",
+            f"test_shared_k_dim_sweep[ttmetal-g10x10-k{k}t]",
+        )
 
     # Wide matmul: g10x10 vs g5x5
     compare(

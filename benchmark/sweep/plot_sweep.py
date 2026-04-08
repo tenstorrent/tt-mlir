@@ -454,6 +454,381 @@ def plot_d2m_add(rows, out_dir):
     )
 
 
+# ---------------------------------------------------------------------------
+# K-dim sweep plots
+#
+# Config name format: test_k_dim_parallelism_sweep[ttmetal-gRxC-kNt]
+#                     test_shared_k_dim_sweep[ttmetal-gRxC-kNt]
+# ---------------------------------------------------------------------------
+
+_K_SWEEP_RE = re.compile(
+    r"(test_k_dim_parallelism_sweep|test_shared_k_dim_sweep)"
+    r"\[ttmetal-(g\d+x\d+)-(k\d+t)\]"
+)
+
+GRID_LINE_STYLE = {
+    "g1x10": ("serial-K (1×10)", "o-", "#e41a1c"),
+    "g5x10": ("partial-K (5×10)", "s--", "#377eb8"),
+    "g10x10": ("full-K (10×10)", "^:", "#4daf4a"),
+}
+
+
+def _parse_k_sweep(prof_root: Path) -> list[dict]:
+    rows = []
+    for config_dir in sorted(prof_root.iterdir()):
+        if not config_dir.is_dir():
+            continue
+        m = _K_SWEEP_RE.match(config_dir.name)
+        if not m:
+            continue
+        test_name, grid_str, k_str = m.group(1), m.group(2), m.group(3)
+        k_tiles = int(re.search(r"\d+", k_str).group())
+        gr, gc = map(int, grid_str[1:].split("x"))
+
+        report_csvs = sorted(config_dir.glob("reports/*/ops_perf_results_*.csv"))
+        if not report_csvs:
+            continue
+        try:
+            with open(report_csvs[-1]) as f:
+                reader = csv.DictReader(f)
+                dispatches = list(reader)
+
+            def safe_int(v):
+                try:
+                    return int(v)
+                except (ValueError, TypeError):
+                    return None
+
+            total_kernel = sum(
+                safe_int(r.get("DEVICE KERNEL DURATION [ns]")) or 0
+                for r in dispatches
+            )
+            total_dm = sum(
+                safe_int(r.get("DEVICE NCRISC KERNEL DURATION [ns]")) or 0
+                for r in dispatches
+            )
+            total_compute = sum(
+                safe_int(r.get("DEVICE TRISC1 KERNEL DURATION [ns]")) or 0
+                for r in dispatches
+            )
+            if total_kernel == 0:
+                continue
+
+            rows.append(
+                {
+                    "test": test_name,
+                    "grid": grid_str,
+                    "grid_rows": gr,
+                    "grid_cols": gc,
+                    "k_tiles": k_tiles,
+                    "kernel_ns": total_kernel,
+                    "dm_ns": total_dm,
+                    "compute_ns": total_compute,
+                }
+            )
+        except Exception as e:
+            print(f"Warning: could not read {report_csvs[-1]}: {e}")
+    return rows
+
+
+def plot_k_dim_sweep(prof_root: Path, out_dir: Path):
+    """Two figures:
+    1. Kernel time vs K-tiles — isolated vs shared, one line per grid.
+    2. DM vs compute breakdown per grid strategy across K sizes.
+    """
+    rows = _parse_k_sweep(prof_root)
+    if not rows:
+        print("No K-dim sweep results found — skipping.")
+        return
+
+    isolated = [r for r in rows if r["test"] == "test_k_dim_parallelism_sweep"]
+    shared = [r for r in rows if r["test"] == "test_shared_k_dim_sweep"]
+
+    all_k = sorted(set(r["k_tiles"] for r in rows))
+    all_grids = sorted(set(r["grid"] for r in rows), key=lambda g: (int(g[1:].split("x")[0]), int(g[1:].split("x")[1])))
+
+    # ---- Figure 1: total kernel time ----------------------------------------
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), sharey=False)
+
+    for ax, subset, title in [
+        (axes[0], isolated, "Isolated matmul (M=N=10t, K varies)"),
+        (axes[1], shared, "Shared operand (M=N_wide=10t, K varies)"),
+    ]:
+        for grid in all_grids:
+            pts = sorted(
+                [r for r in subset if r["grid"] == grid], key=lambda r: r["k_tiles"]
+            )
+            if not pts:
+                continue
+            xs = [r["k_tiles"] for r in pts]
+            ys = [r["kernel_ns"] / 1e3 for r in pts]  # → µs
+            label, style, color = GRID_LINE_STYLE.get(
+                grid, (grid, "o-", None)
+            )
+            ax.plot(xs, ys, style, color=color, label=label, linewidth=2, markersize=8)
+
+        ax.set_title(title)
+        ax.set_xlabel("K dimension [tiles]")
+        ax.set_ylabel("Total kernel time [µs]")
+        ax.set_xticks(all_k)
+        ax.set_xticklabels([f"{k}t\n({k*32})" for k in all_k])
+        ax.legend(fontsize=9)
+        ax.grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle("Parallelism vs DM: kernel time across K sizes", fontsize=13)
+    fig.tight_layout()
+    p = out_dir / "k_dim_sweep_total.png"
+    fig.savefig(p, dpi=150)
+    print(f"Saved {p}")
+    plt.close(fig)
+
+    # ---- Figure 2: DM vs compute breakdown ----------------------------------
+    fig, axes = plt.subplots(1, len(all_grids), figsize=(7 * len(all_grids), 6), sharey=False)
+    if len(all_grids) == 1:
+        axes = [axes]
+
+    for ax, grid in zip(axes, all_grids):
+        pts_iso = sorted(
+            [r for r in isolated if r["grid"] == grid], key=lambda r: r["k_tiles"]
+        )
+        if not pts_iso:
+            continue
+        xs = [r["k_tiles"] for r in pts_iso]
+        dm_ys = [r["dm_ns"] / 1e3 for r in pts_iso]
+        compute_ys = [r["compute_ns"] / 1e3 for r in pts_iso]
+        kernel_ys = [r["kernel_ns"] / 1e3 for r in pts_iso]
+
+        ax.plot(xs, kernel_ys, "k-o", label="kernel total", linewidth=2, markersize=8)
+        ax.plot(xs, compute_ys, "b--s", label="TRISC1 (compute)", linewidth=1.5, markersize=6)
+        ax.plot(xs, dm_ys, "r--^", label="NCRISC (DM)", linewidth=1.5, markersize=6)
+
+        label, _, _ = GRID_LINE_STYLE.get(grid, (grid, "", ""))
+        ax.set_title(f"Grid: {label}")
+        ax.set_xlabel("K dimension [tiles]")
+        ax.set_ylabel("Time [µs]")
+        ax.set_xticks(xs)
+        ax.set_xticklabels([f"{k}t" for k in xs])
+        ax.legend(fontsize=9)
+        ax.grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle("DM vs compute breakdown (isolated matmul) by grid strategy", fontsize=13)
+    fig.tight_layout()
+    p = out_dir / "k_dim_sweep_dm_vs_compute.png"
+    fig.savefig(p, dpi=150)
+    print(f"Saved {p}")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# HW grid asymmetry sweep plots
+#
+# Config name formats:
+#   test_hw_grid_isolated[ttmetal-STRAT-MNt-KNt]
+#   test_hw_grid_shared_compat[ttmetal-NNt-MNt-KNt]
+#   test_hw_grid_shared_per_op[ttmetal-NNt-MNt-KNt]
+# ---------------------------------------------------------------------------
+
+_HW_ISOLATED_RE = re.compile(
+    r"test_hw_grid_isolated\[ttmetal-(compat|per_op_rhs|per_op_lhs)-M(\d+)t-K(\d+)t\]"
+)
+_HW_SHARED_RE = re.compile(
+    r"test_hw_grid_shared_(compat|per_op)\[ttmetal-N(\d+)t-M(\d+)t-K(\d+)t\]"
+)
+
+
+def _parse_hw_grid(prof_root: Path) -> list[dict]:
+    rows = []
+    for config_dir in sorted(prof_root.iterdir()):
+        if not config_dir.is_dir():
+            continue
+
+        m_iso = _HW_ISOLATED_RE.match(config_dir.name)
+        m_shared = _HW_SHARED_RE.match(config_dir.name)
+        if not m_iso and not m_shared:
+            continue
+
+        report_csvs = sorted(config_dir.glob("reports/*/ops_perf_results_*.csv"))
+        if not report_csvs:
+            continue
+        try:
+            with open(report_csvs[-1]) as f:
+                dispatches = list(csv.DictReader(f))
+
+            def safe_int(v):
+                try:
+                    return int(v)
+                except (ValueError, TypeError):
+                    return None
+
+            total_kernel = sum(safe_int(r.get("DEVICE KERNEL DURATION [ns]")) or 0 for r in dispatches)
+            total_dm = sum(safe_int(r.get("DEVICE NCRISC KERNEL DURATION [ns]")) or 0 for r in dispatches)
+            total_compute = sum(safe_int(r.get("DEVICE TRISC1 KERNEL DURATION [ns]")) or 0 for r in dispatches)
+            if total_kernel == 0:
+                continue
+
+            if m_iso:
+                rows.append({
+                    "test": "isolated",
+                    "strategy": m_iso.group(1),
+                    "m_tiles": int(m_iso.group(2)),
+                    "n_tiles": int(m_iso.group(2)),  # N=M for isolated
+                    "k_tiles": int(m_iso.group(3)),
+                    "kernel_ns": total_kernel,
+                    "dm_ns": total_dm,
+                    "compute_ns": total_compute,
+                })
+            else:
+                rows.append({
+                    "test": "shared",
+                    "strategy": m_shared.group(1),
+                    "m_tiles": int(m_shared.group(3)),
+                    "n_tiles": int(m_shared.group(2)),
+                    "k_tiles": int(m_shared.group(4)),
+                    "kernel_ns": total_kernel,
+                    "dm_ns": total_dm,
+                    "compute_ns": total_compute,
+                })
+        except Exception as e:
+            print(f"Warning: could not read {report_csvs[-1]}: {e}")
+    return rows
+
+
+def plot_hw_grid_sweep(prof_root: Path, out_dir: Path):
+    """Key plot: compat/per_op ratio vs K, one line per (M, N) pair.
+
+    Ratio > 1 means compat is slower (per-op optimal + reblock wins).
+    Ratio < 1 means compat wins (reblock too expensive).
+    Crossover at ratio = 1 is the grid selection decision boundary.
+    """
+    rows = _parse_hw_grid(prof_root)
+    if not rows:
+        print("No HW grid sweep results found — skipping.")
+        return
+
+    shared = [r for r in rows if r["test"] == "shared"]
+    if not shared:
+        print("No shared HW grid results — skipping ratio plot.")
+        return
+
+    # Build compat vs per_op lookup: key = (m, n, k)
+    compat_map = {(r["m_tiles"], r["n_tiles"], r["k_tiles"]): r
+                  for r in shared if r["strategy"] == "compat"}
+    per_op_map = {(r["m_tiles"], r["n_tiles"], r["k_tiles"]): r
+                  for r in shared if r["strategy"] == "per_op"}
+
+    all_k = sorted(set(r["k_tiles"] for r in shared))
+    mn_pairs = sorted(set((r["m_tiles"], r["n_tiles"]) for r in shared))
+
+    # ---- Figure 1: Ratio plot (the money plot) ------------------------------
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    colors = cm.tab10(np.linspace(0, 1, max(len(mn_pairs), 1)))
+
+    for (m, n), color in zip(mn_pairs, colors):
+        ratios = []
+        ks = []
+        for k in all_k:
+            key = (m, n, k)
+            if key in compat_map and key in per_op_map:
+                c_ns = compat_map[key]["kernel_ns"]
+                p_ns = per_op_map[key]["kernel_ns"]
+                if p_ns > 0:
+                    ratios.append(c_ns / p_ns)
+                    ks.append(k)
+        if ks:
+            ax.plot(ks, ratios, "o-", color=color, label=f"M={m}t N={n}t",
+                    linewidth=2, markersize=8)
+
+    ax.axhline(y=1.0, color="black", linestyle="--", alpha=0.5, linewidth=1.5)
+    ax.set_xlabel("K dimension [tiles]")
+    ax.set_ylabel("compat time / per-op time")
+    ax.set_title("Grid selection tradeoff: compat (no reblock) vs per-op optimal (reblock W)\n"
+                 "Above 1.0 = per-op wins, below 1.0 = compat wins")
+    ax.set_xticks(all_k)
+    ax.set_xticklabels([f"{k}t\n({k*32})" for k in all_k])
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    p = out_dir / "hw_grid_compat_vs_per_op.png"
+    fig.savefig(p, dpi=150)
+    print(f"Saved {p}")
+    plt.close(fig)
+
+    # ---- Figure 2: Absolute times, compat vs per_op side by side -----------
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+    for ax, strategy, title in [
+        (axes[0], "compat", "Compat grid (no reblock)"),
+        (axes[1], "per_op", "Per-op optimal (reblock W)"),
+    ]:
+        subset = [r for r in shared if r["strategy"] == strategy]
+        for (m, n), color in zip(mn_pairs, colors):
+            pts = sorted([r for r in subset if r["m_tiles"] == m and r["n_tiles"] == n],
+                         key=lambda r: r["k_tiles"])
+            if not pts:
+                continue
+            xs = [r["k_tiles"] for r in pts]
+            ys = [r["kernel_ns"] / 1e3 for r in pts]
+            ax.plot(xs, ys, "o-", color=color, label=f"M={m}t N={n}t",
+                    linewidth=2, markersize=8)
+
+        ax.set_title(title)
+        ax.set_xlabel("K dimension [tiles]")
+        ax.set_ylabel("Total kernel time [us]")
+        ax.set_xticks(all_k)
+        ax.set_xticklabels([f"{k}t" for k in all_k])
+        ax.legend(fontsize=9)
+        ax.grid(True, axis="y", alpha=0.3)
+
+    fig.suptitle("Shared W: absolute kernel time by strategy", fontsize=13)
+    fig.tight_layout()
+    p = out_dir / "hw_grid_absolute.png"
+    fig.savefig(p, dpi=150)
+    print(f"Saved {p}")
+    plt.close(fig)
+
+    # ---- Figure 3: Isolated — compat vs per_op_rhs vs per_op_lhs ----------
+    isolated = [r for r in rows if r["test"] == "isolated"]
+    if isolated:
+        strategies = sorted(set(r["strategy"] for r in isolated))
+        m_vals = sorted(set(r["m_tiles"] for r in isolated))
+        fig, axes = plt.subplots(1, len(m_vals), figsize=(7 * len(m_vals), 6), sharey=False)
+        if len(m_vals) == 1:
+            axes = [axes]
+
+        strat_style = {
+            "compat": ("compat", "o-", "#e41a1c"),
+            "per_op_rhs": ("per-op RHS (10 rows)", "s--", "#377eb8"),
+            "per_op_lhs": ("per-op LHS (11 cols)", "^:", "#4daf4a"),
+        }
+
+        for ax, m in zip(axes, m_vals):
+            for strat in strategies:
+                pts = sorted([r for r in isolated if r["m_tiles"] == m and r["strategy"] == strat],
+                             key=lambda r: r["k_tiles"])
+                if not pts:
+                    continue
+                xs = [r["k_tiles"] for r in pts]
+                ys = [r["kernel_ns"] / 1e3 for r in pts]
+                label, style, color = strat_style.get(strat, (strat, "o-", None))
+                ax.plot(xs, ys, style, color=color, label=label, linewidth=2, markersize=7)
+
+            ax.set_title(f"M=N={m}t")
+            ax.set_xlabel("K dimension [tiles]")
+            ax.set_ylabel("Kernel time [us]")
+            ax.set_xticks(all_k)
+            ax.set_xticklabels([f"{k}t" for k in all_k])
+            ax.legend(fontsize=9)
+            ax.grid(True, axis="y", alpha=0.3)
+
+        fig.suptitle("Isolated matmul: compat vs per-op grid strategies", fontsize=13)
+        fig.tight_layout()
+        p = out_dir / "hw_grid_isolated.png"
+        fig.savefig(p, dpi=150)
+        print(f"Saved {p}")
+        plt.close(fig)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -479,11 +854,16 @@ def main():
     rows = aggregate_total(raw)
     print(f"  {len(raw)} data points -> {len(rows)} configs after aggregation")
 
-    plot_scaling(rows, out_dir)
-    plot_speedup(rows, out_dir)
-    plot_d2m_matmul(rows, out_dir)
-    plot_d2m_add(rows, out_dir)
-    plot_dm_vs_compute(rows, out_dir)
+    if rows:
+        plot_scaling(rows, out_dir)
+        plot_speedup(rows, out_dir)
+        plot_d2m_matmul(rows, out_dir)
+        plot_d2m_add(rows, out_dir)
+        plot_dm_vs_compute(rows, out_dir)
+    else:
+        print("No legacy sweep results found — skipping scaling/speedup/DM plots.")
+    plot_k_dim_sweep(prof_root, out_dir)
+    plot_hw_grid_sweep(prof_root, out_dir)
 
     print(f"\nAll plots written to {out_dir}/")
 
