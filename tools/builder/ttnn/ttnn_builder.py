@@ -9724,8 +9724,9 @@ class TTNNBuilder(Builder):
 
                                 for block in device_module_op.body:
                                     for op in block.operations:
-                                        if isinstance(op, ttnn.GetDeviceOp) and hasattr(
-                                            op, "mesh_offset"
+                                        if (
+                                            isinstance(op, ttnn.GetDeviceOp)
+                                            and op.mesh_offset is not None
                                         ):
                                             mesh_offset_attr = (
                                                 ttnn.ir.MeshOffsetAttr.maybe_downcast(
@@ -9763,8 +9764,9 @@ class TTNNBuilder(Builder):
                     for block in entry.body:
                         sub_op_module_builder = None
                         for op in block.operations:
-                            if isinstance(op, ttnn.GetDeviceOp) and hasattr(
-                                op, "mesh_offset"
+                            if (
+                                isinstance(op, ttnn.GetDeviceOp)
+                                and op.mesh_offset is not None
                             ):
                                 mesh_offset_attr = (
                                     ttnn.ir.MeshOffsetAttr.maybe_downcast(

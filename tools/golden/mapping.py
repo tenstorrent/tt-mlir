@@ -3228,6 +3228,8 @@ def apply_sharding(
     shard_dims: Tuple[Union[int, None]],
 ) -> GoldenMapTensor:
     shards = [tensor.shard_at(0).clone()]
+    if len(mesh_shape) != len(shard_dims):
+        raise ValueError("mesh_shape and shard_dims must have the same length")
     for dim_size, shard_dim in zip(mesh_shape, shard_dims):
         temp_shards = []
         if shard_dim is None or shard_dim == -1:
