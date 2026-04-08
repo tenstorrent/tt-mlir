@@ -424,11 +424,12 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     auto devices = meshDevice->get_devices();
     auto meshShape = meshDevice->shape();
 
+    auto op_id = getUniqueProgramRuntimeId();
     for (auto &[range, program] : meshWorkload.get_programs()) {
       for (auto coord : range) {
         size_t linearIdx = coord.to_linear_index(meshShape);
         auto deviceId = devices[linearIdx]->id();
-        program.set_runtime_id(getUniqueProgramRuntimeId());
+        program.set_runtime_id(op_id);
         profiler::addProgramProfileHostMetadata(deviceId, program, loc);
       }
     }
