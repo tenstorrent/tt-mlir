@@ -403,10 +403,30 @@ private:
     if (!info.opsToCreate.createToMemoryConfigOp) {
       return currentInput;
     }
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        info.output.createMemoryConfigAttr(op.getContext());
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
+    TTNNLayoutAttr currentLayout =
+        utils::getLayoutAttrFromTensor(currentInputType);
+    ttcore::DataType dataType = currentLayout.getDataType();
+
+    // ttnn.copy (used internally by to_memory_config) does not support uint16.
+    // Cast to uint32 first, perform the memory config change, then cast back.
+    // Metal issue reference:
+    // https://github.com/tenstorrent/tt-metal/issues/41689
+    bool needsWorkaround = dataType == ttcore::DataType::UInt16;
+    if (needsWorkaround) {
+      ttcore::DataType workaroundDtype = ttcore::DataType::UInt32;
+      ttcore::DataTypeAttr workaroundDtypeAttr =
+          ttcore::DataTypeAttr::get(op.getContext(), workaroundDtype);
+      RankedTensorType workaroundType = utils::RankedTensorTypeFactory::create(
+          currentInputType, workaroundDtype);
+      currentInput = this->createOp<ttnn::TypecastOp>(
+          rewriter, op, workaroundType, currentInput, workaroundDtypeAttr);
+      currentInputType = mlir::cast<RankedTensorType>(currentInput.getType());
+    }
+
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        info.output.createMemoryConfigAttr(op.getContext());
     TTNNLayoutAttr newLayout =
         utils::getLayoutAttrFromTensor(currentInputType)
             .withBufferType(info.output.bufferType)
@@ -415,8 +435,19 @@ private:
             .withShardShape(info.output.shardShape);
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
-    return this->createOp<ttnn::ToMemoryConfigOp>(
+    mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(
         rewriter, op, newResultType, currentInput, memoryConfigAttr);
+
+    if (needsWorkaround) {
+      ttcore::DataTypeAttr origDtypeAttr =
+          ttcore::DataTypeAttr::get(op.getContext(), dataType);
+      RankedTensorType origType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(result.getType()), dataType);
+      result = this->createOp<ttnn::TypecastOp>(rewriter, op, origType, result,
+                                                origDtypeAttr);
+    }
+
+    return result;
   }
 
   /* Functions that create ops based on the layouts of the input output tensors
