@@ -580,14 +580,6 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     callback_runtime_config.memory_report.append(op_memory_report)
 
 
-def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def pre_op_get_callback_fn(callback_runtime_config):
-    return partial(pre_op_callback, callback_runtime_config)
-
-
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
     if callback_runtime_config.verify_intermediates:
         golden(callback_runtime_config, binary, program_context, op_context)
@@ -598,22 +590,6 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
 def post_op_get_callback_fn(callback_runtime_config):
     return partial(post_op_callback, callback_runtime_config)
-
-
-def pre_exec_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def pre_exec_get_callback_fn(callback_runtime_config):
-    return partial(pre_exec_callback, callback_runtime_config)
-
-
-def post_exec_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def post_exec_get_callback_fn(callback_runtime_config):
-    return partial(post_exec_callback, callback_runtime_config)
 
 
 def convert_golden_intermediates_to_torch(
@@ -737,10 +713,7 @@ def execute_fb(
 
     if verify_intermediates or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
-            pre_op_get_callback_fn(callback_runtime_config),
-            post_op_get_callback_fn(callback_runtime_config),
-            pre_exec_get_callback_fn(callback_runtime_config),
-            post_exec_get_callback_fn(callback_runtime_config),
+            post_op=post_op_get_callback_fn(callback_runtime_config),
         )
 
     for program_index in program_indices:

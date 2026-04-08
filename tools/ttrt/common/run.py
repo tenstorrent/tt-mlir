@@ -13,7 +13,6 @@ from ttrt.common.query import Query
 from ttrt.common.callback import (
     pre_op_get_callback_fn,
     post_op_get_callback_fn,
-    post_exec_get_callback_fn,
     CallbackRuntimeConfig,
 )
 
@@ -621,10 +620,12 @@ class Run:
 
                     if not self["--disable-ttrt-callbacks"]:
                         callback_env = ttrt.runtime.DebugHooks.get(
-                            pre_op_get_callback_fn(pre_op_callback_runtime_config),
-                            post_op_get_callback_fn(post_op_callback_runtime_config),
-                            pre_exec_get_callback_fn(pre_op_callback_runtime_config),
-                            post_exec_get_callback_fn(pre_op_callback_runtime_config),
+                            pre_op=pre_op_get_callback_fn(
+                                pre_op_callback_runtime_config
+                            ),
+                            post_op=post_op_get_callback_fn(
+                                post_op_callback_runtime_config
+                            ),
                         )
 
                     if self["--save-artifacts"]:

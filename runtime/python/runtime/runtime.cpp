@@ -657,35 +657,63 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static(
           "get",
-          [](nb::callable pre_op_func, nb::callable post_op_func,
-             nb::callable pre_exec_func, nb::callable post_exec_func) {
+          [](std::optional<nb::callable> pre_op_func,
+             std::optional<nb::callable> post_op_func,
+             std::optional<nb::callable> pre_exec_func,
+             std::optional<nb::callable> post_exec_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-            return tt::runtime::debug::Hooks::get(
-                [pre_op_func](tt::runtime::Binary Binary,
-                              tt::runtime::CallbackContext programContext,
-                              tt::runtime::OpContext opContext) {
-                  pre_op_func(Binary, programContext, opContext);
-                },
-                [post_op_func](tt::runtime::Binary Binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                  post_op_func(Binary, programContext, opContext);
-                },
-                [pre_exec_func](tt::runtime::Binary Binary,
+            std::optional<tt::runtime::debug::Hooks::CallbackFn> pre_op_cb =
+                std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::CallbackFn> post_op_cb =
+                std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::CallbackFn> pre_exec_cb =
+                std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::CallbackFn> post_exec_cb =
+                std::nullopt;
+
+            if (pre_op_func.has_value()) {
+              pre_op_cb =
+                  [pre_op_func](tt::runtime::Binary Binary,
                                 tt::runtime::CallbackContext programContext,
                                 tt::runtime::OpContext opContext) {
-                  pre_exec_func(Binary, programContext, opContext);
-                },
-                [post_exec_func](tt::runtime::Binary Binary,
+                    (*pre_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (post_op_func.has_value()) {
+              post_op_cb =
+                  [post_op_func](tt::runtime::Binary Binary,
                                  tt::runtime::CallbackContext programContext,
                                  tt::runtime::OpContext opContext) {
-                  post_exec_func(Binary, programContext, opContext);
-                });
+                    (*post_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (pre_exec_func.has_value()) {
+              pre_exec_cb =
+                  [pre_exec_func](tt::runtime::Binary Binary,
+                                  tt::runtime::CallbackContext programContext,
+                                  tt::runtime::OpContext opContext) {
+                    (*pre_exec_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (post_exec_func.has_value()) {
+              post_exec_cb =
+                  [post_exec_func](tt::runtime::Binary Binary,
+                                   tt::runtime::CallbackContext programContext,
+                                   tt::runtime::OpContext opContext) {
+                    (*post_exec_func)(Binary, programContext, opContext);
+                  };
+            }
+
+            return tt::runtime::debug::Hooks::get(pre_op_cb, post_op_cb,
+                                                  pre_exec_cb, post_exec_cb);
 #else
             tt::runtime::debug::Hooks::get();
             return std::nullopt;
 #endif
-          })
+          },
+          nb::arg("pre_op") = std::nullopt, nb::arg("post_op") = std::nullopt,
+          nb::arg("pre_exec") = std::nullopt,
+          nb::arg("post_exec") = std::nullopt)
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;
