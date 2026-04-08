@@ -332,9 +332,10 @@ public:
 // annotation needs an extra dimension entry: closed, unsharded.
 // Example: tensor<16x16xcomplex<f32>> with sharding [{}, {}]
 //       -> tensor<16x16x2xf32>       with sharding [{}, {}, {}]
-static mlir::sdy::TensorShardingPerValueAttr convertShardingsForComplexTypes(
-    MLIRContext *ctx, mlir::sdy::TensorShardingPerValueAttr shardings,
-    TypeRange originalTypes) {
+static mlir::sdy::TensorShardingPerValueAttr
+convertShardingsForComplexTypes(MLIRContext *ctx,
+                                mlir::sdy::TensorShardingPerValueAttr shardings,
+                                TypeRange originalTypes) {
   SmallVector<mlir::sdy::TensorShardingAttr> newShardings;
   for (auto [sharding, type] :
        llvm::zip_equal(shardings.getShardings(), originalTypes)) {
@@ -342,10 +343,9 @@ static mlir::sdy::TensorShardingPerValueAttr convertShardingsForComplexTypes(
     if (rtt && mlir::isa<ComplexType>(rtt.getElementType())) {
       // Append "{}" to sharding spec
       SmallVector<mlir::sdy::DimensionShardingAttr> dims(
-          sharding.getDimShardings().begin(),
-          sharding.getDimShardings().end());
-      dims.push_back(mlir::sdy::DimensionShardingAttr::get(
-          ctx, /*axes=*/{}, /*isClosed=*/true));
+          sharding.getDimShardings().begin(), sharding.getDimShardings().end());
+      dims.push_back(mlir::sdy::DimensionShardingAttr::get(ctx, /*axes=*/{},
+                                                           /*isClosed=*/true));
       newShardings.push_back(mlir::sdy::TensorShardingAttr::get(
           ctx, sharding.getMeshOrRef(), dims, sharding.getReplicatedAxes(),
           sharding.getUnreducedAxes()));
@@ -386,8 +386,7 @@ public:
     }
 
     auto newInShardings = convertShardingsForComplexTypes(
-        op.getContext(), op.getInShardings(),
-        op.getBody().getArgumentTypes());
+        op.getContext(), op.getInShardings(), op.getBody().getArgumentTypes());
     auto newOutShardings = convertShardingsForComplexTypes(
         op.getContext(), op.getOutShardings(), op.getResultTypes());
 
