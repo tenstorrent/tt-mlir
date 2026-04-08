@@ -846,6 +846,29 @@ def execute_fb(
                     ).reshape(output_device_tensors[device_id].get_shape())
 
                 golden_shard_torch = golden_outputs_torch[i][device_id]
+                if golden_shard_torch.dtype != output_shard_torch.dtype:
+                    # In the ttmetal path, PredicateTypeAlignment changes
+                    # boolean (i1) outputs to match the input element type
+                    # (e.g. i1 -> i64).  The golden was computed before that
+                    # pass and bool is mapped to bfloat16 by
+                    # _get_runtime_compatible_torch_dtype, while the device
+                    # returns the aligned integer type.  Only allow the cast
+                    # in this specific scenario.
+                    is_ttmetal = fbb.file_identifier == "TTM0"
+                    is_predicate_alignment_mismatch = (
+                        golden_shard_torch.dtype == torch.bfloat16
+                    )
+                    if is_ttmetal and is_predicate_alignment_mismatch:
+                        golden_shard_torch = golden_shard_torch.to(
+                            output_shard_torch.dtype
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"Golden/output dtype mismatch: "
+                            f"golden={golden_shard_torch.dtype}, "
+                            f"output={output_shard_torch.dtype} "
+                            f"(output_{i}_device_{device_id})"
+                        )
                 results = check_outputs(
                     golden_shard_torch,
                     output_shard_torch,
