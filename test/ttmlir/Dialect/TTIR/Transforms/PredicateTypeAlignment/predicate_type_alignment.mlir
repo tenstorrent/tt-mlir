@@ -28,6 +28,16 @@ func.func @phase2_ne_result_i32(%arg0: tensor<2x8xi32>, %arg1: tensor<2x8xi32>) 
 }
 
 // -----
+// CHECK-LABEL: func.func @direct_ge_return_signature_updated
+// CHECK-SAME: (%arg0: tensor<4x4xi32>, %arg1: tensor<4x4xi32>) -> tensor<4x4xi32>
+// CHECK: "ttir.ge"(%arg0, %arg1) : (tensor<4x4xi32>, tensor<4x4xi32>) -> tensor<4x4xi32>
+// CHECK: return %{{.*}} : tensor<4x4xi32>
+func.func @direct_ge_return_signature_updated(%arg0: tensor<4x4xi32>, %arg1: tensor<4x4xi32>) -> tensor<4x4xi1> {
+  %0 = "ttir.ge"(%arg0, %arg1) : (tensor<4x4xi32>, tensor<4x4xi32>) -> tensor<4x4xi1>
+  return %0 : tensor<4x4xi1>
+}
+
+// -----
 // CHECK-LABEL: func.func @phase2_gt_ge_lt_le_result_type
 // CHECK: "ttir.gt"(%arg0, %arg1) : (tensor<3x3xi32>, tensor<3x3xi32>) -> tensor<3x3xi32>
 // CHECK: "ttir.ge"(%arg0, %arg1) : (tensor<3x3xi32>, tensor<3x3xi32>) -> tensor<3x3xi32>

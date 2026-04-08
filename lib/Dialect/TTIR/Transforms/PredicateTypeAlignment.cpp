@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttir {
@@ -230,8 +232,8 @@ struct WhereConditionTypePattern : public mlir::OpRewritePattern<WhereOp> {
     if (!condType.getElementType().isInteger(1)) {
       return rewriter.notifyMatchFailure(op, "condition is not i1");
     }
-    if (trueType != falseType) {
-      return rewriter.notifyMatchFailure(op, "true/false types differ");
+    if (trueType.getElementType() != falseType.getElementType()) {
+      return rewriter.notifyMatchFailure(op, "true/false element types differ");
     }
     if (condType.getElementType() == trueType.getElementType()) {
       return rewriter.notifyMatchFailure(
@@ -249,6 +251,45 @@ struct WhereConditionTypePattern : public mlir::OpRewritePattern<WhereOp> {
     return mlir::success();
   }
 };
+
+/// Comparison / logical patterns change result element types in-place; update
+/// each func's declared result types to match its return operands so the IR
+/// verifies (e.g. ge i1 -> i64 while the signature still claimed i1).
+static void syncFuncResultTypesFromReturns(mlir::func::FuncOp func) {
+  if (func.getBody().empty()) {
+    return;
+  }
+
+  llvm::SmallVector<mlir::Type> inferredResults;
+  for (mlir::Block &block : func.getBody()) {
+    auto ret = mlir::dyn_cast<mlir::func::ReturnOp>(block.getTerminator());
+    if (!ret) {
+      continue;
+    }
+    if (inferredResults.empty()) {
+      inferredResults.append(ret.getOperandTypes().begin(),
+                             ret.getOperandTypes().end());
+    } else if (!llvm::equal(inferredResults, ret.getOperandTypes())) {
+      return;
+    }
+  }
+
+  if (inferredResults.empty()) {
+    return;
+  }
+
+  mlir::FunctionType funcType = func.getFunctionType();
+  if (funcType.getNumResults() != inferredResults.size()) {
+    return;
+  }
+  if (llvm::equal(funcType.getResults(), inferredResults)) {
+    return;
+  }
+
+  mlir::FunctionType newFuncType = mlir::FunctionType::get(
+      func.getContext(), funcType.getInputs(), inferredResults);
+  func.setFunctionType(newFuncType);
+}
 
 struct PredicateTypeAlignment
     : public impl::PredicateTypeAlignmentBase<PredicateTypeAlignment> {
@@ -276,7 +317,11 @@ struct PredicateTypeAlignment
     if (failed(mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
                                            config))) {
       signalPassFailure();
+      return;
     }
+
+    getOperation().walk(
+        [](mlir::func::FuncOp func) { syncFuncResultTypesFromReturns(func); });
   }
 };
 } // namespace

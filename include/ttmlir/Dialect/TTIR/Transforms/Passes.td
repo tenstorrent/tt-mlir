@@ -122,7 +122,8 @@ def PredicateTypeAlignment : Pass<"ttir-predicate-type-alignment", "::mlir::Modu
       - Elementwise binary (e.g. logical_and): if one operand is i1 and the
         other is not, align to the non-i1 type via typecasts.
       - Comparisons (eq, ne, gt, ge, lt, le), logical_not, reduce_or: result
-        element type matches input/lhs instead of i1.
+        element type matches input/lhs instead of i1; function result types are
+        updated to match return operands when those types change.
       - where: condition is typecast to the true/false value element type.
   }];
 }
