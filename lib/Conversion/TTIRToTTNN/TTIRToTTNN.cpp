@@ -1338,48 +1338,6 @@ public:
 namespace {
 class GroupNormOpConversionPattern
     : public OpConversionPattern<ttir::GroupNormOp> {
-private:
-  // Compute a valid core grid for group_norm.
-  static std::pair<uint64_t, uint64_t>
-  computeGroupNormCoreGrid(int64_t deviceGridX, int64_t deviceGridY,
-                           int64_t numChannels, int64_t numGroups,
-                           int64_t inputNHW) {
-    constexpr int64_t tileSize = 32;
-
-    int64_t Ht = llvm::divideCeil(inputNHW, tileSize);
-
-    // Find numVirtualCols: largest value <= min(deviceGridX, numGroups) where
-    // channels per virtual col are tile-aligned and groups divide evenly.
-    // numVirtualCols == 1 always satisfies both conditions (given the
-    // precondition numChannels % 32 == 0), so the loop always terminates.
-    int64_t numVirtualCols = std::min(deviceGridX, numGroups);
-    while (numVirtualCols > 1 &&
-           ((numChannels / numVirtualCols) % tileSize != 0 ||
-            numGroups % numVirtualCols != 0)) {
-      numVirtualCols--;
-    }
-
-    // Start with the full device grid, clamped to a multiple of
-    // numVirtualCols, then shrink until numVirtualRows <= Ht.
-    int64_t gridX =
-        llvm::divideCeil(deviceGridX, numVirtualCols) * numVirtualCols;
-    int64_t gridY = deviceGridY;
-
-    int64_t rowsMult = gridX / numVirtualCols;
-    if (rowsMult * gridY > Ht) {
-      gridY = Ht / rowsMult;
-      if (gridY == 0) {
-        gridX = numVirtualCols;
-        gridY = std::min(deviceGridY, Ht);
-      }
-    }
-
-    gridX = std::max(gridX, numVirtualCols);
-    gridY = std::max(gridY, static_cast<int64_t>(1));
-
-    return {gridX, gridY};
-  }
-
 public:
   using OpConversionPattern<ttir::GroupNormOp>::OpConversionPattern;
 
@@ -1454,28 +1412,16 @@ public:
           loc, reshapedType, input, rewriter.getI32ArrayAttr(reshapedShapeI32),
           /*memory_config=*/nullptr);
     }
-    // Compute core_grid from the device worker grid and input dimensions.
     // Input is now in [N, 1, H*W, C] form.
-
     RankedTensorType groupNormInputType =
         mlir::cast<RankedTensorType>(input.getType());
 
     ArrayRef<int64_t> gnShape = groupNormInputType.getShape();
-    int64_t inputNHW = gnShape[0] * gnShape[1] * gnShape[2];
     int64_t numChannels = gnShape[3];
-    int64_t numGroups = adaptor.getNumGroups();
 
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-    auto workerGridShape = deviceAttr.getWorkerGrid().getShape();
-    // GridAttr shape is [y, x].
-    int64_t deviceGridX = workerGridShape[1];
-    int64_t deviceGridY = workerGridShape[0];
-
-    auto [gridX, gridY] = computeGroupNormCoreGrid(
-        deviceGridX, deviceGridY, numChannels, numGroups, inputNHW);
-
-    auto coreGridAttr =
-        ttnn::CoreCoordAttr::get(rewriter.getContext(), gridX, gridY);
+    // Omit core_grid so tt-metal can pick a valid grid (see tt-metal#40916).
+    // The previous compiler-side heuristic could disagree with group_norm's
+    // runtime validation and caused TT_THROW on device.
 
     // Materialize missing affine parameters to avoid runtime issues in
     // optional-weight/bias GroupNorm paths.
@@ -1537,7 +1483,7 @@ public:
         loc, this->getTypeConverter()->convertType(groupNormInputType), input,
         adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
         adaptor.getEpsilon(),
-        /*memoryConfig*/ nullptr, coreGridAttr);
+        /*memoryConfig*/ nullptr, /*coreGrid*/ nullptr);
 
     // Reshape back to original shape if reshaped.
     if (needsReshape) {

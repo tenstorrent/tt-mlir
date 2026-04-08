@@ -36,19 +36,21 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
-  // Get core_grid: use compile-time value from flatbuffer if present,
-  // otherwise fallback to device grid size (required by ttnn::group_norm)
+  // Use core_grid from flatbuffer when the compiler specified one; otherwise
+  // pass nullopt so tt-metal can choose a valid grid (see tt-metal#40916).
+  // Defaulting to the full device grid was invalid for large Ht*W (e.g. 8x8
+  // when only 8x6 fits).
   const auto *coreGridFb = op->core_grid();
-  auto grid_size =
-      coreGridFb ? tt::tt_metal::CoreCoord(coreGridFb->x(), coreGridFb->y())
-                 : input.device()->compute_with_storage_grid_size();
-  ::ttnn::CoreGrid core_grid(grid_size.x, grid_size.y);
+  std::optional<::ttnn::CoreGrid> coreGridOpt = std::nullopt;
+  if (coreGridFb) {
+    coreGridOpt.emplace(coreGridFb->x(), coreGridFb->y());
+  }
 
   // Call TTNN group norm operation
   ::ttnn::Tensor output = ::ttnn::group_norm(
       input, num_groups, epsilon, input_mask, weight, bias,
       /*reciprocals=*/std::nullopt, memoryConfig,
-      /*dtype=*/std::nullopt, core_grid,
+      /*dtype=*/std::nullopt, coreGridOpt,
       /*inplace=*/std::nullopt, /*output_layout=*/std::nullopt,
       /*num_out_blocks=*/-1, /*compute_kernel_config=*/std::nullopt,
       /*negative_mask=*/std::nullopt,
