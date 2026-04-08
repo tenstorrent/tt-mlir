@@ -2705,6 +2705,13 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     return emitOpError("num_experts_per_tok must be positive");
   }
 
+  // Verify output_shard_dim is 1 or 2.
+  int64_t outputShardDim = getOutputShardDim();
+  if (outputShardDim != 1 && outputShardDim != 2) {
+    return emitOpError("output_shard_dim must be 1 or 2, got ")
+           << outputShardDim;
+  }
+
   return success();
 }
 
