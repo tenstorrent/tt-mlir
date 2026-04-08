@@ -156,8 +156,8 @@ ProgramExecutor::ProgramExecutor(
 }
 
 void ProgramExecutor::runCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
-    const ::tt::target::ttnn::Operation *opContext,
+    const std::optional<debug::Hooks::CallbackFn> &callback,
+    Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
@@ -172,8 +172,8 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::runPreExecutionCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
-    ProgramContext *programContext) {
+    const std::optional<debug::Hooks::CallbackFn> &callback,
+    Binary &executableHandle, ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafeBorrowShared(programContext);
@@ -186,8 +186,8 @@ void ProgramExecutor::runPreExecutionCallback(
 }
 
 void ProgramExecutor::runPostExecutionCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
-    ProgramContext *programContext) {
+    const std::optional<debug::Hooks::CallbackFn> &callback,
+    Binary &executableHandle, ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
         ::tt::runtime::utils::unsafeBorrowShared(programContext);

@@ -657,7 +657,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static(
           "get",
-          [](nb::callable pre_op_func, nb::callable post_op_func) {
+          [](nb::callable pre_op_func, nb::callable post_op_func,
+             nb::callable pre_exec_func, nb::callable post_exec_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
             return tt::runtime::debug::Hooks::get(
                 [pre_op_func](tt::runtime::Binary Binary,
@@ -669,6 +670,16 @@ void registerRuntimeBindings(nb::module_ &m) {
                                tt::runtime::CallbackContext programContext,
                                tt::runtime::OpContext opContext) {
                   post_op_func(Binary, programContext, opContext);
+                },
+                [pre_exec_func](tt::runtime::Binary Binary,
+                                tt::runtime::CallbackContext programContext,
+                                tt::runtime::OpContext opContext) {
+                  pre_exec_func(Binary, programContext, opContext);
+                },
+                [post_exec_func](tt::runtime::Binary Binary,
+                                 tt::runtime::CallbackContext programContext,
+                                 tt::runtime::OpContext opContext) {
+                  post_exec_func(Binary, programContext, opContext);
                 });
 #else
             tt::runtime::debug::Hooks::get();
