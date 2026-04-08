@@ -73,7 +73,6 @@ struct BeamEntryRecord {
 struct OutputHintsRecord {
   size_t primaryCount = 0;
   size_t fallbackCount = 0;
-  bool attemptL1Sharding = true;
 };
 
 /// All decision data for one op.
