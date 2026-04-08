@@ -132,7 +132,6 @@ static llvm::json::Value opDecisionToJSON(const OpDecisionRecord &op) {
   hintsObj["primaryCount"] = static_cast<int64_t>(op.outputHints.primaryCount);
   hintsObj["fallbackCount"] =
       static_cast<int64_t>(op.outputHints.fallbackCount);
-  hintsObj["attemptL1Sharding"] = op.outputHints.attemptL1Sharding;
   obj["outputHints"] = std::move(hintsObj);
 
   obj["crossProductSize"] = static_cast<int64_t>(op.crossProductSize);
@@ -408,7 +407,6 @@ void DecisionTraceObserver::onOpSetup(
   // Record output hints.
   record.outputHints.primaryCount = hints.hints.size();
   record.outputHints.fallbackCount = hints.fallbackHints.size();
-  record.outputHints.attemptL1Sharding = hints.attemptL1Sharding;
   record.crossProductSize = crossProductSize;
 
   trace.forwardPass.push_back(std::move(record));
