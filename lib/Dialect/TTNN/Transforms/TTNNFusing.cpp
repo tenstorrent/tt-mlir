@@ -406,6 +406,7 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
+    RewritePatternSet laterPatterns(&getContext());
     // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
     patterns.add<
@@ -416,8 +417,9 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>,
-        TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
+        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(
+        &getContext());
+    laterPatterns.add<TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
         &getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -445,10 +447,12 @@ public:
     // (e.g. bf16->f32->bf16) that appear after SDPA fusing, enabling
     // patterns like NLPConcatHeadsDecodeFusing to match cleanly.
     TypecastOp::getCanonicalizationPatterns(patterns, &getContext());
+    TypecastOp::getCanonicalizationPatterns(laterPatterns, &getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    (void)applyPatternsGreedily(getOperation(), std::move(laterPatterns));
   }
 };
 } // namespace
