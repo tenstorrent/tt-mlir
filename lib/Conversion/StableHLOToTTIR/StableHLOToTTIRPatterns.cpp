@@ -7430,14 +7430,14 @@ public:
 
     auto slidingWindowStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("sliding_window_size");
-    std::optional<int32_t> slidingWindowSize = std::nullopt;
+    std::optional<uint32_t> slidingWindowSize = std::nullopt;
     if (slidingWindowStringAttr) {
-      int32_t _slidingWindowSize;
+      uint32_t _slidingWindowSize;
       if (!llvm::to_integer(slidingWindowStringAttr.getValue(),
                             _slidingWindowSize)) {
         return rewriter.notifyMatchFailure(
             srcOp, "sliding_window_size attribute string must be convertible "
-                   "to integer. Received \"" +
+                   "to non-negative integer. Received \"" +
                        slidingWindowStringAttr.getValue() + "\".");
       }
       slidingWindowSize = _slidingWindowSize;
