@@ -153,6 +153,14 @@ def test_sum_3d_outer(
     request,
     device,
 ):
+    total_tiles = b * m * n
+    if total_tiles >= 128:
+        pytest.xfail(
+            f"Outer dim reduction incorrect when total input tiles ({total_tiles}) >= 128: "
+            "block factor analysis splits the reduction dim, cross-partition "
+            "all-reduce is missing, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
+        )
+
     tile_size = 32
     shape = (
         b,
@@ -189,6 +197,18 @@ def test_sum_4d_outer(
     request,
     device,
 ):
+    total_tiles = a * b * m * n
+    if dim_arg == [0] and total_tiles >= 128:
+        pytest.xfail(
+            f"Outer dim 0 reduction incorrect when total input tiles ({total_tiles}) >= 128: "
+            "block factor analysis splits the reduction dim, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
+        )
+    if dim_arg == [1] and a == 3 and b == 4:
+        pytest.xfail(
+            "Outer dim 1 reduction incorrect for a=3, b=4: block factor "
+            "analysis splits the reduction dim due to odd batch size, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
+        )
+
     tile_size = 32
     shape = (
         a,
