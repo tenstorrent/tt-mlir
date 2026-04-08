@@ -70,10 +70,10 @@ struct LinalgToLLVMPipelineOptions
       llvm::cl::init(true)};
 };
 
-// Options for the TTIR to LLVM CPU pipeline.
+// Options for the (SHLO + TTIR) to LLVM pipeline, used for CPU execution.
 // Inherits from LinalgToLLVMPipelineOptions to reuse the options.
 //
-struct TTIRToLLVMCPUPipelineOptions : public LinalgToLLVMPipelineOptions {};
+struct SHLOAndTTIRToLLVMPipelineOptions : public LinalgToLLVMPipelineOptions {};
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 void createStableHLOToTTIRPipeline(
@@ -86,8 +86,8 @@ void createTTIRToNVVMPipeline(OpPassManager &manager,
 void createLinalgToLLVMPipeline(OpPassManager &pm,
                                 const LinalgToLLVMPipelineOptions &options);
 
-void createTTIRToLLVMCPUPipeline(OpPassManager &manager,
-                                 const TTIRToLLVMCPUPipelineOptions &options);
+void createSHLOAndTTIRToLLVMPipeline(
+    OpPassManager &manager, const SHLOAndTTIRToLLVMPipelineOptions &options);
 
 /// Registers all pipelines for the TTIR dialect.
 void registerTTIRPipelines();
