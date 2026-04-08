@@ -606,27 +606,15 @@ struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
                                      public TTNNToEmitPyDevicePipelineOptions {
 };
 
+// ============================================================
+// Other pipelines.
+// ============================================================
+
 // Recover Structure XLA/Torch pipeline options.
 struct RecoverStructureXLATorchPipelineOptions
     : public PassPipelineOptions<RecoverStructureXLATorchPipelineOptions> {
   // Add any future options here if needed
 };
-
-//===----------------------------------------------------------------------===//
-// End-to-end pipelines, which lower TTIR to various TTNN targets.
-//===----------------------------------------------------------------------===//
-
-void createTTIRToTTNNBackendPipeline(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTIRToEmitCPipeline(OpPassManager &pm,
-                               const TTIRToEmitCPipelineOptions &options);
-
-void createTTIRToEmitPyPipeline(OpPassManager &pm,
-                                const TTIRToEmitPyPipelineOptions &options);
-
-void createTTNNToEmitPyPipeline(
-    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
 
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
