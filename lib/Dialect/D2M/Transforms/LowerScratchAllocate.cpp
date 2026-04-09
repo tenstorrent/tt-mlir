@@ -5,14 +5,10 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/PatternMatch.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
@@ -60,14 +56,8 @@ public:
 
 private:
   // Process a single d2m.generic, lowering all scratch_allocate ops to
-  // rank-reducing subviews of the scratch memref obtained from
-  // get_scratch_from_cb.
+  // rank-reducing subviews of the scratch memref obtained from scratch_init.
   LogicalResult processGeneric(GenericOp genericOp) {
-    auto scratchInputsAttr = genericOp.getScratchInputsAttr();
-    if (!scratchInputsAttr || scratchInputsAttr.empty()) {
-      return success();
-    }
-
     if (genericOp.getNumRegions() == 0) {
       return success();
     }
@@ -76,20 +66,16 @@ private:
       return success();
     }
 
-    // Create a CB for the scratch operand using the CB rework utilities.
-    // This gives the scratch buffer a proper CB port number so that
-    // downstream compute APIs (unpack/pack) can address it.
-    // The CB must be created even if there are no scratch_allocate ops,
-    // because the scratch memref.alloc in the region needs a CB association
-    // for D2MToTTKernel conversion.
-    int64_t scratchInputIdx = scratchInputsAttr[0];
-    Block &block = region.front();
+    // Find the scratch_init op in the region.
+    ScratchInitOp scratchInit = nullptr;
+    region.walk([&](ScratchInitOp op) { scratchInit = op; });
 
-    IRRewriter rewriter(genericOp->getContext());
-    CBCache cbCache;
-    PortCounter portCounters;
-    Value scratchCB = getOrCreateCB(genericOp, region, scratchInputIdx,
-                                    rewriter, cbCache, portCounters);
+    if (!scratchInit) {
+      return success();
+    }
+
+    Value scratchMemRef = scratchInit.getScratch();
+    auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
 
     // Collect all scratch_allocate ops in this region.
     SmallVector<ScratchAllocationInfo> allocations;
@@ -101,6 +87,7 @@ private:
     });
 
     if (allocations.empty()) {
+      scratchInit.erase();
       return success();
     }
 
@@ -117,13 +104,6 @@ private:
       currentOffset += info.numElements;
     }
 
-    OpBuilder builder(&block, block.begin());
-    builder.setInsertionPointAfterValue(scratchCB);
-    auto scratchFromCBOp =
-        builder.create<GetScratchFromCBOp>(genericOp.getLoc(), scratchCB);
-    Value scratchMemRef = scratchFromCBOp.getResult();
-    auto scratchMemRefType = mlir::cast<MemRefType>(scratchMemRef.getType());
-
     // Verify allocations fit in the scratch buffer.
     int64_t scratchCapacity = getNumElements(scratchMemRefType);
     if (currentOffset > scratchCapacity) {
@@ -138,11 +118,15 @@ private:
       replaceScratchAllocate(info, scratchMemRef);
     }
 
+    // Erase the scratch_init anchor op now that all allocates are lowered.
+    scratchInit.erase();
+
     return success();
   }
 
-  /// Replace a scratch_allocate with a rank-reducing subview of the scratch CB,
-  /// followed by an expand_shape if the requested type is multi-dimensional.
+  /// Replace a scratch_allocate with a rank-reducing subview of the scratch
+  /// memref, followed by an expand_shape if the requested type is
+  /// multi-dimensional.
   ///
   /// The scratch buffer has shape [1, N] from AddScratchInputs.
   /// Each scratch_allocate requests a memref with numElements total tiles.
@@ -158,7 +142,7 @@ private:
     OpBuilder builder(allocOp);
     Location loc = allocOp.getLoc();
 
-    // Always extract a flat 1D slice from the 2D scratch CB.
+    // Always extract a flat 1D slice from the 2D scratch buffer.
     SmallVector<int64_t> flatShape = {info.numElements};
     SmallVector<int64_t> staticOffsets = {0, info.elementOffset};
     SmallVector<int64_t> staticSizes = {1, info.numElements};

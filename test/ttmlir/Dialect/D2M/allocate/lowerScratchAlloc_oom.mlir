@@ -10,22 +10,21 @@ module {
 
 func.func @scratch_overflow() {
   %in = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
-  %scratch_buf = memref.alloc() : memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>
   %out = memref.alloc() : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
   // CHECK: error: 'd2m.generic' op total scratch allocations (10 elements) exceed scratch buffer capacity (8 elements)
   d2m.generic {
     block_factors = [1, 1], grid = #ttcore.grid<1x1>,
-    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (0, 0)>, affine_map<(d0, d1) -> (d0, d1)>],
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
     iterator_types = [#parallel, #parallel],
-    scratch_inputs = array<i64: 1>,
     threads = [#d2m.thread<unified>]
   }
-  ins(%in, %scratch_buf : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<1x1x1x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1>)
+  ins(%in : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
   outs(%out : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
   ^bb0():
     %alloc_cb0 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb1 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
-    %alloc_cb2 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %alloc_cb1 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %scratch = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+    d2m.scratch_init %scratch : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
   }

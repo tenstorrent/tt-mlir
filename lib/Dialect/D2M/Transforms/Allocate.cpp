@@ -665,6 +665,35 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           }
         }
       }
+
+      // Register all in-generic CBLayoutAttr allocs that were not already
+      // registered above (e.g. scratch buffers created by
+      // AddScratchInputs).
+      for (Region &region : genericOp->getRegions()) {
+        region.walk([&](memref::AllocOp allocOp) {
+          auto memrefType = allocOp.getType();
+          if (!mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+            return;
+          }
+          // Skip if already registered (e.g. operand-backed allocs above).
+          if (analysis.memrefs.count(allocOp.getResult())) {
+            return;
+          }
+          MemrefValueContext &ctx = addMemrefValueContext(
+              rewriter, analysis, allocOp.getResult(), memrefType, device);
+          ctx.live = {genericSeqPos, genericSeqPos};
+          ctx.isInsideGeneric = true;
+          ctx.isMemspaceBound = true;
+          // Total CB size = shape[0] * stride[0] (row-major, stride
+          // includes element size).
+          auto cbLayout =
+              mlir::cast<ttcore::CBLayoutAttr>(memrefType.getLayout());
+          int64_t totalSizeBytes =
+              memrefType.getShape().front() * cbLayout.getStride().front();
+          ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))] =
+              ttmlir::utils::alignUp(totalSizeBytes, L1memInfo.alignment);
+        });
+      }
     });
 
     TT_ALLOC_DEBUG("collected {} in-generic memref alloc(s)",

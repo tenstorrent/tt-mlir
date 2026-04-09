@@ -10,10 +10,8 @@
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/IRMapping.h"
 
 #define DEBUG_TYPE "D2MAddScratchInputs"
 
@@ -59,15 +57,10 @@ static bool needsScratch(GenericOp genericOp) {
   return linalgCount > 1;
 }
 
-// Add scratch input to a single d2m.generic op (post-bufferization).
-// Creates a memref.alloc for the scratch buffer and rebuilds the generic with
-// the scratch as an additional input.
+// Add a scratch buffer inside a single d2m.generic op's region
+// (post-bufferization). Creates a memref.alloc + scratch_init at the start of
+// the region body.
 static LogicalResult addScratchToGeneric(GenericOp genericOp) {
-  // Skip if this generic already has scratch inputs.
-  if (genericOp.getScratchInputsAttr()) {
-    return failure();
-  }
-
   // Skip if not in compute-only form.
   if (!genericOp.isComputeOnlyForm()) {
     return failure();
@@ -80,15 +73,9 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     return failure();
   }
 
-  // Find a tiled input to get the tile type and grid shape.
+  // Find a tiled input to get the tile type.
   MemRefType refMemRefType = findTiledInputType(genericOp);
   if (!refMemRefType) {
-    return failure();
-  }
-
-  auto refDeviceLayout =
-      ttcore::getDeviceLayout(mlir::cast<ShapedType>(refMemRefType));
-  if (!refDeviceLayout) {
     return failure();
   }
 
@@ -104,146 +91,33 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
     numTiles = 1; // At least one tile.
   }
 
-  // Get grid shape from reference input.
-  auto gridShape =
-      refDeviceLayout.getGridShape(mlir::cast<ShapedType>(refMemRefType));
-
-  // Build scratch memref shape: [grid_dims..., 1, numTiles].
-  SmallVector<int64_t> scratchShape;
-  for (auto dim : gridShape) {
-    scratchShape.push_back(dim);
-  }
-  scratchShape.push_back(1);
-  scratchShape.push_back(static_cast<int64_t>(numTiles));
-
-  // Build shard shape: [1, numTiles].
+  // Build scratch shard shape: [1, numTiles].
   SmallVector<int64_t> scratchShardShape = {1, static_cast<int64_t>(numTiles)};
 
-  // Create ShardLayoutAttr from shard shape and tile type.
-  auto scratchLayout =
-      ttcore::ShardLayoutAttr::get(scratchShardShape, tileType, /*buffers=*/1);
+  // Create CBLayoutAttr for the scratch buffer (single-buffered).
+  auto cbLayout =
+    ttcore::CBLayoutAttr::get(scratchShardShape, tileType, /*buffers=*/1);
 
   auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
       genericOp.getContext(), ttcore::MemorySpace::DeviceL1);
 
-  // Full device memref type for the alloc (grid + shard dims).
-  MemRefType scratchMemRefType =
-      MemRefType::get(scratchShape, tileType, scratchLayout, l1MemorySpace);
-
-  // Shard memref type for the CB block arg.
+  // Shard memref type for the scratch buffer inside the region.
   MemRefType scratchShardMemRefType = MemRefType::get(
-      scratchShardShape, tileType, /*layout=*/nullptr, l1MemorySpace);
+      scratchShardShape, tileType, cbLayout, l1MemorySpace);
 
-  // Create memref.alloc for the scratch buffer before the generic.
-  OpBuilder builder(genericOp);
-  auto scratchAlloc =
-      builder.create<memref::AllocOp>(genericOp.getLoc(), scratchMemRefType);
-
-  // Build new inputs with scratch added at the end.
-  unsigned numOldInputs = genericOp.getInputs().size();
-  int64_t scratchInputIndex = static_cast<int64_t>(numOldInputs);
-
-  SmallVector<Value> newInputs(genericOp.getInputs());
-  newInputs.push_back(scratchAlloc.getResult());
-
-  // Update indexing maps: insert scratch's map before output maps.
-  // Scratch uses a constant map (all zeros).
-  SmallVector<Attribute> newIndexingMaps;
-  auto oldMaps = genericOp.getIndexingMaps();
-  for (unsigned i = 0; i < numOldInputs; ++i) {
-    newIndexingMaps.push_back(oldMaps[i]);
+  // Insert memref.alloc + scratch_init at the start of the region body.
+  Region &region = genericOp.getRegion(0);
+  if (region.empty()) {
+    return failure();
   }
+  Block &block = region.front();
+  OpBuilder builder(&block, block.begin());
 
-  // Add constant map for scratch.
-  unsigned numDims = genericOp.getNumDims();
-  SmallVector<AffineExpr> zeroExprs(numDims, builder.getAffineConstantExpr(0));
-  AffineMap scratchMap =
-      AffineMap::get(numDims, 0, zeroExprs, builder.getContext());
-  newIndexingMaps.push_back(AffineMapAttr::get(scratchMap));
+  auto scratchAlloc = builder.create<memref::AllocOp>(genericOp.getLoc(),
+                                                      scratchShardMemRefType);
+  scratchAlloc->setAttr("d2m.scratch", builder.getUnitAttr());
+  builder.create<ScratchInitOp>(genericOp.getLoc(), scratchAlloc.getResult());
 
-  // Add output maps.
-  for (unsigned i = numOldInputs; i < oldMaps.size(); ++i) {
-    newIndexingMaps.push_back(oldMaps[i]);
-  }
-
-  // Create scratch_inputs attribute.
-  auto scratchInputsAttr = builder.getDenseI64ArrayAttr({scratchInputIndex});
-
-  // Create the new GenericOp with empty regions.
-  auto newGenericOp = builder.create<GenericOp>(
-      genericOp.getLoc(), genericOp.getResultTypes(), newInputs,
-      genericOp.getOutputs(), genericOp.getAdditionalArgs(),
-      genericOp.getGrid(), genericOp.getBlockFactors(),
-      builder.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
-      genericOp.getThreads(), scratchInputsAttr,
-      genericOp.getFabricConnectionConfigAttr(),
-      /*numRegions=*/genericOp.getNumRegions());
-
-  // Clone regions from old op to new op.
-  for (auto [oldRegion, newRegion] :
-       llvm::zip(genericOp.getRegions(), newGenericOp.getRegions())) {
-    if (oldRegion.empty()) {
-      continue;
-    }
-
-    Block *oldBlock = &oldRegion.front();
-
-    SmallVector<Type> newBlockArgTypes;
-    SmallVector<Location> newBlockArgLocs;
-    for (BlockArgument arg : oldBlock->getArguments()) {
-      newBlockArgTypes.push_back(arg.getType());
-      newBlockArgLocs.push_back(arg.getLoc());
-    }
-
-    Block *newBlock = builder.createBlock(&newRegion, newRegion.end(),
-                                          newBlockArgTypes, newBlockArgLocs);
-    builder.setInsertionPointToStart(newBlock);
-
-    // Map old semaphore block args to new semaphore block args.
-    IRMapping mapping;
-    for (unsigned i = 0; i < oldBlock->getNumArguments(); ++i) {
-      mapping.map(oldBlock->getArgument(i), newBlock->getArgument(i));
-    }
-
-    // Clone all ops up through the numOldInputs-th
-    // tensor.empty/memref.alloc, insert scratch, then clone the rest.
-    // Note: alloc ops may be interleaved with non-alloc ops (e.g.,
-    // remote_load), so we must not break on non-alloc ops.
-    SmallVector<Operation *> oldOps;
-    for (Operation &op : oldBlock->without_terminator()) {
-      oldOps.push_back(&op);
-    }
-
-    unsigned emptyIdx = 0;
-    unsigned clonedUpTo = 0;
-    for (unsigned i = 0; i < oldOps.size(); ++i) {
-      builder.clone(*oldOps[i], mapping);
-      clonedUpTo = i + 1;
-      if (mlir::isa<mlir::tensor::EmptyOp, memref::AllocOp>(oldOps[i])) {
-        ++emptyIdx;
-        if (emptyIdx == numOldInputs) {
-          break;
-        }
-      }
-    }
-
-    // Insert the scratch tensor.empty with the shard shape.
-    builder.create<mlir::tensor::EmptyOp>(
-        genericOp.getLoc(), scratchShardMemRefType.getShape(),
-        scratchShardMemRefType.getElementType());
-
-    // Clone remaining ops (output tensor.empties and all other ops).
-    for (unsigned i = clonedUpTo; i < oldOps.size(); ++i) {
-      builder.clone(*oldOps[i], mapping);
-    }
-
-    // Clone terminator if present.
-    if (oldBlock->mightHaveTerminator()) {
-      builder.clone(*oldBlock->getTerminator(), mapping);
-    }
-  }
-
-  genericOp.erase();
   return success();
 }
 
