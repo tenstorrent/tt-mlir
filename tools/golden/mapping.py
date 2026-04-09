@@ -6400,6 +6400,44 @@ def ttnn_repeat_interleave_golden(
     return torch.repeat_interleave(input_tensor, repeats, dim=dim).to(output_dtype)
 
 
+def ttnn_full_golden(
+    shape_attr: Attribute,
+    fill_value_attr: Union[IntegerAttr, FloatAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = ttnn.ir.ShapeAttr.maybe_downcast(shape_attr).shape
+    fill_value = unpack_mlir_attr(fill_value_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    # ADD MESH SHAPE HANDLING
+    tensor = torch.full(shape, fill_value).to(output_dtype)
+    return GoldenMapTensor({0: tensor}, mesh_shape=(1, 1))
+
+
+def ttnn_constant_golden(
+    value_attr: DenseElementsAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    value = unpack_mlir_attr(value_attr)  # ***********************
+    shape = list(value_attr.type.shape)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    if value_attr.is_splat:
+        value = value_attr.get_splat_value()
+        torch_tensor = torch.full(shape, value.value, dtype=output_dtype)
+    else:
+        flat_values = [elem for elem in value]
+        torch_tensor = torch.tensor(flat_values, dtype=output_dtype).reshape(shape)
+
+    return torch_tensor
+
+
+def ttnn_reshape_golden(
+    input_tensor: GoldenMapTensor, shape_attr: Attribute, output_type_mlir: Type
+) -> GoldenMapTensor:
+    new_shape = unpack_mlir_attr(shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reshape(input_tensor, new_shape).to(output_dtype)
+
+
 def ttnn_leaky_relu_golden(
     input_tensor: GoldenMapTensor,
     parameter_attr: FloatAttr,
@@ -7016,6 +7054,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    ttnn.ReshapeOp: ttnn_reshape_golden,
+    # Tensor creation
+    ttnn.FullOp: ttnn_full_golden,
+    ttnn.ConstantOp: ttnn_constant_golden,
     # Layout/Device operations
     ttnn.ToLayoutOp: ttnn_to_layout_golden,
     ttnn.ToDeviceOp: ttnn_to_device_golden,

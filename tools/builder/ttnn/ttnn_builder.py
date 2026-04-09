@@ -158,10 +158,26 @@ class TTNNBuilder(Builder):
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
         with self._ctx, self._loc:
-            dtype = ttnn.ir.TTNNLayoutAttr.maybe_downcast(
-                self._get_type(operand).encoding
-            ).data_type_as_int
+            print("****")
+            print(operand, type(operand))
+            # print(self._get_type(operand), type(self._get_type(operand)))
+            # print(self._get_type(operand).encoding, type(self._get_type(operand).encoding))
+            tensor_type = (
+                operand
+                if isinstance(operand, RankedTensorType)
+                else self._get_type(operand)
+            )
+            dtype = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor_type.encoding)
+            print("DTYPE", dtype, type(dtype))
+            dtype = dtype.data_type_as_int
             return ttcore.ir.DataTypeAttr.get(self._ctx, dtype)
+
+    def _get_data_type_attribute_from_torch_dtype(
+        self, dtype: torch.dtype
+    ) -> ttcore.ir.DataTypeAttr:
+        with self._ctx, self._loc:
+            data_type = self._get_datatype_from_torch_dtype(dtype).data_type_as_int
+            return ttcore.ir.DataTypeAttr.get(self._ctx, data_type)
 
     # ----- Public Helper Methods ----
 
@@ -7623,6 +7639,392 @@ class TTNNBuilder(Builder):
                 ]
 
         return repeat_interleave_module, repeat_interleave_builder
+
+    ############### ttnn.FullOp ###############
+
+    @tag(ttnn.FullOp)
+    def full(
+        self,
+        shape: List[int],
+        fill_value: Union[int, float],
+        device: Optional[Operand] = None,
+        output_type: Optional[torch.dtype] = None,
+        layout: Optional[ttnn.ir.LayoutAttr] = None,
+        memory_config: Optional[ttnn.ir.MemoryConfigAttr] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.full)
+
+        if output_type is None:
+            mlir_output_type = self._get_type_from_torch_dtype(torch.float32)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        # Create attributes
+        shape_attr = ttnn.ir.ShapeAttr.get(self._ctx, shape)
+        if isinstance(fill_value, int):
+            fill_value_attr = IntegerAttr.get(IntegerType.get_signless(32), fill_value)
+        else:
+            fill_value_attr = FloatAttr.get_f32(fill_value)
+        if layout is None:
+            layout = ttnn.Layout.Tile
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile)
+        if memory_config is None:
+            memory_config = self._create_dram_memory_config()
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            shape_attr, fill_value_attr, mlir_output_type
+        )
+        if layout == ttnn.Layout.Tile:
+            result = self._create_host_ttnn_tensor(shape, mlir_output_type)
+        else:
+            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
+        result = self._create_dram_tiled_ttnn_tensor(shape, mlir_output_type)  # ******
+        dtype = self._get_data_type_attribute(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            shape=shape_attr,
+            fill_value=fill_value_attr,
+            device=device,
+            dtype=dtype,
+            layout=layout_attr,
+            memory_config=memory_config,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.FullOp)
+    def full_parser(
+        self,
+        old_op: ttnn.FullOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.full_parser)
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            shape=old_op.shape,
+            fill_value=old_op.fill_value,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            old_op.shape, old_op.fill_value, result.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.FullOp)
+    def full_split(
+        self,
+        old_op: ttnn.FullOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.full_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            full_module = Module.create()
+            full_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+
+            with InsertionPoint(full_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(name="full_module")
+                def decorated_func():
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result,
+                        shape=old_op.shape,
+                        fill_value=old_op.fill_value,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    full_builder._set_golden_tensor(new_op_result, old_op_result)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                full_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return full_module, full_builder
+
+    ############### ttnn.ConstantOp ###############
+
+    @tag(ttnn.ConstantOp)
+    def constant(
+        self,
+        value: Union[torch.Tensor, List, float, int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.constant)
+
+        # Convert value to torch tensor if necessary
+        if not isinstance(value, torch.Tensor):
+            value = torch.tensor(value)
+
+        if output_type is None:
+            mlir_output_type = self._get_type_from_torch_dtype(value.dtype)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+            value = value.to(output_type)
+
+        # Create DenseElementsAttr from the tensor
+        value_shape = list(value.shape)
+        print("VALUE", value)
+        mlir_value_type = RankedTensorType.get(value_shape, mlir_output_type)
+        print("MLIR VALUE TYPE", mlir_value_type)
+        # value_attr = DenseElementsAttr.get(np.array(value.flatten()), mlir_value_type)
+
+        if value.dtype == torch.bfloat16:
+            u16 = value.detach().cpu().view(torch.int16).numpy().astype(np.uint16)
+            value_attr = DenseElementsAttr.get(u16, type=mlir_value_type)
+        else:
+            value_attr = DenseElementsAttr.get(value.numpy())
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(value_attr, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            value=value_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ConstantOp)
+    def constant_parser(
+        self,
+        old_op: ttnn.ConstantOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.constant_parser)
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            value=old_op.value,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(old_op.value, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ConstantOp)
+    def constant_split(
+        self,
+        old_op: ttnn.ConstantOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.constant_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            constant_module = Module.create()
+            constant_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+
+            with InsertionPoint(constant_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(name="constant_module")
+                def decorated_func():
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result,
+                        value=old_op.value,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    constant_builder._set_golden_tensor(new_op_result, old_op_result)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                constant_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return constant_module, constant_builder
+
+    ############### ttnn.ReshapeOp ###############
+
+    @tag(ttnn.ReshapeOp)
+    def reshape(
+        self,
+        in0: Operand,
+        shape: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.reshape)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        shape_attr = DenseI32ArrayAttr.get(shape)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, shape_attr, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            shape=shape_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ReshapeOp)
+    def reshape_parser(
+        self,
+        old_op: ttnn.ReshapeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.reshape_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, shape=old_op.shape, loc=old_op.location)
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, old_op.shape, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ReshapeOp)
+    def reshape_split(
+        self,
+        old_op: ttnn.ReshapeOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.reshape_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            reshape_module = Module.create()
+            reshape_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(reshape_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="reshape_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result, in0, shape=old_op.shape, loc=old_op.location
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reshape_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    reshape_builder._set_golden_tensor(in0, input0)
+                    reshape_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                reshape_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return reshape_module, reshape_builder
 
     ############### ttnn.LeakyReluOp ###############
 

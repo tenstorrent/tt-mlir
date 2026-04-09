@@ -428,3 +428,79 @@ def test_reduce_scatter(
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
     )
+
+
+@pytest.mark.parametrize("shape", [(32, 32), (64, 128), (16, 16, 16)], ids=shape_str)
+@pytest.mark.parametrize("fill_value", [0.0, 1.0, 5.5, -2.5])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_full(shape: Shape, fill_value: float, dtype: torch.dtype, request, device):
+    def module(builder: TTNNBuilder):
+        @builder.func([], [])
+        def full(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.full(
+                shape=list(shape),
+                fill_value=fill_value,
+                output_type=dtype,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "value,expected_shape",
+    [
+        ([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], (2, 3)),
+        ([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], (2, 2, 2)),
+        (5.0, ()),  # scalar
+        ([1.0, 2.0, 3.0, 4.0], (4,)),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_constant(value, expected_shape: Shape, dtype: torch.dtype, request, device):
+    def module(builder: TTNNBuilder):
+        @builder.func([], [])
+        def constant(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.constant(
+                value=value, output_type=dtype, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,output_shape",
+    [
+        ((32, 32), (64, 16)),
+        ((64, 128), (32, 256)),
+        ((16, 16, 16), (32, 128)),
+        ((2, 3, 4), (6, 4)),
+        ((32, 32), (1024,)),
+        ((1024,), (32, 32)),
+    ],
+    ids=lambda x: f"{x}",
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_reshape(
+    input_shape: Shape, output_shape: Shape, dtype: torch.dtype, request, device
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([input_shape], [dtype])
+        def reshape(
+            in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.reshape(in0, shape=list(output_shape), unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )

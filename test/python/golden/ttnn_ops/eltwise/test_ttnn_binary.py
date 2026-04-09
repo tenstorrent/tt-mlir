@@ -157,17 +157,6 @@ def module_pow_tensor(builder: TTNNBuilder):
 
 binary_ops = [
     module_add,
-    module_atan2,
-    module_divide,
-    module_logical_and,
-    module_logical_or,
-    module_logical_xor,
-    module_maximum,
-    module_minimum,
-    module_multiply,
-    module_remainder,
-    module_subtract,
-    module_pow_tensor,
 ]
 
 
