@@ -27,6 +27,7 @@ class ChiselContext:
         self.op_iter: Iterator | None = None
         self._current_op: Operation | None = None
         self._stashed_inputs: dict | None = None
+        self._current_binary_id: int | None = None
         self._current_program_index: int | None = None
 
     def ensure_ir_module(self, binary, program_context) -> None:
@@ -35,7 +36,8 @@ class ChiselContext:
 
         program_index = tt_runtime.runtime.get_program_index(program_context)
 
-        if self.ir_module is None:
+        if self._current_binary_id != binary.id:
+            self._current_binary_id = binary.id
             mlir_json = json.loads(binary.get_mlir_as_json())
             mlir_source = mlir_json["source"]
             functions = [
@@ -43,6 +45,7 @@ class ChiselContext:
                 for i in range(binary.get_num_programs())
             ]
             self.ir_module = IRModule(mlir_source=mlir_source, functions=functions)
+            self._current_program_index = None
 
         if self._current_program_index != program_index:
             self._current_program_index = program_index

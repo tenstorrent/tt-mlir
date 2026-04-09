@@ -13,7 +13,7 @@ import logging
 from .context import ChiselContext
 from .ops import get_op_inputs, get_op_outputs
 from .executor import execute_golden
-from .utils import get_torch_tensor
+from .utils import retrieve_torch_tensor
 from golden.metrics import compute_pcc, compute_atol, compute_rtol
 
 logger = logging.getLogger("chisel")
@@ -40,9 +40,8 @@ def chisel_pre_op_callback(binary, program_context, op_context):
     asm_state = ctx.ir_module.get_asm_state()
 
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
-        device_tensor = tt_runtime.runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
         name = mlir_input.get_name(asm_state)
-        ctx._stashed_inputs[name] = get_torch_tensor(device_tensor)
+        ctx._stashed_inputs[name] = retrieve_torch_tensor(program_context, tensor_ref)
 
 
 def chisel_post_op_callback(binary, program_context, op_context):
@@ -72,8 +71,7 @@ def chisel_post_op_callback(binary, program_context, op_context):
 
     # Capture device output
     output_ref = tt_runtime.runtime.get_op_output_ref(op_context, program_context)
-    device_tensor = tt_runtime.runtime.retrieve_tensor_from_pool(program_context, output_ref)
-    device_torch = get_torch_tensor(device_tensor)
+    device_torch = retrieve_torch_tensor(program_context, output_ref)
 
     # Compare
     pcc = compute_pcc(golden_result, device_torch)
