@@ -1403,6 +1403,35 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
     }];
 }
 
+def TTKernel_Exp2TileInitOp : TTKernel_InitOp<"exp2_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of exp2_tile.";
+    let description = [{
+      Must be run before exp2_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_Exp2TileOp : TTKernel_SFPUOp<"exp2_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Exp2 operation";
+    let description = [{
+      Performs element-wise computation of base-2 exponential (2^x) on each
+      element of a tile in DST register at index tile_index. The DST register
+      buffer must be in acquired state via *tile_regs_acquire* call. This call
+      is blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_LogTileInitOp : TTKernel_InitOp<"log_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of log_tile.";
     let description = [{

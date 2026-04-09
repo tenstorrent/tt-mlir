@@ -1289,6 +1289,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfcTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Exp2TileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Exp2TileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,

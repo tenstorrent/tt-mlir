@@ -758,6 +758,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @exp2_tile_init
+    func.func @exp2_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "exp2_tile_init"()
+      "ttkernel.exp2_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp2_tile
+    func.func @exp2_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "exp2_tile"(%[[DST_INDEX]])
+      "ttkernel.exp2_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @log_tile_init
     func.func @log_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "log_tile_init"()
