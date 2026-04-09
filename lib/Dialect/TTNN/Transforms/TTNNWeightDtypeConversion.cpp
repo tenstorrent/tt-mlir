@@ -21,6 +21,7 @@ namespace {
 static bool isLegalWeightDtype(ttcore::DataType dtype) {
   return dtype == ttcore::DataType::BFP_BFloat8 ||
          dtype == ttcore::DataType::BFP_BFloat4 ||
+         dtype == ttcore::DataType::BFP_BFloat2 ||
          dtype == ttcore::DataType::BFloat16;
 }
 
@@ -59,7 +60,7 @@ public:
       } else {
         op.emitWarning("ignoring invalid ttcore.weight_dtype \"")
             << dtypeStrAttr.getValue()
-            << "\"; legal values are: bfp_bf8, bfp_bf4, bf16";
+            << "\"; legal values are: bfp_bf8, bfp_bf4, bfp_bf2, bf16";
       }
     }
 
@@ -124,9 +125,9 @@ public:
       TTNNWeightDtypeConversionPass>::TTNNWeightDtypeConversionBase;
 
   // Maps the global pipeline WeightDtype enum to a DataType. Only block
-  // formats (bfp_bf8, bfp_bf4) are supported as global overrides because
-  // models already arrive from frontends in bf16 — there is no need for a
-  // global bf16 override. Per-tensor overrides (via ttcore.weight_dtype op
+  // formats (bfp_bf8, bfp_bf4, bfp_bf2) are supported as global overrides
+  // because models already arrive from frontends in bf16 — there is no need for
+  // a global bf16 override. Per-tensor overrides (via ttcore.weight_dtype op
   // attribute) do support bf16 to let individual weights opt out of a
   // global block-format conversion.
   static ttcore::DataType weightDtypeToDataType(WeightDtype wd) {
@@ -135,6 +136,8 @@ public:
       return ttcore::DataType::BFP_BFloat8;
     case WeightDtype::BFP_BFloat4:
       return ttcore::DataType::BFP_BFloat4;
+    case WeightDtype::BFP_BFloat2:
+      return ttcore::DataType::BFP_BFloat2;
     default:
       llvm_unreachable("Invalid WeightDtype for conversion");
     }

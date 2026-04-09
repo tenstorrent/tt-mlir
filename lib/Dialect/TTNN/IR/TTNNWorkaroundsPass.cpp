@@ -528,7 +528,8 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     if (dType == mlir::tt::ttcore::DataType::Float32 ||
         dType == mlir::tt::ttcore::DataType::BFloat16 ||
         dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||
-        dType == mlir::tt::ttcore::DataType::BFP_BFloat4) {
+        dType == mlir::tt::ttcore::DataType::BFP_BFloat4 ||
+        dType == mlir::tt::ttcore::DataType::BFP_BFloat2) {
       return {};
     }
     return mlir::tt::ttcore::DataType::Float32;

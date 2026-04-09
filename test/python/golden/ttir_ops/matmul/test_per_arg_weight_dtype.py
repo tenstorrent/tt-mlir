@@ -15,7 +15,7 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @x86_only
-@pytest.mark.parametrize("weight_dtype", ["bfp_bf8", "bfp_bf4"])
+@pytest.mark.parametrize("weight_dtype", ["bfp_bf8", "bfp_bf4", "bfp_bf2"])
 @pytest.mark.parametrize("shape", [(4, 128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -42,7 +42,13 @@ def test_matmul_per_arg_weight_dtype(
             )
             return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
-    pcc = 0.98 if weight_dtype == "bfp_bf4" else 0.99
+    pcc = (
+        0.95
+        if weight_dtype == "bfp_bf2"
+        else 0.98
+        if weight_dtype == "bfp_bf4"
+        else 0.99
+    )
     compile_and_execute_ttir(
         module,
         argument_types_string="matmul=input,parameter",
