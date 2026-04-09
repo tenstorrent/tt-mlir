@@ -19,7 +19,7 @@ from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
+    ttir_to_ttnn_runtime_pipeline,
     ttir_to_ttmetal_backend_pipeline,
     translate_to_cpp,
     translate_to_python,
@@ -825,7 +825,7 @@ def compile_ttnn_to_flatbuffer(
     Compiles a TTNN function to flatbuffer format.
 
     This helper function generates a TTNN mlir module runs the compilation
-    pipeline using ttir-to-ttnn-backend-pipeline and finally generates a flatbuffer.
+    pipeline using ttir-to-ttnn-runtime-pipeline and finally generates a flatbuffer.
 
     Parameters
     ----------
@@ -1248,7 +1248,7 @@ def compile_ttir_module_to_flatbuffer(
         pipeline_fn = (
             custom_pipeline
             if custom_pipeline
-            else wrap_pipeline_with_print_ir(ttir_to_ttnn_backend_pipeline)
+            else wrap_pipeline_with_print_ir(ttir_to_ttnn_runtime_pipeline)
         )
         to_target = ttnn_to_flatbuffer_bin
         to_file = ttnn_to_flatbuffer_file

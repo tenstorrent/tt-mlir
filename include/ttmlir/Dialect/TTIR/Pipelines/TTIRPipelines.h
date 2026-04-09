@@ -10,7 +10,7 @@
 namespace mlir::tt::ttir {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
-// Options for the TTIR to TTNN backend pipeline.
+// Options for the SHLO to TTIR pipeline.
 //
 struct StableHLOToTTIRPipelineOptions
     : public PassPipelineOptions<StableHLOToTTIRPipelineOptions> {

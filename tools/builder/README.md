@@ -5,7 +5,7 @@
 ## import relevant packages
 
 ```python
-from ttmlir.passes import ttir_to_ttnn_backend_pipeline
+from ttmlir.passes import ttir_to_ttnn_runtime_pipeline
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.ttnn.ttnn_builder import TTNNBuilder
