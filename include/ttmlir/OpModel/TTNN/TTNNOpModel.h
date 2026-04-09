@@ -283,7 +283,7 @@ template <>
 struct OpModel<BitwiseXorOp> : BinaryCompositeOpModel<BitwiseXorOp> {};
 
 template <>
-struct OpModel<RemainderOp> : BinaryCompositeOpModel<RemainderOp> {};
+struct OpModel<RemainderOp> : BinaryEltwiseOpModel<RemainderOp> {};
 
 template <>
 struct OpModel<Atan2Op> : BinaryCompositeOpModel<Atan2Op> {};
