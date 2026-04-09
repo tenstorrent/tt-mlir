@@ -27,7 +27,7 @@ runs:
       echo "Collected ops_perf_results.csv files into $TEMP_DIR."
 
   - name: Upload perf reports
-    uses: actions/upload-artifact@v4
+    uses: actions/upload-artifact@v7
     with:
       name: ${{ inputs.artifact_name }}
       path: ${{ inputs.perf_report_path }}
