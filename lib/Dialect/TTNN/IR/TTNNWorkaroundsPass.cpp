@@ -1229,6 +1229,32 @@ TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
       .addOutputOperandWorkaround(outputIndicesWorkaround);
 }
 
+// The topk_router_gpt kernel always returns outputs in ROW_MAJOR layout in L1.
+// expert_indices must be UInt16, expert_weights must be BFloat16.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTopKRouterGptOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds inputWorkaround;
+  TTNNOperandWorkarounds weightWorkaround;
+  TTNNOperandWorkarounds biasWorkaround;
+
+  TTNNOperandWorkarounds indicesOutputWorkaround;
+  indicesOutputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  indicesOutputWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  indicesOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  TTNNOperandWorkarounds weightsOutputWorkaround;
+  weightsOutputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  weightsOutputWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  weightsOutputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addInputOperandWorkaround(weightWorkaround)
+      .addInputOperandWorkaround(biasWorkaround)
+      .addOutputOperandWorkaround(indicesOutputWorkaround)
+      .addOutputOperandWorkaround(weightsOutputWorkaround);
+}
+
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);

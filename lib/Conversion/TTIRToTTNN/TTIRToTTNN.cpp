@@ -3566,6 +3566,24 @@ public:
 } // namespace
 
 namespace {
+class TopKRouterGptOpConversionPattern
+    : public OpConversionPattern<ttir::TopKRouterGptOp> {
+public:
+  using OpConversionPattern<ttir::TopKRouterGptOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::TopKRouterGptOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto indicesType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getExpertIndices().getType()));
+    auto weightsType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getExpertWeights().getType()));
+    rewriter.replaceOpWithNewOp<ttnn::TopKRouterGptOp>(
+        op, indicesType, weightsType, adaptor.getInput(), adaptor.getWeight(),
+        adaptor.getBias(), op.getKAttr(), op.getNumExpertsAttr());
+    return success();
+  }
+};
+
 class TopKOpConversionPattern : public OpConversionPattern<ttir::TopKOp> {
 public:
   using OpConversionPattern<ttir::TopKOp>::OpConversionPattern;
@@ -3731,7 +3749,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
-           TopKOpConversionPattern
+           TopKOpConversionPattern,
+           TopKRouterGptOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

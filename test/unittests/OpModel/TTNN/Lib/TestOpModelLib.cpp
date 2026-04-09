@@ -1585,6 +1585,56 @@ TEST_F(OpModelTest, TopK) {
   llvm::consumeError(constraintsExp.takeError());
 }
 
+TEST_F(OpModelTest, TopKRouterGpt) {
+  // TopKRouterGptOp constraints: B=32, num_experts=128
+  // input: [B, hidden_dim], weight: [hidden_dim, num_experts],
+  // bias: [B, num_experts]
+  const llvm::SmallVector<int64_t> inputShape = {32, 128};
+  const llvm::SmallVector<int64_t> weightShape = {128, 128};
+  const llvm::SmallVector<int64_t> biasShape = {32, 128};
+  const uint32_t k = 4;
+  const uint32_t numExperts = 128;
+
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr weightLayoutDRAM = CreateTiledLayout(
+      weightShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr biasLayoutDRAM = CreateTiledLayout(
+      biasShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // DRAM layouts
+  auto constraintsExp = op_model::OpModel<TopKRouterGptOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayoutDRAM, weightShape,
+      weightLayoutDRAM, biasShape, biasLayoutDRAM, k, numExperts,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    // TopKRouterGptOp has two outputs: expert_indices and expert_weights.
+    ASSERT_EQ(opCstr.outputLayouts.size(), 2);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = op_model::OpModel<TopKRouterGptOp>::getOpRuntime(
+      inputShape, inputLayoutDRAM, weightShape, weightLayoutDRAM, biasShape,
+      biasLayoutDRAM, k, numExperts, outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelTest, MaxPool2dWithIndices) {
   const llvm::SmallVector<int64_t> inputShape = {1, 1, 128 * 128, 32};
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);

@@ -5990,6 +5990,37 @@ def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
   let hasVerifier = 1;
 }
 
+def TTIR_TopKRouterGptOp : TTIR_NamedOp<"topk_router_gpt"> {
+  let summary = "Fused router linear layer for GPT-style mixture-of-experts models.";
+  let description = [{
+    A fused multi-core matmul + top-k for the GPT-OSS MoE router. Computes the
+    router logits via a linear projection (input @ weight + bias) and returns
+    the top-k expert indices and weights for each token.
+
+    Inputs:
+    - input:  [B, hidden_dim] bf16 hidden states
+    - weight: [hidden_dim, num_experts] bf16 router weight matrix
+    - bias:   [B, num_experts] bf16 router bias (pre-broadcast across batch)
+
+    Outputs:
+    - expert_indices: [B, k_padded] ui16 top-k expert indices
+    - expert_weights: [B, k_padded] bf16 top-k router weights
+
+    where k_padded = round_up(k, 8).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$weight,
+                       AnyRankedTensor:$bias,
+                       I32Attr:$k,
+                       I32Attr:$num_experts);
+
+  let results = (outs AnyRankedTensor:$expert_indices,
+                      AnyRankedTensor:$expert_weights);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{
