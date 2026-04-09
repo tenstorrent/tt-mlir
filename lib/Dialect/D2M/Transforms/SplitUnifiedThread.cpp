@@ -161,6 +161,11 @@ findSharedBufferPairs(Block *block) {
       if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(user);
           loadOp && !loadOp.isExplicitCBForm() &&
           loadOp.getLocalBuffer() == localBuffer) {
+        // Read-modify-write (self read/write)pattern is not a shared-buffer
+        // copy.
+        if (loadOp.getMemref() == storeOp.getMemref()) {
+          return;
+        }
         // When types differ, they can't share a CB - each needs its own.
         auto loadElemType = mlir::cast<ShapedType>(loadOp.getMemref().getType())
                                 .getElementType();
@@ -373,8 +378,13 @@ static void processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
         toErase.insert(allocOp);
       } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
         // The alloc was already replaced by a WaitOp from an earlier load
-        // that shared this buffer (L1-to-L1 pair). The CB is already set up;
-        // just insert the store-side sync ops.
+        // (read-modify-write on same buffer). If it's the same CB,
+        // the buffer already aliases shard memory so just erase the redundant
+        // store without inserting extra sync ops.
+        if (waitOp.getCb() == cb) {
+          toErase.insert(storeOp);
+          continue;
+        }
       } else {
         storeOp.emitWarning(
             "could not find memref.alloc for local buffer, skipping");
@@ -451,13 +461,18 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
 
   // Helper: check if an op is part of an L1-to-L1 shared pair (both
-  // non-streaming). These need real DMA even though both operands are L1.
+  // non-streaming and different memrefs). These need real DMA even though
+  // both operands are L1. Self-read/write pairs (same memref) are excluded
+  // because they are aliased ops handled entirely in compute via CB sync.
   auto isL1ToL1Pair = [&](Value localBuffer) -> bool {
     auto it = sharedPairs.find(localBuffer);
     if (it == sharedPairs.end()) {
       return false;
     }
     auto &[ld, st] = it->second;
+    if (ld.getMemref() == st.getMemref()) {
+      return false;
+    }
     return !isStreamingOp(ld.getMemref(), ld.getLocalBuffer()) &&
            !isStreamingOp(st.getMemref(), st.getLocalBuffer());
   };

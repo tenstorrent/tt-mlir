@@ -59,8 +59,8 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test 2: Streaming remote_store (internal alloc replaced by reserve)
-  // Verifies: explicit CB form in DMA, reserve/push in compute, alloc erased
+  // Test 2: Streaming remote_store
+  // Verifies: explicit CB form in DMA, reserve/push in compute, external alloc preserved
   // CHECK-LABEL: func.func @test_streaming_remote_store
   func.func @test_streaming_remote_store(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
                                           %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
@@ -73,13 +73,12 @@ module attributes {ttcore.system_desc = #system_desc} {
     // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %{{.*}}
     // CHECK-NOT: d2m.reserve
     // CHECK-NOT: d2m.push
-    // Compute: reserve + push, no memref.alloc
+    // Compute: reserve + push
     // CHECK: }, {
     // CHECK: d2m.reserve %{{.*}}
     // CHECK: d2m.push %{{.*}}
     // CHECK-NOT: d2m.remote_store
     // CHECK-NOT: d2m.core_index
-    // CHECK-NOT: memref.alloc
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
         outs(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
@@ -93,8 +92,7 @@ module attributes {ttcore.system_desc = #system_desc} {
         scf.for %arg3 = %c0 to %c1 step %c1 {
           %0 = arith.addi %core0, %arg2 : index
           %1 = arith.addi %core1, %arg3 : index
-          %alloc_local = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          %2 = d2m.remote_store %stream[%0, %1] %alloc_local : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+          %2 = d2m.remote_store %stream[%0, %1] %cb_alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }
@@ -110,7 +108,6 @@ module attributes {ttcore.system_desc = #system_desc} {
     %stream_in = d2m.view_layout %arg0 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
     %stream_out = d2m.view_layout %arg1 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
     %cb_in = memref.alloc() {address = 5120 : i64, alignment = 16 : i64, d2m.cb_for_operand = 0 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
-    %cb_out = memref.alloc() {address = 9216 : i64, alignment = 16 : i64, d2m.cb_for_operand = 1 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
@@ -135,7 +132,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream_in : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
-        additionalArgs(%cb_in, %cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) {
+        additionalArgs(%cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>) {
     ^unified0:
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
@@ -157,7 +154,6 @@ module attributes {ttcore.system_desc = #system_desc} {
       } {d2m.blocking_loop = 0}
     }
     memref.dealloc %cb_in : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
-    memref.dealloc %cb_out : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
     return
   }
 
@@ -391,36 +387,58 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test 10: Streaming store with external alloc (additionalArg)
-  // Verifies: external alloc preserved, reserve inserted in compute only
-  // CHECK-LABEL: func.func @test_streaming_store_external_alloc
-  func.func @test_streaming_store_external_alloc(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>,
-                                                  %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
-    %stream = d2m.view_layout %arg1 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
-    %external = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+  // Test 10: Self-read/write (read-modify-write on same buffer))
+  // Verifies: no remote ops in DMA, compute has reserve+push+wait for the
+  // accumulator CB, no extra push/wait/pop from store
+  // CHECK-LABEL: func.func @test_self_read_write_accumulator
+  func.func @test_self_read_write_accumulator() {
+    %output = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %input_view = d2m.view_layout %output remapping = #map4 : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %cb_buf = memref.alloc() {address = 5120 : i64, alignment = 16 : i64, d2m.cb_for_operand = 0 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
 
-    // CHECK: %[[EXT:.*]] = memref.alloc()
     // CHECK: d2m.generic
-    // CHECK: additionalArgs(%[[EXT]]
-    // DMA: explicit CB form store
-    // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %{{.*}}
-    // CHECK-NOT: d2m.reserve
-    // Compute: reserve + push
-    // CHECK: }, {
-    // CHECK: d2m.reserve %{{.*}}
-    // CHECK: d2m.push %{{.*}}
+    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+
+    // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %{{.*}}
     // CHECK-NOT: d2m.remote_store
-    // CHECK: memref.dealloc %[[EXT]]
-    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
-        ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
-        outs(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
-        additionalArgs(%external : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+
+    // CHECK: }, {
+    // CHECK: scf.for
+    // CHECK: d2m.wait
+    // CHECK: d2m.reserve
+    // CHECK: d2m.push
+    // CHECK: d2m.wait
+    // CHECK: d2m.tile_add
+    // CHECK: d2m.pop
+    // CHECK: d2m.pop
+    // CHECK-NOT: memref.alloc
+    // CHECK-NOT: d2m.remote_load
+    // CHECK-NOT: d2m.remote_store
+    d2m.generic {block_factors = [], grid = #ttcore.grid<4x3>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%input_view : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
+        outs(%output : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
+        additionalArgs(%cb_buf : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>) {
     ^unified0:
-      %core0 = d2m.core_index(0) : index
-      %core1 = d2m.core_index(1) : index
-      %2 = d2m.remote_store %stream[%core0, %core1] %external : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c4 = arith.constant 4 : index
+      scf.for %arg0 = %c0 to %c4 step %c1 {
+        %core0 = d2m.core_index(0) : index
+        %core1 = d2m.core_index(1) : index
+        %0 = d2m.remote_load %cb_buf %input_view[%core0, %arg0] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
+        %acc_buf = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+        %1 = d2m.remote_load %acc_buf %output[%core0, %core1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+        // Compute: add input tile to accumulator
+        %in_tile = memref.load %cb_buf[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
+        %acc_tile = memref.load %acc_buf[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+        %sum = "d2m.tile_add"(%in_tile, %acc_tile) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        memref.store %sum, %acc_buf[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+        // Self-write: store accumulator back to the same output
+        %2 = d2m.remote_store %output[%core0, %core1] %acc_buf : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      } {d2m.blocking_loop = 1}
     }
-    memref.dealloc %external : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+    memref.dealloc %cb_buf : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #l1>
     return
   }
+
 }
