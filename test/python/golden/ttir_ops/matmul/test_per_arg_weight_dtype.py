@@ -15,7 +15,21 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @x86_only
-@pytest.mark.parametrize("weight_dtype", ["bfp_bf8", "bfp_bf4", "bfp_bf2"])
+@pytest.mark.parametrize(
+    "weight_dtype",
+    [
+        "bfp_bf8",
+        "bfp_bf4",
+        pytest.param(
+            "bfp_bf2",
+            marks=pytest.mark.skip_exec(
+                ("p150",),
+                ("p300",),
+                reason="BFP_BFloat2 not supported on Blackhole",
+            ),
+        ),
+    ],
+)
 @pytest.mark.parametrize("shape", [(4, 128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttnn"])
