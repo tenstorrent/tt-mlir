@@ -23,9 +23,13 @@ pytestmark = pytest.mark.frontend("ttir")
         pytest.param(
             "bfp_bf2",
             marks=pytest.mark.skip_exec(
+                ("n150",),
+                ("n300",),
+                ("llmbox",),
+                ("tg",),
                 ("p150",),
                 ("p300",),
-                reason="BFP_BFloat2 not supported on Blackhole",
+                reason="BFP_BFloat2 runtime typecast not yet supported",
             ),
         ),
     ],
