@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s --split-input-file
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access-unscheduled --canonicalize -o %t %s --split-input-file
 // RUN: FileCheck %s --input-file=%t
 //
 // Test that InsertDstRegisterAccess correctly handles d2m.generic operations
