@@ -390,24 +390,28 @@ private:
 
     // The capture function returns multiple values for trace management:
     // 1. traceId - Identifier for the captured trace
-    // 2. actual outputs - Results from the warmup (first, non-traced) execution
+    // 2. actual outputs - Warmup outputs moved to host via from_device to free
+    //    DRAM before trace capture. These are the correct first-invocation
+    //    results because in-place operations (e.g. KV cache fill) modify input
+    //    slots during warmup, causing the traced execution to compute with
+    //    different state.
     // 3. trace input slots - Persistent device memory for input data
     // 4. trace output slots - Persistent device memory for output data
-    //
-    // The warmup outputs must be returned separately from the trace output slots
-    // because in-place operations (e.g. KV cache fill) modify the input slots
-    // during warmup, causing the traced execution to compute with different
-    // state and produce different results.
     llvm::SmallVector<mlir::Type> outputTypes;
 
     // Trace ID for the captured trace, used for correlation between capture and
     // execution.
     outputTypes.push_back(utils::getTraceIdType(context));
 
-    // Actual outputs from the first execution of the trace function
-    // (non-traced).
+    // Warmup outputs moved to host (system memory) to free DRAM before trace
+    // capture. This prevents OOM when warmup outputs (e.g. full logits tensors)
+    // would otherwise fragment DRAM during the trace capture forward pass.
     for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
-      outputTypes.push_back(outputType);
+      auto deviceTensorType = mlir::cast<RankedTensorType>(outputType);
+      RankedTensorType hostType =
+          utils::RankedTensorTypeFactory::create(
+              deviceTensorType, BufferType::SystemMemory);
+      outputTypes.push_back(hostType);
     }
 
     // Trace input slots for all inputs (including constants/parameters and KV
@@ -504,12 +508,30 @@ private:
     }
 
     // Execute the trace function once without capture to compile programs and
-    // populate program cache. The warmup outputs are returned as the actual
-    // outputs for the first invocation, since the traced execution may produce
-    // different results due to in-place modifications of input slots (e.g. KV
-    // cache fill during warmup).
+    // populate program cache. The warmup outputs are the correct results for
+    // the first invocation, since the traced execution may produce different
+    // results due to in-place modifications of input slots (e.g. KV cache
+    // fill during warmup).
     auto traceFuncCall = builder.create<func::CallOp>(
         runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
+
+    // Move warmup outputs from device to host (system memory) and deallocate
+    // the device-side copies. This frees DRAM before trace capture begins,
+    // preventing OOM when large tensors (e.g. full logits) would otherwise
+    // fragment DRAM during the trace capture forward pass.
+    llvm::SmallVector<mlir::Value> hostWarmupOutputs;
+    for (mlir::Value warmupOutput : traceFuncCall.getResults()) {
+      auto deviceTensorType =
+          mlir::cast<RankedTensorType>(warmupOutput.getType());
+      RankedTensorType hostType =
+          utils::RankedTensorTypeFactory::create(
+              deviceTensorType, BufferType::SystemMemory);
+      auto fromDeviceOp = builder.create<ttnn::FromDeviceOp>(
+          runAndCaptureTraceFunc.getLoc(), hostType, warmupOutput);
+      hostWarmupOutputs.push_back(fromDeviceOp.getResult());
+      builder.create<ttnn::DeallocateOp>(
+          runAndCaptureTraceFunc.getLoc(), warmupOutput, /*force=*/false);
+    }
 
     // Start capturing the trace.
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
@@ -526,14 +548,15 @@ private:
                                             deviceOp, beginTraceCaptureOp,
                                             /*cq_id=*/0);
 
-    // Assemble return values: trace ID, actual outputs, and persistent slots.
+    // Assemble return values: trace ID, host-side warmup outputs, and
+    // persistent slots.
     llvm::SmallVector<mlir::Value> returnValues;
 
     // Return the trace ID for correlation with execution.
     returnValues.push_back(beginTraceCaptureOp.getTraceId());
-    // Return the actual outputs from the first execution (non-traced).
-    for (mlir::Value output : traceFuncCall.getResults()) {
-      returnValues.push_back(output);
+    // Return the warmup outputs (now on host after from_device + deallocate).
+    for (mlir::Value hostOutput : hostWarmupOutputs) {
+      returnValues.push_back(hostOutput);
     }
     // Return the trace input slots for all inputs (including
     // constants/parameters and KV cache) that are persisted on device.
