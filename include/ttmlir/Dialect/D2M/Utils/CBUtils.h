@@ -8,11 +8,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/DenseMap.h"
 
-namespace mlir {
-namespace memref {
+namespace mlir::memref {
 class AllocOp;
-} // namespace memref
-} // namespace mlir
+} // namespace mlir::memref
 
 namespace mlir::tt::d2m {
 

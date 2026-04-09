@@ -25,12 +25,11 @@ namespace {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// A streaming op requires real DMA. Returns true if the remote memref
-// implies data movement (view layout, DRAM) or the local buffer is a
-// streaming CB (CBLayoutAttr). Aliased ops (plain L1 buffers accessing
-// L1 shard operands) need no DMA.
-static bool isStreamingOp(Value memref, Value localBuffer) {
-  // View ops are streaming, except for reinterpret view_layout ops
+// Returns true if the remote_load/store requires real DMA. This is the case
+// when the remote memref has a view layout, is in DRAM, or the local buffer is
+// a streaming CB (CBLayoutAttr). Aliased ops do not need DMA and return false.
+static bool needsDMA(Value memref, Value localBuffer) {
+  // View ops need datamovement, except for reinterpret view_layout ops
   // which are just type casts.
   if (auto *defOp = memref.getDefiningOp()) {
     if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
@@ -189,22 +188,22 @@ findSharedBufferPairs(Block *block) {
 // Handle load-store pairs that share the same local buffer (DMA-only
 // generics that copy input->output with no compute in between). The shared
 // buffer means one CB serves both ops.
-static void processSharedBufferPairs(Block *computeBlock,
-                                     PatternRewriter &rewriter, CBCache &cache,
-                                     PortCounter &portCounters,
-                                     DenseSet<Operation *> &toErase) {
+static LogicalResult processSharedBufferPairs(Block *computeBlock,
+                                              PatternRewriter &rewriter,
+                                              CBCache &cache,
+                                              PortCounter &portCounters,
+                                              DenseSet<Operation *> &toErase) {
   auto pairs = findSharedBufferPairs(computeBlock);
 
   for (auto [loadOp, storeOp] : pairs) {
     Value sharedBuffer = loadOp.getLocalBuffer();
-    bool loadIsStreaming = isStreamingOp(loadOp.getMemref(), sharedBuffer);
-    bool storeIsStreaming = isStreamingOp(storeOp.getMemref(), sharedBuffer);
+    bool loadNeedsDMA = needsDMA(loadOp.getMemref(), sharedBuffer);
+    bool storeNeedsDMA = needsDMA(storeOp.getMemref(), sharedBuffer);
 
-    // Neither streaming (L1-to-L1 copy): both ops need actual DMA through a
-    // shared CB. The DM thread handles the full
-    // reserve→read→push→wait→write→pop cycle. Compute has nothing to do — just
-    // erase the ops and alloc.
-    if (!loadIsStreaming && !storeIsStreaming) {
+    // If neither side needs DMA (L1-to-L1 copy): both ops still need actual DMA
+    // through a shared CB. The DM thread handles
+    // reserve-read-push-wait-write-pop cycle. Erase ops from the compute.
+    if (!loadNeedsDMA && !storeNeedsDMA) {
       toErase.insert(storeOp);
       toErase.insert(loadOp);
       if (memref::AllocOp allocOp = findAllocOp(loadOp.getLocalBuffer())) {
@@ -216,29 +215,28 @@ static void processSharedBufferPairs(Block *computeBlock,
     // Insert compute-side CB ops for the aliased half of the pair.
     // The streaming half stays as a remote_load/store for DMA.
     Location loc = loadOp.getLoc();
-    if (loadIsStreaming && !storeIsStreaming) {
+    if (loadNeedsDMA && !storeNeedsDMA) {
       Value cb = findAssociatedCB(storeOp, storeOp.getMemref(), rewriter, cache,
                                   portCounters);
       if (!cb) {
-        storeOp.emitWarning("could not find associated CB for shared pair");
-        continue;
+        return storeOp.emitError(
+            "could not find associated CB for shared pair");
       }
       rewriter.setInsertionPoint(storeOp);
       rewriter.create<WaitOp>(loc, cb);
       rewriter.create<PopOp>(loc, cb);
-    } else if (!loadIsStreaming && storeIsStreaming) {
+    } else if (!loadNeedsDMA && storeNeedsDMA) {
       Value cb = findAssociatedCB(loadOp, loadOp.getMemref(), rewriter, cache,
                                   portCounters);
       if (!cb) {
-        loadOp.emitWarning("could not find associated CB for shared pair");
-        continue;
+        return loadOp.emitError("could not find associated CB for shared pair");
       }
       rewriter.setInsertionPoint(loadOp);
       rewriter.create<ReserveOp>(loc, cb);
       rewriter.create<PushOp>(loc, cb);
     }
-    // Both remote -> both go to DMA, nothing in compute.
-    // Buffer aliasing handled in convertDMAToExplicitCBForm.
+    // Else if both sides are streaming/need DMA, let the DM thread handle
+    // everything.
 
     toErase.insert(storeOp);
     toErase.insert(loadOp);
@@ -246,12 +244,15 @@ static void processSharedBufferPairs(Block *computeBlock,
       toErase.insert(allocOp);
     }
   }
+  return success();
 }
 
 // Process implicit-form remote_load ops in the compute thread.
-static void processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
-                                CBCache &cache, PortCounter &portCounters,
-                                DenseSet<Operation *> &toErase) {
+static LogicalResult processComputeLoads(Block *computeBlock,
+                                         PatternRewriter &rewriter,
+                                         CBCache &cache,
+                                         PortCounter &portCounters,
+                                         DenseSet<Operation *> &toErase) {
   SmallVector<RemoteLoadOp> loads;
   computeBlock->walk([&](RemoteLoadOp op) {
     if (!op.isExplicitCBForm() && !toErase.contains(op)) {
@@ -265,24 +266,20 @@ static void processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
     Value localBuffer = loadOp.getLocalBuffer();
     Value cb = findAssociatedCB(loadOp, memref, rewriter, cache, portCounters);
     if (!cb) {
-      loadOp.emitWarning("could not find associated CB, skipping conversion");
-      continue;
+      return loadOp.emitError("could not find associated CB for load");
     }
 
-    if (!isStreamingOp(memref, localBuffer)) {
+    if (!needsDMA(memref, localBuffer)) {
       // Aliased loads should not have multicast parameters.
       if (loadOp.isMcast()) {
-        loadOp.emitWarning(
-            "remote_load with local operand has multicast parameters, "
-            "skipping aliased conversion");
-        continue;
+        return loadOp.emitError(
+            "remote_load with local operand has multicast parameters");
       }
-      // Aliased: reserve->push->wait at alloc, pop after last use.
+      // For aliased loads, insert reserve->push->wait at the alloc site and
+      // pop after the last use of the buffer.
       memref::AllocOp allocOp = findAllocOp(localBuffer);
       if (!allocOp) {
-        loadOp.emitWarning(
-            "could not find memref.alloc for local buffer, skipping");
-        continue;
+        return loadOp.emitError("could not find memref.alloc for local buffer");
       }
 
       Block *block = allocOp->getBlock();
@@ -308,7 +305,7 @@ static void processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
       }
       toErase.insert(loadOp);
     } else {
-      // Streaming: wait before load, pop before terminator.
+      // Needs datamovement: wait before load, pop before terminator.
       rewriter.setInsertionPoint(loadOp);
       auto waitOp = rewriter.create<WaitOp>(loc, cb);
 
@@ -325,12 +322,15 @@ static void processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
       toErase.insert(loadOp);
     }
   }
+  return success();
 }
 
 // Process implicit-form remote_store ops in the compute thread.
-static void processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
-                                 CBCache &cache, PortCounter &portCounters,
-                                 DenseSet<Operation *> &toErase) {
+static LogicalResult processComputeStores(Block *computeBlock,
+                                          PatternRewriter &rewriter,
+                                          CBCache &cache,
+                                          PortCounter &portCounters,
+                                          DenseSet<Operation *> &toErase) {
   SmallVector<RemoteStoreOp> stores;
   computeBlock->walk([&](RemoteStoreOp op) {
     if (!op.isExplicitCBForm() && !toErase.contains(op)) {
@@ -343,19 +343,18 @@ static void processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
     Value memref = storeOp.getMemref();
     Value localBuffer = storeOp.getLocalBuffer();
     if (!localBuffer) {
-      storeOp.emitWarning(
-          "remote_store does not have a local buffer operand, skipping");
-      continue;
+      return storeOp.emitError(
+          "remote_store does not have a local buffer operand");
     }
 
     Value cb = findAssociatedCB(storeOp, memref, rewriter, cache, portCounters);
     if (!cb) {
-      storeOp.emitWarning("could not find associated CB, skipping conversion");
-      continue;
+      return storeOp.emitError("could not find associated CB for store");
     }
 
-    if (!isStreamingOp(memref, localBuffer)) {
-      // Aliased: replace alloc->reserve, insert push+wait+pop at store.
+    if (!needsDMA(memref, localBuffer)) {
+      // For aliased stores, replace the alloc with a reserve and insert
+      // push+wait+pop at the store position.
       memref::AllocOp allocOp = findAllocOp(localBuffer);
       if (allocOp) {
         rewriter.setInsertionPoint(allocOp);
@@ -372,9 +371,8 @@ static void processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
           continue;
         }
       } else {
-        storeOp.emitWarning(
-            "could not find memref.alloc for local buffer, skipping");
-        continue;
+        return storeOp.emitError(
+            "could not find memref.alloc for local buffer");
       }
 
       rewriter.setInsertionPoint(storeOp);
@@ -383,10 +381,11 @@ static void processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
       rewriter.create<PopOp>(loc, cb);
       toErase.insert(storeOp);
     } else {
-      // Streaming: insert reserve + push, replace in-region buffer uses.
-      // Reserve must dominate all uses of localBuffer in its block. If the
-      // CB def is in the same block as the store, insert after it. Otherwise
-      // (eg: inside a loop), insert at the start of the store's block.
+      // Needs datamovement: insert reserve + push, replace in-region buffer
+      // uses. Reserve must dominate all uses of localBuffer in its block. If
+      // the CB def is in the same block as the store, insert after it.
+      // Otherwise (eg: inside a loop), insert at the start of the store's
+      // block.
       Operation *cbDefOp = cb.getDefiningOp();
       if (cbDefOp && cbDefOp->getBlock() == storeOp->getBlock()) {
         rewriter.setInsertionPointAfter(cbDefOp);
@@ -405,6 +404,7 @@ static void processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
       toErase.insert(storeOp);
     }
   }
+  return success();
 }
 
 // Replace GetScratchFromCBOp with reserve.
@@ -425,14 +425,13 @@ static void processGetScratchOps(Block *computeBlock, PatternRewriter &rewriter,
 // DMA thread: convert implicit-form ops to explicit CB form
 // ---------------------------------------------------------------------------
 
-// Convert streaming remote_load/store to explicit CB form in the DMA thread.
+// Convert remote_load/store to explicit CB form in the DMA thread.
 // Aliased ops are collected for deferred erasure (no DMA needed). Shared
 // buffer pairs use the output operand's CB for both ops.
-static void convertDMAToExplicitCBForm(Block *dmBlock,
-                                       PatternRewriter &rewriter,
-                                       CBCache &cache,
-                                       PortCounter &portCounters,
-                                       DenseSet<Operation *> &toErase) {
+static LogicalResult
+convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
+                           CBCache &cache, PortCounter &portCounters,
+                           DenseSet<Operation *> &toErase) {
   // Map shared localBuffer -> (load, store) pair. Both ops must use the same
   // CB: the aliased side's CB, or the output CB when both are streaming.
   using SharedPair = std::pair<RemoteLoadOp, RemoteStoreOp>;
@@ -446,10 +445,10 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
 
-  // Helper: check if an op is part of an L1-to-L1 shared pair (both
-  // non-streaming and different memrefs). These need real DMA even though
-  // both operands are L1. Self-read/write pairs (same memref) are excluded
-  // because they are aliased ops handled entirely in compute via CB sync.
+  // Helper: check if an op is part of an L1-to-L1 shared pair. These need real
+  // DMA even though both operands are L1. Self-read/write pairs (same memref)
+  // are excluded because they are aliased ops handled entirely in compute via
+  // CB sync.
   auto isL1ToL1Pair = [&](Value localBuffer) -> bool {
     auto it = sharedPairs.find(localBuffer);
     if (it == sharedPairs.end()) {
@@ -459,8 +458,8 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
     if (ld.getMemref() == st.getMemref()) {
       return false;
     }
-    return !isStreamingOp(ld.getMemref(), ld.getLocalBuffer()) &&
-           !isStreamingOp(st.getMemref(), st.getLocalBuffer());
+    return !needsDMA(ld.getMemref(), ld.getLocalBuffer()) &&
+           !needsDMA(st.getMemref(), st.getLocalBuffer());
   };
 
   for (RemoteLoadOp loadOp : loads) {
@@ -470,8 +469,8 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
 
     Value memref = loadOp.getMemref();
     bool l1Pair = isL1ToL1Pair(loadOp.getLocalBuffer());
-    if (!isStreamingOp(memref, loadOp.getLocalBuffer()) && !l1Pair) {
-      // Aliased -> drop uses and mark for deferred erasure from DMA.
+    if (!needsDMA(memref, loadOp.getLocalBuffer()) && !l1Pair) {
+      // Aliased op do not need DMA; drop uses and mark for erasure.
       if (loadOp.getResult()) {
         loadOp.getResult().dropAllUses();
       }
@@ -482,19 +481,17 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
     // If this load shares a buffer with a store (shared pair), use the
     // store's (output) memref for CB lookup so both ops share the same port.
     // L1-to-L1 pairs use the load's own (input) memref since the store side
-    // also redirects to the input memref for non-streaming loads.
+    // also redirects to the input memref for aliased loads.
     Value cbMemref = memref;
     auto pairIt = sharedPairs.find(loadOp.getLocalBuffer());
     if (pairIt != sharedPairs.end() && !l1Pair) {
       cbMemref = pairIt->second.second.getMemref();
     }
 
-    // Streaming -> convert to explicit CB form.
     Value cb =
         findAssociatedCB(loadOp, cbMemref, rewriter, cache, portCounters);
     if (!cb) {
-      loadOp.emitWarning("could not find associated CB for DMA conversion");
-      continue;
+      return loadOp.emitError("could not find associated CB for DMA load");
     }
 
     rewriter.setInsertionPoint(loadOp);
@@ -515,9 +512,9 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
     }
 
     Value memref = storeOp.getMemref();
-    if (!isStreamingOp(memref, storeOp.getLocalBuffer()) &&
+    if (!needsDMA(memref, storeOp.getLocalBuffer()) &&
         !isL1ToL1Pair(storeOp.getLocalBuffer())) {
-      // Aliased -> drop uses and mark for deferred erasure from DMA.
+      // Aliased op does not need DMA; drop uses and mark for erasure.
       if (storeOp.getResult()) {
         storeOp.getResult().dropAllUses();
       }
@@ -527,23 +524,21 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
 
     // If this store shares a buffer with a load (shared pair), use the
     // load's (input) CB when the load is aliased, to match compute.
+    // If not, use store op's own output CB (default case).
     Value cbMemref = memref;
     auto storePairIt = sharedPairs.find(storeOp.getLocalBuffer());
     if (storePairIt != sharedPairs.end()) {
       RemoteLoadOp pairedLoad = storePairIt->second.first;
-      if (!isStreamingOp(pairedLoad.getMemref(), pairedLoad.getLocalBuffer())) {
-        // Load is aliased — use its (input) CB.
+      if (!needsDMA(pairedLoad.getMemref(), pairedLoad.getLocalBuffer())) {
+        // Load is aliased so use its (input) CB.
         cbMemref = pairedLoad.getMemref();
       }
-      // else: load is streaming — use store's own (output) CB (default).
     }
 
-    // Streaming -> convert to explicit CB form.
     Value cb =
         findAssociatedCB(storeOp, cbMemref, rewriter, cache, portCounters);
     if (!cb) {
-      storeOp.emitWarning("could not find associated CB for DMA conversion");
-      continue;
+      return storeOp.emitError("could not find associated CB for DMA store");
     }
 
     rewriter.setInsertionPoint(storeOp);
@@ -553,6 +548,7 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
         storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
     toErase.insert(storeOp);
   }
+  return success();
 }
 
 // ---------------------------------------------------------------------------
@@ -604,25 +600,17 @@ static void eraseDeadOps(PatternRewriter &rewriter, Block *block,
   }
 }
 
-// Erase collected ops, iterating to fixpoint to handle dependencies
-// between ops in the set (e.g., alloc used by load — erase load first).
+// Erase collected ops. All legitimate uses must have been replaced or dropped
+// before adding ops to this set, so we just drop any stale uses and erase.
 static void eraseCollectedOps(PatternRewriter &rewriter,
                               DenseSet<Operation *> &ops) {
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    SmallVector<Operation *> ready;
-    for (Operation *op : ops) {
-      if (op->use_empty()) {
-        ready.push_back(op);
-      }
-    }
-    for (Operation *op : ready) {
-      rewriter.eraseOp(op);
-      ops.erase(op);
-      changed = true;
-    }
+  for (Operation *op : ops) {
+    op->dropAllUses();
   }
+  for (Operation *op : ops) {
+    rewriter.eraseOp(op);
+  }
+  ops.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -704,17 +692,21 @@ public:
     DenseSet<Operation *> toErase;
 
     // Compute thread: insert CB sync ops for implicit-form remote ops.
-    processSharedBufferPairs(computeBlock, rewriter, computeCache, portCounters,
-                             toErase);
-    processComputeLoads(computeBlock, rewriter, computeCache, portCounters,
-                        toErase);
-    processComputeStores(computeBlock, rewriter, computeCache, portCounters,
-                         toErase);
+    if (failed(processSharedBufferPairs(computeBlock, rewriter, computeCache,
+                                        portCounters, toErase)) ||
+        failed(processComputeLoads(computeBlock, rewriter, computeCache,
+                                   portCounters, toErase)) ||
+        failed(processComputeStores(computeBlock, rewriter, computeCache,
+                                    portCounters, toErase))) {
+      return failure();
+    }
     processGetScratchOps(computeBlock, rewriter, toErase);
 
-    // DMA thread: convert streaming ops to explicit CB form.
-    convertDMAToExplicitCBForm(dmBlock, rewriter, dmaCache, portCounters,
-                               toErase);
+    // DMA thread: convert datamovement ops to explicit CB form.
+    if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter, dmaCache,
+                                          portCounters, toErase))) {
+      return failure();
+    }
 
     eraseCollectedOps(rewriter, toErase);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
