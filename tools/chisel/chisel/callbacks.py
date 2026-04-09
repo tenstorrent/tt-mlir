@@ -30,7 +30,7 @@ def chisel_pre_op_callback(binary, program_context, op_context):
     import _ttmlir_runtime as tt_runtime
     print("chisel_pre_op_callback")
     ctx = ChiselContext.get_instance()
-    ctx.ensure_ir_module(binary)
+    ctx.ensure_ir_module(binary, program_context)
     ctx._current_op = next(ctx.op_iter)
 
     # Copy device inputs to host, keyed by SSA name

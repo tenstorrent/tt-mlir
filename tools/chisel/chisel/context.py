@@ -27,19 +27,28 @@ class ChiselContext:
         self.op_iter: Iterator | None = None
         self._current_op: Operation | None = None
         self._stashed_inputs: dict | None = None
+        self._current_program_index: int | None = None
 
-    def ensure_ir_module(self, binary) -> None:
+    def ensure_ir_module(self, binary, program_context) -> None:
         """Lazily create IRModule from the binary's MLIR source on first preOp."""
-        if self.ir_module is not None:
-            return
-        mlir_json = json.loads(binary.get_mlir_as_json())
-        mlir_source = mlir_json["source"]
-        functions = [
-            binary.get_program_name(i)
-            for i in range(binary.get_num_programs())
-        ]
-        self.ir_module = IRModule(mlir_source=mlir_source, functions=functions)
-        self.op_iter = iter(self.ir_module.get_function_ops())
+        import _ttmlir_runtime as tt_runtime
+
+        program_index = tt_runtime.runtime.get_program_index(program_context)
+
+        if self.ir_module is None:
+            mlir_json = json.loads(binary.get_mlir_as_json())
+            mlir_source = mlir_json["source"]
+            functions = [
+                binary.get_program_name(i)
+                for i in range(binary.get_num_programs())
+            ]
+            self.ir_module = IRModule(mlir_source=mlir_source, functions=functions)
+
+        if self._current_program_index != program_index:
+            self._current_program_index = program_index
+            program_name = binary.get_program_name(program_index)
+            self.ir_module.current_function_name = program_name
+            self.op_iter = iter(self.ir_module.get_function_ops())
 
     @classmethod
     def get_instance(cls) -> "ChiselContext":
