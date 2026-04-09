@@ -722,8 +722,7 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<
       mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions>(
       "ttir-to-ttnn-backend-pipeline",
-      "Pipeline lowering TTIR to TTNN for backend execution. Deprecated, use "
-      "ttir-to-ttnn-runtime-pipeline instead.",
+      "DEPRECATED, use ttir-to-ttnn-runtime-pipeline instead.",
       mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline);
 
   // TTIR to EmitC pipeline.
