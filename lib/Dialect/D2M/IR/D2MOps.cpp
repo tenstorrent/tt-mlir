@@ -1733,7 +1733,6 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
       SmallVector<int64_t> physicalGridShape =
           d2m::utils::getPhysicalGridShape(output);
-
       // Drop the deviceID result (first result) from the inverse map.
       AffineMap invMapNoDevice = gridInvMap.dropResult(0);
 
@@ -1742,6 +1741,23 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
       SmallVector<int64_t> outputGridShape =
           llvm::to_vector(ttcore::getGridShape(output));
+
+      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
+        if (auto viewOp = output.getDefiningOp<d2m::ViewOpInterface>()) {
+          if (!viewOp.isComposite()) {
+            auto [baseMemrefType, viewMap] = applyViews(viewOp.getOperation());
+            if (ttcore::isL1MemorySpace(
+                    ttcore::getMemorySpace(baseMemrefType))) {
+              SmallVector<int64_t> baseGridShape =
+                  getGridAndShardFromShapedType(baseMemrefType).first;
+              AffineMap gridViewMap = ttmlir::utils::affineMapTakeFrontResults(
+                  viewMap, baseGridShape.size());
+              outputGridShape =
+                  ttmlir::utils::evalShape(gridViewMap, memrefType.getShape());
+            }
+          }
+        }
+      }
 
       if (outputGridShape != impliedVirtShape) {
         return emitOpError("output grid shape does not match implied virtual "
