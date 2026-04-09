@@ -39,8 +39,8 @@ def test_get_function_ops_returns_correct_count():
     from chisel.ops import IRModule
     ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"])
     ops = ir.get_function_ops()
-    # ttnn.add, ttnn.abs, func.return
-    assert len(ops) == 3
+    # ttnn.add, ttnn.abs (func.return is skipped to match C++ serialization)
+    assert len(ops) == 2
 
 
 def test_get_function_ops_order():
@@ -49,7 +49,6 @@ def test_get_function_ops_order():
     ops = ir.get_function_ops()
     assert ops[0].name == "test.add"
     assert ops[1].name == "test.abs"
-    assert ops[2].name == "func.return"
 
 
 def test_ignored_ops():
@@ -57,13 +56,12 @@ def test_ignored_ops():
     ir = IRModule(
         mlir_source=SIMPLE_MODULE,
         functions=["main"],
-        ignored_ops=["func.return"],
+        ignored_ops=["test.abs"],
     )
     ops = ir.get_function_ops()
-    assert len(ops) == 2
-    assert all(op.name != "func.return" for op in ops)
+    assert len(ops) == 1
+    assert all(op.name != "test.abs" for op in ops)
     assert ops[0].name == "test.add"
-    assert ops[1].name == "test.abs"
 
 
 def test_get_asm_state():

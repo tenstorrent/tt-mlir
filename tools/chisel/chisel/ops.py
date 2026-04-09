@@ -92,30 +92,37 @@ class IRModule:
 
     def _extract_function_ops(self, name: str) -> List[Operation]:
         assert name in self._functions
+        func_op = self._functions[name]
         ops = []
-        for region in self._functions[name].regions:
-            for block in region.blocks:
-                for op in block.operations:
-                    if op.name in self.ignored_ops:
-                        continue
-                    ops.append(op)
+
+        def _visitor(op):
+            # Skip the FuncOp itself — Python bindings only expose walk() on
+            # Operation, not Region, so we walk the FuncOp and skip it to match
+            # the C++ entry.getBody().walk() in FuncOpToProgram.h.
+            if op == func_op.operation:
+                return WalkResult.ADVANCE
+            if op.name == "func.return" or op.name in self.ignored_ops:
+                return WalkResult.ADVANCE
+            ops.append(op)
+            return WalkResult.ADVANCE
+
+        func_op.operation.walk(_visitor, walk_order=WalkOrder.PRE_ORDER)
         return ops
 
     def _find_function(self, name: str) -> Operation:
-        for op in self._walk(self.module.operation):
-            if isinstance(op, func.FuncOp) and op.name.value == name:
-                return op
-        raise ValueError(f"Function {name} not found in module")
+        result = None
 
-    def _walk(
-        self, op: Operation, walk_order: WalkOrder = WalkOrder.POST_ORDER
-    ) -> List[Operation]:
-        ops = []
-
-        def _walk_ops(op):
-            nonlocal ops
-            ops.append(op.opview)
+        def _visitor(op):
+            nonlocal result
+            opview = op.opview
+            if isinstance(opview, func.FuncOp):
+                if opview.name.value == name:
+                    result = opview
+                    return WalkResult.INTERRUPT
+                return WalkResult.SKIP
             return WalkResult.ADVANCE
 
-        op.operation.walk(_walk_ops, walk_order=walk_order)
-        return ops
+        self.module.operation.walk(_visitor, walk_order=WalkOrder.PRE_ORDER)
+        if result is None:
+            raise ValueError(f"Function {name} not found in module")
+        return result
