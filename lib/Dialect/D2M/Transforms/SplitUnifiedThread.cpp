@@ -200,25 +200,11 @@ static void processSharedBufferPairs(Block *computeBlock,
     bool loadIsStreaming = isStreamingOp(loadOp.getMemref(), sharedBuffer);
     bool storeIsStreaming = isStreamingOp(storeOp.getMemref(), sharedBuffer);
 
-    // Neither streaming (L1-to-L1 layout conversion in TTNN mode): both ops
-    // need actual DMA through a shared CB. Insert wait+push+pop in compute
-    // (matching the DMA thread's reserve→load→push→wait→write→pop sequence).
+    // Neither streaming (L1-to-L1 copy): both ops need actual DMA through a
+    // shared CB. The DM thread handles the full
+    // reserve→read→push→wait→write→pop cycle. Compute has nothing to do — just
+    // erase the ops and alloc.
     if (!loadIsStreaming && !storeIsStreaming) {
-      // Use the input (load) memref for CB lookup - both ops share one CB.
-      Value cb = findAssociatedCB(loadOp, loadOp.getMemref(), rewriter, cache,
-                                  portCounters);
-      if (!cb) {
-        loadOp.emitWarning(
-            "could not find associated CB for L1-to-L1 shared pair");
-        continue;
-      }
-      Location loc = loadOp.getLoc();
-      // Compute side: wait for DMA to fill CB, push to signal done, pop.
-      rewriter.setInsertionPoint(loadOp);
-      rewriter.create<WaitOp>(loc, cb);
-      rewriter.create<PushOp>(loc, cb);
-      rewriter.create<PopOp>(loc, cb);
-
       toErase.insert(storeOp);
       toErase.insert(loadOp);
       if (memref::AllocOp allocOp = findAllocOp(loadOp.getLocalBuffer())) {
@@ -730,9 +716,6 @@ public:
     convertDMAToExplicitCBForm(dmBlock, rewriter, dmaCache, portCounters,
                                toErase);
 
-    // Clean up: first erase non-DMA ops from DMA and DMA ops from compute
-    // (this removes users of old ops, making them use_empty), then erase
-    // the collected old ops themselves.
     eraseCollectedOps(rewriter, toErase);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
     eraseDeadOps(rewriter, computeBlock, /*isDatamovementThread=*/false);

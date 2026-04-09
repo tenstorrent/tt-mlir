@@ -387,7 +387,32 @@ module attributes {ttcore.system_desc = #system_desc} {
     return
   }
 
-  // Test 10: Self-read/write (read-modify-write on same buffer))
+  // Test 10: L1-to-L1 shared buffer copy (both operands are L1 shards)
+  // CHECK-LABEL: func.func @test_l1_to_l1_shared_buffer_copy
+  func.func @test_l1_to_l1_shared_buffer_copy() {
+    %input = memref.alloc() {address = 1024 : i64, alignment = 16 : i64} : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %output = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    // CHECK: d2m.remote_load %{{.*}}[%{{.*}}, %{{.*}}] into %{{.*}}
+    // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] from %{{.*}}
+    // Compute is emtpy
+    // CHECK: }, {
+    // CHECK-NEXT: }
+    d2m.generic {block_factors = [], grid = #ttcore.grid<4x3>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%input : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
+        outs(%output : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
+    ^unified0:
+      %core0 = d2m.core_index(0) : index
+      %core1 = d2m.core_index(1) : index
+      %buf = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %0 = d2m.remote_load %buf %input[%core0, %core1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %1 = d2m.remote_store %output[%core0, %core1] %buf : memref<4x3x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+    }
+    return
+  }
+
+  // Test 11: Self-read/write (read-modify-write on same buffer)
   // Verifies: no remote ops in DMA, compute has reserve+push+wait for the
   // accumulator CB, no extra push/wait/pop from store
   // CHECK-LABEL: func.func @test_self_read_write_accumulator
