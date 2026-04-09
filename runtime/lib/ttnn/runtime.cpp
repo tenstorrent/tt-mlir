@@ -2096,6 +2096,13 @@ void updateTensorInPool(CallbackContext programContextHandle,
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
 }
 
+size_t getProgramIndex(CallbackContext programContextHandle) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getProgramIndex();
+}
+
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
