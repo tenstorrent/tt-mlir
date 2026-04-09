@@ -3238,13 +3238,7 @@ public:
     // the indication that the matching is not correct.
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
     if (inputType.getElementType() != gammaType.getElementType()) {
-      if (mlir::Operation *xOp = x.getDefiningOp()) {
-        x = utils::revertTypecastFolding(rewriter, xOp, x);
-        inputType = mlir::cast<RankedTensorType>(x.getType());
-      }
-      if (inputType.getElementType() != gammaType.getElementType()) {
-        return mlir::failure();
-      }
+      return mlir::failure();
     }
 
     // Create RMSNormOp with output shape and dtype matching input.
