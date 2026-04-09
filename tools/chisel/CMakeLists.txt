@@ -1,14 +1,15 @@
 include(AddMLIRPython)
 
 declare_mlir_python_sources(ChiselSources
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/chisel"
   SOURCES
-    chisel/__init__.py
-    chisel/ops.py
-    chisel/executor.py
-    chisel/context.py
-    chisel/callbacks.py
-    chisel/utils.py
+    __init__.py
+    ops.py
+    executor.py
+    context.py
+    callbacks.py
+    utils.py
+    bind.py
 )
 
 add_mlir_python_modules(ChiselPythonModules

@@ -6,9 +6,11 @@ This document describes the implementation plan for the new Chisel tool, split
 into 5 runtime PRs (0a-1, 0a-2a, 0a-2b, 0a-3, 0b), 1 metrics PR (0c), and
 5 Chisel PRs (1-5). The runtime PRs form a dependency chain
 (0a-1 → 0a-2a → 0a-2b → 0a-3) to keep each PR small and independently
-testable. PR 0b is independent. Chisel PR 1 requires 0a-1 + 0a-2a + 0c
-(op-level callbacks and metrics). All remaining 0a-* PRs must land before
-Chisel PR 2 (program-level callbacks and introspection).
+testable. PR 0b is independent. Chisel PR 1 has **no runtime PR
+prerequisites** — it uses existing runtime APIs (`DebugHooks.get()`,
+`get_op_input_refs()`, `get_op_output_ref()`, `retrieve_tensor_from_pool()`)
+and includes `tools/golden/metrics.py` directly. All 0a-* PRs must land
+before Chisel PR 2 (program-level callbacks and introspection).
 
 ## Key Design Decisions
 
@@ -39,8 +41,7 @@ graph TD
     PR0a1["PR 0a-1: GIL-Safety Fix"] --> PR0a2a["PR 0a-2a: Named Callback API"]
     PR0a2a --> PR0a2b["PR 0a-2b: Program-Level Hooks"]
     PR0a2b --> PR0a3["PR 0a-3: Introspection Bindings"]
-    PR0a2a --> PR1["PR 1: Single Op Isolation"]
-    PR0c["PR 0c: Unified Metrics"] --> PR1
+    PR1["PR 1: Single Op Isolation"]
     PR1 --> PR2["PR 2: Single Program Flow"]
     PR0a3 --> PR2
     PR2 --> PR3["PR 3: Reporting + Sharing"]
@@ -53,13 +54,14 @@ graph TD
     style PR0a2b fill:#f9d77e,stroke:#d4a017
     style PR0a3 fill:#f9d77e,stroke:#d4a017
     style PR0b fill:#f9d77e,stroke:#d4a017
-    style PR0c fill:#f9d77e,stroke:#d4a017
     style Future fill:#e0e0e0,stroke:#999,stroke-dasharray: 5 5
 ```
 
-- **PR 1** (Single Op Isolation) requires **PR 0a-1** (GIL fix), **PR 0a-2a**
-  (named callback API for preOp/postOp registration), and **PR 0c** (unified
-  metrics for comparison). It does NOT need program-level hooks or introspection.
+- **PR 1** (Single Op Isolation) has **no runtime PR prerequisites**. It uses
+  the existing `DebugHooks.get(pre, post)` API directly and includes
+  `tools/golden/metrics.py` (previously PR 0c) within the PR itself. Builder
+  integration uses `elif` for mutual exclusivity, so no named multi-client
+  callback system is needed.
 - **PR 0a-1** (GIL fix) is minimal and safe — no API change, just const ref
   returns and move semantics. Can merge quickly.
 - **PR 0a-2a** (named callback API) refactors the `DebugHooks` API to support
@@ -72,8 +74,8 @@ graph TD
   `Binary.id`. Depends on PR 0a-2b (needs program callbacks to test).
 - **All 0a-* PRs** must land before **Chisel PR 2** — that's where Chisel
   registers program-level Python callbacks and queries program metadata.
-- **PR 0c** must land before **Chisel PR 1** — comparison functions are used
-  in postOp. Can be developed in parallel with the 0a chain.
+- **PR 0c** (Unified Metrics) is included directly in **Chisel PR 1** —
+  `tools/golden/metrics.py` is created there, not as a separate prerequisite.
 - **PR 0b** is independent and not required for the initial integration.
   Multi-output ops (SortOp, MaxPool2dWithIndicesOp, etc.) will simply be
   unsupported until PR 0b lands. Chisel can skip them gracefully.
@@ -87,8 +89,8 @@ graph TD
 | 0a-2b | Program-Level Hooks | `preProgram`/`postProgram` in CallbackSet, `runProgramCallbacks()` | All 4 hooks fire in correct order test | PR 0a-2a |
 | 0a-3 | Introspection Bindings | `get_program_index`, `get_program_input/output_refs`, `Tensor.global_id`, `Binary.id` | Python test querying program metadata from callbacks | PR 0a-2b |
 | 0b | Multi-Output Refs | `getOpOutputRef` → `vector<TensorRef>` | Multi-output op extraction tests | None (independent) |
-| 0c | Unified Metrics | `tools/golden/metrics.py`, migrate builder + ttrt | test/python/golden/test_metrics.py | None (land before Chisel PR 1) |
-| 1 | Single Op Isolation | CMakeLists.txt, `__init__.py`, ops.py, executor.py, context.py (slim), callbacks.py (preOp/postOp), utils.py | test_ops.py, test_executor.py, test_context.py, test_callbacks.py, test_utils.py | PR 0a-1, PR 0a-2a, PR 0c |
+| 0c | Unified Metrics | `tools/golden/metrics.py`, migrate builder + ttrt | test/python/golden/test_metrics.py | None (included in Chisel PR 1) |
+| 1 | Single Op Isolation | CMakeLists.txt, `__init__.py`, ops.py, executor.py, context.py (slim), callbacks.py (preOp/postOp), utils.py | test_ops.py, test_executor.py, test_context.py, test_callbacks.py, test_utils.py | None |
 | 2 | Single Program Flow | tensors.py, context.py (full hierarchy), callbacks.py (4 callbacks), executor.py (pool-aware) | test_tensors.py, test_context.py (hierarchy), test_callbacks.py | PR 1, PR 0a-2b, PR 0a-3 |
 | 3 | Reporting + Cross-Program Sharing | report.py, global_tensor_pool, disk caching | test_report.py, test_tensors.py (caching), test_context.py (cross-program) | PR 2 |
 | 4 | Skip Mode | skip stash in preOp, golden replace in postOp | test_skip_mode.py | PR 3 |
@@ -153,8 +155,8 @@ Add Python bindings for querying program metadata from callbacks:
 `get_program_index()`, `get_program_input_refs()`, `get_program_output_refs()`,
 `Binary.id`, `Tensor.global_id`.
 
-**All 0a-* PRs must land before Chisel PR 2.** PR 0a-1 and 0a-2a can be
-developed in parallel with Chisel PR 1 planning.
+**All 0a-* PRs must land before Chisel PR 2.** They are not prerequisites
+for Chisel PR 1, which uses the existing runtime APIs directly.
 
 ### PR 0b: Multi-Output Refs ([detail](pr0b_multi_output_ref.md))
 
@@ -178,7 +180,7 @@ The unified module uses pure torch (no numpy), exposes `compute_pcc()`,
 `compute_atol()`, `compute_rtol()`, and `compute_metrics()`.
 Builder's `check_outputs()` keeps its signature but delegates internally.
 
-**Must land before Chisel PR 1.** Can be developed in parallel with the 0a chain.
+Included in Chisel PR 1 — `tools/golden/metrics.py` is created there directly.
 
 ## Key Reference Files
 

@@ -34,8 +34,6 @@ ttrt_dtype_maps = {
 
 def get_torch_tensor(tensor) -> torch.Tensor:
     """Convert a runtime tensor to a PyTorch tensor (copies data to host)."""
-    from ttrt.runtime import Tensor as RtTensor  # noqa: F401 — lazy import
-
     rt_data_ptr = tensor.get_data_buffer()
     rt_dtype = tensor.get_dtype()
     dtype = ttrt_dtype_maps[str(rt_dtype)]

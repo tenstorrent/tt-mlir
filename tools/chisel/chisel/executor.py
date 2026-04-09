@@ -16,7 +16,7 @@ from ttmlir.ir import Operation
 
 from golden import get_golden_function, GoldenMapTensor
 
-from chisel.ops import IRModule, get_op_inputs, get_op_outputs
+from .ops import IRModule, get_op_inputs, get_op_outputs
 
 
 # Parameter names that indicate the output type (always last positional param)
@@ -120,7 +120,8 @@ def execute_golden(op: Operation, ir_module: IRModule, inputs: dict) -> torch.Te
 
     # Get output type from first result
     op_outputs = get_op_outputs(op)
-    output_type = op_outputs[0].type if op_outputs else None
+
+    output_type = op_outputs[0].type.element_type if op_outputs else None
 
     # Build args and call
     args = _build_golden_args(golden_fn, golden_inputs, op, output_type)

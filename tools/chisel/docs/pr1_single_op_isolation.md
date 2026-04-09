@@ -1,4 +1,4 @@
-# PR 1: Single Op Isolation Testing
+# PR 1: Single Op Isolation Testing + Builder Integration
 
 ## Goal
 
@@ -7,12 +7,17 @@ Deliver op-level isolation testing — each TTNN op is tested independently.
 via `GOLDEN_MAPPINGS` and compares against the device output. Golden outputs
 are discarded after comparison — no cross-op tensor chaining.
 
+This PR also includes builder integration (previously PR 5): the `enable_chisel`
+parameter in `execute_fb()`, the `chisel.bind()`/`chisel.unbind()` lifecycle,
+and API forwarding through `compile_and_execute_ttnn()`.
+
 This PR proves the core golden-vs-device comparison loop works for individual
-ops without requiring program-level state or tensor persistence.
+ops through the real builder pipeline, without requiring program-level state or
+tensor persistence.
 
 **Not included:** TensorPool, cross-op golden chaining, program-level callbacks
 (`preProgram`/`postProgram`), ReportWriter (CSV), disk caching, cross-program
-tensor sharing, skip mode, builder integration.
+tensor sharing, skip mode.
 
 ## Files
 
@@ -27,12 +32,16 @@ tensor sharing, skip mode, builder integration.
 | `tools/chisel/chisel/utils.py` | Dtype maps, runtime tensor conversion |
 | `tools/chisel/chisel/callbacks.py` | `preOp`/`postOp` only (2 callbacks) |
 | `tools/chisel/chisel/context.py` | Slim `ChiselContext` — ir_module, op_iter, stashed inputs |
+| `tools/chisel/chisel/bind.py` | `bind()` creates ChiselContext + registers DebugHooks, `unbind()` resets singleton |
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
 | `tools/CMakeLists.txt` | Add `add_subdirectory(chisel)` under the Python bindings guard |
+| `tools/builder/base/builder_runtime.py` | Add `enable_chisel: bool = False` to `execute_fb()`. Mutual exclusivity check. `chisel.bind()` call when enabled. |
+| `tools/builder/base/builder_apis.py` | Add `enable_chisel: bool = False` to `compile_and_execute_ttnn()` and `_compile_and_execute()`, forward to `execute_fb()` |
+| `test/python/golden/conftest.py` | Add `--enable-chisel` pytest option forwarded to `compile_and_execute_ttnn` |
 
 ## Implementation Details
 
@@ -242,6 +251,69 @@ def chisel_post_op_callback(binary, program_context, op_context):
     ctx._stashed_inputs = None
 ```
 
+### `bind.py`
+
+One-call setup and teardown for builder integration:
+
+```python
+def bind():
+    """Initialize ChiselContext and register op callbacks with DebugHooks."""
+    import _ttmlir_runtime as tt_runtime
+
+    ChiselContext()
+    tt_runtime.runtime.DebugHooks.get(
+        chisel_pre_op_callback,
+        chisel_post_op_callback,
+    )
+
+
+def unbind():
+    """Tear down ChiselContext singleton. Safe to call even if bind() was not called."""
+    ChiselContext.reset_instance()
+```
+
+### Builder Integration
+
+**`execute_fb()` in `builder_runtime.py` — new parameter:**
+
+```python
+def execute_fb(
+    compiled_bin,
+    # ... existing params ...
+    enable_chisel: bool = False,
+):
+```
+
+**Mutual exclusivity check** (early in function body):
+
+```python
+if enable_chisel and enable_intermediate_verification:
+    raise ValueError(
+        "enable_chisel and enable_intermediate_verification are mutually "
+        "exclusive. Use one or the other."
+    )
+```
+
+**Callback registration** (where `DebugHooks.get()` is called):
+
+```python
+if enable_chisel:
+    import chisel
+    chisel.bind()
+elif verify_intermediates or dump_memory:
+    tt_runtime.runtime.DebugHooks.get(
+        pre_op_get_callback_fn(callback_runtime_config),
+        post_op_get_callback_fn(callback_runtime_config),
+    )
+```
+
+**`compile_and_execute_ttnn()` and `_compile_and_execute()` in `builder_apis.py`**
+receive the same `enable_chisel: bool = False` parameter and forward it to
+`execute_fb()`.
+
+**`--enable-chisel` pytest option** in `test/python/golden/conftest.py` adds
+`enable_chisel=True` to the kwargs passed to `compile_and_execute_ttnn()`.
+
 ### `__init__.py` exports
 
 ```python
@@ -250,6 +322,7 @@ from chisel.callbacks import (
     chisel_pre_op_callback,
     chisel_post_op_callback,
 )
+from chisel.bind import bind, unbind
 ```
 
 ### Metrics — `tools/golden/metrics.py`
@@ -331,77 +404,70 @@ Each op is self-contained — no dependency on previous ops' golden outputs.
 
 ## Test Plan
 
-### `test_ops.py`
-- `test_ir_module_creation()` — parse a small TTNN MLIR module string, create IRModule
-- `test_get_function()` — verify `get_function()` returns the expected function op
-- `test_get_function_ops()` — verify operations are listed in correct order
-- `test_get_op_inputs_outputs()` — verify tensor-like operand/result extraction
-- `test_ignored_ops()` — verify ops in `ignored_ops` list are filtered
+Unit tests are deferred to PR 1.5. This PR focuses on integration tests that
+exercise chisel through the real builder pipeline on device.
 
-**Test dependencies:** `ttmlir` Python bindings for MLIR module parsing.
+See [TestingPlan.md](TestingPlan.md) for the full testing strategy.
 
-**Example test fixture:**
-```python
-SIMPLE_TTNN_MODULE = """
-module {
-  func.func @main(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    %0 = "ttnn.abs"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
-    return %0 : tensor<32x32xf32>
-  }
-}
-"""
+### Golden Test Suite (primary)
+
+Run the existing golden test suite with `--enable-chisel`:
+
+```bash
+pytest test/python/golden/test_ttnn_ops.py --enable-chisel
 ```
 
-### `test_executor.py`
-- `test_execute_golden_abs()` — provide input tensor dict,
-  call `execute_golden()` with `ttnn.AbsOp`, verify output matches `torch.abs(input)`
-- `test_execute_golden_add()` — two-input op, verify output matches `torch.add(a, b)`
-- `test_unmapped_op_raises()` — mock an op type not in GOLDEN_MAPPINGS,
-  verify `RuntimeError` is raised
-- `test_result_returned_not_stored()` — verify function returns result without
-  side effects (no pool mutation)
+This exercises chisel against every op the golden tests cover — no new test
+code required. Validates that callbacks fire, IRModule parsing succeeds for
+compiler-generated MLIR, `execute_golden()` finds golden functions, and op
+iterator stays in sync.
 
-**Test dependencies:** `torch`, `ttmlir` bindings, `tools/golden/mapping.py`.
+### Builder Integration Tests (requires device)
 
-### `test_utils.py`
-- `test_dtype_maps()` — verify all expected dtype mappings exist and are valid torch dtypes
-- `test_get_torch_tensor()` — mock runtime tensor, verify conversion to torch.Tensor
+| Test | Description |
+|------|-------------|
+| `test_chisel_sigmoid` | Single unary op via `compile_and_execute_ttnn(enable_chisel=True)`. Verify chisel log contains `ttnn.sigmoid` with PCC > 0.99. |
+| `test_chisel_relu` | Numerically exact unary op. Verify PCC = 1.0. |
+| `test_chisel_add` | Binary op. Verify two inputs stashed correctly. |
+| `test_chisel_matmul` | Binary op with shape change. Verify chisel handles output shape ≠ input shape. |
+| `test_chisel_add_relu` | Two-op chain. Verify chisel logs 2 ops in correct order with independent PCC. |
+| `test_chisel_matmul_softmax` | Shape-changing op + attribute op. Verify op\_iter advances correctly. |
 
-**Test dependencies:** `torch`, `ttrt.runtime` (or mocks).
+### Mutual Exclusivity Test
 
-### `test_context.py`
-
-**Singleton lifecycle tests (no hardware needed):**
-- `test_singleton_not_initialized()` — `get_instance()` raises `RuntimeError`
-  before any construction
-- `test_singleton_construction()` — construct with mocked IRModule,
-  `get_instance()` returns same object
-- `test_singleton_reset()` — call `reset_instance()`, `get_instance()` raises again
-- `test_op_iter_advances()` — create ChiselContext with known ops, call
-  `next(ctx.op_iter)` repeatedly, verify correct op sequence
-- `test_stashed_inputs_lifecycle()` — set `_stashed_inputs`, verify accessible,
-  set to None, verify cleared
-
-### `test_callbacks.py`
-
-- `test_pre_op_advances_op_iter()` — mock runtime, call `chisel_pre_op_callback`,
-  verify `ctx._current_op` is set and `_stashed_inputs` is populated
-- `test_post_op_runs_golden_and_compares()` — mock runtime and executor,
-  call `chisel_post_op_callback`, verify golden execution and comparison
-- `test_post_op_clears_stash()` — verify `_stashed_inputs` is None after postOp
-- `test_callback_without_context_raises()` — call callback without initializing
-  context, verify `RuntimeError` from `get_instance()`
-
-**Test dependencies:** `unittest.mock` for mocking context and runtime objects.
+| Test | Description |
+|------|-------------|
+| `test_chisel_and_verify_raises` | `execute_fb(enable_chisel=True, enable_intermediate_verification=True)` raises `ValueError` |
 
 ## Dependencies
 
-- **PR 0a-1** — GIL-Safety Fix (callbacks must not be copied)
-- **PR 0a-2a** — Named Callback API (register preOp/postOp by name)
+None — PR 1 uses existing runtime APIs only.
+
+**Runtime APIs used (all currently available):**
+- `DebugHooks.get(pre_op, post_op)` — registers preOp/postOp callbacks
+- `get_op_input_refs()` — retrieves input tensor references in preOp
+- `get_op_output_ref()` — retrieves output tensor reference in postOp
+- `retrieve_tensor_from_pool()` — converts tensor ref to host tensor
+- `unregister_hooks()` — clears registered callbacks (called by builder's
+  `finally` block)
+
+**Why no runtime PRs needed:**
+- `bind.py` uses `DebugHooks.get(pre, post)` directly (not a named callback API)
+- Builder integration uses `elif` (mutual exclusivity), so multi-client
+  callbacks (PR 0a-2a) are not needed
+- `tools/golden/metrics.py` is created within this PR (not a separate
+  prerequisite)
+- GIL-safety (PR 0a-1) is a performance optimization, not a correctness
+  requirement for single-threaded Python callbacks
 
 Does **not** require:
+- PR 0a-1 (GIL-safety fix) — not a correctness issue for PR 1's use case
+- PR 0a-2a (named callback API) — mutual exclusivity in builder eliminates
+  the need for multi-client callbacks
 - PR 0a-2b (program-level hooks) — no preProgram/postProgram in this PR
 - PR 0a-3 (introspection bindings) — no program_index or input_refs queries
-- PR 0c (unified metrics) — `golden/metrics.py` is created in this PR
 
-This is the first chisel PR — no dependency on other chisel PRs.
+Builder integration (previously PR 5) is included in this PR. Modified builder
+files (`builder_runtime.py`, `builder_apis.py`) are part of this PR's scope.
+
+This is the first chisel PR — no dependency on other chisel or runtime PRs.

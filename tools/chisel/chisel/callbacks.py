@@ -10,16 +10,10 @@ No program-level callbacks in this PR.
 """
 import logging
 
-from ttrt.runtime import (
-    get_op_input_refs,
-    get_op_output_ref,
-    retrieve_tensor_from_pool,
-)
-
-from chisel.context import ChiselContext
-from chisel.ops import get_op_inputs, get_op_outputs
-from chisel.executor import execute_golden
-from chisel.utils import get_torch_tensor
+from .context import ChiselContext
+from .ops import get_op_inputs, get_op_outputs
+from .executor import execute_golden
+from .utils import get_torch_tensor
 from golden.metrics import compute_pcc, compute_atol, compute_rtol
 
 logger = logging.getLogger("chisel")
@@ -33,17 +27,20 @@ def chisel_pre_op_callback(binary, program_context, op_context):
     2. Copy device input tensors to host
     3. Stash inputs in ctx._stashed_inputs for postOp
     """
+    import _ttmlir_runtime as tt_runtime
+    print("chisel_pre_op_callback")
     ctx = ChiselContext.get_instance()
+    ctx.ensure_ir_module(binary)
     ctx._current_op = next(ctx.op_iter)
 
     # Copy device inputs to host, keyed by SSA name
     ctx._stashed_inputs = {}
     op_inputs = get_op_inputs(ctx._current_op)
-    input_refs = get_op_input_refs(op_context, program_context)
+    input_refs = tt_runtime.runtime.get_op_input_refs(op_context, program_context)
     asm_state = ctx.ir_module.get_asm_state()
 
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
-        device_tensor = retrieve_tensor_from_pool(program_context, tensor_ref)
+        device_tensor = tt_runtime.runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
         name = mlir_input.get_name(asm_state)
         ctx._stashed_inputs[name] = get_torch_tensor(device_tensor)
 
@@ -58,11 +55,14 @@ def chisel_post_op_callback(binary, program_context, op_context):
     4. Log metrics
     5. Discard golden output (no pool storage)
     """
+    print("chisel_post_op_callback")
+    import _ttmlir_runtime as tt_runtime
     ctx = ChiselContext.get_instance()
 
     # Skip ops with no outputs
     if len(get_op_outputs(ctx._current_op)) == 0:
         ctx._stashed_inputs = None
+        print("Skipping for the OP", ctx._current_op)
         return
 
     # Execute golden
@@ -71,15 +71,15 @@ def chisel_post_op_callback(binary, program_context, op_context):
     )
 
     # Capture device output
-    output_ref = get_op_output_ref(op_context, program_context)
-    device_tensor = retrieve_tensor_from_pool(program_context, output_ref)
+    output_ref = tt_runtime.runtime.get_op_output_ref(op_context, program_context)
+    device_tensor = tt_runtime.runtime.retrieve_tensor_from_pool(program_context, output_ref)
     device_torch = get_torch_tensor(device_tensor)
 
     # Compare
     pcc = compute_pcc(golden_result, device_torch)
     atol = compute_atol(golden_result, device_torch)
     rtol = compute_rtol(golden_result, device_torch)
-
+    print(pcc)
     # Log
     op_name = ctx._current_op.name
     logger.info(f"{op_name}: PCC={pcc:.6f}, atol={atol:.6e}, rtol={rtol:.6e}")

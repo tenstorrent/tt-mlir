@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Chisel bind/unbind — one-call setup and teardown for builder integration."""
 
-import ttrt.runtime as tt_runtime
-from chisel.context import ChiselContext
-from chisel.callbacks import (
+from .context import ChiselContext
+from .callbacks import (
     chisel_pre_op_callback,
     chisel_post_op_callback,
 )
@@ -13,6 +12,8 @@ from chisel.callbacks import (
 
 def bind():
     """Initialize ChiselContext and register op callbacks with DebugHooks."""
+    import _ttmlir_runtime as tt_runtime
+
     ChiselContext()
     tt_runtime.runtime.DebugHooks.get(
         chisel_pre_op_callback,

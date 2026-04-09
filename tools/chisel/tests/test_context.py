@@ -31,26 +31,20 @@ def test_get_instance_before_init_raises():
 
 def test_construction_sets_instance():
     from chisel.context import ChiselContext
-    from chisel.ops import IRModule
-    ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"])
-    ctx = ChiselContext(ir_module=ir)
+    ctx = ChiselContext()
     assert ChiselContext.get_instance() is ctx
 
 
 def test_singleton_returns_same_object():
     from chisel.context import ChiselContext
-    from chisel.ops import IRModule
-    ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"])
-    ctx = ChiselContext(ir_module=ir)
+    ctx = ChiselContext()
     assert ChiselContext.get_instance() is ctx
     assert ChiselContext.get_instance() is ctx
 
 
 def test_reset_clears_instance():
     from chisel.context import ChiselContext
-    from chisel.ops import IRModule
-    ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"])
-    ChiselContext(ir_module=ir)
+    ChiselContext()
     ChiselContext.reset_instance()
     with pytest.raises(RuntimeError, match="not initialized"):
         ChiselContext.get_instance()
@@ -60,7 +54,9 @@ def test_op_iter_advances():
     from chisel.context import ChiselContext
     from chisel.ops import IRModule
     ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"], ignored_ops=["func.return"])
-    ctx = ChiselContext(ir_module=ir)
+    ctx = ChiselContext()
+    ctx.ir_module = ir
+    ctx.op_iter = iter(ir.get_function_ops())
     op1 = next(ctx.op_iter)
     assert op1.name == "test.abs"
     op2 = next(ctx.op_iter)
@@ -71,7 +67,9 @@ def test_op_iter_exhaustion():
     from chisel.context import ChiselContext
     from chisel.ops import IRModule
     ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"], ignored_ops=["func.return"])
-    ctx = ChiselContext(ir_module=ir)
+    ctx = ChiselContext()
+    ctx.ir_module = ir
+    ctx.op_iter = iter(ir.get_function_ops())
     next(ctx.op_iter)
     next(ctx.op_iter)
     with pytest.raises(StopIteration):
@@ -80,9 +78,7 @@ def test_op_iter_exhaustion():
 
 def test_stashed_inputs_lifecycle():
     from chisel.context import ChiselContext
-    from chisel.ops import IRModule
-    ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"])
-    ctx = ChiselContext(ir_module=ir)
+    ctx = ChiselContext()
     assert ctx._stashed_inputs is None
     ctx._stashed_inputs = {"arg0": "tensor_data"}
     assert ctx._stashed_inputs["arg0"] == "tensor_data"
@@ -92,9 +88,7 @@ def test_stashed_inputs_lifecycle():
 
 def test_current_op_lifecycle():
     from chisel.context import ChiselContext
-    from chisel.ops import IRModule
-    ir = IRModule(mlir_source=SIMPLE_MODULE, functions=["main"])
-    ctx = ChiselContext(ir_module=ir)
+    ctx = ChiselContext()
     assert ctx._current_op is None
     ctx._current_op = "mock_op"
     assert ctx._current_op == "mock_op"

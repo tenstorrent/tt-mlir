@@ -33,13 +33,16 @@ def ctx_with_module():
         functions=["main"],
         ignored_ops=["func.return"],
     )
-    return ChiselContext(ir_module=ir)
+    ctx = ChiselContext()
+    ctx.ir_module = ir
+    ctx.op_iter = iter(ir.get_function_ops())
+    return ctx
 
 
 def test_pre_op_advances_op_iter(ctx_with_module):
     from chisel.callbacks import chisel_pre_op_callback
 
-    with patch("chisel.callbacks.get_op_input_refs", return_value=[]):
+    with patch("_ttmlir_runtime.runtime.get_op_input_refs", return_value=[]):
         chisel_pre_op_callback(MagicMock(), MagicMock(), MagicMock())
 
     ctx = ctx_with_module
@@ -54,8 +57,8 @@ def test_pre_op_stashes_inputs(ctx_with_module):
     input_tensor = torch.randn(4, 4)
 
     with (
-        patch("chisel.callbacks.get_op_input_refs", return_value=[mock_ref]),
-        patch("chisel.callbacks.retrieve_tensor_from_pool", return_value=MagicMock()),
+        patch("_ttmlir_runtime.runtime.get_op_input_refs", return_value=[mock_ref]),
+        patch("_ttmlir_runtime.runtime.retrieve_tensor_from_pool", return_value=MagicMock()),
         patch("chisel.callbacks.get_torch_tensor", return_value=input_tensor),
     ):
         chisel_pre_op_callback(MagicMock(), MagicMock(), MagicMock())
@@ -76,8 +79,8 @@ def test_post_op_clears_stash(ctx_with_module):
 
     # Pre-op: stash inputs
     with (
-        patch("chisel.callbacks.get_op_input_refs", return_value=[mock_ref]),
-        patch("chisel.callbacks.retrieve_tensor_from_pool", return_value=MagicMock()),
+        patch("_ttmlir_runtime.runtime.get_op_input_refs", return_value=[mock_ref]),
+        patch("_ttmlir_runtime.runtime.retrieve_tensor_from_pool", return_value=MagicMock()),
         patch("chisel.callbacks.get_torch_tensor", return_value=input_tensor),
     ):
         chisel_pre_op_callback(MagicMock(), MagicMock(), MagicMock())
@@ -85,8 +88,8 @@ def test_post_op_clears_stash(ctx_with_module):
     # Post-op: execute golden and compare
     with (
         patch("chisel.callbacks.execute_golden", return_value=golden_output),
-        patch("chisel.callbacks.get_op_output_ref", return_value=mock_ref),
-        patch("chisel.callbacks.retrieve_tensor_from_pool", return_value=MagicMock()),
+        patch("_ttmlir_runtime.runtime.get_op_output_ref", return_value=mock_ref),
+        patch("_ttmlir_runtime.runtime.retrieve_tensor_from_pool", return_value=MagicMock()),
         patch("chisel.callbacks.get_torch_tensor", return_value=device_output),
     ):
         chisel_post_op_callback(MagicMock(), MagicMock(), MagicMock())

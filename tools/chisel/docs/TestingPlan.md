@@ -1,202 +1,201 @@
-# Chisel V2 \- Testing Plan
+# Chisel — Testing Plan
 
-## Section 1 \- Overview
+## Section 1 — Overview
 
-This document describes the testing strategy for Chisel V2. The primary constraint is that **CI has no TT hardware**, so all tests that run in CI must mock or stub the TTRT runtime layer. Tests requiring silicon are gated behind a dedicated marker and run only on hardware CI.
+This document describes the testing strategy for Chisel. The focus is on
+**integration tests** that exercise Chisel through the real builder compilation
+and execution pipeline, and through `ttrt run`. Unit tests are deferred to a
+separate PR (1.5).
+
+All integration tests require TT hardware (silicon). There are no CI-only
+integration tests — Chisel's value is in comparing golden CPU outputs against
+real device outputs, which requires a device.
 
 ### 1.1 Test Categories
 
-| Category | Dependencies | CI | Description |
-| :---- | :---- | :---- | :---- |
-| Unit | PyTorch only | Yes | Pure logic: metrics, config, report, tensor pool |
-| MLIR Parsing | ttmlir bindings | Yes | Module parsing, op/SSA/attribute extraction, op tracking |
-| Golden Executor | ttmlir \+ tools/golden | Yes | CPU golden correctness per op |
-| Callback Integration | Mocked TTRT | Yes | Full callback flow with mock runtime |
-| End-to-End | Mocked TTRT \+ real MLIR | Yes | bind() through CSV report |
-| Silicon | Real TTRT \+ device | No | Device tensor read-back, multi-chip |
+| Category | Dependencies | Description |
+| :--- | :--- | :--- |
+| Builder Integration | builder + ttmlir + device | `compile_and_execute_ttnn(enable_chisel=True)` with real ops |
+| Golden Test Suite | golden tests + `--enable-chisel` | Run existing golden tests with chisel enabled |
+| ttrt run Integration | ttrt + ttmlir + device | Compile to flatbuffer, `ttrt run` with chisel bound |
+| Multi-Op Graph | builder + device | Multi-op graphs exercising op\_iter across several ops |
+| Output Verification | builder + device | Verify chisel log format, PCC values, op counts |
 
-### 1.2 Pytest Markers
+### 1.2 Running Tests
 
-```ini
-[tool:pytest]
-markers =
-    unit: Pure logic tests, no external dependencies beyond PyTorch
-    mlir: Requires ttmlir Python bindings
-    integration: Mocked runtime integration tests
-    e2e: End-to-end with mocked runtime and real MLIR fixtures
-    silicon: Requires TT hardware, skipped in software-only CI
+**Run existing golden tests with chisel enabled:**
+
+```bash
+pytest test/python/golden/test_ttnn_ops.py --enable-chisel
 ```
 
-### 1.3 CI Target
+The `--enable-chisel` flag is already wired into `test/python/golden/conftest.py`
+(lines 277–278, 376–380). It sets `enable_chisel=True` in the kwargs passed to
+`compile_and_execute_ttnn()`. This means every existing golden test can serve as
+a chisel integration test with zero new test code.
 
-```
-pytest tools/chisel/tests/ -m "not silicon" --tb=short
-```
+**Run chisel-specific integration tests:**
 
-## Section 2 \- Test Infrastructure
-
-### 2.1 Fixtures (`conftest.py`)
-
-```py
-@pytest.fixture
-def ttnn_mlir_string():
-    """Minimal TTNN MLIR module as inline string (no file I/O)."""
-
-@pytest.fixture
-def mock_runtime():
-    """Mocked DebugHooks + opContext + programContext + binary.
-    Simulates TTRT callback dispatch without hardware."""
-
-@pytest.fixture
-def tmp_output_dir(tmp_path):
-    """Temporary directory for reports and cached tensors."""
-
-@pytest.fixture
-def chisel_config(tmp_path):
-    """Writes a test config.yaml to tmp_path, returns path."""
+```bash
+pytest tools/chisel/tests/ --tb=short
 ```
 
-### 2.2 Mock Runtime
+## Section 2 — Golden Test Suite Integration
 
-The mock runtime replaces TTRT types so that callback tests run without a device:
+The fastest path to broad chisel coverage is running the existing golden test
+suite with `--enable-chisel`. This exercises chisel against every op and model
+that the golden tests already cover.
 
-- **MockBinary**: Holds a TTNN MLIR string in `.mlir.source`.
-- **MockProgramContext**: Tracks a tensor pool as a plain dict.
-- **MockOpContext**: Yields op location, debug string, and input/output tensor refs.
-- **MockDebugHooks**: Captures registered callbacks and drives the preop→\[hw\]→postop dispatch sequence.
+### 2.1 How It Works
 
-## Section 3 \- Unit Tests
+1. `test/python/golden/conftest.py:get_request_kwargs()` reads `--enable-chisel`
+   and adds `enable_chisel=True` to the kwargs dict
+2. Each golden test calls `compile_and_execute_ttnn(module, **kwargs, device=device)`
+3. `builder_runtime.py:execute_fb()` sees `enable_chisel=True`, calls
+   `chisel.bind()` which registers preOp/postOp callbacks
+4. During execution, chisel callbacks fire for every TTNN op, running golden
+   comparison and logging PCC/atol/rtol
 
-### 3.1 Metrics (`test_metrics.py`)
+### 2.2 Key Test Files
 
-Tests for the shared `tools/golden/metrics.py` module.
+| Test File | Ops Covered |
+| :--- | :--- |
+| `test/python/golden/test_ttnn_ops.py` | clamp, repeat, reshape, concat, eltwise, etc. |
+| `test/python/golden/test_stablehlo_ops.py` | StableHLO frontend ops lowered to TTNN |
+| `test/python/golden/test_ttir_ops.py` | TTIR ops lowered to TTNN |
+| `test/python/golden/test_generic.py` | Generic op patterns |
+| `test/python/golden/test_ttir_models.py` | Full model graphs (resnet, etc.) |
 
-| Test | Description |
-| :---- | :---- |
-| `test_pcc_identical_tensors` | PCC of identical tensors \= 1.0 |
-| `test_pcc_uncorrelated` | PCC of random uncorrelated tensors ≈ 0.0 |
-| `test_pcc_negatively_correlated` | PCC of negated tensor ≈ \-1.0 |
-| `test_pcc_all_nan` | Both all-NaN → 1.0 |
-| `test_pcc_all_inf_equal` | Both all-+Inf → 1.0 |
-| `test_pcc_all_inf_mismatch` | \+Inf vs \-Inf → 0.0 |
-| `test_pcc_single_element` | Scalar tensors use equality fallback |
-| `test_pcc_constant_vector` | Zero-variance → equality fallback |
-| `test_pcc_shape_mismatch_broadcastable` | e.g. \[1,64\] vs \[32,64\] succeeds |
-| `test_pcc_shape_mismatch_incompatible` | Returns \-1 |
-| `test_abs_err_zero` | Identical tensors → 0.0 |
-| `test_abs_err_known` | \[1,2,3\] vs \[1,2,5\] → 2.0 |
-| `test_abs_err_nan_nan` | Both NaN → 0.0 |
-| `test_rel_err_zero` | Identical tensors → 0.0 |
-| `test_rel_err_known` | Verify against hand-computed value |
-### 3.2 Config (`test_config.py`)
+### 2.3 What This Validates
 
-| Test | Description |
-| :---- | :---- |
-| `test_load_default_config` | Loads from `~/.config/chisel/config.yaml` |
-| `test_load_custom_path` | `CHISEL_CONFIG` env var override |
-| `test_config_missing_file` | Sensible defaults when file absent |
-| `test_config_output_dir` | `output_dir` propagates correctly |
-| `test_config_skip_op_regex` | Regex list parsed correctly |
-| `test_config_invalid_yaml` | Raises clear error |
+- Chisel callbacks fire without crashing for every TTNN op in the suite
+- IRModule parsing succeeds for compiler-generated MLIR (not just hand-written fixtures)
+- `execute_golden()` finds golden functions for all ops via `GOLDEN_MAPPINGS`
+- Op iterator stays in sync with callback dispatch across multi-op programs
+- No interference with builder's own golden comparison
 
-### 3.3 Report Writer (`test_report.py`)
+## Section 3 — Builder Integration Tests
 
-| Test | Description |
-| :---- | :---- |
-| `test_report_creates_file_with_header` | Header matches spec: `ssa_value, ttnn_op, op_debug_string, input_shapes, output_shapes, pcc, atol, rtol` |
-| `test_report_write_row` | Single row written correctly |
-| `test_report_multiple_rows` | Row ordering preserved |
-| `test_report_special_characters` | Commas/quotes in `op_debug_string` are CSV-escaped |
+Dedicated tests that validate specific chisel behavior through the builder
+pipeline. These go beyond "doesn't crash" to verify chisel's output.
 
-### 3.4 Tensor Pool (`test_tensor_pool.py`)
+### 3.1 Single-Op Tests
 
-| Test | Description |
-| :---- | :---- |
-| `test_pool_store_retrieve` | Basic dict get/set |
-| `test_pool_caching_saves_to_disk` | `caching=True` writes `.pt` files to `output_dir` |
-| `test_pool_no_cache_no_files` | `caching=False` writes nothing |
-| `test_tensor_value_set_execution_data` | Default copies `.data`; explicit arg overrides |
-| `test_pool_preserves_across_programs` | Golden tensors survive pool clear (cross-program sharing) |
+Each test compiles and executes a single TTNN op with chisel enabled, then
+verifies the chisel log output.
 
-## Section 4 \- MLIR Parsing Tests (`test_mlir_parsing.py`)
+| Test | Op | What It Validates |
+| :--- | :--- | :--- |
+| `test_chisel_sigmoid` | sigmoid | Unary op. Log contains `ttnn.sigmoid` with PCC > 0.99. |
+| `test_chisel_relu` | relu | Unary op. Numerically exact — PCC should be 1.0. |
+| `test_chisel_add` | add | Binary op. Two inputs stashed and forwarded correctly. |
+| `test_chisel_matmul` | matmul | Binary op with shape change (e.g. 32×64 @ 64×16 → 32×16). |
+| `test_chisel_exp` | exp | Unary op. Validates dtype preservation through chisel. |
+| `test_chisel_softmax` | softmax | Unary op with attribute (dim). Validates `_build_golden_args` attribute forwarding. |
 
-These validate the "MLIR module from flatbuffer" path (ChiselV2 Section 3.2). Tests use inline TTNN MLIR strings as fixtures so no compilation is needed.
+**Test pattern:**
 
-Example fixture:
+```python
+def test_chisel_sigmoid(device, caplog):
+    from builder.ttnn.ttnn_builder import TTNNBuilder
+    from builder.base.builder_apis import compile_and_execute_ttnn
+    from builder.base.builder_utils import Operand
 
-```mlir
-module {
-  func.func @forward(%arg0: tensor<32x128xbf16>) -> tensor<32x128xbf16> {
-    %0 = "ttnn.relu"(%arg0) : (tensor<32x128xbf16>) -> tensor<32x128xbf16> loc(#loc1)
-    return %0 : tensor<32x128xbf16>
-  }
-}
+    def module(builder: TTNNBuilder):
+        @builder.func([(32, 32)], [torch.float32])
+        def func(in0: Operand, builder: TTNNBuilder):
+            return builder.sigmoid(in0)
+
+    with caplog.at_level(logging.INFO, logger="chisel"):
+        compile_and_execute_ttnn(
+            module, device=device, enable_chisel=True,
+        )
+
+    assert "ttnn.sigmoid" in caplog.text
+    pcc_match = re.search(r"PCC=(\d+\.\d+)", caplog.text)
+    assert pcc_match and float(pcc_match.group(1)) > 0.99
 ```
 
-| Test | Description |
-| :---- | :---- |
-| `test_parse_ttnn_module_from_string` | `Module.parse(src, ctx)` produces a valid module |
-| `test_extract_ops_from_module` | Walk module, verify op count and op names |
-| `test_extract_ssa_values` | SSA result names (`%0`, `%1`, …) correctly extracted |
-| `test_extract_op_attributes` | Attributes (e.g. `transpose_b=true`) are readable |
-| `test_extract_input_output_shapes` | Tensor shapes extracted from op types |
-| `test_ir_module_loads_all_ops` | All ops from parsed module are tracked by IRModule |
-| `test_ir_module_op_ordering` | Ops iterated in program order |
-| `test_ir_module_multi_function` | Module with 2 `func.func`s, both tracked |
-| `test_ir_module_tracks_tensor_locations` | Input/output SSA values linked to ops |
-| `test_ir_module_skip_non_ttnn_ops` | `func.return`, `ttnn.empty` etc. excluded from comparison |
-
-## Section 5 \- Golden Execution Tests (`test_executor.py`)
-
-Parameterized tests verifying CPU golden correctness for individual TTNN ops via `GOLDEN_MAPPINGS`.
-
-| Test | Op | Input | Expected |
-| :---- | :---- | :---- | :---- |
-| `test_golden_relu` | `ttnn.relu` | `[-1, 0, 1, 2]` | `[0, 0, 1, 2]` |
-| `test_golden_add` | `ttnn.add` | `[1,2]+[3,4]` | `[4,6]` |
-| `test_golden_matmul` | `ttnn.matmul` | 2x3 @ 3x2 | Shape 2x2, values correct |
-| `test_golden_softmax` | `ttnn.softmax` | Known input | Sum-to-1 per row |
-| `test_golden_exp` | `ttnn.exp` | `[0, 1]` | `[1, e]` |
-| `test_golden_missing_op` | (unlisted op) | — | Raises `ValueError` |
-| `test_golden_preserves_dtype` | any | bf16 input | bf16 output (or expected upcast) |
-| `test_execute_golden_populates_pool` | any | — | Output tensor present in `TensorPool` after execution |
-
-## Section 6 \- Callback Integration Tests (`test_callbacks.py`)
-
-Tests the full callback flow using the mock runtime (Section 2.2). No hardware required.
+### 3.2 Mutual Exclusivity
 
 | Test | Description |
-| :---- | :---- |
-| `test_preop_initializes_module_on_first_call` | First preop call parses MLIR and builds IRModule |
-| `test_preop_captures_input_tensors` | Input tensors copied to golden pool |
-| `test_postop_executes_golden_and_compares` | Golden runs, PCC/atol/rtol computed, CSV row written |
-| `test_postop_op_skipping` | Op matching `skip_op_regex` → device output replaced with golden |
-| `test_callback_sequence` | preop→\[hw\]→postop ordering, state transitions verified |
-| `test_preprogram_callback` | Initializes IRModule, starts new report section |
-| `test_postprogram_callback` | Flushes report, preserves golden pool |
-| `test_multi_program_golden_sharing` | Golden tensors from program 0 visible in program 1 preop |
-| `test_multiple_callbacks_coexist` | Chisel \+ another callback both fire (multi-callback support) |
+| :--- | :--- |
+| `test_chisel_and_verify_raises` | `execute_fb(enable_chisel=True, enable_intermediate_verification=True)` raises `ValueError` |
 
-## Section 7 \- End-to-End Tests (`test_e2e.py`)
+## Section 4 — Multi-Op Graph Tests
 
-Uses mock runtime with real MLIR fixtures from `test/mlir/test_*.mlir`.
+Tests that validate chisel iterating over multiple ops in a single program.
+
+| Test | Graph | What It Validates |
+| :--- | :--- | :--- |
+| `test_chisel_add_relu` | add → relu | Two-op chain. Chisel logs 2 ops in correct order. Each op's PCC independent. |
+| `test_chisel_matmul_softmax` | matmul → softmax | Shape-changing op followed by attribute op. op\_iter advances correctly. |
+| `test_chisel_three_op_chain` | relu → add → sigmoid | Three ops. Exact op count in chisel output matches. |
+
+**Test pattern:**
+
+```python
+def test_chisel_add_relu(device, caplog):
+    def module(builder: TTNNBuilder):
+        @builder.func([(32, 32), (32, 32)], [torch.float32, torch.float32])
+        def func(in0: Operand, in1: Operand, builder: TTNNBuilder):
+            added = builder.add(in0, in1)
+            return builder.relu(added)
+
+    with caplog.at_level(logging.INFO, logger="chisel"):
+        compile_and_execute_ttnn(
+            module, device=device, enable_chisel=True,
+        )
+
+    # Verify both ops logged
+    assert "ttnn.add" in caplog.text
+    assert "ttnn.relu" in caplog.text
+
+    # Verify PCC for each
+    pcc_values = re.findall(r"PCC=(\d+\.\d+)", caplog.text)
+    assert len(pcc_values) >= 2
+    for pcc in pcc_values:
+        assert float(pcc) > 0.99
+```
+
+## Section 5 — ttrt run Integration Tests
+
+Tests that validate chisel hooked into `ttrt run` execution rather than builder.
+
+### 5.1 Approach
+
+The `ttrt run` path at `tools/ttrt/common/run.py:621–625` registers its own
+DebugHooks callbacks. Chisel can replace these via `chisel.bind()` before
+calling `ttrt run` programmatically.
+
+The test flow:
+1. Compile a model to flatbuffer via builder (`skip_exec=True`)
+2. Call `chisel.bind()` to register chisel callbacks
+3. Execute the flatbuffer via `ttrt.runtime` (mirrors the `ttrt run` path)
+4. Call `chisel.unbind()` for cleanup
+5. Verify chisel log output
 
 | Test | Description |
-| :---- | :---- |
-| `test_bind_and_run_add` | `chisel.bind()` \+ simulated add graph → CSV with 1 row, PCC ≈ 1.0 |
-| `test_bind_and_run_matmul_softmax` | Multi-op graph → CSV with correct row count |
-| `test_skip_op_produces_golden_output` | Skip softmax, verify downstream sees golden values |
-| `test_report_output_matches_spec` | CSV columns match ChiselV2 Section 2.1 spec |
-| `test_output_dir_created` | Report lands in configured `output_dir` |
-| `test_e2e_all_ops` (parameterized) | `@pytest.mark.parametrize("mlir_file", glob("test/mlir/test_*.mlir"))` |
+| :--- | :--- |
+| `test_chisel_ttrt_single_op` | Compile single-op flatbuffer, execute via ttrt with chisel. Verify callbacks fire. |
+| `test_chisel_ttrt_multi_op` | Multi-op flatbuffer via ttrt with chisel. Verify all ops processed. |
 
-## Section 8 \- Silicon Tests (Hardware CI Only)
+### 5.2 Future: `--enable-chisel` flag for `ttrt run`
 
-These tests are gated behind `@pytest.mark.silicon` and skipped in software-only CI.
+Currently `ttrt run` has no `--enable-chisel` CLI flag. Adding this would allow:
+
+```bash
+ttrt run model.ttnn --enable-chisel
+```
+
+This is a natural follow-up after the programmatic integration is validated.
+
+## Section 6 — Output Verification Tests
+
+Verify the format and content of chisel's output.
 
 | Test | Description |
-| :---- | :---- |
-| `test_debug_hooks_registration` | Real `DebugHooks.get()` registration with TTRT runtime |
-| `test_device_tensor_readback` | `retrieve_tensor_from_pool` returns correct data from device |
-| `test_multi_chip_comparison` | Tensor comparison across multiple chips |
-| `test_op_skip_updates_device_tensor` | `update_tensor_in_pool` replaces device tensor with golden |
+| :--- | :--- |
+| `test_chisel_log_format` | Each log line matches `{op_name}: PCC={float}, atol={sci}, rtol={sci}` |
+| `test_chisel_all_ops_reported` | For a known N-op graph, exactly N log entries |
+| `test_chisel_exact_ops_pcc` | For numerically exact ops (relu, abs), PCC = 1.0 |

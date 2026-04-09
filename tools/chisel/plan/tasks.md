@@ -17,6 +17,10 @@
 - Update `unregister_hooks` to accept optional name argument.
 - Migrate callers: `tools/ttrt/common/run.py`, `tools/builder/base/builder_runtime.py`, `runtime/test/ttnn/python/n150/test_intermidate_tensor_manipulation.py`.
 
+> **Note:** PR 0a-1 and PR 0a-2a are prerequisites for **Chisel PR 2** (program-level
+> hooks, multi-client callbacks), not for PR 1. PR 1 uses the existing
+> `DebugHooks.get(pre, post)` API directly.
+
 ## PR 0a-2b: Program-Level Hooks ([detail](../docs/pr0a2b_program_level_hooks.md))
 
 - Add `ProgramCallbackFn = std::function<void(Binary, CallbackContext)>` type alias in `runtime/include/tt/runtime/debug.h`.
@@ -40,14 +44,11 @@
 - Change `getOpOutputRef()` to return `vector<TensorRef>` for multi-output ops (Sort, MaxPool2dWithIndices, etc.).
 
 
-## Unified Metrics
-
-- Create `tools/golden/metrics.py` with unified PCC/atol/rtol computation (pure torch, no numpy), consolidating duplicates from builder and ttrt.
-
-## Chisel PR 1: Single Op Isolation ([detail](../docs/pr1_single_op_isolation.md))
+## Chisel PR 1: Single Op Isolation + Builder Integration ([detail](../docs/pr1_single_op_isolation.md))
 
 Op-level isolation testing — each op tested independently. preOp copies device
 inputs, postOp runs golden + compares. No cross-op tensor chaining.
+Includes builder integration (moved from PR 5).
 
 - Create `tools/chisel/CMakeLists.txt` with `declare_mlir_python_sources` packaging.
 - Create `tools/chisel/chisel/__init__.py` package init with exports.
@@ -56,6 +57,13 @@ inputs, postOp runs golden + compares. No cross-op tensor chaining.
 - Implement slim `ChiselContext` singleton in `chisel/context.py` — holds `ir_module`, `op_iter`, `_stashed_inputs`, `_current_op`. No `BinaryState`/`ProgramState` hierarchy.
 - Implement 2 callback functions (`pre_op`, `post_op`) in `chisel/callbacks.py`. preOp copies device inputs to host and stashes them; postOp runs golden with stashed inputs, compares, logs to stdout.
 - Implement `chisel/utils.py` with dtype maps and runtime tensor conversion helpers.
+- Implement `chisel/bind.py` with `bind()` (creates ChiselContext + registers DebugHooks) and `unbind()` (resets singleton).
+- Create `tools/golden/metrics.py` with unified PCC/atol/rtol computation (pure torch, no numpy), consolidating duplicates from builder and ttrt. (Previously PR 0c — now included directly.)
+- Add `enable_chisel: bool = False` parameter to `execute_fb()` in `builder_runtime.py`.
+- Add mutual exclusivity check with `enable_intermediate_verification` in `execute_fb()`.
+- Add `chisel.bind()` call in `execute_fb()` when `enable_chisel=True`.
+- Forward `enable_chisel` through `_compile_and_execute()` and `compile_and_execute_ttnn()` in `builder_apis.py`.
+- Add `--enable-chisel` pytest option in `test/python/golden/conftest.py`.
 
 ## Chisel PR 2: Single Program Flow ([detail](../docs/pr2_single_program.md))
 
@@ -89,12 +97,6 @@ replaces device outputs with golden-computed results.
 - Add golden-replace logic in `postOp` — execute golden with stashed inputs, overwrite device tensors.
 - Add skip configuration (which ops to skip).
 
-## Chisel PR 5: Builder Integration ([detail](../docs/pr5_builder_integration.md))
+## ~~Chisel PR 5: Builder Integration~~ — Superseded
 
-Wire Chisel into builder's execution flow via `enable_chisel` parameter.
-
-- Add `enable_chisel`, `chisel_output_dir`, `chisel_report_path` parameters to `execute_fb()` in `builder_runtime.py`.
-- Add mutual exclusivity check with `enable_intermediate_verification`.
-- Add Chisel callback registration in `execute_fb()`.
-- Add `ChiselContext.reset_instance()` cleanup after execution.
-- Forward chisel params through `_compile_and_execute()` and `compile_and_execute_ttnn()` in `builder_apis.py`.
+Merged into Chisel PR 1. See above.

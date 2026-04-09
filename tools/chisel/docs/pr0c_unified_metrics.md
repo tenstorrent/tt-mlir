@@ -250,6 +250,6 @@ deprecated by the rewrite. The new `tools/chisel/` imports from
 
 ## Dependencies
 
-None — this PR is independently valuable and can land at any time. Must land
-before Chisel PR 1 (Single Op Isolation), which imports from `golden.metrics`.
-Can be developed in parallel with the 0a runtime chain.
+Included in Chisel PR 1 — `tools/golden/metrics.py` is created there directly.
+This section documents the consolidation rationale but is no longer a separate
+prerequisite PR.
