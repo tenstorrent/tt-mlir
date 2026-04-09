@@ -30,6 +30,16 @@ namespace {
 // streaming CB (CBLayoutAttr). Aliased ops (plain L1 buffers accessing
 // L1 shard operands) need no DMA.
 static bool isStreamingOp(Value memref, Value localBuffer) {
+  // View ops are streaming, except for reinterpret view_layout ops
+  // which are just type casts.
+  if (auto *defOp = memref.getDefiningOp()) {
+    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
+      return !viewOp.getReinterpretLayout();
+    }
+    if (mlir::isa<ViewOpInterface>(defOp)) {
+      return true;
+    }
+  }
   if (auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType())) {
     if (ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceDRAM) {
       return true;
@@ -460,7 +470,10 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
     Value memref = loadOp.getMemref();
     bool l1Pair = isL1ToL1Pair(loadOp.getLocalBuffer());
     if (!isStreamingOp(memref, loadOp.getLocalBuffer()) && !l1Pair) {
-      // Aliased -> mark for deferred erasure from DMA.
+      // Aliased -> drop uses and mark for deferred erasure from DMA.
+      if (loadOp.getResult()) {
+        loadOp.getResult().dropAllUses();
+      }
       toErase.insert(loadOp);
       continue;
     }
@@ -503,7 +516,10 @@ static void convertDMAToExplicitCBForm(Block *dmBlock,
     Value memref = storeOp.getMemref();
     if (!isStreamingOp(memref, storeOp.getLocalBuffer()) &&
         !isL1ToL1Pair(storeOp.getLocalBuffer())) {
-      // Aliased -> mark for deferred erasure from DMA.
+      // Aliased -> drop uses and mark for deferred erasure from DMA.
+      if (storeOp.getResult()) {
+        storeOp.getResult().dropAllUses();
+      }
       toErase.insert(storeOp);
       continue;
     }
@@ -702,9 +718,9 @@ public:
     // Clean up: first erase non-DMA ops from DMA and DMA ops from compute
     // (this removes users of old ops, making them use_empty), then erase
     // the collected old ops themselves.
+    eraseCollectedOps(rewriter, toErase);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
     eraseDeadOps(rewriter, computeBlock, /*isDatamovementThread=*/false);
-    eraseCollectedOps(rewriter, toErase);
 
     rewriter.replaceOp(generic, newGeneric.getResults());
 
