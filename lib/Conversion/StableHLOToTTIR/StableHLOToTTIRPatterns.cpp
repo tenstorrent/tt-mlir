@@ -7428,6 +7428,26 @@ public:
     FloatAttr scaleAttr =
         scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
 
+    auto slidingWindowStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("sliding_window_size");
+    std::optional<uint32_t> slidingWindowSize = std::nullopt;
+    if (slidingWindowStringAttr) {
+      uint32_t _slidingWindowSize;
+      if (!llvm::to_integer(slidingWindowStringAttr.getValue(),
+                            _slidingWindowSize)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "sliding_window_size attribute string must be convertible "
+                   "to non-negative integer. Received \"" +
+                       slidingWindowStringAttr.getValue() + "\".");
+      }
+      slidingWindowSize = _slidingWindowSize;
+    }
+
+    IntegerAttr slidingWindowSizeAttr =
+        slidingWindowSize
+            ? rewriter.getUI32IntegerAttr(slidingWindowSize.value())
+            : nullptr;
+
     Value query = adaptor.getOperands()[0];
     Value key = adaptor.getOperands()[1];
     Value value = adaptor.getOperands()[2];
@@ -7492,7 +7512,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
-        scaleAttr, /*slidingWindowSize=*/nullptr,
+        scaleAttr, /*slidingWindowSize=*/slidingWindowSizeAttr,
         /*attention_sink=*/attentionSink);
 
     return success();
