@@ -65,10 +65,6 @@ def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
     to reduce intermediary tensors and improve locality.
   }];
 
-  list<Option> options = [
-    Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
-  ];
-
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::affine::AffineDialect"
