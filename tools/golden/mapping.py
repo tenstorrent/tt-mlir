@@ -5181,6 +5181,43 @@ def stablehlo_tanh_golden(
     return torch.tanh(input_tensor).to(output_dtype)
 
 
+def stablehlo_sign_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sign(input_tensor).to(output_dtype)
+
+
+def stablehlo_convert_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.to(output_dtype)
+
+
+def stablehlo_cbrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    golden_sign = torch.sign(input_tensor)
+    golden_cbrt = torch.pow(torch.abs(input_tensor), 1 / 3)
+    return torch.mul(golden_sign, golden_cbrt).to(output_dtype)
+
+
+def stablehlo_expm1_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.expm1(input_tensor).to(output_dtype)
+
+
+def stablehlo_isfinite_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.isfinite(input_tensor).to(output_dtype)
+
+
 def stablehlo_transpose_golden(
     input_tensor: GoldenMapTensor,
     permutation: DenseI64ArrayAttr,
@@ -6895,6 +6932,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SqrtOp: stablehlo_sqrt_golden,
     stablehlo.TanOp: stablehlo_tan_golden,
     stablehlo.TanhOp: stablehlo_tanh_golden,
+    stablehlo.SignOp: stablehlo_sign_golden,
+    stablehlo.ConvertOp: stablehlo_convert_golden,
+    stablehlo.CbrtOp: stablehlo_cbrt_golden,
+    stablehlo.Expm1Op: stablehlo_expm1_golden,
+    stablehlo.IsFiniteOp: stablehlo_isfinite_golden,
     stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,
