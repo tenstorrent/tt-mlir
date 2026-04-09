@@ -332,19 +332,19 @@ class ModelRunner:
 
         compile_command = [
             f"{self._build_dir}/bin/ttmlir-opt",
-            f"--ttir-to-ttnn-backend-pipeline={overrides_string}",
+            f"--ttir-to-ttnn-common-pipeline={overrides_string}",
             ttir_ir_file if not FLATBUFFER else ttir_module_path,
             "-o",
             ttnn_ir_file,
             "--mlir-print-debuginfo",
         ]
 
-        self.log("Running compile TTIR to TTNN Backend Pipeline")
+        self.log("Running compile TTIR to TTNN Common Pipeline")
         self.log("With options: " + overrides_string)
 
         compile_process = self.run_in_subprocess(compile_command)
         if compile_process.returncode != 0:
-            error = "Error running compile TTIR to TTNN Backend Pipeline"
+            error = "Error running compile TTIR to TTNN Common Pipeline"
             self.log(error, severity=logging.error)
             raise ExplorerRunException(error)
         self.progress = 20
@@ -352,7 +352,7 @@ class ModelRunner:
         ########################### EmitC Generation #############################
 
         if self.get_generate_cpp_code(model_path):
-            # Backend Pipeline has already been run, the file is stored to ttnn_ir_file
+            # Common Pipeline has already been run, the file is stored to ttnn_ir_file
             # The translation to flatbuffer will happen, need to run the pass to emitc and then store the artifact
             self.log("Enabled C++ Code Generation w/ EmitC")
 
@@ -361,7 +361,7 @@ class ModelRunner:
             )
             emitc_command = [
                 f"{self._build_dir}/bin/ttmlir-opt",
-                "--ttnn-to-emitc-device-pipeline",
+                "--ttnn-common-to-emitc-pipeline",
                 ttnn_ir_file,
                 "-o",
                 emitc_ir_file,
@@ -393,6 +393,29 @@ class ModelRunner:
                 self.log(error, severity=logging.error)
                 raise ExplorerRunException(error)
 
+        ####################### Runtime Pipeline (for Flatbuffer) #################
+
+        # Lower the common pipeline output to a form ready for flatbuffer
+        # translation.
+        runtime_ir_file = (
+            f"{state.model_output_dir}/{model_name.replace('.mlir', '_runtime.mlir')}"
+        )
+        runtime_command = [
+            f"{self._build_dir}/bin/ttmlir-opt",
+            "--ttnn-common-to-runtime-pipeline",
+            ttnn_ir_file,
+            "-o",
+            runtime_ir_file,
+        ]
+
+        self.log("Running TTNN Common to Runtime Pipeline")
+
+        runtime_process = self.run_in_subprocess(runtime_command)
+        if runtime_process.returncode != 0:
+            error = "Error running TTNN Common to Runtime Pipeline"
+            self.log(error, severity=logging.error)
+            raise ExplorerRunException(error)
+
         ############################## Translate #################################
 
         # Need this flatbuffer file to inherit the golden data
@@ -423,7 +446,7 @@ class ModelRunner:
                 )
 
             # Get module from file
-            with open(ttnn_ir_file, "r") as f:
+            with open(runtime_ir_file, "r") as f:
                 ttnn_module = utils.parse_mlir_str(f.read())
 
             self.log("Running TTNN to Flatbuffer File")
@@ -444,7 +467,7 @@ class ModelRunner:
             to_flatbuffer_command = [
                 f"{self._build_dir}/bin/ttmlir-translate",
                 "--ttnn-to-flatbuffer",
-                ttnn_ir_file,
+                runtime_ir_file,
                 "-o",
                 flatbuffer_file,
             ]
