@@ -178,10 +178,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
   d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
-  {
-    linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
-    linalgToAffineOptions.markRootLoops = true;
-  }
+  { linalgToAffineOptions.markRootLoops = true; }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
 
   d2m::D2MOpSchedulerOptions opSchedulerOptions;
@@ -199,13 +196,15 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createCanonicalizerPass());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
-    insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
     insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
     insertDstRegisterAccessOptions.enableL1Acc = options.enableL1Acc;
   }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+  d2m::D2MInsertTileMatmulBlockOptions insertTileMatmulBlockOptions;
+  { insertTileMatmulBlockOptions.useTileMatmul = options.useTileMatmul; }
+  pm.addPass(d2m::createD2MInsertTileMatmulBlock(insertTileMatmulBlockOptions));
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());

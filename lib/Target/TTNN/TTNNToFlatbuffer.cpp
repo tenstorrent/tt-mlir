@@ -3874,6 +3874,30 @@ createOp(FlatbufferObjectCache &cache, TopKOp op) {
       (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::TopKRouterGptOp>
+createOp(FlatbufferObjectCache &cache, TopKRouterGptOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto bias = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getBias()));
+
+  auto expertIndices = cache.getOrCreateNoSharding(
+      op.getExpertIndices(), tensorValueToFlatbuffer,
+      /*local_shape*/ std::nullopt);
+  auto expertWeights = cache.getOrCreateNoSharding(
+      op.getExpertWeights(), tensorValueToFlatbuffer,
+      /*local_shape*/ std::nullopt);
+
+  int32_t k = op.getK();
+  int32_t numExperts = op.getNumExperts();
+
+  return ::tt::target::ttnn::CreateTopKRouterGptOp(
+      *cache.fbb, input, weight, bias, k, numExperts, expertIndices,
+      expertWeights);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -4638,6 +4662,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto topKOp = dyn_cast<TopKOp>(op); topKOp) {
     return createOperation(cache, createOp(cache, topKOp), debugString,
+                           locInfo);
+  }
+  if (auto topKRouterGptOp = dyn_cast<TopKRouterGptOp>(op); topKRouterGptOp) {
+    return createOperation(cache, createOp(cache, topKRouterGptOp), debugString,
                            locInfo);
   }
 

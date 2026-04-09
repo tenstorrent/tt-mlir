@@ -3862,6 +3862,43 @@ def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
   let hasVerifier = 1;
 }
 
+def TTNN_TopKRouterGptOp : TTNN_Op<"topk_router_gpt"> {
+  let summary = "Fused router linear layer for GPT-style mixture-of-experts models.";
+  let description = [{
+    A fused multi-core matmul + top-k for the GPT-OSS MoE router. Computes the
+    router logits via a linear projection (input @ weight + bias) and returns
+    the top-k expert indices and weights for each token.
+
+    Inputs:
+    - input:  [B, hidden_dim] bf16 hidden states
+    - weight: [hidden_dim, num_experts] bf16 router weight matrix
+    - bias:   [B, num_experts] bf16 router bias (pre-broadcast across batch)
+
+    Outputs:
+    - expert_indices: [B, k] ui16 top-k expert indices (ROW_MAJOR)
+    - expert_weights: [B, k] bf16 top-k router weights (ROW_MAJOR)
+
+    num_experts must be 128. B must be 32.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$weight,
+                       AnyRankedTensor:$bias,
+                       I32Attr:$k,
+                       I32Attr:$num_experts);
+
+  let results = (outs AnyRankedTensor:$expert_indices,
+                      AnyRankedTensor:$expert_weights);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createTopKRouterGptOpOperandsWorkarounds();
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
     let summary = "Create global semaphore op.";
     let description = [{

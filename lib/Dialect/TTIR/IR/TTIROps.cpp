@@ -5754,6 +5754,102 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// TopKRouterGptOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::TopKRouterGptOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType biasType = getBias().getType();
+
+  if (inputType.getRank() != 2) {
+    return emitOpError() << "input must be a 2D tensor [B, hidden_dim], but "
+                            "got rank "
+                         << inputType.getRank();
+  }
+  if (weightType.getRank() != 2) {
+    return emitOpError()
+           << "weight must be a 2D tensor [hidden_dim, num_experts], but got "
+              "rank "
+           << weightType.getRank();
+  }
+  if (biasType.getRank() != 2) {
+    return emitOpError()
+           << "bias must be a 2D tensor [B, num_experts], but got rank "
+           << biasType.getRank();
+  }
+
+  int64_t B = inputType.getDimSize(0);
+  int64_t hiddenDim = inputType.getDimSize(1);
+  if (weightType.getDimSize(0) != hiddenDim) {
+    return emitOpError() << "weight dim 0 (" << weightType.getDimSize(0)
+                         << ") must equal input hidden_dim (" << hiddenDim
+                         << ")";
+  }
+  if (biasType.getDimSize(0) != B) {
+    return emitOpError() << "bias dim 0 (" << biasType.getDimSize(0)
+                         << ") must equal input batch size B (" << B << ")";
+  }
+  if (biasType.getDimSize(1) != weightType.getDimSize(1)) {
+    return emitOpError() << "bias dim 1 (" << biasType.getDimSize(1)
+                         << ") must equal weight num_experts ("
+                         << weightType.getDimSize(1) << ")";
+  }
+
+  int32_t numExperts = getNumExperts();
+  if (numExperts <= 0) {
+    return emitOpError() << "num_experts must be positive, but got: "
+                         << numExperts;
+  }
+  if (static_cast<int64_t>(numExperts) != weightType.getDimSize(1)) {
+    return emitOpError() << "num_experts attribute (" << numExperts
+                         << ") must equal weight dim 1 ("
+                         << weightType.getDimSize(1) << ")";
+  }
+
+  int32_t k = getK();
+  if (k <= 0) {
+    return emitOpError() << "k must be positive, but got: " << k;
+  }
+
+  RankedTensorType indicesType = getExpertIndices().getType();
+  RankedTensorType weightsType = getExpertWeights().getType();
+
+  if (indicesType.getRank() != 2) {
+    return emitOpError()
+           << "expert_indices must be a 2D tensor [B, k], but got rank "
+           << indicesType.getRank();
+  }
+  if (weightsType.getRank() != 2) {
+    return emitOpError()
+           << "expert_weights must be a 2D tensor [B, k], but got rank "
+           << weightsType.getRank();
+  }
+  if (indicesType.getDimSize(0) != B) {
+    return emitOpError() << "expert_indices dim 0 ("
+                         << indicesType.getDimSize(0)
+                         << ") must equal input batch size B (" << B << ")";
+  }
+  if (indicesType.getDimSize(1) != static_cast<int64_t>(k)) {
+    return emitOpError() << "expert_indices dim 1 ("
+                         << indicesType.getDimSize(1) << ") must equal k (" << k
+                         << ")";
+  }
+  if (weightsType.getDimSize(0) != B) {
+    return emitOpError() << "expert_weights dim 0 ("
+                         << weightsType.getDimSize(0)
+                         << ") must equal input batch size B (" << B << ")";
+  }
+  if (weightsType.getDimSize(1) != static_cast<int64_t>(k)) {
+    return emitOpError() << "expert_weights dim 1 ("
+                         << weightsType.getDimSize(1) << ") must equal k (" << k
+                         << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // CumSumOp
 //===----------------------------------------------------------------------===//
 

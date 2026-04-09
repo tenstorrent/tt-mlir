@@ -1358,6 +1358,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
   case ::tt::target::ttnn::OpType::TopKOp:
+  case ::tt::target::ttnn::OpType::TopKRouterGptOp:
   case ::tt::target::ttnn::OpType::BreakpointOp:
   case ::tt::target::ttnn::OpType::PrintOp:
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
@@ -1539,6 +1540,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
     tensorRefs = {opContext.type_as_TopKOp()->input_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKRouterGptOp: {
+    tensorRefs = {opContext.type_as_TopKRouterGptOp()->input(),
+                  opContext.type_as_TopKRouterGptOp()->weight(),
+                  opContext.type_as_TopKRouterGptOp()->bias()};
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {

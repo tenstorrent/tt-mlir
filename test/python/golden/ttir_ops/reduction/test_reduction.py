@@ -214,3 +214,82 @@ def test_hoisted_cumsum(
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitc", "emitpy"])
+def test_topk(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def topk(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.topk(
+                in0, k=10, dim=-1, largest=True, sorted=True, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "batch,hidden_dim,num_experts,k",
+    [
+        pytest.param(32, 2880, 128, 4),
+        pytest.param(32, 64, 128, 4),
+        pytest.param(32, 4096, 128, 4),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.skip_exec(("p150",), ("p300",), reason="Not supported on Blackhole")
+def test_topk_router_gpt(
+    batch: int,
+    hidden_dim: int,
+    num_experts: int,
+    k: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [(batch, hidden_dim), (hidden_dim, num_experts), (batch, num_experts)],
+            [dtype, dtype, dtype],
+        )
+        def topk_router_gpt(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.topk_router_gpt(
+                in0,
+                in1,
+                in2,
+                k=k,
+                num_experts=num_experts,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pcc=0.95,
+        skip_exec=getattr(request.node, "skip_exec", False),
+    )
