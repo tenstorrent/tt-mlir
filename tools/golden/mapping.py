@@ -6635,24 +6635,31 @@ def ttir_paged_sdpa_decode_golden(
     scale_val = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
     is_causal_val = unpack_mlir_attr(is_causal_attr)
 
+    query_t = _gmt_leaf_torch(query)
+    key_t = _gmt_leaf_torch(key)
+    value_t = _gmt_leaf_torch(value)
+    pt = _gmt_leaf_torch(page_table.long())
+
     # Query: [B, S, H, D] -> [B, H, S, D]
-    q = query.float().permute(0, 2, 1, 3)
+    q = query_t.float().permute(0, 2, 1, 3)
     b, nh, s_q, d = q.shape
 
     # K/V are paged: [num_blocks, num_kv_heads, block_size, head_dim]
-    num_blocks, nkv, block_size, _ = key.shape
-    pt = page_table.long()
+    num_blocks, nkv, block_size, _ = key_t.shape
     blocks_per_user = pt.shape[-1]
     seq_len = blocks_per_user * block_size
 
+    # Clamp indices so random golden page tables stay in-range (parse tests only).
+    pt_flat = pt.view(-1).clamp(0, num_blocks - 1)
+
     # Unpage K using page table
-    k_unpaged = key[pt.view(-1)]
+    k_unpaged = key_t[pt_flat]
     k_unpaged = k_unpaged.reshape(b, blocks_per_user, nkv, block_size, d)
     k_unpaged = k_unpaged.transpose(1, 2).reshape(b, nkv, seq_len, d).float()
 
     # Unpage V using page table
-    dv = value.shape[-1]
-    v_unpaged = value[pt.view(-1)]
+    dv = value_t.shape[-1]
+    v_unpaged = value_t[pt_flat]
     v_unpaged = v_unpaged.reshape(b, blocks_per_user, nkv, block_size, dv)
     v_unpaged = v_unpaged.transpose(1, 2).reshape(b, nkv, seq_len, dv).float()
 
@@ -6665,15 +6672,17 @@ def ttir_paged_sdpa_decode_golden(
     # Build attention mask
     attn_mask = None
     if attention_mask is not None:
-        attn_mask = attention_mask.float()
+        attn_mask = _gmt_leaf_torch(attention_mask.float())
     elif is_causal_val and cur_pos_tensor is not None:
+        cur_t = _gmt_leaf_torch(cur_pos_tensor)
         attn_mask = torch.zeros((b, nh, s_q, seq_len), dtype=torch.float32)
         for i in range(b):
-            start_idx = int(cur_pos_tensor[i].item())
+            start_idx = int(cur_t[i].item())
             attn_mask[i, :, :, start_idx + 1 :] = torch.finfo(torch.float32).min
 
     if attention_sink is not None and attn_mask is not None:
-        sink_len = attention_sink.shape[-1] if attention_sink.dim() > 0 else 1
+        sink_t = _gmt_leaf_torch(attention_sink)
+        sink_len = sink_t.shape[-1] if sink_t.dim() > 0 else 1
         attn_mask[..., :sink_len] = 0
 
     out = torch.nn.functional.scaled_dot_product_attention(
@@ -6681,8 +6690,19 @@ def ttir_paged_sdpa_decode_golden(
     )
 
     # [B, H, S, D] -> [B, S, H, D]
-    out = out.permute(0, 2, 1, 3)
-    return out.to(output_dtype)
+    out = out.permute(0, 2, 1, 3).to(output_dtype)
+    return GoldenMapTensor(
+        {k: out.clone() for k in query.shard_map.keys()},
+        query.mesh_shape,
+    )
+
+
+def _gmt_leaf_torch(t: Union[GoldenMapTensor, torch.Tensor]) -> torch.Tensor:
+    """Resolve GoldenMapTensor (recursively) to a torch.Tensor for scalar/index ops."""
+    while isinstance(t, GoldenMapTensor):
+        keys = sorted(t.shard_map.keys())
+        t = t.shard_map[keys[0]]
+    return t
 
 
 def ttir_paged_update_cache_golden(
@@ -6699,20 +6719,29 @@ def ttir_paged_update_cache_golden(
     # update_index: [batch] - sequence position to update
     # page_table: [batch, max_blocks_per_seq]
     block_size = cache_tensor.shape[2]
-    indices = update_index_tensor.to(torch.long)
+    indices = _gmt_leaf_torch(update_index_tensor.to(torch.long))
     batch = input_tensor.shape[0]
     seq_len = input_tensor.shape[1]
+    page_t = (
+        _gmt_leaf_torch(page_table_tensor) if page_table_tensor is not None else None
+    )
+    num_blocks = cache_tensor.shape[0]
 
-    for b_idx in range(batch):
-        for s in range(seq_len):
-            pos = indices[b_idx].item() + s
-            block_idx = pos // block_size
-            offset = pos % block_size
-            if page_table_tensor is not None:
-                physical_block = page_table_tensor[b_idx, block_idx].long().item()
-            else:
-                physical_block = block_idx
-            result[:, :, offset, :][physical_block] = input_tensor[b_idx, s, :, :]
+    for device_id, res_shard in result.shard_map.items():
+        inp_shard = input_tensor.shard_map[device_id]
+        for b_idx in range(batch):
+            for s in range(seq_len):
+                pos = indices[b_idx].item() + s
+                block_idx = pos // block_size
+                offset = pos % block_size
+                if page_t is not None:
+                    pg_cols = page_t.size(1)
+                    pg_idx = min(max(block_idx, 0), pg_cols - 1)
+                    physical_block = page_t[b_idx, pg_idx].long().item()
+                else:
+                    physical_block = block_idx
+                physical_block = min(max(int(physical_block), 0), num_blocks - 1)
+                res_shard[:, :, offset, :][physical_block] = inp_shard[b_idx, s, :, :]
     return result
 
 
@@ -6730,23 +6759,34 @@ def ttir_paged_fill_cache_golden(
     block_size = cache_tensor.shape[2]
     batch = input_tensor.shape[0]
     seq_len = input_tensor.shape[2]
-    batch_indices = (
-        batch_idx_tensor.to(torch.long).reshape(-1)
+    num_blocks = cache_tensor.shape[0]
+    page_t = _gmt_leaf_torch(page_table_tensor)
+    max_pg_rows = page_t.size(0)
+    max_pg_cols = page_t.size(1)
+    batch_indices_t = (
+        _gmt_leaf_torch(batch_idx_tensor.to(torch.long).reshape(-1))
         if batch_idx_tensor is not None
         else None
     )
 
-    for b_idx in range(batch):
-        page_table_batch_idx = (
-            batch_indices[b_idx].item() if batch_indices is not None else b_idx
-        )
-        for seq_pos in range(seq_len):
-            blk_idx = seq_pos // block_size
-            offset = seq_pos % block_size
-            physical_block = (
-                page_table_tensor[page_table_batch_idx, blk_idx].long().item()
+    for device_id, res_shard in result.shard_map.items():
+        inp_shard = input_tensor.shard_map[device_id]
+        for b_idx in range(batch):
+            page_table_batch_idx = (
+                int(batch_indices_t[b_idx].item())
+                if batch_indices_t is not None
+                else b_idx
             )
-            result[physical_block, :, offset, :] = input_tensor[b_idx, :, seq_pos, :]
+            page_table_batch_idx = min(max(page_table_batch_idx, 0), max_pg_rows - 1)
+            for seq_pos in range(seq_len):
+                blk_idx = seq_pos // block_size
+                offset = seq_pos % block_size
+                pg_col = min(max(blk_idx, 0), max_pg_cols - 1)
+                physical_block = int(page_t[page_table_batch_idx, pg_col].long().item())
+                physical_block = min(max(physical_block, 0), num_blocks - 1)
+                res_shard[physical_block, :, offset, :] = inp_shard[
+                    b_idx, :, seq_pos, :
+                ]
     return result
 
 

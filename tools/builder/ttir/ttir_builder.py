@@ -12142,7 +12142,7 @@ class TTIRBuilder(Builder):
             cache,
             input,
             update_index,
-            share_cache_attr,
+            share_cache=share_cache_attr,
             page_table=page_table,
             loc=loc,
         )
@@ -12178,7 +12178,7 @@ class TTIRBuilder(Builder):
             cache,
             input,
             update_index,
-            share_cache_attr,
+            share_cache=share_cache_attr,
             page_table=page_table,
             loc=old_op.location,
         )
@@ -12255,7 +12255,7 @@ class TTIRBuilder(Builder):
                         cache,
                         input,
                         update_index,
-                        share_cache_attr,
+                        share_cache=share_cache_attr,
                         page_table=page_table,
                         loc=old_op.location,
                     )
