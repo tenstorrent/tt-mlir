@@ -89,9 +89,14 @@ static void runTraceProgramAndCaptureTrace(
   // These must be used instead of the trace output slots because in-place
   // operations (e.g. KV cache fill) modify input slots during warmup, causing
   // the traced execution to compute with different state.
+  //
+  // Warmup outputs may be host tensors (moved from device via from_device +
+  // deallocate to free DRAM before trace capture). Use unchecked insert to
+  // skip storage type validation since the TensorRef describes device storage
+  // but the actual tensor is on host.
   for (size_t i = 0; i < op->outputs()->size(); i++) {
-    tensorPool.insertRuntimeTensorAndValidate(op->outputs()->Get(i),
-                                              outputTensors[currOutputIndex++]);
+    tensorPool.insertRuntimeTensorUnchecked(op->outputs()->Get(i),
+                                            outputTensors[currOutputIndex++]);
   }
 
   // Handle trace input slots

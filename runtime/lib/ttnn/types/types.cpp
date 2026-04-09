@@ -185,6 +185,19 @@ ProgramTensorPool::insertRuntimeTensorAndValidate(
 }
 
 std::pair<TensorPtrMapIterator, bool>
+ProgramTensorPool::insertRuntimeTensorUnchecked(
+    const ::tt::target::ttnn::TensorRef *tensorRef,
+    const ::tt::runtime::Tensor &runtimeTensor) {
+  LOG_ASSERT(tensorRef != nullptr, "tensorRef should not be null");
+  std::uint32_t globalId = tensorRef->global_id();
+
+  auto [iter, inserted] =
+      intermedTensors.insert_or_assign(globalId, runtimeTensor);
+
+  return liveTensors.insert_or_assign(globalId, &(iter->second));
+}
+
+std::pair<TensorPtrMapIterator, bool>
 ProgramTensorPool::insertTTNNTensorAndValidate(
     const ::tt::target::ttnn::TensorRef *tensorRef,
     const ::ttnn::Tensor &ttnnTensor, bool retain) {

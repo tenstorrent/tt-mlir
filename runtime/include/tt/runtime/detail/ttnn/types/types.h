@@ -165,6 +165,13 @@ public:
   insertRuntimeTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
                                  const ::tt::runtime::Tensor &runtimeTensor);
 
+  // Insert a runtime tensor without storage type validation. Used when the
+  // tensor's storage type intentionally differs from the TensorRef (e.g.,
+  // warmup outputs moved to host to free DRAM before trace capture).
+  std::pair<TensorPtrMapIterator, bool>
+  insertRuntimeTensorUnchecked(const ::tt::target::ttnn::TensorRef *tensorRef,
+                               const ::tt::runtime::Tensor &runtimeTensor);
+
   std::pair<TensorPtrMapIterator, bool>
   insertTTNNTensorAndValidate(const ::tt::target::ttnn::TensorRef *tensorRef,
                               const ::ttnn::Tensor &ttnnTensor,
