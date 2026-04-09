@@ -4,33 +4,13 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRDECOMPOSEMINREDUCTION
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-
-// True when the reduction touches a dim before the last two (tile C/R).
-// Those go through the D2M outer-reduction path and must not be decomposed.
-static bool isOuterReduction(MinOp op) {
-  auto inputType = cast<RankedTensorType>(op.getInput().getType());
-  int64_t rank = inputType.getRank();
-  std::optional<ArrayAttr> dimArg = op.getDimArg();
-  if (rank < 2 || !dimArg.has_value()) {
-    return false;
-  }
-  for (Attribute dimAttr : *dimArg) {
-    int64_t dim = cast<IntegerAttr>(dimAttr).getInt();
-    if (dim < 0) {
-      dim += rank;
-    }
-    if (dim < rank - 2) {
-      return true;
-    }
-  }
-  return false;
-}
 
 // Decompose min(x) into neg(max(neg(x))) so that backends without native
 // reduce_min (e.g. TTMetal/D2M) can reuse the existing reduce_max tile op.
@@ -51,7 +31,7 @@ public:
 
     IRRewriter rewriter(&getContext());
     for (MinOp op : opsToDecompose) {
-      if (isOuterReduction(op)) {
+      if (utils::isOuterReduction(op)) {
         continue;
       }
       rewriter.setInsertionPoint(op);

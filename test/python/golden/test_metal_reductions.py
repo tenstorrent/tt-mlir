@@ -39,7 +39,9 @@ def _reduction_atol(reduce_type: str, shape, dim_arg, dtype):
         return _sum_atol(shape, dtype)
     if reduce_type == "mean":
         return _mean_atol(shape, dim_arg, dtype)
-    return _max_atol(dtype)
+    if reduce_type in ("max", "min"):
+        return _max_atol(dtype)
+    raise ValueError(f"Unsupported reduce_type: {reduce_type}")
 
 
 _REDUCE_TYPES = ["sum", "max", "min", "mean"]
