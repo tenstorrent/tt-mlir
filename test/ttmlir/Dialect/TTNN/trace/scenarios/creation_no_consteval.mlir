@@ -7,9 +7,9 @@ module {
 
   // CHECK-LABEL: func.func private @run_and_capture_trace_0_creation_ops
   // CHECK: "ttnn.write_tensor"
-  // CHECK: "ttnn.deallocate"
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
+  // CHECK: "ttnn.deallocate"
 
   // CHECK-LABEL: func.func private @execute_trace_0_creation_ops
   // CHECK: "ttnn.execute_trace"

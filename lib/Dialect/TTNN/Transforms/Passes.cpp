@@ -137,7 +137,7 @@ public:
   // detected).
   LogicalResult checkAndInsertDeallocation(IRRewriter &rewriter, Value value,
                                            Operation *lastOp) {
-    if (isa<func::ReturnOp>(lastOp)) {
+    if (isa<func::ReturnOp>(lastOp) || isa<DeallocateOp>(lastOp)) {
       return success();
     }
 

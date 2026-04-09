@@ -499,11 +499,11 @@ private:
     }
 
     // Execute the trace function once without capture to compile programs and
-    // populate program cache. The results are not used — the subsequent
-    // deallocation pass will insert deallocates for them, freeing device memory
-    // before trace capture begins.
-    builder.create<func::CallOp>(runAndCaptureTraceFunc.getLoc(), traceFunc,
-                                 traceInputSlots);
+    // populate program cache. The warmup outputs are kept alive during trace
+    // capture to ensure a consistent L1 allocation layout, then explicitly
+    // deallocated after the capture completes.
+    auto warmupCall = builder.create<func::CallOp>(
+        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
 
     // Start capturing the trace.
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
@@ -519,6 +519,16 @@ private:
     builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
                                             deviceOp, beginTraceCaptureOp,
                                             /*cq_id=*/0);
+
+    // Deallocate warmup outputs now that trace capture is complete. These were
+    // kept alive during trace capture to maintain the same L1 allocation layout
+    // as the warmup execution. Deallocating them before trace capture would
+    // change the L1 free list, potentially causing allocation conflicts during
+    // trace re-capture when the device has other active allocations.
+    for (mlir::Value warmupOutput : warmupCall.getResults()) {
+      builder.create<ttnn::DeallocateOp>(runAndCaptureTraceFunc.getLoc(),
+                                         warmupOutput);
+    }
 
     // Assemble return values: trace ID and persistent slots.
     // The trace output slots serve as both the captured trace's output buffers
