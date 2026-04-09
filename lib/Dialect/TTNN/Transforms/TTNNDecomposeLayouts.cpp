@@ -796,12 +796,19 @@ private:
       return;
     }
 
-    // If the output data type is untilizable on device, untilize on device then
-    // move to host
+    // If the output data type is untilizable on device, untilize on device
+    // then move to host.
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
-      // If input is L1 sharded, unshard first since untilize doesn't support
-      // sharded input with sharded output.
-      if (input.isL1Sharded()) {
+      if (input.isL1Sharded() ||
+          (input.bufferType == ttnn::BufferType::L1 &&
+           output.bufferType == ttnn::BufferType::DRAM)) {
+        // Move to target memory first, then untilize.
+        // L1 sharded: unshard first since untilize doesn't support
+        // sharded input with sharded output.
+        // L1 interleaved → DRAM: move to DRAM while still tiled
+        // (compact), then untilize in DRAM. Untilizing in L1 creates a
+        // large row-major intermediate whose subsequent prim::copy CBs
+        // can clash with live L1 buffers.
         currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                             currentInput, info);
         currentInput =
