@@ -2,11 +2,11 @@
 /env/ @nsmithtt @vwellsTT
 /env/patches/shardy* @tenstorrent/forge-developers-mlir-stablehlo
 *.fbs @nsmithtt
-/.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 LICENSE @nsmithtt
 
 # CI
 /.github/ @tenstorrent/forge-developers-mlir-devops
+/.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 
 # Build
 *.cmake @tenstorrent/forge-developers-mlir-build
