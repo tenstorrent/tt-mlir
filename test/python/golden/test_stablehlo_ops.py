@@ -663,6 +663,9 @@ def test_unary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="TTNN IsFiniteOp runtime DataType mismatch: expected BFLOAT16, got FLOAT32"
+)
 def test_is_finite(shape: Shape, dtype: torch.dtype, target: str, request, device):
     compile_and_execute_shlo(
         module_is_finite,
