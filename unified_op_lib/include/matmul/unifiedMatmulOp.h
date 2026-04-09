@@ -5,9 +5,6 @@
 #ifndef UNIFIED_OP_LIB_MATMUL_OP_H
 #define UNIFIED_OP_LIB_MATMUL_OP_H
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#pragma clang diagnostic pop
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/types.hpp"
