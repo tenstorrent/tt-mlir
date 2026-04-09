@@ -17,6 +17,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include <eltwise/binary/unifiedEltwiseBinaryCompositeOp.h>
 #include <eltwise/binary/unifiedEltwiseBinaryOp.h>
 #include <matmul/unifiedMatmulOp.h>
 #include <ttnn/graph/graph_query_op_runtime.hpp>
@@ -1224,6 +1225,16 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseBinaryCompositeOpT
+buildEltwiseBinaryCompositeOpTFromMLIR() {
+  ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT;
+
+  return eltwiseBinaryCompositeOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 template <typename OpTy>
 llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
@@ -1251,11 +1262,23 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
+      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>();
+
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
-                                               device, inputSpecA, inputSpecB,
-                                               outputMemoryConfig);
+    unifiedOpLib::EltwiseBinaryOpResult result =
+        unifiedOpLib::callEltwiseBinaryComposite(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseBinaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpecA,
+            inputSpecB, device, outputMemoryConfig);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+            result) &&
+        "Expected ConstraintQueryResponse from EltwiseBinaryCompositeOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -1291,8 +1314,22 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
+      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>();
+
   // Create query closure
   auto query = [=]() {
+    unifiedOpLib::EltwiseBinaryOpResult result =
+        unifiedOpLib::callEltwiseBinaryComposite(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseBinaryCompositeOpT,
+            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device,
+            outputMemoryConfig);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseBinaryCompositeOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
     return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
                                            inputSpecA, inputSpecB,
                                            outputMemoryConfig);
