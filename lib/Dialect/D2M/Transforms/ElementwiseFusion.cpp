@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -19,6 +18,8 @@
 #include "llvm/Support/Casting.h"
 
 #include <tuple>
+
+#define DEBUG_TYPE "D2MElementwiseFusion"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
@@ -67,7 +68,6 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
 }
 
 static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
-                                 unsigned dstCapacity,
                                  bool checkConsumer = true,
                                  bool checkProducer = true) {
   if (!fusionTargetOperand) {
@@ -125,7 +125,9 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  // Rank/perm checks
+  // Duplicate producer-result inputs must use the same indexing map as the
+  // fused operand; otherwise operand dedup in getFusedOperands would change
+  // access semantics (same SSA value, different maps).
   const unsigned fusedInIdx = fusionTargetOperand->getOperandNumber();
   AffineMap consMap = consumer.getIndexingMap(fusedInIdx);
   Value fusedProducerValue = fusionTargetOperand->get();
@@ -140,6 +142,7 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     }
   }
 
+  // Rank/perm checks
   if (consMap.getNumResults() != producer.getNumDims()) {
     return false;
   }
@@ -531,10 +534,7 @@ static GenericOp createFusedGeneric(
 
 namespace {
 struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
-  FuseD2MElementwiseOpsPattern(MLIRContext *context,
-                               unsigned maxDstPhysicalSizeTiles)
-      : OpRewritePattern<GenericOp>(context),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {}
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(GenericOp consumer,
                                 PatternRewriter &rewriter) const final {
@@ -544,15 +544,9 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
 
     assert(consumer.getNumRegions() == 1u);
 
-    Type largestDstType =
-        utils::getRegionLargestDstElemType(consumer.getRegion(0));
-    const unsigned dstCapacity =
-        ttcore::getOpChipDescAttr(consumer).getDstLogicalSizeTiles(
-            largestDstType, false, maxDstPhysicalSizeTiles);
-
     auto findFusableOperand = [&]() -> OpOperand * {
       for (OpOperand *use : consumer.getDpsInputOperands()) {
-        if (isElementwiseFusable(use, dstCapacity,
+        if (isElementwiseFusable(use,
                                  // already checked consumer outside
                                  false, true)) {
           return use;
@@ -593,8 +587,6 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     rewriter.eraseOp(producer);
     return success();
   }
-
-  unsigned maxDstPhysicalSizeTiles = 0;
 };
 } // namespace
 
@@ -606,8 +598,7 @@ class D2MElementwiseFusion
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<FuseD2MElementwiseOpsPattern>(
-        ctx, maxDstPhysicalSizeTiles.getValue());
+    patterns.add<FuseD2MElementwiseOpsPattern>(ctx);
     GreedyRewriteConfig cfg;
 
     if (failed(
