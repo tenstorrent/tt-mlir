@@ -5,7 +5,7 @@
 MLIR operation utilities: IRModule wrapper and tensor operand extraction.
 """
 from functools import cache
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from ttmlir.dialects import func
 from ttmlir.ir import (
@@ -51,7 +51,7 @@ class IRModule:
         self,
         mlir_source: str,
         functions: List[str],
-        current_function_name: str | None = None,
+        current_function_name: Optional[str] = None,
         ignored_ops: List[str] = [],
     ):
         self.context = Context()

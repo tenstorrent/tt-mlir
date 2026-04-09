@@ -23,12 +23,12 @@ class ChiselContext:
 
     def __init__(self):
         ChiselContext._instance = self
-        self.ir_module: IRModule | None = None
-        self.op_iter: Iterator | None = None
-        self._current_op: Operation | None = None
-        self._stashed_inputs: dict | None = None
-        self._current_binary_id: int | None = None
-        self._current_program_index: int | None = None
+        self.ir_module: Optional[IRModule] = None
+        self.op_iter: Optional[Iterator] = None
+        self._current_op: Optional[Operation] = None
+        self._stashed_inputs: Optional[dict] = None
+        self._current_binary_id: Optional[int] = None
+        self._current_program_index: Optional[int] = None
 
     def ensure_ir_module(self, binary, program_context) -> None:
         """Lazily create IRModule from the binary's MLIR source on first preOp."""
