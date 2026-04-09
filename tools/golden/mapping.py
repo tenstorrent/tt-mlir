@@ -6583,6 +6583,7 @@ def ttir_sdpa_golden(
     scaled, unlike PyTorch's standard SDPA which computes QK * scale + mask.
     Supports standard attention and Grouped-Query Attention (GQA).
     """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     is_causal = unpack_mlir_attr(is_causal_attr)
     scale = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
 
@@ -6614,7 +6615,7 @@ def ttir_sdpa_golden(
     attn_weights = torch.softmax(qk, dim=-1)
     output = torch.matmul(attn_weights, value.float())
 
-    return output.to(query.dtype)
+    return output.to(output_dtype)
 
 
 def ttir_paged_sdpa_decode_golden(
@@ -6729,12 +6730,22 @@ def ttir_paged_fill_cache_golden(
     block_size = cache_tensor.shape[2]
     batch = input_tensor.shape[0]
     seq_len = input_tensor.shape[2]
+    batch_indices = (
+        batch_idx_tensor.to(torch.long).reshape(-1)
+        if batch_idx_tensor is not None
+        else None
+    )
 
     for b_idx in range(batch):
+        page_table_batch_idx = (
+            batch_indices[b_idx].item() if batch_indices is not None else b_idx
+        )
         for seq_pos in range(seq_len):
             blk_idx = seq_pos // block_size
             offset = seq_pos % block_size
-            physical_block = page_table_tensor[b_idx, blk_idx].long().item()
+            physical_block = (
+                page_table_tensor[page_table_batch_idx, blk_idx].long().item()
+            )
             result[physical_block, :, offset, :] = input_tensor[b_idx, :, seq_pos, :]
     return result
 

@@ -12688,7 +12688,9 @@ class TTIRBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             psdpad_module = Module.create()
-            psdpad_builder = TTIRBuilder(old_ctx, old_loc)
+            psdpad_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
 
             op_input_types = [
                 old_op.query.type,
@@ -13927,8 +13929,8 @@ class TTIRBuilder(Builder):
     def clamp_scalar(
         self,
         in0: Operand,
-        min_arg: Optional[float] = None,
-        max_arg: Optional[float] = None,
+        min_arg: float,
+        max_arg: float,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -14245,7 +14247,9 @@ class TTIRBuilder(Builder):
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
             sdpa_module = Module.create()
-            sdpa_builder = TTIRBuilder(old_ctx, old_loc)
+            sdpa_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
 
             op_input_types = [old_op.query.type, old_op.key.type, old_op.value.type]
             if old_op.attention_mask is not None:
