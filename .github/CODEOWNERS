@@ -17,6 +17,9 @@ LICENSE @nsmithtt
 /docs/ @nsmithtt @sdjordjevicTT
 /docs/src/specs/ttnn-optimizer.md @rpavlovicTT @odjuricicTT
 
+# Claude Skills
+/.claude/skills/ @nsmithtt @sdjordjevicTT @svuckovicTT
+
 # tt-mlir Bindings
 /include/ttmlir/Bindings/ @tapspatel
 /include/ttmlir-c/ @tapspatel
@@ -190,7 +193,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /tools/scripts/ @nsmithtt @ddilbazTT
 
 # python golden tests
-test/python/golden/test_metal_dma.py @bgrady-tt
+test/python/golden/test_metal_dma.py @nsmithtt
 
 # model snippet tests
 test/python/golden/mlir_snippets/models/ @nsmithtt @tapspatel
