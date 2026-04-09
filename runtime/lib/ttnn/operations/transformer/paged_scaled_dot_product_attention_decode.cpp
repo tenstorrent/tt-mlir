@@ -41,6 +41,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   }
 
   std::optional<float> scale = op->scale();
+  std::optional<float> logitsSoftcap = op->logits_softcap();
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
   const auto computeGrid = query.device()->compute_with_storage_grid_size();
 
@@ -66,7 +67,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
           query, key, value, pageTable, isCausal, attentionMask, curPosTensor,
           attentionSink, scale, slidingWindowSize, outputMemoryConfig,
           /*program_config=*/programConfig,
-          /*compute_kernel_config=*/std::nullopt);
+          /*compute_kernel_config=*/std::nullopt, logitsSoftcap);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

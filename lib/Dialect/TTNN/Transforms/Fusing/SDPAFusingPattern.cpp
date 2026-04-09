@@ -31,6 +31,7 @@ struct SDPAFusing::SDPAComponents {
   Value query, key, value, mask;
   Value attentionSink;
   std::optional<float> scale;
+  std::optional<float> logitsSoftcap;
   MatmulOp attentionMatmul;
   SoftmaxOp softmax;
   Operation *scoreOp = nullptr;
@@ -266,6 +267,36 @@ bool SDPAFusing::matchScoreComputation(Value v, SDPAComponents &c) const {
 }
 
 bool SDPAFusing::matchScoreChain(Value v, SDPAComponents &c) const {
+  v = ttmlir::utils::lookThrough<TypecastOp>(v);
+
+  // Try to match softcap pattern: mul(tanh(div(x, cap)), cap)
+  // Where cap is a constant and tanh is element-wise.
+  if (auto outerMul = v.getDefiningOp<MultiplyOp>()) {
+    auto outerConst = extractConstant(outerMul.getRhs());
+    Value outerOther = outerMul.getLhs();
+    if (!outerConst) {
+      outerConst = extractConstant(outerMul.getLhs());
+      outerOther = outerMul.getRhs();
+    }
+    if (outerConst) {
+      outerOther = ttmlir::utils::lookThrough<TypecastOp>(outerOther);
+      if (auto tanhOp = outerOther.getDefiningOp<TanhOp>()) {
+        Value tanhInput =
+            ttmlir::utils::lookThrough<TypecastOp>(tanhOp.getInput());
+        if (auto innerDiv = tanhInput.getDefiningOp<DivideOp>()) {
+          auto divConst = extractConstant(innerDiv.getRhs());
+          if (divConst && *divConst != 0.0f &&
+              std::abs(*outerConst - *divConst) < 1e-3f) {
+            // Matched: mul(tanh(div(x, cap)), cap) with same cap value
+            c.logitsSoftcap = *outerConst;
+            v = ttmlir::utils::lookThrough<TypecastOp>(innerDiv.getLhs());
+            // Fall through to match scale + matmul below
+          }
+        }
+      }
+    }
+  }
+
   v = ttmlir::utils::lookThrough<TypecastOp>(v);
 
   if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
@@ -670,6 +701,9 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
                                              SDPAComponents &c) const {
   float scale = c.scale.value_or(1.0f);
   FloatAttr scaleAttr = rewriter.getF32FloatAttr(scale);
+  FloatAttr softcapAttr = c.logitsSoftcap
+                              ? rewriter.getF32FloatAttr(*c.logitsSoftcap)
+                              : FloatAttr();
 
   auto originalOutputType =
       mlir::cast<RankedTensorType>(c.attentionMatmul.getResult().getType());
@@ -709,6 +743,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
             /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
+            /*logits_softcap=*/softcapAttr,
             /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
 
@@ -724,6 +759,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.key, c.value,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
+        /*logits_softcap=*/softcapAttr,
         /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
 
@@ -743,6 +779,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             {c.query.getType()}, c.query, c.key, c.value, c.mask,
             /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
             /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
+            /*logits_softcap=*/softcapAttr,
             /*memory_config=*/MemoryConfigAttr());
 
     if (!validationResult.isSuccess()) {
@@ -757,6 +794,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         c.mask,
         /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
         /*sliding_window_size=*/IntegerAttr(), c.attentionSink,
+        /*logits_softcap=*/softcapAttr,
         /*memory_config=*/MemoryConfigAttr());
 
     Value finalResult =

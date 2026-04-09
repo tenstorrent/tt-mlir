@@ -7163,6 +7163,19 @@ public:
           srcOp, "Failed to parse has_attention_sink attribute.");
     }
 
+    auto logitsSoftcapStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("logits_softcap");
+    FloatAttr logitsSoftcapAttr = nullptr;
+    if (logitsSoftcapStringAttr) {
+      float logitsSoftcap;
+      if (failed(parseFloatFromStringAttr(logitsSoftcapStringAttr,
+                                          logitsSoftcap))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse logits_softcap attribute.");
+      }
+      logitsSoftcapAttr = rewriter.getF32FloatAttr(logitsSoftcap);
+    }
+
     Value query = adaptor.getOperands()[0];
     Value key = adaptor.getOperands()[1];
     Value value = adaptor.getOperands()[2];
@@ -7175,7 +7188,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, adaptor.getOperands()[4],
-          curPosTensor, adaptor.getOperands()[5], scaleAttr);
+          curPosTensor, adaptor.getOperands()[5], scaleAttr, logitsSoftcapAttr);
     } else if (hasAttentionMask) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -7183,7 +7196,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, adaptor.getOperands()[4],
-          curPosTensor, nullptr, scaleAttr);
+          curPosTensor, nullptr, scaleAttr, logitsSoftcapAttr);
     } else if (hasAttentionSink) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -7191,7 +7204,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, nullptr, curPosTensor,
-          adaptor.getOperands()[4], scaleAttr);
+          adaptor.getOperands()[4], scaleAttr, logitsSoftcapAttr);
     } else if (!hasAttentionMask && !hasAttentionSink) {
       rewriter.replaceOpWithNewOp<
           mlir::tt::ttir::ScaledDotProductAttentionDecodeOp>(
@@ -7199,7 +7212,7 @@ public:
           cast<RankedTensorType>(
               getTypeConverter()->convertType(srcOp.getResult(0).getType())),
           query, key, value, isCausalAttr, nullptr, curPosTensor, nullptr,
-          scaleAttr);
+          scaleAttr, logitsSoftcapAttr);
     } else {
       if (hasAttentionMask || hasAttentionSink) {
         llvm_unreachable("All combinations of attention mask "
@@ -7328,6 +7341,19 @@ public:
       operandIndex++;
     }
 
+    auto logitsSoftcapStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("logits_softcap");
+    FloatAttr logitsSoftcapAttr = nullptr;
+    if (logitsSoftcapStringAttr) {
+      float logitsSoftcap;
+      if (failed(parseFloatFromStringAttr(logitsSoftcapStringAttr,
+                                          logitsSoftcap))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse logits_softcap attribute.");
+      }
+      logitsSoftcapAttr = rewriter.getF32FloatAttr(logitsSoftcap);
+    }
+
     RankedTensorType outputType = cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult(0).getType()));
     ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
@@ -7339,7 +7365,7 @@ public:
         cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType())),
         query, key, value, pageTable, outputTensor, isCausalAttr, attentionMask,
-        curPosTensor, attentionSink, scaleAttr);
+        curPosTensor, attentionSink, scaleAttr, logitsSoftcapAttr);
 
     return success();
   }
@@ -7490,10 +7516,28 @@ public:
       operandIndex++;
     }
 
+    auto logitsSoftcapStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("logits_softcap");
+    std::optional<float> logitsSoftcap = std::nullopt;
+    if (logitsSoftcapStringAttr) {
+      float _logitsSoftcap;
+      if (!llvm::to_float(logitsSoftcapStringAttr.getValue(), _logitsSoftcap)) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "logits_softcap attribute string must be convertible to float. "
+            "Received \"" +
+                logitsSoftcapStringAttr.getValue() + "\".");
+      }
+      logitsSoftcap = _logitsSoftcap;
+    }
+    FloatAttr logitsSoftcapAttr =
+        logitsSoftcap ? rewriter.getF32FloatAttr(logitsSoftcap.value())
+                      : nullptr;
+
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
         scaleAttr, /*slidingWindowSize=*/nullptr,
-        /*attention_sink=*/attentionSink);
+        /*attention_sink=*/attentionSink, logitsSoftcapAttr);
 
     return success();
   }

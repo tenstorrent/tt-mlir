@@ -5794,7 +5794,8 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
                          Optional<AnyRankedTensor>:$attention_mask,
                          AnyRankedTensor:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
-                         OptionalAttr<F32Attr>:$scale);
+                         OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<F32Attr>:$logits_softcap);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -5816,7 +5817,8 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
                        Optional<AnyRankedTensor>:$attention_mask,
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
-                       OptionalAttr<F32Attr>:$scale);
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<F32Attr>:$logits_softcap);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5882,7 +5884,8 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                        OptionalAttr<F32Attr>:$scale,
                        OptionalAttr<UI32Attr>:$sliding_window_size,
-                       Optional<AnyRankedTensor>:$attention_sink);
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$logits_softcap);
 
   let results = (outs AnyRankedTensor:$result);
 

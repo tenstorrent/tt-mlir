@@ -3272,7 +3272,7 @@ public:
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
-        adaptor.getScaleAttr(),
+        adaptor.getScaleAttr(), adaptor.getLogitsSoftcapAttr(),
         /*memory_config=*/nullptr, /*program_config=*/nullptr);
     return success();
   }
@@ -3295,6 +3295,7 @@ public:
         adaptor.getPageTable(), adaptor.getIsCausal(),
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
+        adaptor.getLogitsSoftcapAttr(),
         /*memory_config=*/nullptr);
     return success();
   }
@@ -3401,7 +3402,8 @@ private:
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
         adaptor.getValue(), op.getIsCausal(), attentionMask,
         /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
-        adaptor.getScaleAttr(), /*memory_config=*/nullptr,
+        adaptor.getScaleAttr(), adaptor.getLogitsSoftcapAttr(),
+        /*memory_config=*/nullptr,
         /*program_config=*/nullptr);
 
     // Permute result back: [1, B, H, D] -> [B, H, 1, D].
@@ -3423,6 +3425,7 @@ private:
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink(),
+        adaptor.getLogitsSoftcapAttr(),
         /*memory_config=*/nullptr);
 
     return success();

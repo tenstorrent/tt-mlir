@@ -31,6 +31,7 @@ static void runScaledDotProductAttentionOp(
 
   std::optional<float> scale = op->scale();
   std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
+  std::optional<float> logitsSoftcap = op->logits_softcap();
 
   const std::optional<::ttnn::Tensor> &attentionSink =
       op->attention_sink()
@@ -42,7 +43,7 @@ static void runScaledDotProductAttentionOp(
       query, key, value, attentionMask, isCausal, scale, slidingWindowSize,
       outputMemoryConfig,
       /*program_config=*/std::nullopt,
-      /*compute_kernel_config=*/std::nullopt, attentionSink);
+      /*compute_kernel_config=*/std::nullopt, attentionSink, logitsSoftcap);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

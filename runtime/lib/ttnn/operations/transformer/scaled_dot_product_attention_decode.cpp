@@ -42,6 +42,7 @@ static void runScaledDotProductAttentionDecodeOp(
   }
 
   std::optional<float> scale = op->scale();
+  std::optional<float> logitsSoftcap = op->logits_softcap();
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
@@ -58,7 +59,7 @@ static void runScaledDotProductAttentionDecodeOp(
       query, key, value, isCausal, attentionMask, curPosEmpty, curPosTensor,
       attentionSink, scale, slidingWindowSize, outputMemoryConfig,
       programConfig,
-      /*compute_kernel_config=*/std::nullopt);
+      /*compute_kernel_config=*/std::nullopt, logitsSoftcap);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

@@ -3140,6 +3140,12 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       cache, op.getScale()
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
+
+  ::flatbuffers::Optional<float> logitsSoftcap = toFlatbuffer(
+      cache,
+      op.getLogitsSoftcap()
+          ? std::make_optional(op.getLogitsSoftcap().value().convertToFloat())
+          : std::nullopt);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
@@ -3147,7 +3153,8 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
 
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale, out, memoryConfig, programConfig.value_or(0));
+      attentionSink, scale, logitsSoftcap, out, memoryConfig,
+      programConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<
@@ -3180,6 +3187,11 @@ createOp(FlatbufferObjectCache &cache,
       cache, op.getScale()
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
+  auto logitsSoftcap = toFlatbuffer(
+      cache,
+      op.getLogitsSoftcap()
+          ? std::make_optional(op.getLogitsSoftcap().value().convertToFloat())
+          : std::nullopt);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
   auto out =
@@ -3189,7 +3201,7 @@ createOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
-      curPosTensor, attentionSink, scale, out, memoryConfig);
+      curPosTensor, attentionSink, scale, logitsSoftcap, out, memoryConfig);
 }
 
 ::flatbuffers::Offset<
@@ -3274,10 +3286,16 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
                                  getOperandThroughDPSOps(op.getAttentionSink()))
                            : 0;
 
+  ::flatbuffers::Optional<float> logitsSoftcap = toFlatbuffer(
+      cache,
+      op.getLogitsSoftcap()
+          ? std::make_optional(op.getLogitsSoftcap().value().convertToFloat())
+          : std::nullopt);
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, scale,
-      slidingWindowSize, attentionSink, out, memoryConfig);
+      slidingWindowSize, attentionSink, logitsSoftcap, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>

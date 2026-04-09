@@ -3572,6 +3572,7 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          Optional<AnyRankedTensor>:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<F32Attr>:$logits_softcap,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
                          OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
 
@@ -3601,6 +3602,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
                        OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<F32Attr>:$logits_softcap,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
   let results = (outs AnyRankedTensor:$result);
@@ -3678,6 +3680,7 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
                          OptionalAttr<F32Attr>:$scale,
                          OptionalAttr<UI32Attr>:$sliding_window_size,
                          Optional<AnyRankedTensor>:$attention_sink,
+                         OptionalAttr<F32Attr>:$logits_softcap,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);

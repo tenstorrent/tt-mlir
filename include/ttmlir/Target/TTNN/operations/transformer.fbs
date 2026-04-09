@@ -62,6 +62,7 @@ table ScaledDotProductAttentionDecodeOp {
   cur_pos_tensor: tt.target.ttnn.TensorRef;
   attention_sink: tt.target.ttnn.TensorRef;
   scale: float = null;
+  logits_softcap: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;
@@ -76,6 +77,7 @@ table ScaledDotProductAttentionOp {
   scale: float = null;
   sliding_window_size: uint32 = null;
   attention_sink: tt.target.ttnn.TensorRef;
+  logits_softcap: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
@@ -115,6 +117,7 @@ table PagedScaledDotProductAttentionDecodeOp {
   cur_pos_tensor: tt.target.ttnn.TensorRef;
   attention_sink: tt.target.ttnn.TensorRef;
   scale: float = null;
+  logits_softcap: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
