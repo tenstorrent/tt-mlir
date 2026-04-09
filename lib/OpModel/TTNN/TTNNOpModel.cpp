@@ -1298,12 +1298,12 @@ template struct BinaryEltwiseOpModel<LogicalAndOp>;
 template struct BinaryEltwiseOpModel<LogicalOrOp>;
 template struct BinaryEltwiseOpModel<LogicalXorOp>;
 template struct BinaryEltwiseOpModel<PowTensorOp>;
+template struct BinaryEltwiseOpModel<RemainderOp>;
 // BinaryCompositeOpModel
 template struct BinaryCompositeOpModel<BitwiseAndOp>;
 template struct BinaryCompositeOpModel<BitwiseOrOp>;
 template struct BinaryCompositeOpModel<BitwiseXorOp>;
 template struct BinaryCompositeOpModel<LogicalLeftShiftOp>;
-template struct BinaryCompositeOpModel<RemainderOp>;
 template struct BinaryCompositeOpModel<Atan2Op>;
 
 //===----------------------------------------------------------------------===//
