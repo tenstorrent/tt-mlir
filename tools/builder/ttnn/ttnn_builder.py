@@ -7929,7 +7929,9 @@ class TTNNBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
-        shape_attr = DenseI32ArrayAttr.get(shape)
+        shape_attr = ArrayAttr.get(
+            [IntegerAttr.get(IntegerType.get_signless(32), s) for s in shape]
+        )
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input0, shape_attr, mlir_output_type)
         result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
