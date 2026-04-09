@@ -11,7 +11,6 @@ module {
   // CHECK-NOT: "ttnn.from_device"(%arg1)
   // CHECK: "ttnn.begin_trace_capture"
   // CHECK: "ttnn.end_trace_capture"
-  // CHECK: "ttnn.deallocate"
 
   // CHECK-LABEL: func.func private @execute_trace_0_single_add
   // CHECK: "ttnn.execute_trace"
