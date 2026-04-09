@@ -406,6 +406,7 @@ class ModelRunner:
             ttnn_ir_file,
             "-o",
             runtime_ir_file,
+            "--mlir-print-debuginfo",
         ]
 
         self.log("Running TTNN Common to Runtime Pipeline")
