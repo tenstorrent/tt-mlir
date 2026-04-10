@@ -60,7 +60,7 @@ def test_to_layout(
     )
 
     def module(builder: D2MBuilder):
-        golden = arange_tile(*shape)
+        golden = arange_tile(*shape, dtype=torch.float32)
 
         @builder.func([shape], [torch.float32])
         def to_layout(
@@ -89,7 +89,7 @@ def test_to_layout(
             builder.set_goldens({in0: golden}, {from_device: golden})
             return from_device
 
-    use_tensor_accessor_dma = False
+    use_tensor_accessor_dma = True
     pipeline = ",".join(
         [
             "d2m-lower-to-layout",

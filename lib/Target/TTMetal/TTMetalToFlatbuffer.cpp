@@ -321,7 +321,14 @@ createShardedBufferConfigForL1Memref(
       *cache.fbb, &coreRangeSet, &shardShape);
 
   // Calculate ShardSpecBuffer.
-  target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  target::Dim2d pageShape;
+  if (mlir::isa<ttcore::TileType>(memref.getElementType())) {
+    // For tiled tensors, pageShape is tile size.
+    pageShape = target::Dim2d(elementShape.y(), elementShape.x());
+  } else {
+    // For row-major tensors, pageShape is 1xN where N is 1 full row.
+    pageShape = target::Dim2d(elementShape.y(), shardShape.x());
+  }
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);

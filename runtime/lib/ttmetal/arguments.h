@@ -191,7 +191,6 @@ std::vector<std::uint32_t> processKernelArgs(
 
     case target::metal::KernelArgType::KernelArgReserved: {
       // Nothing to do
-      LOG_TRACE(logger::LogRuntimeTTMetalKernelArg, "asdf reserved");
       break;
     }
 
