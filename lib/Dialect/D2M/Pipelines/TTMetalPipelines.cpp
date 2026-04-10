@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
+#include "ttmlir/Dialect/D2M/Pipelines/TTMetalPipelines.h"
 
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"

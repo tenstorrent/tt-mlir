@@ -22,7 +22,7 @@
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 // #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we
 // have passes
-#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
+#include "ttmlir/Dialect/D2M/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
