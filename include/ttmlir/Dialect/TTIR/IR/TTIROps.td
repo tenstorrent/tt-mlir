@@ -481,6 +481,22 @@ def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
     }];
 }
 
+def TTIR_FracOp: TTIR_ElementwiseUnaryOp<"frac"> {
+    let summary = "Elementwise fractional part operation.";
+    let description = [{
+      For each element x, returns the fractional part x - trunc(x), matching common
+      floating-point library semantics.
+    }];
+}
+
+def TTIR_TruncOp: TTIR_ElementwiseUnaryOp<"trunc"> {
+    let summary = "Elementwise truncation toward zero.";
+    let description = [{
+      For each element x, returns the value truncated toward zero (round toward zero),
+      preserving the tensor element type.
+    }];
+}
+
 def TTIR_GeluOp: TTIR_ElementwiseUnaryOp<"gelu"> {
   let summary = "Elementwise GELU operation.";
   let description = [{
@@ -805,6 +821,13 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
+def TTIR_SoftsignOp: TTIR_ElementwiseUnaryOp<"softsign"> {
+    let summary = "Elementwise softsign activation.";
+    let description = [{
+      For each element x, returns x / (1 + |x|).
+    }];
+}
+
 def TTIR_HardsigmoidOp: TTIR_ElementwiseUnaryOp<"hardsigmoid"> {
   let summary = "Elementwise hard sigmoid operation.";
   let description = [{
@@ -896,6 +919,14 @@ def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
     }];
 }
 
+def TTIR_SignbitOp: TTIR_ElementwiseUnaryOp<"signbit"> {
+    let summary = "Elementwise IEEE-754 sign bit as 0.0 or 1.0.";
+    let description = [{
+      For each element, returns 0.0 if the sign bit is clear and 1.0 if set,
+      matching IEEE 754 signbit semantics in the element type of the result tensor.
+    }];
+}
+
 def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
     let summary = "Eltwise sin operation.";
     let description = [{
@@ -963,6 +994,18 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
       ```
 
       Mathematical definition: sqrt(x) = √x
+    }];
+}
+
+def TTIR_SquareOp : TTIR_ElementwiseUnaryOp<"square"> {
+    let summary = "Eltwise square.";
+    let description = [{
+      The `square` operation computes the square of each element in the input tensor (x * x).
+
+      Example:
+      ```mlir
+      %result = ttir.square(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
+      ```
     }];
 }
 
@@ -1140,6 +1183,26 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
 
       Mathematical definition: exp(x) = e^x
     }];
+}
+
+def TTIR_Exp2Op: TTIR_ElementwiseUnaryOp<"exp2"> {
+    let summary = "Elementwise base-2 exponential.";
+    let description = [{
+      For each element x, returns 2^x.
+    }];
+}
+
+def TTIR_SeluOp : TTIR_ElementwiseOp<"selu", [OneOperand, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface]> {
+    let summary = "Elementwise scaled exponential linear unit (SELU).";
+    let description = [{
+      Applies SELU activation elementwise. `scale` and `alpha` follow the same role as in
+      the standard SELU definition and default to PyTorch's `torch.nn.functional.selu` values.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DefaultValuedAttr<F32Attr, "1.0507009873390197">:$scale,
+                         DefaultValuedAttr<F32Attr, "1.6732635498046875">:$alpha);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_ErfOp: TTIR_ElementwiseUnaryOp<"erf"> {
