@@ -138,28 +138,25 @@ Value findAssociatedCB(Operation *op, Value memrefOperand,
 }
 
 memref::AllocOp findAllocOp(Value value) {
-  if (!value) {
-    return nullptr;
-  }
+  while (value) {
+    Operation *definingOp = value.getDefiningOp();
+    if (!definingOp) {
+      return nullptr;
+    }
 
-  Operation *definingOp = value.getDefiningOp();
-  if (!definingOp) {
-    return nullptr;
-  }
-
-  // Direct case: value is directly produced by memref.alloc.
-  if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-    return allocOp;
-  }
-
-  // Trace through operations that might pass the buffer through
-  // (e.g., view-like ops, cast ops, etc.)
-  for (Value operand : definingOp->getOperands()) {
-    if (auto allocOp = findAllocOp(operand)) {
+    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
       return allocOp;
     }
-  }
 
+    // Only trace through view-like operations (e.g., memref.collapse_shape,
+    // memref.subview, memref.cast).
+    if (mlir::isa<mlir::ViewLikeOpInterface>(definingOp)) {
+      value = definingOp->getOperand(0);
+      continue;
+    }
+
+    return nullptr;
+  }
   return nullptr;
 }
 

@@ -181,6 +181,12 @@ findSharedBufferPairs(Block *block) {
   return pairs;
 }
 
+// External allocs (e.g., hoisted CB allocs passed as additionalArgs)
+// must not be erased or replaced by the splitter.
+static bool isLocalAlloc(memref::AllocOp allocOp, Block *block) {
+  return block->getParent()->isAncestor(allocOp->getParentRegion());
+}
+
 // ---------------------------------------------------------------------------
 // Compute thread: insert CB sync ops for implicit-form remote_load/store
 // ---------------------------------------------------------------------------
@@ -206,9 +212,6 @@ static LogicalResult processSharedBufferPairs(Block *computeBlock,
     if (!loadNeedsDMA && !storeNeedsDMA) {
       toErase.insert(storeOp);
       toErase.insert(loadOp);
-      if (memref::AllocOp allocOp = findAllocOp(loadOp.getLocalBuffer())) {
-        toErase.insert(allocOp);
-      }
       continue;
     }
 
@@ -240,9 +243,6 @@ static LogicalResult processSharedBufferPairs(Block *computeBlock,
 
     toErase.insert(storeOp);
     toErase.insert(loadOp);
-    if (memref::AllocOp allocOp = findAllocOp(loadOp.getLocalBuffer())) {
-      toErase.insert(allocOp);
-    }
   }
   return success();
 }
@@ -278,8 +278,8 @@ static LogicalResult processComputeLoads(Block *computeBlock,
       // For aliased loads, insert reserve->push->wait at the alloc site and
       // pop after the last use of the buffer.
       memref::AllocOp allocOp = findAllocOp(localBuffer);
-      if (!allocOp) {
-        return loadOp.emitError("could not find memref.alloc for local buffer");
+      if (!allocOp || !isLocalAlloc(allocOp, computeBlock)) {
+        return loadOp.emitError("could not find local memref.alloc for buffer");
       }
 
       Block *block = allocOp->getBlock();
@@ -292,7 +292,6 @@ static LogicalResult processComputeLoads(Block *computeBlock,
       if (loadOp.getResult()) {
         rewriter.replaceAllUsesWith(loadOp.getResult(), waitOp.getResult());
       }
-      toErase.insert(allocOp);
 
       // Insert pop after the last use of the waited value, or before
       // the block terminator if no uses found.
@@ -356,11 +355,10 @@ static LogicalResult processComputeStores(Block *computeBlock,
       // For aliased stores, replace the alloc with a reserve and insert
       // push+wait+pop at the store position.
       memref::AllocOp allocOp = findAllocOp(localBuffer);
-      if (allocOp) {
+      if (allocOp && isLocalAlloc(allocOp, computeBlock)) {
         rewriter.setInsertionPoint(allocOp);
         auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
         rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
-        toErase.insert(allocOp);
       } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
         // The alloc was already replaced by a WaitOp from an earlier load
         // (read-modify-write on same buffer). If it's the same CB,
