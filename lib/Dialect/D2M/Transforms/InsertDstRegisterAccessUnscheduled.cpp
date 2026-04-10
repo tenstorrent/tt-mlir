@@ -40,8 +40,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
   DstSliceAllocationState dstSliceAllocationState;
   DstIntermediatesMap dstIntermediates;
 
-  auto getInPlaceDstSlice =
-      [&](OperandLoadStoreRegisterOpInterface op) -> int {
+  auto getInPlaceDstSlice = [&](OperandLoadStoreRegisterOpInterface op) -> int {
     for (int64_t operandIdx : op.getOperandsLoadFromDstRegister()) {
       if (op.isScalarOperand(operandIdx)) {
         continue;
@@ -113,13 +112,12 @@ collectDstAccesses(GenericOp gOp, Region &region,
           bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
                              mlir::isa<d2m::TileReduceSumOp>(computeOp) ||
                              mlir::isa<d2m::TileReduceMeanOp>(computeOp);
-          assert(
-              (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
-              "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-              "supported for destination register in place, multi-operand "
-              "ops "
-              "would reference wrong tile, but those ops should be setting "
-              "output tile.");
+          assert((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
+                 "supported for destination register in place, multi-operand "
+                 "ops "
+                 "would reference wrong tile, but those ops should be setting "
+                 "output tile.");
           dstSlice = getInPlaceDstSlice(computeOp);
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
@@ -142,10 +140,9 @@ collectDstAccesses(GenericOp gOp, Region &region,
           bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
           bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
                              mlir::isa<d2m::TileReduceSumOp>(computeOp);
-          assert(
-              (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
-              "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-              "supported for destination register in place.");
+          assert((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
+                 "supported for destination register in place.");
           dstSlice = getInPlaceDstSlice(computeOp);
         } else if (numLoads >= 2) {
           dstSlice = firstInputDstSlice;
@@ -249,9 +246,8 @@ static void createCopyLoop(
           rewriter.setInsertionPoint(copyLoop);
         }
         if (!isBcastGuard) {
-          auto guard =
-              createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
-                                  record.guardIVs, isBcastGuard);
+          auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
+                                           record.guardIVs, isBcastGuard);
           rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
           auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
           irMapper = guardedMapper;
@@ -284,9 +280,9 @@ static void createCopyLoop(
       mlir::IRMapping dummyIRMapper;
       rewriter.setInsertionPoint(record.loadStore);
       auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
-          buildIndices(rewriter, loadStoreLoc, dummyIRMapper,
-                       loadStoreIndices, record.dstSlice, loadStoreMap,
-                       loadStoreMemRefType, loopNestOrOp);
+          buildIndices(rewriter, loadStoreLoc, dummyIRMapper, loadStoreIndices,
+                       record.dstSlice, loadStoreMap, loadStoreMemRefType,
+                       loopNestOrOp);
       dstAccessRewriter(rewriter, record, dstAccessMap, dstAccessIndices);
     }
   }
@@ -294,8 +290,8 @@ static void createCopyLoop(
 
 // Generates 3 separate loop nests: (1) CB->DST loads, (2) compute, (3)
 // DST->CB stores.
-static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
-                             Value dst, const CopyInfoMap &copyInfos,
+static void dataCopyGenerate(PatternRewriter &rewriter, Location loc, Value dst,
+                             const CopyInfoMap &copyInfos,
                              bool enableL1Acc = false) {
   for (const auto &[loopNestOrOp, copyInfo] : copyInfos) {
     rewriter.setInsertionPointAfter(loopNestOrOp);
@@ -303,46 +299,46 @@ static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
 
     // Step 1: load copy loop.
     rewriter.setInsertionPoint(loopNestOrOp);
-    auto loadAccessGenerator =
-        [&](PatternRewriter &rewriter,
-            LoadStoreRecord<affine::AffineLoadOp> record,
-            AffineMap l1AccessMap, ValueRange l1AccessIndices,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          auto loc = record.loadStore.getLoc();
-          Value cb = record.loadStore.getMemref();
+    auto loadAccessGenerator = [&](PatternRewriter &rewriter,
+                                   LoadStoreRecord<affine::AffineLoadOp> record,
+                                   AffineMap l1AccessMap,
+                                   ValueRange l1AccessIndices,
+                                   AffineMap dstAccessMap,
+                                   ValueRange dstAccessIndices) {
+      auto loc = record.loadStore.getLoc();
+      Value cb = record.loadStore.getMemref();
 
-          auto cbLoad = rewriter.create<affine::AffineLoadOp>(
-              loc, cb, l1AccessMap, l1AccessIndices);
-          Value valueToStore = cbLoad.getResult();
+      auto cbLoad = rewriter.create<affine::AffineLoadOp>(loc, cb, l1AccessMap,
+                                                          l1AccessIndices);
+      Value valueToStore = cbLoad.getResult();
 
-          if (record.bcast.has_value()) {
-            rewriter.setInsertionPointAfter(cbLoad);
-            auto *clonedBcast =
-                rewriter.clone(*(record.bcast->getOperation()));
-            clonedBcast->setOperand(0, valueToStore);
-            valueToStore = clonedBcast->getResult(0);
-          }
+      if (record.bcast.has_value()) {
+        rewriter.setInsertionPointAfter(cbLoad);
+        auto *clonedBcast = rewriter.clone(*(record.bcast->getOperation()));
+        clonedBcast->setOperand(0, valueToStore);
+        valueToStore = clonedBcast->getResult(0);
+      }
 
-          rewriter.create<affine::AffineStoreOp>(
-              loc, valueToStore, dst, dstAccessMap, dstAccessIndices);
-        };
+      rewriter.create<affine::AffineStoreOp>(loc, valueToStore, dst,
+                                             dstAccessMap, dstAccessIndices);
+    };
 
-    auto loadAccessRewriter =
-        [&](PatternRewriter &rewriter,
-            LoadStoreRecord<affine::AffineLoadOp> record,
-            AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-          auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-              record.loadStore.getLoc(), dst, dstAccessMap, dstAccessIndices);
-          if (record.bcast.has_value()) {
-            record.bcast->getResult().replaceAllUsesWith(dstLoad.getResult());
-            rewriter.eraseOp(*record.bcast);
-          } else {
-            rewriter.replaceOp(record.loadStore, dstLoad.getResult());
-          }
-        };
+    auto loadAccessRewriter = [&](PatternRewriter &rewriter,
+                                  LoadStoreRecord<affine::AffineLoadOp> record,
+                                  AffineMap dstAccessMap,
+                                  ValueRange dstAccessIndices) {
+      auto dstLoad = rewriter.create<affine::AffineLoadOp>(
+          record.loadStore.getLoc(), dst, dstAccessMap, dstAccessIndices);
+      if (record.bcast.has_value()) {
+        record.bcast->getResult().replaceAllUsesWith(dstLoad.getResult());
+        rewriter.eraseOp(*record.bcast);
+      } else {
+        rewriter.replaceOp(record.loadStore, dstLoad.getResult());
+      }
+    };
 
-    createCopyLoop<affine::AffineLoadOp>(rewriter, loopNestOrOp,
-                                         copyInfo.loads, loadAccessGenerator,
+    createCopyLoop<affine::AffineLoadOp>(rewriter, loopNestOrOp, copyInfo.loads,
+                                         loadAccessGenerator,
                                          loadAccessRewriter,
                                          /*enableL1Acc=*/enableL1Acc);
 
@@ -367,8 +363,8 @@ static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
                                .getResult();
           }
 
-          rewriter.create<affine::AffineStoreOp>(
-              loc, valueToStore, cb, l1AccessMap, l1AccessIndices);
+          rewriter.create<affine::AffineStoreOp>(loc, valueToStore, cb,
+                                                 l1AccessMap, l1AccessIndices);
         };
 
     auto storeAccessRewriter =
@@ -389,9 +385,9 @@ static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
               dstAccessIndices);
         };
 
-    createCopyLoop<affine::AffineStoreOp>(
-        rewriter, loopNestOrOp, copyInfo.stores, storeAccessGenerator,
-        storeAccessRewriter);
+    createCopyLoop<affine::AffineStoreOp>(rewriter, loopNestOrOp,
+                                          copyInfo.stores, storeAccessGenerator,
+                                          storeAccessRewriter);
   }
 }
 
@@ -401,9 +397,9 @@ static void dataCopyGenerate(PatternRewriter &rewriter, Location loc,
 
 struct D2MInsertDstRegisterAccessUnscheduledRewriter final
     : public OpRewritePattern<GenericOp> {
-  D2MInsertDstRegisterAccessUnscheduledRewriter(mlir::MLIRContext *ctx,
-                                                unsigned maxDstPhysicalSizeTiles,
-                                                bool enableL1Acc)
+  D2MInsertDstRegisterAccessUnscheduledRewriter(
+      mlir::MLIRContext *ctx, unsigned maxDstPhysicalSizeTiles,
+      bool enableL1Acc)
       : OpRewritePattern<GenericOp>(ctx),
         maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
         enableL1Acc(enableL1Acc) {}
@@ -428,8 +424,7 @@ struct D2MInsertDstRegisterAccessUnscheduledRewriter final
         return failure();
       }
 
-      Type largestDstType =
-          utils::getRegionLargestDstElemType(*genericRegion);
+      Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);
       const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(gOp).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
@@ -472,9 +467,8 @@ struct D2MInsertDstRegisterAccessUnscheduledRewriter final
             rewriter, gOp, *loopRegion, dstCapacity, loopOp, packerL1Acc,
             copyInfos, dstIntermediates,
             [](PatternRewriter &rw, Location loc, Value dst,
-               const CopyInfoMap &ci, bool l1Acc) {
-              dataCopyGenerate(rw, loc, dst, ci, l1Acc);
-            });
+               const CopyInfoMap &ci,
+               bool l1Acc) { dataCopyGenerate(rw, loc, dst, ci, l1Acc); });
 
         return WalkResult::advance();
       });

@@ -53,9 +53,8 @@ static void dataCopyGenerateScheduledInPlace(
 
     auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
         buildIndices(rewriter, loadStore.getLoc(), emptyIRMapper,
-                     loadStore.getIndices(), dstSliceIndex,
-                     loadStore.getMap(), loadStore.getMemRefType(),
-                     loopNestOrOp);
+                     loadStore.getIndices(), dstSliceIndex, loadStore.getMap(),
+                     loadStore.getMemRefType(), loopNestOrOp);
 
     rewriter.setInsertionPoint(loadStore);
 
@@ -127,8 +126,7 @@ static void dataCopyGenerateWithClone(
                        loadStore.getIndices(), dstSliceIndex,
                        loadStore.getMap(), loadStore.getMemRefType(),
                        loopNestOrOp);
-      dstAccessReplacement(rewriter, loadStore, dstAccessMap,
-                           dstAccessIndices);
+      dstAccessReplacement(rewriter, loadStore, dstAccessMap, dstAccessIndices);
     }
   }
 }
@@ -154,15 +152,13 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
         int numLoads = 0;
 
         int totalCBLoads = 0;
-        for (int64_t operandIdx :
-             computeOp.getOperandsLoadFromDstRegister()) {
+        for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
           if (computeOp.isScalarOperand(operandIdx)) {
             continue;
           }
           Value operand = computeOp->getOperand(operandIdx);
           if ((operand.getDefiningOp<affine::AffineLoadOp>() &&
-               notDstMemspace(
-                   operand.getDefiningOp<affine::AffineLoadOp>())) ||
+               notDstMemspace(operand.getDefiningOp<affine::AffineLoadOp>())) ||
               (operand.getDefiningOp<memref::LoadOp>() &&
                notDstMemspace(operand.getDefiningOp<memref::LoadOp>()))) {
             ++totalCBLoads;
@@ -170,8 +166,7 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
         }
         const bool noAccumGuardForLoads = totalCBLoads >= 2;
 
-        for (int64_t operandIdx :
-             computeOp.getOperandsLoadFromDstRegister()) {
+        for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
           if (computeOp.isScalarOperand(operandIdx)) {
             continue;
           }
@@ -179,20 +174,16 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           ++numLoads;
 
           Value operand = computeOp->getOperand(operandIdx);
-          if (auto affineLoad =
-                  operand.getDefiningOp<affine::AffineLoadOp>();
+          if (auto affineLoad = operand.getDefiningOp<affine::AffineLoadOp>();
               affineLoad && notDstMemspace(affineLoad)) {
-            collectDstLoadOrStore(op, affineLoad, copyInfos,
-                                 dstStackAllocator.allocate(),
-                                 outermostInnerComputeLoop,
-                                 noAccumGuardForLoads);
-          } else if (auto memrefLoad =
-                         operand.getDefiningOp<memref::LoadOp>();
+            collectDstLoadOrStore(
+                op, affineLoad, copyInfos, dstStackAllocator.allocate(),
+                outermostInnerComputeLoop, noAccumGuardForLoads);
+          } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                      memrefLoad && notDstMemspace(memrefLoad)) {
-            collectDstLoadOrStore(op, memrefLoad, copyInfos,
-                                 dstStackAllocator.allocate(),
-                                 outermostInnerComputeLoop,
-                                 noAccumGuardForLoads);
+            collectDstLoadOrStore(
+                op, memrefLoad, copyInfos, dstStackAllocator.allocate(),
+                outermostInnerComputeLoop, noAccumGuardForLoads);
           }
         }
 
@@ -223,10 +214,10 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
 
             if (isAffineStore) {
               collectDstLoadOrStore(op, affineStore, copyInfos, dstSliceIndex,
-                                   outermostInnerComputeLoop);
+                                    outermostInnerComputeLoop);
             } else {
               collectDstLoadOrStore(op, memrefStore, copyInfos, dstSliceIndex,
-                                   outermostInnerComputeLoop);
+                                    outermostInnerComputeLoop);
             }
           } else if (user->hasTrait<D2MGenericRegionComputeOpTrait>()) {
             assert(computeOp->hasOneUse() &&
@@ -314,8 +305,7 @@ static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
         /*enableL1Acc=*/enableL1Acc);
 
     // Process memref loads (scheduled path with scf.for loops).
-    for (auto [loadOp, bcast, dstSliceIndex, guardIVs] :
-         copyInfo.memrefLoads) {
+    for (auto [loadOp, bcast, dstSliceIndex, guardIVs] : copyInfo.memrefLoads) {
       AffineMap dstAccessMap =
           AffineMap::getConstantMap(dstSliceIndex, rewriter.getContext());
 
@@ -354,8 +344,8 @@ static void dataCopyGenerateScheduledAll(PatternRewriter &rewriter,
                                .getResult();
           }
 
-          rewriter.create<affine::AffineStoreOp>(
-              loc, dstLoad.getResult(), cb, l1AccessMap, l1AccessIndices);
+          rewriter.create<affine::AffineStoreOp>(loc, dstLoad.getResult(), cb,
+                                                 l1AccessMap, l1AccessIndices);
         },
         [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
             AffineMap dstAccessMap, ValueRange dstAccessIndices) {
@@ -445,8 +435,7 @@ struct D2MInsertDstRegisterAccessScheduledRewriter final
         return failure();
       }
 
-      Type largestDstType =
-          utils::getRegionLargestDstElemType(*genericRegion);
+      Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);
       const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(gOp).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);

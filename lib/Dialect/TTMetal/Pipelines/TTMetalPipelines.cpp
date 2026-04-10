@@ -196,20 +196,16 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createCanonicalizerPass());
   d2m::D2MInsertDstRegisterAccessUnscheduledOptions unschedDstOpts;
   {
-    unschedDstOpts.maxDstPhysicalSizeTiles =
-        options.maxDstPhysicalSizeTiles;
+    unschedDstOpts.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
     unschedDstOpts.enableL1Acc = options.enableL1Acc;
   }
-  pm.addPass(
-      d2m::createD2MInsertDstRegisterAccessUnscheduled(unschedDstOpts));
+  pm.addPass(d2m::createD2MInsertDstRegisterAccessUnscheduled(unschedDstOpts));
   d2m::D2MInsertDstRegisterAccessScheduledOptions schedDstOpts;
   {
-    schedDstOpts.maxDstPhysicalSizeTiles =
-        options.maxDstPhysicalSizeTiles;
+    schedDstOpts.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
     schedDstOpts.enableL1Acc = options.enableL1Acc;
   }
-  pm.addPass(
-      d2m::createD2MInsertDstRegisterAccessScheduled(schedDstOpts));
+  pm.addPass(d2m::createD2MInsertDstRegisterAccessScheduled(schedDstOpts));
   d2m::D2MInsertTileMatmulBlockOptions insertTileMatmulBlockOptions;
   { insertTileMatmulBlockOptions.useTileMatmul = options.useTileMatmul; }
   pm.addPass(d2m::createD2MInsertTileMatmulBlock(insertTileMatmulBlockOptions));

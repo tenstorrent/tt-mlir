@@ -75,8 +75,7 @@ struct CopyInfo {
   }
 
   void record(memref::StoreOp store, int dstSlice, ArrayRef<Value>) {
-    memrefStores.emplace_back(store, std::nullopt, dstSlice,
-                              ArrayRef<Value>{});
+    memrefStores.emplace_back(store, std::nullopt, dstSlice, ArrayRef<Value>{});
   }
 
   SmallVector<LoadStoreRecord<affine::AffineLoadOp>> loads;
@@ -155,9 +154,9 @@ OperationTypes getOperationTypes(GenericOp gOp, unsigned regionIndex);
 std::pair<Type, int> inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos);
 
 AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
-                               Region &region, const CopyInfoMap &copyInfos,
-                               Operation *outermostInnerComputeLoop,
-                               unsigned dstCapacity, bool insertInsideLoop);
+                              Region &region, const CopyInfoMap &copyInfos,
+                              Operation *outermostInnerComputeLoop,
+                              unsigned dstCapacity, bool insertInsideLoop);
 
 Value lookThroughSubView(Value memref);
 
@@ -184,11 +183,11 @@ void collectDstLoadThenBcast(GenericOp gOp, affine::AffineLoadOp loadOp,
                              Operation *outermostInnerComputeLoop);
 
 scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
-                               ValueRange guardIVs, bool isBcastGuard);
+                              ValueRange guardIVs, bool isBcastGuard);
 
 std::pair<AffineMap, SmallVector<Value>>
-buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op,
-                         int dstSlice, Operation *linalgRoot = nullptr);
+buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
+                         Operation *linalgRoot = nullptr);
 
 void fixDstIntermediateResults(PatternRewriter &rewriter, Location loc,
                                Value dst,

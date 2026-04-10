@@ -32,8 +32,7 @@ namespace mlir::tt::d2m {
 // Preconditions
 // ---------------------------------------------------------------------------
 
-LogicalResult
-verifyInsertDstRegisterAccessPreconditions(ModuleOp moduleOp) {
+LogicalResult verifyInsertDstRegisterAccessPreconditions(ModuleOp moduleOp) {
   WalkResult walkResult = moduleOp->walk(
       [&](linalg::GenericOp op) { return WalkResult::interrupt(); });
 
@@ -384,8 +383,7 @@ OperationTypes getOperationTypes(GenericOp gOp, unsigned regionIndex) {
   return types;
 }
 
-std::pair<Type, int>
-inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
+std::pair<Type, int> inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
   Type elementType = nullptr;
   int maxDstSlice = -1;
 
@@ -416,16 +414,16 @@ inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
 }
 
 AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
-                               Region &region, const CopyInfoMap &copyInfos,
-                               Operation *outermostInnerComputeLoop,
-                               unsigned dstCapacity, bool insertInsideLoop) {
+                              Region &region, const CopyInfoMap &copyInfos,
+                              Operation *outermostInnerComputeLoop,
+                              unsigned dstCapacity, bool insertInsideLoop) {
   assert(!copyInfos.empty());
   if (outermostInnerComputeLoop) {
     if (insertInsideLoop) {
       if (auto scfFor = dyn_cast<scf::ForOp>(outermostInnerComputeLoop)) {
         rewriter.setInsertionPointToStart(scfFor.getBody());
-      } else if (auto affineFor = dyn_cast<affine::AffineForOp>(
-                     outermostInnerComputeLoop)) {
+      } else if (auto affineFor =
+                     dyn_cast<affine::AffineForOp>(outermostInnerComputeLoop)) {
         rewriter.setInsertionPointToStart(affineFor.getBody());
       } else {
         rewriter.setInsertionPoint(outermostInnerComputeLoop);
@@ -467,8 +465,8 @@ Value lookThroughSubView(Value memref) {
       if (!assocOperand) {
         return nullptr;
       }
-      Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
-                                                 assocOperand);
+      Value cb =
+          GenericOp::findAssocCBByOperand(allocOp.getOperation(), assocOperand);
       if (cb) {
         return cb;
       }
@@ -483,8 +481,7 @@ Value lookThroughSubView(Value memref) {
 
 // Template implementation for collectDstLoadOrStore.
 template <typename LoadOrStoreTy>
-static void collectDstLoadOrStoreImpl(GenericOp gOp,
-                                      LoadOrStoreTy loadOrStore,
+static void collectDstLoadOrStoreImpl(GenericOp gOp, LoadOrStoreTy loadOrStore,
                                       CopyInfoMap &copyInfos, int dstSlice,
                                       Operation *outermostInnerComputeLoop,
                                       bool noAccumGuard) {
@@ -556,7 +553,7 @@ void collectDstLoadThenBcast(GenericOp gOp, affine::AffineLoadOp loadOp,
 }
 
 scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
-                               ValueRange guardIVs, bool isBcastGuard) {
+                              ValueRange guardIVs, bool isBcastGuard) {
   if (guardIVs.empty()) {
     return nullptr;
   }
@@ -588,8 +585,8 @@ scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
 }
 
 std::pair<AffineMap, SmallVector<Value>>
-buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op,
-                         int dstSlice, Operation *linalgRoot) {
+buildLinearizedDstAccess(PatternRewriter &rewriter, Operation *op, int dstSlice,
+                         Operation *linalgRoot) {
   SmallVector<affine::AffineForOp> enclosingLoops;
   Operation *current = op->getParentOp();
   while (current) {
@@ -649,8 +646,8 @@ void fixDstIntermediateResults(PatternRewriter &rewriter, Location loc,
 
     rewriter.setInsertionPoint(op);
 
-    auto [storeMap, storeIndices] = buildLinearizedDstAccess(
-        rewriter, op, dstSlice, dstInfo.outermostLoop);
+    auto [storeMap, storeIndices] =
+        buildLinearizedDstAccess(rewriter, op, dstSlice, dstInfo.outermostLoop);
 
     rewriter.setInsertionPointAfter(op);
 
@@ -670,8 +667,8 @@ void fixDstIntermediateResults(PatternRewriter &rewriter, Location loc,
     auto storeOp = rewriter.create<affine::AffineStoreOp>(
         loc, valueToStore, dst, storeMap, storeIndices);
 
-    auto loadedResult = rewriter.create<affine::AffineLoadOp>(
-        loc, dst, storeMap, storeIndices);
+    auto loadedResult =
+        rewriter.create<affine::AffineLoadOp>(loc, dst, storeMap, storeIndices);
 
     Value replacementValue = loadedResult.getResult();
     Operation *castBackOp = nullptr;
@@ -734,8 +731,7 @@ buildIndices(PatternRewriter &rewriter, Location loc,
       }
     });
 
-    if (dimPositions.size() != 1 ||
-        dimPositions[0] >= currentIndices.size()) {
+    if (dimPositions.size() != 1 || dimPositions[0] >= currentIndices.size()) {
       continue;
     }
 
@@ -814,10 +810,9 @@ bool insertDstRegisterAccessFinalize(
 
   // Insert acquire_dst.
   bool isScfForLoop = isa_and_nonnull<scf::ForOp>(outermostInnerComputeLoop);
-  AcquireDstOp acquireDst =
-      insertAcquireDst(rewriter, loc, region, copyInfos,
-                       outermostInnerComputeLoop, dstCapacity,
-                       /*insertInsideLoop=*/isScfForLoop);
+  AcquireDstOp acquireDst = insertAcquireDst(
+      rewriter, loc, region, copyInfos, outermostInnerComputeLoop, dstCapacity,
+      /*insertInsideLoop=*/isScfForLoop);
   Value dst = acquireDst.getResult();
 
   Value l1AccLoopIV = nullptr;
