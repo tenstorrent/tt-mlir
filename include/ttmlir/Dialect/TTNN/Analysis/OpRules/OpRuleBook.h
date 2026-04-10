@@ -74,10 +74,9 @@ struct OpRuleBook {
                                     const BeamCandidate &candidate) const {}
 
   /// Tiebreaker when two candidates have equal LayoutScores.
+  /// Default: prefer more sharded inputs (fewer DRAM/L1-interleaved reads).
   virtual bool preferCandidate(Operation *op, const BeamCandidate &a,
-                               const BeamCandidate &b) const {
-    return false;
-  }
+                               const BeamCandidate &b) const;
 };
 
 /// Direct lookup: maps an op to its RuleBook via OperationName.
