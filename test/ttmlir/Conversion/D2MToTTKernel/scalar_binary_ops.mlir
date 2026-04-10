@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttmetal-fe-pipeline --ttir-to-ttmetal-me-pipeline --convert-d2m-to-ttkernel %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --d2m-fe-pipeline --d2m-be-pipeline --convert-d2m-to-ttkernel %s | FileCheck %s
 
 // Scalar add: f32 uses the float path (add_unary_tile).
 

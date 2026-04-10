@@ -211,20 +211,26 @@ struct TTIRToTTMetalPipelineOptions
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
-void createTTIRToTTMetalFrontendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+// Core D2M pipelines.
+void createD2MFrontendPipeline(OpPassManager &pm,
+                               const TTIRToTTMetalPipelineOptions &options);
 
-void createTTIRToTTMetalMiddleendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+void createD2MBackendPipeline(OpPassManager &pm,
+                              const TTIRToTTMetalPipelineOptions &options);
 
-void createTTIRToTTMetalBackendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
-
-void createTTIRToTTMetalPipeline(OpPassManager &pm,
+// Outbound conversion pipelines.
+void createD2MToTTKernelPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options);
 
-void createTTIRToTTMetalPipelineDebug(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+void createD2MToTTMetalPipeline(OpPassManager &pm,
+                                const TTIRToTTMetalPipelineOptions &options);
+
+void createD2MToTTNNPipeline(OpPassManager &pm,
+                             const TTIRToTTMetalPipelineOptions &options);
+
+// End-to-end pipeline.
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options);
 
 void registerTTMetalPipelines();
 } // namespace mlir::tt::ttmetal

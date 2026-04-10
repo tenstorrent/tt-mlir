@@ -72,8 +72,8 @@ void createOptimizationPasses(OpPassManager &pm,
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
 }
 
-void createTTIRToTTMetalFrontendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+void createD2MFrontendPipeline(OpPassManager &pm,
+                               const TTIRToTTMetalPipelineOptions &options) {
   // Create multi-device tensor annotation for graph with mesh.
   pm.addPass(ttir::createTTIRMultiDeviceTensorAnnotation());
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
@@ -125,10 +125,7 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
   pm.addPass(d2m::createD2MMaterializeViewReturns());
-}
 
-void createTTIRToTTMetalMiddleendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   if (options.enableElementwiseFusion) {
     d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
     elementwiseFusionOptions.maxDstPhysicalSizeTiles =
@@ -168,6 +165,10 @@ void createTTIRToTTMetalMiddleendPipeline(
   // form.
   pm.addPass(d2m::createD2MLowerToExplicitForm());
   pm.addPass(createCanonicalizerPassWithOptions(options));
+}
+
+void createD2MBackendPipeline(OpPassManager &pm,
+                              const TTIRToTTMetalPipelineOptions &options) {
   pm.addPass(d2m::createD2MDecomposeMasking());
   pm.addPass(d2m::createD2MDecomposeArange());
 
@@ -245,23 +246,28 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }
 
-void createTTIRToTTMetalBackendPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+void createD2MToTTMetalPipeline(OpPassManager &pm,
+                                const TTIRToTTMetalPipelineOptions &options) {
+  d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
+  { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
+  pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
+}
+
+void createD2MToTTNNPipeline(OpPassManager &pm,
+                             const TTIRToTTMetalPipelineOptions &options) {
+  d2m::ConvertD2MToTTNNOptions d2mToTTNNOptions;
+  { d2mToTTNNOptions.mathFidelity = options.mathFidelity; }
+  pm.addPass(tt::createConvertD2MToTTNNPass(d2mToTTNNOptions));
+}
+
+void createD2MToTTKernelPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
   { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
-  if (options.ttnnMode) {
-    d2m::ConvertD2MToTTNNOptions d2mToTTNNOptions;
-    { d2mToTTNNOptions.mathFidelity = options.mathFidelity; }
-    pm.addPass(tt::createConvertD2MToTTNNPass(d2mToTTNNOptions));
-  } else {
-    d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
-    { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
-    pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
-  }
   pm.addPass(ttkernel::createTTKernelHoistInits());
   // Insert DeviceZone scopes around selected ttkernel ops before EmitC
   // lowering.
@@ -289,10 +295,15 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
-  createTTIRToTTMetalFrontendPipeline(devicePm, options);
-  createTTIRToTTMetalMiddleendPipeline(devicePm, options);
-  createTTIRToTTMetalBackendPipeline(devicePm, options);
+  // Run D2M pipelines on IR in DeviceModule.
+  createD2MFrontendPipeline(devicePm, options);
+  createD2MBackendPipeline(devicePm, options);
+  createD2MToTTKernelPipeline(devicePm, options);
+  if (options.ttnnMode) {
+    createD2MToTTNNPipeline(devicePm, options);
+  } else {
+    createD2MToTTMetalPipeline(devicePm, options);
+  }
 
   // Run lowering to LLVM pass.
   ttir::TTIRToLLVMCPUPipelineOptions ttirToCPUOptions;
@@ -308,14 +319,20 @@ void registerTTMetalPipelines() {
       "ttir-to-ttmetal-pipeline", "Pipeline lowering ttir to ttmetal.",
       tt::ttmetal::createTTIRToTTMetalPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
-      "ttir-to-ttmetal-fe-pipeline", "Frontend lowering passes.",
-      tt::ttmetal::createTTIRToTTMetalFrontendPipeline);
+      "d2m-fe-pipeline", "D2M frontend: TTIR to D2M explicit form.",
+      tt::ttmetal::createD2MFrontendPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
-      "ttir-to-ttmetal-me-pipeline", "Middleend lowering passes.",
-      tt::ttmetal::createTTIRToTTMetalMiddleendPipeline);
+      "d2m-be-pipeline", "D2M backend: D2M explicit form to fully lowered.",
+      tt::ttmetal::createD2MBackendPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
-      "ttir-to-ttmetal-be-pipeline", "Backend lowering passes.",
-      tt::ttmetal::createTTIRToTTMetalBackendPipeline);
+      "d2m-to-ttkernel-pipeline", "Convert D2M to TTKernel + EmitC.",
+      tt::ttmetal::createD2MToTTKernelPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "d2m-to-ttmetal-pipeline", "Convert D2M to TTMetal.",
+      tt::ttmetal::createD2MToTTMetalPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+      "d2m-to-ttnn-pipeline", "Convert D2M to TTNN.",
+      tt::ttmetal::createD2MToTTNNPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
       "ttir-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",

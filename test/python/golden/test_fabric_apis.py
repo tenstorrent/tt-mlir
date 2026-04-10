@@ -20,7 +20,7 @@ from ttmlir.passes import (
 from ttmlir.passmanager import PassManager
 import math
 
-CUSTOM_TTIR_PIPELINE = "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(ttir-to-ttmetal-be-pipeline))"
+CUSTOM_TTIR_PIPELINE = "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline))"
 
 
 @pytest.mark.frontend("ttir")

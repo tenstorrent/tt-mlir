@@ -603,9 +603,10 @@ void createTTNNPipelineD2MPass(OpPassManager &pm) {
   // only works on top-level modules (doesn't run module has a parent op).
   ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
   ttmetalOptions.ttnnMode = true;
-  ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MFrontendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MBackendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTKernelPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTNNPipeline(pm, ttmetalOptions);
 }
 
 //===----------------------------------------------------------------------===//

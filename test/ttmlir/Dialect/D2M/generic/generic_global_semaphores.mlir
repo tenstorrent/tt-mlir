@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-ttmetal-me-pipeline --ttir-to-ttmetal-be-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttcore-register-device --canonicalize --ttir-bufferization-pipeline --d2m-add-scratch-inputs --d2m-generic-apply-interchange --d2m-generate-outer-loops --d2m-allocate --d2m-lower-multicast-loads --d2m-generic-lower-to-explicit-form --canonicalize --d2m-be-pipeline --d2m-to-ttkernel-pipeline --d2m-to-ttmetal-pipeline %s | FileCheck %s
 
 // Test for d2m.create_global_semaphore and global semaphore operands in d2m.generic.
 // This tests:

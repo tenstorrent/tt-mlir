@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttmetal-fe-pipeline --d2m-elementwise-fusion %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --d2m-fe-pipeline="enable-elementwise-fusion=true" %s | FileCheck %s
 
 module {
   func.func @check_fusion_disabled(%arg1: tensor<32x1xbf16>, %arg2: tensor<1x32xbf16>, %arg3: tensor<1x1xbf16>) -> tensor<32x32xbf16> {
