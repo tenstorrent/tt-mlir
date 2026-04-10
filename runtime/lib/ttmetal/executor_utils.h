@@ -15,6 +15,7 @@
 #include "ttmlir/Target/TTMetal/types_generated.h"
 
 #include "tt-metalium/allocator.hpp"
+#include "tt-metalium/buffer_distribution_spec.hpp"
 #include "tt-metalium/distributed.hpp"
 
 namespace tt::runtime::ttmetal {
@@ -148,8 +149,20 @@ createMeshBufferForShardedMetalBuffer(
                                     meshDevice->num_cols() *
                                     shardedBufferConfig->size();
 
+  std::array<uint32_t, 2> shardShapeInPages = {
+      shardShape[0] / pageShape[0],
+      shardShape[1] / pageShape[1],
+  };
+
+  tt_metal::BufferDistributionSpec bufferDistributionSpec(
+      tt_metal::Shape({tensorShapeInPages[0], tensorShapeInPages[1]}),
+      tt_metal::Shape({shardShapeInPages[0], shardShapeInPages[1]}),
+      coreRangeSet, tt_metal::ShardOrientation::ROW_MAJOR);
+
   tt_metal::BufferShardingArgs bufferShardingArgs(
-      metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
+      bufferDistributionSpec,
+      metalShardSpecBuffer,
+      tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
 
   auto localBufferConfig = distributed::DeviceLocalBufferConfig{
       .page_size = shardedBufferConfig->page_size(),

@@ -189,6 +189,12 @@ std::vector<std::uint32_t> processKernelArgs(
       break;
     }
 
+    case target::metal::KernelArgType::KernelArgReserved: {
+      // Nothing to do
+      LOG_TRACE(logger::LogRuntimeTTMetalKernelArg, "asdf reserved");
+      break;
+    }
+
     case target::metal::KernelArgType::NONE:
       LOG_FATAL("Unsupported runtime arg type");
     }

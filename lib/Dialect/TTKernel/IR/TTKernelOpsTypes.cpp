@@ -43,8 +43,10 @@ static size_t appendArgImpl(func::FuncOp op, ArgAttr arg, bool isCompileTime,
   // Reserve additional placeholder slots so that subsequent appends get
   // correct indices.  The runtime will fill all numSlots positions from
   // a single KernelArg entry.
+  ArgAttr reserved = numSlots > 1 ? ArgAttr::get(op.getContext(), ArgType::Reserved,
+                                          arg.getOperandIndex()) : nullptr;
   for (size_t i = 1; i < numSlots; ++i) {
-    argSpecVector.push_back(arg);
+    argSpecVector.push_back(reserved);
   }
   auto argSpec =
       ArgSpecAttr::get(arg.getContext(), rtArgSpecVector, ctArgSpecVector);
