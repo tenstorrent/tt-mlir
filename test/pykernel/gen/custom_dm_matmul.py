@@ -23,7 +23,7 @@ def matmul(lhs, rhs, out, K, M, N, GY, GX):
                 remote_store(out, [m, n], out_shard)
 
 
-@d2m_jit(kernel_source_mode=None)
+@d2m_jit(kernel_source_mode="load")
 def add(lhs, rhs, out, m_blocks, n_blocks):
     m_offset = core_index(0) * m_blocks
     n_offset = core_index(1) * n_blocks
@@ -36,23 +36,22 @@ def add(lhs, rhs, out, m_blocks, n_blocks):
 
 
 def test_eltwise():
-    lhs = arange_tile(512, 512, dtype=torch.float)
-    rhs = arange_tile(512, 512, dtype=torch.float)
+    lhs = torch.randn(512, 512, dtype=torch.float)
+    rhs = torch.randn(512, 512, dtype=torch.float)
     out = torch.zeros(512, 512)
-    grid = (2, 2)
-    block_shape = [1, 1]
+    grid = (8, 8)
+    block_shape = [2, 2]
     m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
     n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
     add(
-        TensorLayout(lhs, block_shape, grid_shape=[8, 8]),
-        TensorLayout(rhs, block_shape, grid_shape=[8, 8]),
-        TensorLayout(out, block_shape, grid_shape=[2, 2]),
+        TensorLayout(lhs, block_shape, grid_shape=[4, 4]),
+        TensorLayout(rhs, block_shape, grid_shape=[4, 4]),
+        TensorLayout(out, block_shape, grid_shape=grid),
         m_blocks,
         n_blocks,
         grid=grid,
     )
 
-    print(out[::32, ::32])
     golden = lhs + rhs
     assert_pcc(golden, out)
 
@@ -62,12 +61,12 @@ def test_eltwise2():
     rhs = arange_tile(128, 128, dtype=torch.float)
     out = torch.zeros(128, 128)
     grid = (2, 2)
-    block_shape = [1, 1]
+    block_shape = [2, 2]
     m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
     n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
     add(
-        TensorLayout(lhs, block_shape, grid_shape=[4, 4]),
-        TensorLayout(rhs, block_shape, grid_shape=[4, 4]),
+        TensorLayout(lhs, block_shape, grid_shape=[1, 1]),
+        TensorLayout(rhs, block_shape, grid_shape=[1, 1]),
         TensorLayout(out, block_shape, grid_shape=grid),
         m_blocks,
         n_blocks,
@@ -100,5 +99,6 @@ def test_matmul():
     assert_pcc(golden, out)
 
 
-# test_eltwise2()
-test_matmul()
+# test_eltwise()
+test_eltwise2()
+# test_matmul()

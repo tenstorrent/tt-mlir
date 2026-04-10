@@ -766,6 +766,7 @@ def d2m_jit(
                 )
                 verify = True
                 use_tile_matmul = False
+                use_tensor_accessor_dma = True
                 pipeline = ",".join(
                     [
                         # FE Passes For prep
@@ -774,8 +775,10 @@ def d2m_jit(
                         "canonicalize",
                         "ttir-to-d2m",  # Only needed for tile_matmul_block promotion
                         "d2m-lower-to-layout",
-                        f"ttir-to-ttmetal-me-pipeline{{use-tile-matmul={1 if use_tile_matmul else 0}}}",
-                        "ttir-to-ttmetal-be-pipeline",
+                        f"ttir-to-ttmetal-me-pipeline{{use-tile-matmul={1 if use_tile_matmul else 0} use-tensor-accessor-dma={1 if use_tensor_accessor_dma else 0}}}",
+                        f"ttir-to-ttmetal-be-pipeline{{use-tile-matmul={1 if use_tile_matmul else 0} use-tensor-accessor-dma={1 if use_tensor_accessor_dma else 0}}}",
+                        #f"ttir-to-ttmetal-me-pipeline{{use-tile-matmul={1 if use_tile_matmul else 0}}}",
+                        #f"ttir-to-ttmetal-be-pipeline{{use-tile-matmul={1 if use_tile_matmul else 0}}}",
                     ]
                 )
 
