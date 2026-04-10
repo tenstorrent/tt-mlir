@@ -210,6 +210,23 @@ func.func @constant_1d_promoted() -> tensor<4xi64> {
 }
 
 // =============================================================================
+// Test 10b2: 1D ttir.full - shape attr promoted to match result (verifier)
+// =============================================================================
+// ttir.full requires `shape` to match the result tensor shape; rank normalization
+// promotes tensor<1xsi32> to tensor<1x1xsi32> and must prepend 1 to `shape`.
+
+// CHECK-LABEL: func.func @full_1d_with_1d_arg
+// CHECK-SAME: (%arg0: tensor<1x1xsi32>) -> tensor<1x1xsi32>
+// CHECK: %[[F:.*]] = "ttir.full"() <{fill_value = 128 : i32, shape = array<i32: 1, 1>}> : () -> tensor<1x1xsi32>
+// CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[F]]) : (tensor<1x1xsi32>, tensor<1x1xsi32>) -> tensor<1x1xsi32>
+// CHECK: return %[[ADD]] : tensor<1x1xsi32>
+func.func @full_1d_with_1d_arg(%arg0: tensor<1xsi32>) -> tensor<1xsi32> {
+  %0 = "ttir.full"() <{fill_value = 128 : i32, shape = array<i32: 1>}> : () -> tensor<1xsi32>
+  %1 = "ttir.add"(%arg0, %0) : (tensor<1xsi32>, tensor<1xsi32>) -> tensor<1xsi32>
+  return %1 : tensor<1xsi32>
+}
+
+// =============================================================================
 // Test 10c: 1D arange - result type promoted to 2D, arange_dimension 0 -> 1
 // =============================================================================
 // ttir.arange verifies result shape at arange_dimension equals (end-start)/step;
