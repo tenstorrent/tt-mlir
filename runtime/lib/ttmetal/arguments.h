@@ -48,7 +48,8 @@ std::vector<std::uint32_t> processKernelArgs(
 
   // Iterate through all args and process them based on their type.
   argsVec.reserve(args->size());
-  for (const auto *kernelArg : *args) {
+  for (uint32_t argIdx = 0; argIdx < args->size(); ++argIdx) {
+    const auto *kernelArg = args->Get(argIdx);
 
     switch (kernelArg->arg_type()) {
 
@@ -182,9 +183,17 @@ std::vector<std::uint32_t> processKernelArgs(
       if constexpr (isCompileTime) {
         auto ctArgs = tensorAccessorArgs.get_compile_time_args();
         argsVec.insert(argsVec.end(), ctArgs.begin(), ctArgs.end());
+
+        for (size_t i = 1; i < ctArgs.size(); ++i) {
+          LOG_ASSERT(args->Get(argIdx + i)->arg_type() == target::metal::KernelArgType::KernelArgReserved, "Not enough TensorAccessor argument slots reverved in kernel argument spec");
+        }
       } else {
         auto rtArgs = tensorAccessorArgs.get_common_runtime_args();
         argsVec.insert(argsVec.end(), rtArgs.begin(), rtArgs.end());
+
+        for (size_t i = 1; i < rtArgs.size(); ++i) {
+          LOG_ASSERT(args->Get(argIdx + i)->arg_type() == target::metal::KernelArgType::KernelArgReserved, "Not enough TensorAccessor argument slots reverved in kernel argument spec");
+        }
       }
       break;
     }
