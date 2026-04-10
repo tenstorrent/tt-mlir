@@ -52,14 +52,6 @@ namespace mlir::tt::ttnn::op_model {
 
 #define QUERY_OP_RUNTIME(op, device, ...)                                      \
   ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
-
-#define CONCAT_IMPL_(a, b) a##b
-#define CONCAT_(a, b) CONCAT_IMPL_(a, b)
-#define ASSIGN_OR_RETURN(lhs, expr)                                            \
-  auto CONCAT_(_tt_expected_, __LINE__) = (expr);                              \
-  if (!CONCAT_(_tt_expected_, __LINE__))                                       \
-    return CONCAT_(_tt_expected_, __LINE__).takeError();                        \
-  lhs = std::move(CONCAT_(_tt_expected_, __LINE__).get())
 // clang-format on
 
 namespace operation {
