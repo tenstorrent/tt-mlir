@@ -29,8 +29,8 @@ namespace mlir::tt::ttmetal {
 
 // translates top level flags into specific disable/enable patterns for
 // canonicalizer pass
-std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
-    const TTIRToTTMetalPipelineOptions &options) {
+std::unique_ptr<Pass>
+createCanonicalizerPassWithOptions(const D2MPipelineOptions &options) {
   llvm::SmallVector<std::string, 2> disabledPatterns;
   if (options.disableToLayoutFolding) {
     disabledPatterns.push_back("ttir.ToLayoutFoldRedundantPattern");
@@ -39,8 +39,8 @@ std::unique_ptr<Pass> createCanonicalizerPassWithOptions(
   return mlir::createCanonicalizerPass({}, disabledPatterns);
 }
 
-void createTTIRBufferizationPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
+void createTTIRBufferizationPipeline(OpPassManager &pm,
+                                     const D2MPipelineOptions &options) {
   if (options.ttnnMode) {
     bufferization::OneShotBufferizePassOptions bufferizePassOptions;
     bufferizePassOptions.allowUnknownOps = true;
@@ -63,7 +63,7 @@ void createTTIRBufferizationPipeline(
 }
 
 void createOptimizationPasses(OpPassManager &pm,
-                              const TTIRToTTMetalPipelineOptions &options) {
+                              const D2MPipelineOptions &options) {
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(mlir::createLoopInvariantCodeMotionPass());
   pm.addPass(mlir::createSCCPPass());
@@ -73,7 +73,7 @@ void createOptimizationPasses(OpPassManager &pm,
 }
 
 void createD2MFrontendPipeline(OpPassManager &pm,
-                               const TTIRToTTMetalPipelineOptions &options) {
+                               const D2MPipelineOptions &options) {
   // Create multi-device tensor annotation for graph with mesh.
   pm.addPass(ttir::createTTIRMultiDeviceTensorAnnotation());
   ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
@@ -168,7 +168,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
 }
 
 void createD2MBackendPipeline(OpPassManager &pm,
-                              const TTIRToTTMetalPipelineOptions &options) {
+                              const D2MPipelineOptions &options) {
   pm.addPass(d2m::createD2MDecomposeMasking());
   pm.addPass(d2m::createD2MDecomposeArange());
 
@@ -247,21 +247,21 @@ void createD2MBackendPipeline(OpPassManager &pm,
 }
 
 void createD2MToTTMetalPipeline(OpPassManager &pm,
-                                const TTIRToTTMetalPipelineOptions &options) {
+                                const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
   { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
   pm.addPass(tt::createConvertD2MToTTMetalPass(d2mToTTMetalOptions));
 }
 
 void createD2MToTTNNPipeline(OpPassManager &pm,
-                             const TTIRToTTMetalPipelineOptions &options) {
+                             const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTNNOptions d2mToTTNNOptions;
   { d2mToTTNNOptions.mathFidelity = options.mathFidelity; }
   pm.addPass(tt::createConvertD2MToTTNNPass(d2mToTTNNOptions));
 }
 
 void createD2MToTTKernelPipeline(OpPassManager &pm,
-                                 const TTIRToTTMetalPipelineOptions &options) {
+                                 const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
   { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
@@ -280,7 +280,7 @@ void createD2MToTTKernelPipeline(OpPassManager &pm,
 }
 
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
-                                 const TTIRToTTMetalPipelineOptions &options) {
+                                 const D2MPipelineOptions &options) {
   // Mark all public functions without a type assigned to them as Device Forward
   // functions before any other. This provides a consistent mechanism for
   // identifying Device Forward functions downstream.
@@ -314,26 +314,26 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
 
-void registerTTMetalPipelines() {
-  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+void registerD2MPipelines() {
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "ttir-to-ttmetal-pipeline", "Pipeline lowering ttir to ttmetal.",
       tt::ttmetal::createTTIRToTTMetalPipeline);
-  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "d2m-fe-pipeline", "D2M frontend: TTIR to D2M explicit form.",
       tt::ttmetal::createD2MFrontendPipeline);
-  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "d2m-be-pipeline", "D2M backend: D2M explicit form to fully lowered.",
       tt::ttmetal::createD2MBackendPipeline);
-  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "d2m-to-ttkernel-pipeline", "Convert D2M to TTKernel + EmitC.",
       tt::ttmetal::createD2MToTTKernelPipeline);
-  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "d2m-to-ttmetal-pipeline", "Convert D2M to TTMetal.",
       tt::ttmetal::createD2MToTTMetalPipeline);
-  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "d2m-to-ttnn-pipeline", "Convert D2M to TTNN.",
       tt::ttmetal::createD2MToTTNNPipeline);
-  mlir::PassPipelineRegistration<tt::ttmetal::TTIRToTTMetalPipelineOptions>(
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "ttir-bufferization-pipeline",
       "Pipeline bufferizing ttir ops on tensors to ops on buffers (memrefs).",
       tt::ttmetal::createTTIRBufferizationPipeline);

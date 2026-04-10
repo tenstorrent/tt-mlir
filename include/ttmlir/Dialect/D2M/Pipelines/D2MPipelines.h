@@ -13,8 +13,7 @@
 namespace mlir::tt::ttmetal {
 // Options for the TTIR to TTMetal backend pipeline.
 //
-struct TTIRToTTMetalPipelineOptions
-    : public PassPipelineOptions<TTIRToTTMetalPipelineOptions> {
+struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
   ListOption<int64_t> meshShape{
       *this, "mesh-shape", llvm::cl::desc("Set the multi-device mesh shape.")};
 
@@ -208,31 +207,31 @@ struct TTIRToTTMetalPipelineOptions
                            llvm::cl::init(false)};
 };
 
-void createTTIRBufferizationPipeline(
-    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+void createTTIRBufferizationPipeline(OpPassManager &pm,
+                                     const D2MPipelineOptions &options);
 
 // Core D2M pipelines.
 void createD2MFrontendPipeline(OpPassManager &pm,
-                               const TTIRToTTMetalPipelineOptions &options);
+                               const D2MPipelineOptions &options);
 
 void createD2MBackendPipeline(OpPassManager &pm,
-                              const TTIRToTTMetalPipelineOptions &options);
+                              const D2MPipelineOptions &options);
 
 // Outbound conversion pipelines.
 void createD2MToTTKernelPipeline(OpPassManager &pm,
-                                 const TTIRToTTMetalPipelineOptions &options);
+                                 const D2MPipelineOptions &options);
 
 void createD2MToTTMetalPipeline(OpPassManager &pm,
-                                const TTIRToTTMetalPipelineOptions &options);
+                                const D2MPipelineOptions &options);
 
 void createD2MToTTNNPipeline(OpPassManager &pm,
-                             const TTIRToTTMetalPipelineOptions &options);
+                             const D2MPipelineOptions &options);
 
 // End-to-end pipeline.
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
-                                 const TTIRToTTMetalPipelineOptions &options);
+                                 const D2MPipelineOptions &options);
 
-void registerTTMetalPipelines();
+void registerD2MPipelines();
 } // namespace mlir::tt::ttmetal
 
 #endif

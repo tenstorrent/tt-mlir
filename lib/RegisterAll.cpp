@@ -164,7 +164,7 @@ void mlir::tt::registerAllPasses() {
   // Register pipelines.
   mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
-  mlir::tt::ttmetal::registerTTMetalPipelines();
+  mlir::tt::ttmetal::registerD2MPipelines();
   mlir::tt::ttkernel::registerTTKernelPipelines();
 
 #if TTMLIR_ENABLE_STABLEHLO

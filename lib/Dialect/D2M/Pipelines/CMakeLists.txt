@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRTTMetalPipelines
+add_mlir_dialect_library(MLIRD2MPipelines
   D2MPipelines.cpp
 
   ADDITIONAL_HEADER_DIRS
