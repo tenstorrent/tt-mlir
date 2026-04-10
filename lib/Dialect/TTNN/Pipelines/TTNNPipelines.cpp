@@ -15,7 +15,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Pipelines/TTMetalPipelines.h"
+#include "ttmlir/Dialect/D2M/Pipelines/D2MPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"

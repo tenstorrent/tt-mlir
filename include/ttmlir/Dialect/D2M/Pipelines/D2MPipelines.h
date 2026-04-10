@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_D2M_PIPELINES_TTMETALPIPELINES_H
-#define TTMLIR_DIALECT_D2M_PIPELINES_TTMETALPIPELINES_H
+#ifndef TTMLIR_DIALECT_D2M_PIPELINES_D2MPIPELINES_H
+#define TTMLIR_DIALECT_D2M_PIPELINES_D2MPIPELINES_H
 
 #include "mlir/Pass/PassOptions.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
