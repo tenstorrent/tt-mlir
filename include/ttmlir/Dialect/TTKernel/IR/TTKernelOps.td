@@ -3042,19 +3042,6 @@ def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
     }];
 }
 
-def TTKernel_TransposeUninitOp : TTKernel_Op<"transpose_wh_uninit"> {
-    let summary = "TransposeUninitOp call.";
-    let description = [{
-      Uninitialize transpose operation before re-initializing for another operation.
-    }];
-
-    let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut);
-
-    let assemblyFormat = [{
-      `(` $cbIn `,` $cbOut `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
 //===----------------------------------------------------------------------===//
 // TTKernel NOC operations
 //===----------------------------------------------------------------------===//
