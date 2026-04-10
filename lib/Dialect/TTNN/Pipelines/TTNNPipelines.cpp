@@ -10,12 +10,12 @@
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Conversion/TTNNToTTIR/TTNNToTTIR.h"
+#include "ttmlir/Dialect/D2M/Pipelines/D2MPipelines.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -601,11 +601,12 @@ void createTTNNPipelineD2MPass(OpPassManager &pm) {
 
   // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
   // only works on top-level modules (doesn't run module has a parent op).
-  ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
+  ttmetal::D2MPipelineOptions ttmetalOptions;
   ttmetalOptions.ttnnMode = true;
-  ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
-  ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MFrontendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MBackendPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTKernelPipeline(pm, ttmetalOptions);
+  ttmetal::createD2MToTTNNPipeline(pm, ttmetalOptions);
 }
 
 //===----------------------------------------------------------------------===//

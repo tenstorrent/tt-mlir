@@ -22,7 +22,7 @@
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 // #include "ttmlir/Dialect/SFPI/Transforms/Passes.h"  // Commented out until we
 // have passes
-#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
+#include "ttmlir/Dialect/D2M/Pipelines/D2MPipelines.h"
 #include "ttmlir/Dialect/TTMetal/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
@@ -164,7 +164,7 @@ void mlir::tt::registerAllPasses() {
   // Register pipelines.
   mlir::tt::ttir::registerTTIRPipelines();
   mlir::tt::ttnn::registerTTNNPipelines();
-  mlir::tt::ttmetal::registerTTMetalPipelines();
+  mlir::tt::ttmetal::registerD2MPipelines();
   mlir::tt::ttkernel::registerTTKernelPipelines();
 
 #if TTMLIR_ENABLE_STABLEHLO
