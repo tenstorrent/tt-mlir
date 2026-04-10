@@ -3471,6 +3471,63 @@ def ttir_sqrt_golden(
     return torch.sqrt(input_tensor).to(output_dtype)
 
 
+def ttir_square_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.square(input_tensor).to(output_dtype)
+
+
+def ttir_exp2_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.exp2(input_tensor).to(output_dtype)
+
+
+def ttir_softsign_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.softsign(input_tensor).to(output_dtype)
+
+
+def ttir_signbit_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """Match TTKernel signbit_tile: 0.0 or 1.0 in the output element type."""
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.signbit(input_tensor).to(output_dtype)
+
+
+def ttir_frac_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.frac(input_tensor).to(output_dtype)
+
+
+def ttir_trunc_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.trunc(input_tensor).to(output_dtype)
+
+
+def ttir_selu_golden(
+    input_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+    *,
+    scale: float = 1.0507009873390197,
+    alpha: float = 1.6732635498046875,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    pos = torch.clamp(input_tensor, min=0)
+    exp_m1 = torch.sub(torch.exp(input_tensor), 1.0)
+    neg = torch.clamp(torch.mul(exp_m1, alpha), max=0)
+    return torch.mul(torch.add(pos, neg), scale).to(output_dtype)
+
+
 def ttir_pow_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -7149,10 +7206,17 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AsinOp: ttir_asin_golden,
     ttir.AsinhOp: ttir_asinh_golden,
     ttir.SqrtOp: ttir_sqrt_golden,
+    ttir.SquareOp: ttir_square_golden,
     ttir.LogOp: ttir_log_golden,
     ttir.Log1pOp: ttir_log1p_golden,
     ttir.Expm1Op: torch.expm1,
     ttir.ExpOp: ttir_exp_golden,
+    ttir.Exp2Op: ttir_exp2_golden,
+    ttir.SoftsignOp: ttir_softsign_golden,
+    ttir.SignbitOp: ttir_signbit_golden,
+    ttir.SeluOp: ttir_selu_golden,
+    ttir.FracOp: ttir_frac_golden,
+    ttir.TruncOp: ttir_trunc_golden,
     # Elementwise binary operations
     ttir.AddOp: ttir_add_golden,
     ttir.Atan2Op: torch.atan2,
