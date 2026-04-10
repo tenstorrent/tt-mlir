@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
@@ -10,6 +11,12 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttnn {
+
+LayoutFilterFn MatmulRuleBook::getInputLayoutFilter() const {
+  // Reject width-sharded inputs for matmul/linear: accuracy issues observed
+  // with width-sharded activation tensors feeding into matmul.
+  return layout_filter_utils::rejectWidthSharded;
+}
 
 static bool isL1Interleaved(const OpConfig &config) {
   if (!config.outputLayout) {

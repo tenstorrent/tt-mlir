@@ -29,6 +29,9 @@ struct MatmulRuleBook : OpRuleBook {
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 
+  /// Reject width-sharded inputs (accuracy issues).
+  LayoutFilterFn getInputLayoutFilter() const override;
+
   /// Apply MatmulProgramConfig + fused activation dedup.
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;
