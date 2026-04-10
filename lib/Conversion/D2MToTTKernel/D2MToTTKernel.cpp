@@ -1962,15 +1962,6 @@ static int64_t getPageSizeBytes(MemRefType memrefType) {
       ttcore::getElementSizeBytes(memrefType.getElementType()));
 }
 
-/// Helper: compute the product of an array of int64_t (shard volume).
-static int64_t shardVolume(ArrayRef<int64_t> shape) {
-  int64_t vol = 1;
-  for (int64_t s : shape) {
-    vol *= s;
-  }
-  return vol;
-}
-
 /// Compute the number of CTA uint32_t slots a TensorAccessor occupies for
 /// the given remote memref.  This must match the number of values produced
 /// by tt_metal::TensorAccessorArgs::get_compile_time_args() at runtime.
@@ -2046,7 +2037,6 @@ public:
     // Extract grid and shard shape from the remote memref's device layout.
     ArrayRef<int64_t> gridShape = ttcore::getGridShape(remoteSrc);
     ArrayRef<int64_t> srcShardShape = ttcore::getShardShape(remoteSrc);
-    int64_t srcShardVol = shardVolume(srcShardShape);
     int64_t pageSizeBytes = getPageSizeBytes(srcMemRefType);
 
     // Get the operand index for the src memref (to set up ArgSpec).
@@ -2077,19 +2067,6 @@ public:
     auto tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
         loc, argsOp, bankBaseAddress, pageSize);
 
-    // Compute the start page ID from grid indices.
-    // start_page = linearize(grid_indices, grid_shape) * shard_volume
-    ValueRange gridIndices = op.getSrcIndices();
-    Value startPage = index(rewriter, loc, 0);
-    int64_t stride = 1;
-    for (int dim = static_cast<int>(gridShape.size()) - 1; dim >= 0; --dim) {
-      Value idx = gridIndices[dim];
-      Value strideVal = index(rewriter, loc, stride * srcShardVol);
-      Value contribution = rewriter.create<arith::MulIOp>(loc, idx, strideVal);
-      startPage = rewriter.create<arith::AddIOp>(loc, startPage, contribution);
-      stride *= gridShape[dim];
-    }
-
     // Get the local L1 base address (dst CB write pointer).
     auto dstCBMapping = cbProducerConsumer->get(op.getDst());
     TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
@@ -2099,33 +2076,82 @@ public:
     Value dstL1Base =
         rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
 
-    // Generate loop over pages in the shard.
+    // Compute the physical shape: physicalShape[d] = gridShape[d] *
+    // shardShape[d].
+    int64_t rank = static_cast<int64_t>(srcShardShape.size());
+    SmallVector<int64_t> physicalShape(rank);
+    for (int64_t d = 0; d < rank; ++d) {
+      physicalShape[d] = gridShape[d] * srcShardShape[d];
+    }
+
+    // Generate nested loops over shard dimensions.  The innermost loop body
+    // uses the loop IVs together with the grid indices to compute an absolute
+    // offset in the full physical shape of the tensor.
+    ValueRange gridIndices = op.getSrcIndices();
     Value lb = index(rewriter, loc, 0);
-    Value ub = index(rewriter, loc, srcShardVol);
     Value step = index(rewriter, loc, 1);
 
-    rewriter.create<scf::ForOp>(
-        loc, lb, ub, step, ValueRange{},
-        [&](OpBuilder &builder, Location innerLoc, Value iv,
-            ValueRange iterArgs) {
-          // page_id = start_page + iv
-          Value pageId = builder.create<arith::AddIOp>(innerLoc, startPage, iv);
-          Value pageIdI32 = builder.create<arith::IndexCastOp>(
-              innerLoc, builder.getI32Type(), pageId);
+    // Build the nest from outermost to innermost dimension.
+    SmallVector<scf::ForOp> loops(rank);
+    OpBuilder::InsertionGuard guard(rewriter);
+    for (int64_t d = 0; d < rank; ++d) {
+      Value ub = index(rewriter, loc, srcShardShape[d]);
+      auto forOp =
+          rewriter.create<scf::ForOp>(loc, lb, ub, step, ValueRange{});
+      loops[d] = forOp;
+      rewriter.setInsertionPointToStart(forOp.getBody());
+    }
 
-          // dst_l1_addr = dst_l1_base + iv * page_size
-          Value offset = builder.create<arith::MulIOp>(
-              innerLoc, iv, index(builder, innerLoc, pageSizeBytes));
-          Value offsetI32 = builder.create<arith::IndexCastOp>(
-              innerLoc, builder.getI32Type(), offset);
-          Value dstAddr =
-              builder.create<arith::AddIOp>(innerLoc, dstL1Base, offsetI32);
+    // Inside the innermost loop: compute page ID and local L1 address.
+    {
+      Location innerLoc = loc;
 
-          builder.create<ttkernel::NocAsyncReadTileOp>(
-              innerLoc, pageIdI32, tensorAccessor, dstAddr);
+      // Compute absolute coordinates and linearize into a page ID.
+      // abs[d] = gridIndices[d] * shardShape[d] + loopIV[d]
+      // pageId = linearize(abs, physicalShape)
+      Value pageId = index(rewriter, innerLoc, 0);
+      Value localIdx = index(rewriter, innerLoc, 0);
+      int64_t physStride = 1;
+      int64_t shardStride = 1;
+      for (int64_t d = rank - 1; d >= 0; --d) {
+        Value iv = loops[d].getInductionVar();
 
-          builder.create<scf::YieldOp>(innerLoc);
-        });
+        // Absolute coordinate: gridIndices[d] * shardShape[d] + iv.
+        Value gridOffset = rewriter.create<arith::MulIOp>(
+            innerLoc, gridIndices[d],
+            index(rewriter, innerLoc, srcShardShape[d]));
+        Value absDim =
+            rewriter.create<arith::AddIOp>(innerLoc, gridOffset, iv);
+
+        // Accumulate into pageId with the physical stride.
+        Value absContrib = rewriter.create<arith::MulIOp>(
+            innerLoc, absDim, index(rewriter, innerLoc, physStride));
+        pageId = rewriter.create<arith::AddIOp>(innerLoc, pageId, absContrib);
+
+        // Accumulate into localIdx with the shard stride.
+        Value localContrib = rewriter.create<arith::MulIOp>(
+            innerLoc, iv, index(rewriter, innerLoc, shardStride));
+        localIdx =
+            rewriter.create<arith::AddIOp>(innerLoc, localIdx, localContrib);
+
+        physStride *= physicalShape[d];
+        shardStride *= srcShardShape[d];
+      }
+
+      Value pageIdI32 = rewriter.create<arith::IndexCastOp>(
+          innerLoc, rewriter.getI32Type(), pageId);
+
+      // dst_l1_addr = dst_l1_base + localIdx * page_size
+      Value offset = rewriter.create<arith::MulIOp>(
+          innerLoc, localIdx, index(rewriter, innerLoc, pageSizeBytes));
+      Value offsetI32 = rewriter.create<arith::IndexCastOp>(
+          innerLoc, rewriter.getI32Type(), offset);
+      Value dstAddr =
+          rewriter.create<arith::AddIOp>(innerLoc, dstL1Base, offsetI32);
+
+      rewriter.create<ttkernel::NocAsyncReadTileOp>(innerLoc, pageIdI32,
+                                                    tensorAccessor, dstAddr);
+    }
 
     // Mark associated DMA wait ops.
     auto dmaWaitOps = associatedDMAWaits->get(op);
@@ -2184,7 +2210,6 @@ public:
 
     ArrayRef<int64_t> gridShape = ttcore::getGridShape(remoteDst);
     ArrayRef<int64_t> dstShardShape = ttcore::getShardShape(remoteDst);
-    int64_t dstShardVol = shardVolume(dstShardShape);
     int64_t pageSizeBytes = getPageSizeBytes(dstMemRefType);
 
     // Get the operand index for the dst memref.
@@ -2215,49 +2240,86 @@ public:
     auto tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
         loc, argsOp, bankBaseAddress, pageSize);
 
-    // Compute the start page ID from grid indices.
-    ValueRange gridIndices = op.getDstIndices();
-    Value startPage = index(rewriter, loc, 0);
-    int64_t stride = 1;
-    for (int dim = static_cast<int>(gridShape.size()) - 1; dim >= 0; --dim) {
-      Value idx = gridIndices[dim];
-      Value strideVal = index(rewriter, loc, stride * dstShardVol);
-      Value contribution = rewriter.create<arith::MulIOp>(loc, idx, strideVal);
-      startPage = rewriter.create<arith::AddIOp>(loc, startPage, contribution);
-      stride *= gridShape[dim];
-    }
-
     // Get the local L1 base address (src CB read pointer).
     Value srcL1Base =
         rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
 
-    // Generate loop over pages in the shard.
+    // Compute the physical shape: physicalShape[d] = gridShape[d] *
+    // shardShape[d].
+    int64_t rank = static_cast<int64_t>(dstShardShape.size());
+    SmallVector<int64_t> physicalShape(rank);
+    for (int64_t d = 0; d < rank; ++d) {
+      physicalShape[d] = gridShape[d] * dstShardShape[d];
+    }
+
+    // Generate nested loops over shard dimensions.  The innermost loop body
+    // uses the loop IVs together with the grid indices to compute an absolute
+    // offset in the full physical shape of the tensor.
+    ValueRange gridIndices = op.getDstIndices();
     Value lb = index(rewriter, loc, 0);
-    Value ub = index(rewriter, loc, dstShardVol);
     Value step = index(rewriter, loc, 1);
 
-    rewriter.create<scf::ForOp>(
-        loc, lb, ub, step, ValueRange{},
-        [&](OpBuilder &builder, Location innerLoc, Value iv,
-            ValueRange iterArgs) {
-          // page_id = start_page + iv
-          Value pageId = builder.create<arith::AddIOp>(innerLoc, startPage, iv);
-          Value pageIdI32 = builder.create<arith::IndexCastOp>(
-              innerLoc, builder.getI32Type(), pageId);
+    // Build the nest from outermost to innermost dimension.
+    SmallVector<scf::ForOp> loops(rank);
+    OpBuilder::InsertionGuard guard(rewriter);
+    for (int64_t d = 0; d < rank; ++d) {
+      Value ub = index(rewriter, loc, dstShardShape[d]);
+      auto forOp =
+          rewriter.create<scf::ForOp>(loc, lb, ub, step, ValueRange{});
+      loops[d] = forOp;
+      rewriter.setInsertionPointToStart(forOp.getBody());
+    }
 
-          // src_l1_addr = src_l1_base + iv * page_size
-          Value offset = builder.create<arith::MulIOp>(
-              innerLoc, iv, index(builder, innerLoc, pageSizeBytes));
-          Value offsetI32 = builder.create<arith::IndexCastOp>(
-              innerLoc, builder.getI32Type(), offset);
-          Value srcAddr =
-              builder.create<arith::AddIOp>(innerLoc, srcL1Base, offsetI32);
+    // Inside the innermost loop: compute page ID and local L1 address.
+    {
+      Location innerLoc = loc;
 
-          builder.create<ttkernel::NocAsyncWriteTileOp>(
-              innerLoc, pageIdI32, tensorAccessor, srcAddr);
+      // Compute absolute coordinates and linearize into a page ID.
+      // abs[d] = gridIndices[d] * shardShape[d] + loopIV[d]
+      // pageId = linearize(abs, physicalShape)
+      Value pageId = index(rewriter, innerLoc, 0);
+      Value localIdx = index(rewriter, innerLoc, 0);
+      int64_t physStride = 1;
+      int64_t shardStride = 1;
+      for (int64_t d = rank - 1; d >= 0; --d) {
+        Value iv = loops[d].getInductionVar();
 
-          builder.create<scf::YieldOp>(innerLoc);
-        });
+        // Absolute coordinate: gridIndices[d] * shardShape[d] + iv.
+        Value gridOffset = rewriter.create<arith::MulIOp>(
+            innerLoc, gridIndices[d],
+            index(rewriter, innerLoc, dstShardShape[d]));
+        Value absDim =
+            rewriter.create<arith::AddIOp>(innerLoc, gridOffset, iv);
+
+        // Accumulate into pageId with the physical stride.
+        Value absContrib = rewriter.create<arith::MulIOp>(
+            innerLoc, absDim, index(rewriter, innerLoc, physStride));
+        pageId = rewriter.create<arith::AddIOp>(innerLoc, pageId, absContrib);
+
+        // Accumulate into localIdx with the shard stride.
+        Value localContrib = rewriter.create<arith::MulIOp>(
+            innerLoc, iv, index(rewriter, innerLoc, shardStride));
+        localIdx =
+            rewriter.create<arith::AddIOp>(innerLoc, localIdx, localContrib);
+
+        physStride *= physicalShape[d];
+        shardStride *= dstShardShape[d];
+      }
+
+      Value pageIdI32 = rewriter.create<arith::IndexCastOp>(
+          innerLoc, rewriter.getI32Type(), pageId);
+
+      // src_l1_addr = src_l1_base + localIdx * page_size
+      Value offset = rewriter.create<arith::MulIOp>(
+          innerLoc, localIdx, index(rewriter, innerLoc, pageSizeBytes));
+      Value offsetI32 = rewriter.create<arith::IndexCastOp>(
+          innerLoc, rewriter.getI32Type(), offset);
+      Value srcAddr =
+          rewriter.create<arith::AddIOp>(innerLoc, srcL1Base, offsetI32);
+
+      rewriter.create<ttkernel::NocAsyncWriteTileOp>(innerLoc, pageIdI32,
+                                                     tensorAccessor, srcAddr);
+    }
 
     // Mark associated DMA wait ops.
     auto dmaWaitOps = associatedDMAWaits->get(op);
