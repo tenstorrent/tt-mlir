@@ -41,6 +41,22 @@ OpRuleBook::getOutputHints(Operation * /*op*/,
   return result;
 }
 
+bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
+                                 const BeamCandidate &b) const {
+  // Prefer more sharded inputs: fewer interleaved reads = less NOC traffic.
+  auto countShardedInputs = [](const BeamCandidate &c) {
+    unsigned count = 0;
+    for (const auto &layout : c.inputLayouts) {
+      auto ml = layout.getMemLayout();
+      if (ml && isShardedMemoryLayout(ml.getValue())) {
+        ++count;
+      }
+    }
+    return count;
+  };
+  return countShardedInputs(a) > countShardedInputs(b);
+}
+
 //===----------------------------------------------------------------------===//
 // Registry: maps OperationName -> OpRuleBook
 //===----------------------------------------------------------------------===//

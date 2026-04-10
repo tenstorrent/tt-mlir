@@ -31,13 +31,13 @@ MemoryLayoutPropagation::MemoryLayoutPropagation(
     func::FuncOp func, ttcore::GridAttr deviceGrid,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth,
-    size_t maxInputCandidatesPerOperand, size_t maxReshardCandidates,
+    size_t maxInputCandidatesPerOperand, size_t maxReshardCandidatesPerType,
     std::unique_ptr<LayoutPropagationObserver> observer)
     : func(func), deviceGrid(deviceGrid), legalConfigs(legalConfigs),
       tensorTypePossibleLayouts(tensorTypePossibleLayouts),
       beamWidth(beamWidth),
       maxInputCandidatesPerOperand(maxInputCandidatesPerOperand),
-      maxReshardCandidates(maxReshardCandidates) {
+      maxReshardCandidatesPerType(maxReshardCandidatesPerType) {
   if (observer) {
     this->observer = std::move(observer);
   } else {
@@ -709,14 +709,17 @@ void MemoryLayoutPropagation::addReshardCandidates(
     }
   }
 
-  // Enable interleaved-to-sharded reshards when no existing candidate offers
-  // a sharded layout. This targets ops whose producers are stuck at
-  // DRAM/interleaved (e.g., all_gather -> silu) where resharding the input
-  // to L1/sharded enables dramatically faster execution.
+  // Enable interleaved-to-sharded reshards when no existing candidate that
+  // survives the op's input filter offers a sharded layout. Without the
+  // filter check, candidates that will be rejected later (e.g., width_sharded
+  // inputs for matmul) would suppress interleaved-to-sharded exploration,
+  // preventing valid reshard paths like interleaved → height_sharded.
+  auto inputFilter = getInputLayoutFilter(op);
   bool hasAnyShardedCandidate = false;
   for (const auto &ic : candidates) {
     auto ml = ic.layout.getMemLayout();
-    if (ml && isShardedMemoryLayout(ml.getValue())) {
+    if (ml && isShardedMemoryLayout(ml.getValue()) &&
+        (!inputFilter || inputFilter(ic.layout))) {
       hasAnyShardedCandidate = true;
       break;
     }
@@ -768,8 +771,21 @@ void MemoryLayoutPropagation::addReshardCandidates(
     }
   }
 
+  // Pre-filter reshard layouts that the op cannot consume, before the
+  // fan-out. This prevents doomed layouts (e.g., width_sharded for matmul)
+  // from consuming maxCandidates budget slots that height_sharded needs.
+  if (inputFilter) {
+    uniqueReshardLayouts.erase(
+        std::remove_if(uniqueReshardLayouts.begin(),
+                        uniqueReshardLayouts.end(),
+                        [&](TTNNLayoutAttr layout) {
+                          return !inputFilter(layout);
+                        }),
+        uniqueReshardLayouts.end());
+  }
+
   // Fan out: for each unique reshard layout, create one candidate per
-  // producer beam index (K x maxReshardCandidates evaluation).
+  // producer beam index.
   size_t producerBeamSize = producerBeam ? producerBeam->size() : 1;
   for (const auto &reshardLayout : uniqueReshardLayouts) {
     if (candidates.size() >= maxCandidates) {
@@ -864,13 +880,15 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
                                 maxInputCandidatesPerOperand);
     }
 
-    applyInputLayoutFilter(candidatesForOperand, op, currentLayout);
-
     addReshardCandidates(candidatesForOperand, op, operand, currentLayout,
                          tensorType, producerBeam, producerOp, resultIdx,
                          maxInputCandidatesPerOperand);
 
-    // Filter again after reshard candidates are added.
+    // Filter after all candidates (producer beam + reshards) are collected.
+    // This rejects layouts the op cannot consume (e.g., width_sharded for
+    // matmul) while preserving producer beam entries as reshard sources
+    // during addReshardCandidates — a width_sharded producer can still
+    // serve as the source for a valid reshard to height_sharded.
     applyInputLayoutFilter(candidatesForOperand, op, currentLayout);
 
     // Cap per-operand candidate count to prevent cross-product explosion.
@@ -972,15 +990,35 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
     }
   }
 
-  // Sort by grid volume descending -- more cores first.
+  // Stratified selection: take top-N per sharding type (by grid volume
+  // descending), then merge. This ensures each sharding type gets
+  // representation — without this, high-volume types (e.g., block_sharded)
+  // would crowd out lower-volume types (e.g., height_sharded) when
+  // candidates compete for a single global budget.
+  llvm::DenseMap<TensorMemoryLayout, std::vector<TTNNLayoutAttr>> buckets;
+  for (const auto &layout : deduped) {
+    buckets[layout.getMemLayout().getValue()].push_back(layout);
+  }
+  for (auto &[type, layouts] : buckets) {
+    std::sort(layouts.begin(), layouts.end(),
+              [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
+                return a.getGrid().getGridVolume() >
+                       b.getGrid().getGridVolume();
+              });
+    if (layouts.size() > maxReshardCandidatesPerType) {
+      layouts.resize(maxReshardCandidatesPerType);
+    }
+  }
+  deduped.clear();
+  for (const auto &[type, layouts] : buckets) {
+    deduped.insert(deduped.end(), layouts.begin(), layouts.end());
+  }
+
+  // Final sort for deterministic ordering.
   std::sort(deduped.begin(), deduped.end(),
             [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
               return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
             });
-
-  if (deduped.size() > maxReshardCandidates) {
-    deduped.resize(maxReshardCandidates);
-  }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "  generated {0} reshard candidates for {1}", deduped.size(),
