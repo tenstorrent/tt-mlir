@@ -2011,46 +2011,74 @@ static size_t appendTensorAccessorArg(ConversionPatternRewriter &rewriter,
   return argIndex;
 }
 
-class D2MDMAReadViaTensorAccessorRewriter
-    : public OpConversionPattern<d2m::DMAReadOp> {
+// Template rewriter for shard-level DMA read/write via TensorAccessor.
+// DMAOpT is either d2m::DMAReadOp or d2m::DMAWriteOp.
+template <typename DMAOpT>
+class D2MDMAViaTensorAccessorRewriter : public OpConversionPattern<DMAOpT> {
 public:
-  D2MDMAReadViaTensorAccessorRewriter(
+  static_assert(std::is_same_v<DMAOpT, d2m::DMAReadOp> ||
+                std::is_same_v<DMAOpT, d2m::DMAWriteOp>);
+  static constexpr bool IsRead = std::is_same_v<DMAOpT, d2m::DMAReadOp>;
+
+  D2MDMAViaTensorAccessorRewriter(
       TypeConverter &typeConverter, MLIRContext *context,
       const d2m::AssociatedDMAWaits *associatedDMAWaits,
       const d2m::CBProducerConsumer *cbProducerConsumer)
-      : OpConversionPattern<d2m::DMAReadOp>(typeConverter, context),
+      : OpConversionPattern<DMAOpT>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits),
         cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
-  matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
+  matchAndRewrite(DMAOpT op, typename DMAOpT::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     // Only handle shard-level DMA ops.
     if (!op.isShardLevel()) {
       return failure();
     }
 
+    // Write-only: skip local-to-local transfers (handled by the existing
+    // mcast lowering that uses raw NOC addresses).
+    if constexpr (!IsRead) {
+      if (op.isDstLocal()) {
+        return failure();
+      }
+    }
+
     Location loc = op.getLoc();
-    Value remoteSrc = op.getSrc();
-    MemRefType srcMemRefType = op.getSrcMemRefType();
+
+    // Get the remote memref and its properties.  For reads the remote
+    // side is the src; for writes it is the dst.
+    Value remoteMemRef;
+    MemRefType remoteMemRefType;
+    if constexpr (IsRead) {
+      remoteMemRef = op.getSrc();
+      remoteMemRefType = op.getSrcMemRefType();
+    } else {
+      remoteMemRef = op.getDst();
+      remoteMemRefType = op.getDstMemRefType();
+    }
 
     // Extract grid and shard shape from the remote memref's device layout.
-    ArrayRef<int64_t> gridShape = ttcore::getGridShape(remoteSrc);
-    ArrayRef<int64_t> srcShardShape = ttcore::getShardShape(remoteSrc);
-    int64_t pageSizeBytes = getPageSizeBytes(srcMemRefType);
+    ArrayRef<int64_t> gridShape = ttcore::getGridShape(remoteMemRef);
+    ArrayRef<int64_t> shardShape = ttcore::getShardShape(remoteMemRef);
+    int64_t pageSizeBytes = getPageSizeBytes(remoteMemRefType);
 
-    // Get the operand index for the src memref (to set up ArgSpec).
-    auto getArgOp = remoteSrc.getDefiningOp<d2m::GetArgOp>();
-    TT_assertv(getArgOp, "Expected shard-level DMA read src to come from "
-                          "d2m.get_arg, failing.");
+    // Get the operand index for the remote memref (to set up ArgSpec).
+    auto getArgOp = remoteMemRef.template getDefiningOp<d2m::GetArgOp>();
+    TT_assertv(getArgOp,
+               IsRead ? "Expected shard-level DMA read src to come from "
+                        "d2m.get_arg, failing."
+                      : "Expected shard-level DMA write dst to come from "
+                        "d2m.get_arg, failing.");
     int64_t operandIndex = getArgOp.getOperandIndex();
 
-    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
+    func::FuncOp entry =
+        op->template getParentOfType<func::FuncOp>();
 
     // Append a TensorAccessor arg to the ArgSpec, reserving the correct
     // number of CTA slots so subsequent arg indices are not shifted.
     size_t ctaArgIndex =
-        appendTensorAccessorArg(rewriter, entry, operandIndex, remoteSrc);
+        appendTensorAccessorArg(rewriter, entry, operandIndex, remoteMemRef);
 
     // Create TensorAccessorArgs with CTA base offset.
     Value ctaBase = i32(rewriter, loc, static_cast<int32_t>(ctaArgIndex));
@@ -2059,35 +2087,48 @@ public:
         loc, ctaBase, crtaBase, /*prev=*/Value(), /*ctaExpr=*/StringAttr(),
         /*crtaExpr=*/StringAttr());
 
-    // Get the bank base address from the adapted src operand (buffer address).
-    Value bankBaseAddress = castCBTypeAsAddress(rewriter, loc, adaptor.getSrc());
+    // Get the bank base address from the adapted remote operand.
+    Value adaptedRemote = IsRead ? adaptor.getSrc() : adaptor.getDst();
+    Value bankBaseAddress =
+        castCBTypeAsAddress(rewriter, loc, adaptedRemote);
 
     // Create the TensorAccessor.
     Value pageSize = i32(rewriter, loc, static_cast<int32_t>(pageSizeBytes));
     auto tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
         loc, argsOp, bankBaseAddress, pageSize);
 
-    // Get the local L1 base address (dst CB write pointer).
-    auto dstCBMapping = cbProducerConsumer->get(op.getDst());
-    TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
-                dstCBMapping == d2m::ThreadCBOrientation::Default),
-               "Expected dst cb of a read op to have a producer or default "
-               "orientation, failing.");
-    Value dstL1Base =
-        rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
+    // Get the local L1 base address.
+    Value localL1Base;
+    if constexpr (IsRead) {
+      auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+      TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
+                  dstCBMapping == d2m::ThreadCBOrientation::Default),
+                 "Expected dst cb of a read op to have a producer or default "
+                 "orientation, failing.");
+      localL1Base =
+          rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
+    } else {
+      localL1Base =
+          rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
+    }
 
     // Compute the physical shape: physicalShape[d] = gridShape[d] *
     // shardShape[d].
-    int64_t rank = static_cast<int64_t>(srcShardShape.size());
+    int64_t rank = static_cast<int64_t>(shardShape.size());
     SmallVector<int64_t> physicalShape(rank);
     for (int64_t d = 0; d < rank; ++d) {
-      physicalShape[d] = gridShape[d] * srcShardShape[d];
+      physicalShape[d] = gridShape[d] * shardShape[d];
     }
 
     // Generate nested loops over shard dimensions.  The innermost loop body
     // uses the loop IVs together with the grid indices to compute an absolute
     // offset in the full physical shape of the tensor.
-    ValueRange gridIndices = op.getSrcIndices();
+    ValueRange gridIndices;
+    if constexpr (IsRead) {
+      gridIndices = op.getSrcIndices();
+    } else {
+      gridIndices = op.getDstIndices();
+    }
     Value lb = index(rewriter, loc, 0);
     Value step = index(rewriter, loc, 1);
 
@@ -2095,7 +2136,7 @@ public:
     SmallVector<scf::ForOp> loops(rank);
     OpBuilder::InsertionGuard guard(rewriter);
     for (int64_t d = 0; d < rank; ++d) {
-      Value ub = index(rewriter, loc, srcShardShape[d]);
+      Value ub = index(rewriter, loc, shardShape[d]);
       auto forOp =
           rewriter.create<scf::ForOp>(loc, lb, ub, step, ValueRange{});
       loops[d] = forOp;
@@ -2119,7 +2160,7 @@ public:
         // Absolute coordinate: gridIndices[d] * shardShape[d] + iv.
         Value gridOffset = rewriter.create<arith::MulIOp>(
             innerLoc, gridIndices[d],
-            index(rewriter, innerLoc, srcShardShape[d]));
+            index(rewriter, innerLoc, shardShape[d]));
         Value absDim =
             rewriter.create<arith::AddIOp>(innerLoc, gridOffset, iv);
 
@@ -2135,195 +2176,33 @@ public:
             rewriter.create<arith::AddIOp>(innerLoc, localIdx, localContrib);
 
         physStride *= physicalShape[d];
-        shardStride *= srcShardShape[d];
+        shardStride *= shardShape[d];
       }
 
       Value pageIdI32 = rewriter.create<arith::IndexCastOp>(
           innerLoc, rewriter.getI32Type(), pageId);
 
-      // dst_l1_addr = dst_l1_base + localIdx * page_size
+      // local_l1_addr = local_l1_base + localIdx * page_size
       Value offset = rewriter.create<arith::MulIOp>(
           innerLoc, localIdx, index(rewriter, innerLoc, pageSizeBytes));
       Value offsetI32 = rewriter.create<arith::IndexCastOp>(
           innerLoc, rewriter.getI32Type(), offset);
-      Value dstAddr =
-          rewriter.create<arith::AddIOp>(innerLoc, dstL1Base, offsetI32);
+      Value localAddr =
+          rewriter.create<arith::AddIOp>(innerLoc, localL1Base, offsetI32);
 
-      rewriter.create<ttkernel::NocAsyncReadTileOp>(innerLoc, pageIdI32,
-                                                    tensorAccessor, dstAddr);
-    }
-
-    // Mark associated DMA wait ops.
-    auto dmaWaitOps = associatedDMAWaits->get(op);
-    for (auto dmaWaitOp : dmaWaitOps) {
-      rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_read",
-                                      rewriter.getUnitAttr());
-      });
-    }
-
-    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op);
-    return success();
-  }
-
-private:
-  const d2m::AssociatedDMAWaits *associatedDMAWaits;
-  const d2m::CBProducerConsumer *cbProducerConsumer;
-};
-
-class D2MDMAWriteViaTensorAccessorRewriter
-    : public OpConversionPattern<d2m::DMAWriteOp> {
-public:
-  D2MDMAWriteViaTensorAccessorRewriter(
-      TypeConverter &typeConverter, MLIRContext *context,
-      const d2m::AssociatedDMAWaits *associatedDMAWaits,
-      const d2m::CBProducerConsumer * /*cbProducerConsumer*/)
-      : OpConversionPattern<d2m::DMAWriteOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits) {}
-
-  LogicalResult
-  matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    // Only handle shard-level DMA ops.
-    if (!op.isShardLevel()) {
-      return failure();
-    }
-
-    Location loc = op.getLoc();
-
-    if (op.isDstLocal()) {
-      // Local-to-local (including multicast): delegate to the existing
-      // mcast lowering that uses raw NOC addresses.  TensorAccessor is
-      // not needed for local transfers.
-      //
-      // For now, return failure() so the existing D2MDMAWriteRewriter
-      // can handle this case once the DMA has been fully indexed by
-      // D2MLowerDMAToFullyIndexedForm.  In tensor-accessor mode this
-      // path should not be reached for local writes because they are
-      // already handled before DMA lowering.
-      return failure();
-    }
-
-    // Remote unicast write: L1 → DRAM/remote-L1
-    Value remoteDst = op.getDst();
-    MemRefType dstMemRefType = op.getDstMemRefType();
-
-    ArrayRef<int64_t> gridShape = ttcore::getGridShape(remoteDst);
-    ArrayRef<int64_t> dstShardShape = ttcore::getShardShape(remoteDst);
-    int64_t pageSizeBytes = getPageSizeBytes(dstMemRefType);
-
-    // Get the operand index for the dst memref.
-    auto getArgOp = remoteDst.getDefiningOp<d2m::GetArgOp>();
-    TT_assertv(getArgOp, "Expected shard-level DMA write dst to come from "
-                          "d2m.get_arg, failing.");
-    int64_t operandIndex = getArgOp.getOperandIndex();
-
-    func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-
-    // Append a TensorAccessor arg to the ArgSpec, reserving the correct
-    // number of CTA slots so subsequent arg indices are not shifted.
-    size_t ctaArgIndex =
-        appendTensorAccessorArg(rewriter, entry, operandIndex, remoteDst);
-
-    // Create TensorAccessorArgs.
-    Value ctaBase = i32(rewriter, loc, static_cast<int32_t>(ctaArgIndex));
-    Value crtaBase = i32(rewriter, loc, 0);
-    auto argsOp = rewriter.create<ttkernel::TensorAccessorArgsOp>(
-        loc, ctaBase, crtaBase, /*prev=*/Value(), /*ctaExpr=*/StringAttr(),
-        /*crtaExpr=*/StringAttr());
-
-    // Get the bank base address from the adapted dst operand.
-    Value bankBaseAddress = castCBTypeAsAddress(rewriter, loc, adaptor.getDst());
-
-    // Create the TensorAccessor.
-    Value pageSize = i32(rewriter, loc, static_cast<int32_t>(pageSizeBytes));
-    auto tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
-        loc, argsOp, bankBaseAddress, pageSize);
-
-    // Get the local L1 base address (src CB read pointer).
-    Value srcL1Base =
-        rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
-
-    // Compute the physical shape: physicalShape[d] = gridShape[d] *
-    // shardShape[d].
-    int64_t rank = static_cast<int64_t>(dstShardShape.size());
-    SmallVector<int64_t> physicalShape(rank);
-    for (int64_t d = 0; d < rank; ++d) {
-      physicalShape[d] = gridShape[d] * dstShardShape[d];
-    }
-
-    // Generate nested loops over shard dimensions.  The innermost loop body
-    // uses the loop IVs together with the grid indices to compute an absolute
-    // offset in the full physical shape of the tensor.
-    ValueRange gridIndices = op.getDstIndices();
-    Value lb = index(rewriter, loc, 0);
-    Value step = index(rewriter, loc, 1);
-
-    // Build the nest from outermost to innermost dimension.
-    SmallVector<scf::ForOp> loops(rank);
-    OpBuilder::InsertionGuard guard(rewriter);
-    for (int64_t d = 0; d < rank; ++d) {
-      Value ub = index(rewriter, loc, dstShardShape[d]);
-      auto forOp =
-          rewriter.create<scf::ForOp>(loc, lb, ub, step, ValueRange{});
-      loops[d] = forOp;
-      rewriter.setInsertionPointToStart(forOp.getBody());
-    }
-
-    // Inside the innermost loop: compute page ID and local L1 address.
-    {
-      Location innerLoc = loc;
-
-      // Compute absolute coordinates and linearize into a page ID.
-      // abs[d] = gridIndices[d] * shardShape[d] + loopIV[d]
-      // pageId = linearize(abs, physicalShape)
-      Value pageId = index(rewriter, innerLoc, 0);
-      Value localIdx = index(rewriter, innerLoc, 0);
-      int64_t physStride = 1;
-      int64_t shardStride = 1;
-      for (int64_t d = rank - 1; d >= 0; --d) {
-        Value iv = loops[d].getInductionVar();
-
-        // Absolute coordinate: gridIndices[d] * shardShape[d] + iv.
-        Value gridOffset = rewriter.create<arith::MulIOp>(
-            innerLoc, gridIndices[d],
-            index(rewriter, innerLoc, dstShardShape[d]));
-        Value absDim =
-            rewriter.create<arith::AddIOp>(innerLoc, gridOffset, iv);
-
-        // Accumulate into pageId with the physical stride.
-        Value absContrib = rewriter.create<arith::MulIOp>(
-            innerLoc, absDim, index(rewriter, innerLoc, physStride));
-        pageId = rewriter.create<arith::AddIOp>(innerLoc, pageId, absContrib);
-
-        // Accumulate into localIdx with the shard stride.
-        Value localContrib = rewriter.create<arith::MulIOp>(
-            innerLoc, iv, index(rewriter, innerLoc, shardStride));
-        localIdx =
-            rewriter.create<arith::AddIOp>(innerLoc, localIdx, localContrib);
-
-        physStride *= physicalShape[d];
-        shardStride *= dstShardShape[d];
+      if constexpr (IsRead) {
+        rewriter.create<ttkernel::NocAsyncReadTileOp>(
+            innerLoc, pageIdI32, tensorAccessor, localAddr);
+      } else {
+        rewriter.create<ttkernel::NocAsyncWriteTileOp>(
+            innerLoc, pageIdI32, tensorAccessor, localAddr);
       }
-
-      Value pageIdI32 = rewriter.create<arith::IndexCastOp>(
-          innerLoc, rewriter.getI32Type(), pageId);
-
-      // src_l1_addr = src_l1_base + localIdx * page_size
-      Value offset = rewriter.create<arith::MulIOp>(
-          innerLoc, localIdx, index(rewriter, innerLoc, pageSizeBytes));
-      Value offsetI32 = rewriter.create<arith::IndexCastOp>(
-          innerLoc, rewriter.getI32Type(), offset);
-      Value srcAddr =
-          rewriter.create<arith::AddIOp>(innerLoc, srcL1Base, offsetI32);
-
-      rewriter.create<ttkernel::NocAsyncWriteTileOp>(innerLoc, pageIdI32,
-                                                     tensorAccessor, srcAddr);
     }
 
     // Mark associated DMA wait ops.
     auto dmaWaitOps = associatedDMAWaits->get(op);
-    StringRef waitAttr = "ttkernel.lowering.associated_noc_write";
+    StringRef waitAttr = IsRead ? "ttkernel.lowering.associated_noc_read"
+                                : "ttkernel.lowering.associated_noc_write";
     for (auto dmaWaitOp : dmaWaitOps) {
       rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
         dmaWaitOp->setDiscardableAttr(waitAttr, rewriter.getUnitAttr());
@@ -2336,7 +2215,13 @@ public:
 
 private:
   const d2m::AssociatedDMAWaits *associatedDMAWaits;
+  const d2m::CBProducerConsumer *cbProducerConsumer;
 };
+
+using D2MDMAReadViaTensorAccessorRewriter =
+    D2MDMAViaTensorAccessorRewriter<d2m::DMAReadOp>;
+using D2MDMAWriteViaTensorAccessorRewriter =
+    D2MDMAViaTensorAccessorRewriter<d2m::DMAWriteOp>;
 
 } // namespace
 
