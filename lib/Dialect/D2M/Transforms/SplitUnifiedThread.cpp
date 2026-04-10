@@ -288,6 +288,9 @@ static LogicalResult processComputeLoads(Block *computeBlock,
       rewriter.create<PushOp>(loc, cb);
       auto waitOp = rewriter.create<WaitOp>(loc, cb);
 
+      // Replace all uses of the alloc, not just the load's operand as
+      // downstream compute ops reference the alloc result directly and
+      // must read from the CB. Assumes 1:1 alloc-to-load relationship.
       rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
       if (loadOp.getResult()) {
         rewriter.replaceAllUsesWith(loadOp.getResult(), waitOp.getResult());
@@ -358,6 +361,8 @@ static LogicalResult processComputeStores(Block *computeBlock,
       if (allocOp && isLocalAlloc(allocOp, computeBlock)) {
         rewriter.setInsertionPoint(allocOp);
         auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+        // Replace all uses as compute ops reference the alloc directly and
+        // must write into the CB. Assumes 1:1 alloc-to-store relationship.
         rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
       } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
         // The alloc was already replaced by a WaitOp from an earlier load
