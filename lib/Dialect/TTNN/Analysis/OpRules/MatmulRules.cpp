@@ -7,8 +7,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -38,8 +36,9 @@ dedupByMemoryLayout(const std::vector<OpConfig> &configs) {
     if (!memLayout) {
       continue;
     }
-    auto key = std::make_pair(static_cast<unsigned>(cfg.outputLayout.getBufferType()),
-                              static_cast<unsigned>(memLayout.getValue()));
+    auto key =
+        std::make_pair(static_cast<unsigned>(cfg.outputLayout.getBufferType()),
+                       static_cast<unsigned>(memLayout.getValue()));
     if (seen.insert(key).second) {
       TTNNLayoutAttr layout = cfg.outputLayout;
       result.push_back(layout.withIgnorePhysicalLayout(true));
@@ -113,9 +112,10 @@ static std::optional<MatmulShapeInfo> extractMatmulShapes(Operation *op) {
   int64_t M = outShape[outShape.size() - 2];
   int64_t N = outShape[outShape.size() - 1];
   int64_t K = aShape[aShape.size() - 1];
-  int64_t Mt = divUp(M, TILE_HEIGHT);
-  int64_t Nt = divUp(N, TILE_WIDTH);
-  int64_t Kt = divUp(K, TILE_WIDTH);
+  constexpr int64_t kTileSize = 32;
+  int64_t Mt = divUp(M, kTileSize);
+  int64_t Nt = divUp(N, kTileSize);
+  int64_t Kt = divUp(K, kTileSize);
 
   return MatmulShapeInfo{Mt, Nt, Kt, fuseBatch, activation};
 }
@@ -177,9 +177,17 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
           })
       .Case<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           [&](auto) {
-            // DRAM-sharded config requires input B to live in DRAM.
-            if (inputLayouts[1] &&
+            // DRAM-sharded config requires in1 to be WIDTH_SHARDED in DRAM
+            // and in0 to be WIDTH_SHARDED in L1.
+            auto in1Mem = getMemLayoutVal(inputLayouts[1]);
+            if (in1Mem != TensorMemoryLayout::WidthSharded ||
+                !inputLayouts[1] ||
                 inputLayouts[1].getBufferType() != BufferType::DRAM) {
+              return false;
+            }
+            if (in0Mem != TensorMemoryLayout::WidthSharded ||
+                !inputLayouts[0] ||
+                inputLayouts[0].getBufferType() != BufferType::L1) {
               return false;
             }
             return true;
@@ -217,7 +225,8 @@ OutputHints MatmulRuleBook::getOutputHints(
   }
   int64_t maxSubblockSize = getMaxSubblockSize(computeConfig);
 
-  // Deduplicate by (bufferType, memLayout).
+  // Deduplicate by (bufferType, memLayout). The partial layouts carry
+  // ignorePhysicalLayout=true — the backend resolves the actual grid.
   auto uniqueLayouts = dedupByMemoryLayout(legalConfigs);
 
   std::vector<OpConfig> hints;
@@ -232,7 +241,8 @@ OutputHints MatmulRuleBook::getOutputHints(
       continue;
     }
 
-    // Skip width-sharded for prefill-like shapes (large Mt).
+    // For prefill-like shapes (large Mt), skip width-sharded entirely.
+    // BlockSharded (2D mcast) or DRAM interleaved (NULL hint) are preferred.
     if (memLayoutVal == TensorMemoryLayout::WidthSharded &&
         shapeInfo->Mt > kPrefillMtThreshold) {
       continue;
