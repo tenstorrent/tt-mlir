@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         CPUBooleanNarrowing.cpp
         DecomposeComplexPermute.cpp
         DecomposeComplexReshape.cpp
+        DecomposeComposites.cpp
         DecomposeMinReduction.cpp
         GlobalDataFormatConversion.cpp
         ExplicateTMs.cpp
@@ -18,7 +19,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         Quantization.cpp
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp
-        RMSNormDecomposition.cpp
         RankNormalization.cpp
         Transforms.cpp
         TTIRFusing.cpp
