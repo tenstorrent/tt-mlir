@@ -21,7 +21,7 @@ static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
 //   - If dst_full_sync_en = false: divide by 2 -> 8 tiles (typical case)
 //   - If fp32_dest_acc_en = true: divide by 2 -> 4 tiles
 // If config is null or properties are not set, returns default of 8.
-static int64_t getMaxSubblockSize(DeviceComputeKernelConfigAttr computeConfig) {
+int64_t getMaxSubblockSize(DeviceComputeKernelConfigAttr computeConfig) {
   // Default max subblock size (assumes dst_full_sync_en=false which is typical)
   int64_t maxSubblockSize = 8;
 
@@ -91,46 +91,33 @@ static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
 // values (divisors of per_core_M/N) and use OpModel validation to find a config
 // that fits in L1. This would enable handling larger matmuls by trading off
 // reuse for memory.
-//
-// Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for width/height
-// sharded output.
-static mlir::Attribute
-generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
-                              int64_t Kt, TTNNLayoutAttr outputLayout,
-                              TensorMemoryLayout outputMemLayout,
-                              UnaryWithParamAttr fusedActivation,
-                              int64_t maxSubblockSize, bool fuseBatch) {
+
+// Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for WidthSharded
+// output (mcast_in0=true).
+std::optional<mlir::Attribute>
+generateMatmul1DWidthConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
+                            int64_t Kt, TTNNLayoutAttr outputLayout,
+                            UnaryWithParamAttr fusedActivation,
+                            int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
   int64_t numCores = gridX * gridY;
 
-  bool mcastIn0 = (outputMemLayout == TensorMemoryLayout::WidthSharded);
-  int64_t perCoreM, perCoreN;
-
-  if (mcastIn0) {
-    perCoreM = Mt;
-    perCoreN = divUp(Nt, numCores);
-  } else {
-    perCoreM = divUp(Mt, numCores);
-    perCoreN = Nt;
-  }
+  int64_t perCoreM = Mt;
+  int64_t perCoreN = divUp(Nt, numCores);
 
   constexpr int64_t kLargeNtThreshold = 128;
   int64_t in0BlockW;
-  if (!mcastIn0) {
-    in0BlockW = Kt;
+  if (Nt > kLargeNtThreshold) {
+    in0BlockW = (Kt % 2 == 0) ? 2 : 1;
   } else {
-    if (Nt > kLargeNtThreshold) {
-      in0BlockW = (Kt % 2 == 0) ? 2 : 1;
+    if (Kt % 8 == 0) {
+      in0BlockW = 8;
+    } else if (Kt % 4 == 0) {
+      in0BlockW = 4;
+    } else if (Kt % 2 == 0) {
+      in0BlockW = 2;
     } else {
-      if (Kt % 8 == 0) {
-        in0BlockW = 8;
-      } else if (Kt % 4 == 0) {
-        in0BlockW = 4;
-      } else if (Kt % 2 == 0) {
-        in0BlockW = 2;
-      } else {
-        in0BlockW = 1;
-      }
+      in0BlockW = 1;
     }
   }
 
@@ -149,17 +136,52 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
       static_cast<uint64_t>(outSubblockH), static_cast<uint64_t>(outSubblockW),
       static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
       static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
-      fuseBatch, /*fusedActivation=*/fusedActivation, mcastIn0,
+      fuseBatch, /*fusedActivation=*/fusedActivation, /*mcast_in0=*/true,
+      /*gather_in0=*/false, hopCoresAttr, /*num_global_cb_receivers=*/0,
+      /*untilize_out=*/false);
+}
+
+// Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for HeightSharded
+// output (mcast_in0=false).
+std::optional<mlir::Attribute>
+generateMatmul1DHeightConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
+                             int64_t Kt, TTNNLayoutAttr outputLayout,
+                             UnaryWithParamAttr fusedActivation,
+                             int64_t maxSubblockSize, bool fuseBatch) {
+  auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
+  int64_t numCores = gridX * gridY;
+
+  int64_t perCoreM = divUp(Mt, numCores);
+  int64_t perCoreN = Nt;
+
+  int64_t in0BlockW = Kt;
+
+  int64_t outBlockH = perCoreM;
+  int64_t outBlockW = perCoreN;
+  int64_t outSubblockH = 1;
+  // out_subblock_w must divide out_block_w (== perCoreN) evenly.
+  // See matmul_op.cpp constraints: out_block_w % out_subblock_w == 0.
+  int64_t outSubblockW = largestDivisorUpTo(outBlockW, maxSubblockSize);
+
+  auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
+  auto hopCoresAttr = CoreRangeSetAttr::get(ctx, {});
+
+  return MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+      ctx, gridAttr, static_cast<uint64_t>(in0BlockW),
+      static_cast<uint64_t>(outSubblockH), static_cast<uint64_t>(outSubblockW),
+      static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
+      static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
+      fuseBatch, /*fusedActivation=*/fusedActivation, /*mcast_in0=*/false,
       /*gather_in0=*/false, hopCoresAttr, /*num_global_cb_receivers=*/0,
       /*untilize_out=*/false);
 }
 
 // Generate MatmulMultiCoreReuseMultiCastProgramConfig for block sharded output.
-static mlir::Attribute
-generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
-                              int64_t Kt, TTNNLayoutAttr outputLayout,
-                              UnaryWithParamAttr fusedActivation,
-                              int64_t maxSubblockSize, bool fuseBatch) {
+std::optional<mlir::Attribute>
+generateMatmul2DConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt, int64_t Kt,
+                       TTNNLayoutAttr outputLayout,
+                       UnaryWithParamAttr fusedActivation,
+                       int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
 
   int64_t perCoreM = divUp(Mt, gridY);
@@ -183,6 +205,16 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
       static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
       /*transpose_mcast=*/false, /*fusedActivation=*/fusedActivation,
       fuseBatch);
+}
+
+// Stub for DRAM-sharded config (WidthSharded output with Mt==1, decode path).
+// Implemented in Task 3.
+std::optional<mlir::Attribute>
+generateMatmulDRAMShardedConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
+                                int64_t Kt, TTNNLayoutAttr outputLayout,
+                                UnaryWithParamAttr fusedActivation,
+                                int64_t maxSubblockSize, bool fuseBatch) {
+  return std::nullopt;
 }
 
 std::optional<mlir::Attribute>
@@ -268,14 +300,19 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   int64_t maxSubblockSize = getMaxSubblockSize(computeConfig);
 
   if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
-    return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                         fusedActivation, maxSubblockSize,
-                                         fuseBatch);
+    return generateMatmul2DConfig(ctx, Mt, Nt, Kt, outputLayout,
+                                  fusedActivation, maxSubblockSize, fuseBatch);
   }
 
-  return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                       outputMemLayout, fusedActivation,
-                                       maxSubblockSize, fuseBatch);
+  if (outputMemLayout == TensorMemoryLayout::WidthSharded) {
+    return generateMatmul1DWidthConfig(ctx, Mt, Nt, Kt, outputLayout,
+                                       fusedActivation, maxSubblockSize,
+                                       fuseBatch);
+  }
+
+  return generateMatmul1DHeightConfig(ctx, Mt, Nt, Kt, outputLayout,
+                                      fusedActivation, maxSubblockSize,
+                                      fuseBatch);
 }
 
 } // namespace mlir::tt::ttnn
