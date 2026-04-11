@@ -372,9 +372,13 @@ def _process_file(
         return [], 0, device, False
 
     snippets = extract_functions_from_mlir(content)
+    if hasattr(args, "func") and args.func:
+        snippets = [
+            (name, mlir) for name, mlir in snippets if args.func in name
+        ]
     if not snippets:
         print(
-            f"warning: no func.func definitions in {ops_path}, skipping",
+            f"warning: no matching func.func definitions in {ops_path}, skipping",
             file=sys.stderr,
         )
         return [], 0, device, False
@@ -398,7 +402,12 @@ def _process_file(
 
         result = SnippetResult(func_name=func_name)
 
-        with _capture_fd_stderr() as captured:
+        capture_ctx = (
+            contextlib.nullcontext([])
+            if args.print_ir
+            else _capture_fd_stderr()
+        )
+        with capture_ctx as captured:
             try:
                 module, builder = load_mlir_file(func_mlir, target="ttir")
                 (
@@ -435,7 +444,12 @@ def _process_file(
             results.append(result)
             continue
 
-        with _capture_fd_stderr() as captured:
+        capture_ctx = (
+            contextlib.nullcontext([])
+            if args.print_ir
+            else _capture_fd_stderr()
+        )
+        with capture_ctx as captured:
             try:
                 execute_fb(
                     compiled_bin,
@@ -515,6 +529,11 @@ def main() -> int:
         "--disable-eth-dispatch",
         action="store_true",
         help="Same as pytest --disable-eth-dispatch",
+    )
+    parser.add_argument(
+        "--func",
+        "-f",
+        help="Only run the function with this name (substring match)",
     )
     parser.add_argument(
         "--fail-fast",

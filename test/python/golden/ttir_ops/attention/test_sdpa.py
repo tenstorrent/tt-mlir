@@ -143,7 +143,7 @@ pytestmark = pytest.mark.frontend("ttir")
         "segformer_layer",
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_sdpa_in_models(
     shapes: List[Shape],
     scale: float,

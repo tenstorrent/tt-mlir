@@ -10679,9 +10679,14 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.AtanOp, [in0], unit_attrs)
 
+    @tag(ttir.ReciprocalOp)
     def reciprocal(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
         """
         Creates ``ttir.reciprocal``.
 
@@ -10694,19 +10699,122 @@ class TTIRBuilder(Builder):
         ----------
         in0 : Operand
             Input tensor
+        output_type : *Optional[torch.dtype]*, optional
+            Output element type
+        loc : *Optional[str]*, optional
+            Debug location
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with reciprocal values
         """
-        return self._op_proxy(
-            ttir.ReciprocalOp,
-            [in0],
-            unit_attrs,
+        ttir_op = self.get_opview_from_method(TTIRBuilder.reciprocal)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.ReciprocalOp)
+    def reciprocal_parser(
+        self,
+        old_op: ttir.ReciprocalOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.reciprocal_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.ReciprocalOp)
+    def reciprocal_split(
+        self,
+        old_op: ttir.ReciprocalOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.reciprocal_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            reciprocal_module = Module.create()
+            reciprocal_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(reciprocal_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="reciprocal_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    reciprocal_builder._set_golden_tensor(new_op_result, old_op_result)
+                    reciprocal_builder._set_golden_tensor(in0, input0)
+                    reciprocal_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                reciprocal_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return reciprocal_module, reciprocal_builder
 
     def relu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """

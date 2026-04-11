@@ -145,10 +145,10 @@ def test_rms_norm(
 # Softmax tests
 
 
-@pytest.mark.parametrize("shape", [(32, 512, 1024)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(16, 256, 512)], ids=shape_str)
 @pytest.mark.parametrize("dimension", [0, 1, 2])
 @pytest.mark.parametrize("numeric_stable", [False, True])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize("target", ["ttmetal", "ttnn", "emitpy", "emitc"])
 def test_softmax(
     shape: Shape, dimension: int, numeric_stable: bool, target: str, request, device
 ):

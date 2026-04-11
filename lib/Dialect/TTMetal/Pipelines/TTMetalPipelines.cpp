@@ -89,6 +89,8 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(ttir::createTTIRDecomposeMinReduction());
   pm.addPass(ttir::createTTIRRMSNormDecomposition());
+  pm.addPass(ttir::createTTIRSDPADecomposition());
+  pm.addPass(ttir::createTTIRSoftmaxDecomposition());
   pm.addPass(ttir::createTTIRExplicateTMs());
   pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());

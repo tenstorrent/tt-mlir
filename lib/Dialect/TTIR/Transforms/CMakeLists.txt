@@ -19,6 +19,8 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp
         RMSNormDecomposition.cpp
+        SDPADecomposition.cpp
+        SoftmaxDecomposition.cpp
         RankNormalization.cpp
         Transforms.cpp
         TTIRFusing.cpp

@@ -258,6 +258,37 @@ def TTIRRMSNormDecomposition: Pass<"ttir-rms-norm-decomposition", "::mlir::Modul
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRSoftmaxDecomposition: Pass<"ttir-softmax-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose ttir.softmax into max, subtract, exp, sum, reciprocal, multiply.";
+  let description = [{
+    Lowers `ttir.softmax` into numerically-stable primitives:
+    `ttir.max` (reduce along dim, keep_dim), `ttir.subtract`, `ttir.exp`,
+    `ttir.sum` (reduce along dim, keep_dim), `ttir.reciprocal`, `ttir.multiply`.
+
+    Used by the TTMetal pipeline after SDPA decomposition so the softmax ops
+    produced by the SDPA decomposition (and any other softmax ops) are lowered
+    to primitives that D2M can handle.
+    Backends with a native fused softmax (e.g. TTNN) do not need this pass.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRSDPADecomposition: Pass<"ttir-sdpa-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose ttir.scaled_dot_product_attention into matmul, softmax, and related ops.";
+  let description = [{
+    Lowers `ttir.scaled_dot_product_attention` into primitive TTIR ops:
+    `ttir.matmul` (Q @ K^T and attn_probs @ V), `ttir.full` (scale),
+    `ttir.multiply` (scaling), `ttir.add` (mask), `ttir.softmax`, and
+    optional `ttir.reshape`/`ttir.repeat` for grouped-query attention (GQA)
+    head expansion when num_heads != num_kv_heads.
+
+    Used by the TTMetal pipeline before `ttir-rank-normalization` so the
+    expanded ops participate in rank normalization like other TTIR ops.
+    Backends with a native fused SDPA (e.g. TTNN) do not need this pass.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRRankNormalization: Pass<"ttir-rank-normalization", "::mlir::ModuleOp"> {
   let summary = "Normalize tensor ranks by promoting low-rank tensors to 2D.";
   let description = [{

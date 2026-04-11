@@ -4270,6 +4270,13 @@ def ttir_tanh_golden(
     return torch.tanh(input_tensor).to(output_dtype)
 
 
+def ttir_reciprocal_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reciprocal(input_tensor).to(output_dtype)
+
+
 def ttir_rsqrt_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6621,6 +6628,10 @@ def ttir_sdpa_golden(
     is_causal = unpack_mlir_attr(is_causal_attr)
     scale = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
 
+    head_dim = query.shape[-1]
+    if scale is None:
+        scale = 1.0 / (float(head_dim) ** 0.5)
+
     q_heads = query.shape[1]
     kv_heads = key.shape[1]
 
@@ -6864,7 +6875,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.TanOp: torch.tan,
     ttir.AtanOp: torch.atan,
     ttir.TanhOp: ttir_tanh_golden,
-    ttir.ReciprocalOp: torch.reciprocal,
+    ttir.ReciprocalOp: ttir_reciprocal_golden,
     ttir.ReluOp: torch.relu,
     ttir.Relu6Op: torch.nn.functional.relu6,
     ttir.RsqrtOp: ttir_rsqrt_golden,
