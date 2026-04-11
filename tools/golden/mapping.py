@@ -1335,6 +1335,35 @@ def all_to_all_dispatch_golden(
     return dispatched, metadata
 
 
+def all_to_all_dispatch_metadata_golden(
+    input_tensor,
+    expert_indices,
+    expert_scores,
+    expert_mapping,
+    num_devices=2,
+    cluster_axis=0,
+):
+    """Golden for dispatch_metadata — placeholder for per-shard torch_function path.
+
+    The real cross-shard golden is in TTIRBuilder._build_all_to_all_dispatch_metadata_golden
+    which has access to the full GoldenMapTensor and can simulate cross-device routing.
+    This fallback just repeats the input as a rough approximation.
+    """
+    D = num_devices if isinstance(num_devices, int) else 2
+
+    def _to_dispatch_layout(tensor):
+        if tensor.shape[1] == 1:
+            return tensor.permute(1, 0, 2, 3)
+        if tensor.shape[2] == 1:
+            return tensor.permute(2, 0, 1, 3)
+        return tensor.unsqueeze(0)
+
+    dispatched = _to_dispatch_layout(input_tensor).repeat(1, D, 1, 1)
+    indices = _to_dispatch_layout(expert_indices).repeat(1, D, 1, 1)
+    scores = _to_dispatch_layout(expert_scores).repeat(1, D, 1, 1)
+    return dispatched, indices, scores
+
+
 def all_to_all_combine_golden(
     input_tensor: GoldenMapTensor,
     expert_metadata: GoldenMapTensor,
@@ -7040,6 +7069,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Sparse MoE operations
     ttir.SparseMatmulOp: sparse_matmul_golden,
     ttir.AllToAllDispatchOp: all_to_all_dispatch_golden,
+    ttir.AllToAllDispatchMetadataOp: all_to_all_dispatch_metadata_golden,
     ttir.AllToAllCombineOp: all_to_all_combine_golden,
     ttir.MoeExpertTokenRemapOp: moe_expert_token_remap_golden,
     # Operations with parameter transformations

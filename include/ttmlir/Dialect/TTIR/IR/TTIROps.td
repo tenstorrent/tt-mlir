@@ -6103,6 +6103,39 @@ def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch", [TTIR_CCL]> {
     let hasVerifier = 1;
 }
 
+def TTIR_AllToAllDispatchMetadataOp : TTIR_NamedOp<"all_to_all_dispatch_metadata", [TTIR_CCL]> {
+    let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens along with expert scores to devices holding their selected
+      experts via all-to-all communication. Returns dispatched tokens,
+      all-gathered expert indices, and all-gathered expert scores.
+
+      Input shapes:
+      - input_tensor: [B, S, 1, H]
+      - expert_indices: [B, S, 1, K]
+      - expert_scores: [B, S, 1, K]
+      - expert_mapping: [1, 1, E, D]
+
+      Output shapes:
+      - dispatched: [1, B*D, S, H]
+      - indices: [1, B*D, S, K]
+      - scores: [1, B*D, S, K]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$dispatched,
+                       AnyRankedTensor:$indices,
+                       AnyRankedTensor:$scores);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine", [TTIR_CCL]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{

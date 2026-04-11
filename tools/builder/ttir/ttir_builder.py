@@ -194,6 +194,93 @@ class TTIRBuilder(Builder):
         )
         return dispatched, metadata
 
+    def _build_all_to_all_dispatch_metadata_golden(
+        self,
+        input_tensor: GoldenMapTensor,
+        expert_indices: GoldenMapTensor,
+        expert_scores: GoldenMapTensor,
+        expert_mapping: GoldenMapTensor,
+        num_devices: int,
+        cluster_axis: int,
+    ) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+        """Cross-shard golden for all_to_all_dispatch_metadata.
+
+        For each ring (group along cluster_axis), simulate the all-to-all:
+        the metal kernel allocates total_tokens = M * ring_devices slots per
+        device. Each slot i holds the token from ring position (i // M) at
+        local index (i % M). Slots for tokens not routed to this device's
+        experts are zeroed.
+        """
+        import torch
+
+        mesh_shape = input_tensor.mesh_shape
+        grouped_inputs = input_tensor.group_by_axis(cluster_axis)
+        grouped_indices = expert_indices.group_by_axis(cluster_axis)
+        grouped_scores = expert_scores.group_by_axis(cluster_axis)
+
+        # expert_mapping is replicated, grab any shard — shape [1, 1, D, E]
+        mapping_tensor = next(iter(expert_mapping.shard_map.values()))
+        if mapping_tensor.dim() == 4:
+            mapping_tensor = mapping_tensor.squeeze(0).squeeze(0)
+
+        out_dispatched = {}
+        out_indices = {}
+        out_scores = {}
+
+        for ring_group_inp, ring_group_idx, ring_group_scr in zip(
+            grouped_inputs, grouped_indices, grouped_scores
+        ):
+            ring_device_ids = sorted(ring_group_inp.keys())
+            # Get per-device token count M and feature dims
+            sample = ring_group_inp[ring_device_ids[0]]
+            M = sample.reshape(-1, sample.shape[-1]).shape[0]
+            H = sample.shape[-1]
+            K = ring_group_idx[ring_device_ids[0]].shape[-1]
+            total_tokens = M * num_devices
+
+            for target_dev_id in ring_device_ids:
+                # Pre-allocate full output: [1, total_tokens, C]
+                disp = torch.zeros(1, total_tokens, H, dtype=sample.dtype)
+                idx = torch.zeros(1, total_tokens, K, dtype=ring_group_idx[ring_device_ids[0]].dtype)
+                scr = torch.zeros(1, total_tokens, K, dtype=ring_group_scr[ring_device_ids[0]].dtype)
+
+                # Fill slot-by-slot from each ring device
+                for ring_pos, src_dev_id in enumerate(ring_device_ids):
+                    src_input = ring_group_inp[src_dev_id].reshape(-1, H)
+                    src_idx = ring_group_idx[src_dev_id].reshape(-1, K)
+                    src_scr = ring_group_scr[src_dev_id].reshape(-1, K)
+
+                    for t in range(M):
+                        slot = ring_pos * M + t
+                        # Check if this token is routed to target_dev_id
+                        routed = False
+                        for k in range(K):
+                            expert_id = int(src_idx[t, k].item())
+                            if expert_id < mapping_tensor.shape[1]:
+                                owner = int(mapping_tensor[target_dev_id, expert_id].item())
+                                if owner == target_dev_id:
+                                    routed = True
+                                    break
+                        if routed:
+                            disp[0, slot] = src_input[t]
+                            idx[0, slot] = src_idx[t]
+                            scr[0, slot] = src_scr[t]
+
+                # Reshape to 4D [1, num_devices, M, C]
+                disp = disp.reshape(1, num_devices, M, H)
+                idx = idx.reshape(1, num_devices, M, K)
+                scr = scr.reshape(1, num_devices, M, K)
+
+                out_dispatched[target_dev_id] = disp
+                out_indices[target_dev_id] = idx
+                out_scores[target_dev_id] = scr
+
+        return (
+            GoldenMapTensor(out_dispatched, mesh_shape),
+            GoldenMapTensor(out_indices, mesh_shape),
+            GoldenMapTensor(out_scores, mesh_shape),
+        )
+
     def _build_all_to_all_combine_golden(
         self,
         input_tensor: GoldenMapTensor,
@@ -14811,6 +14898,250 @@ class TTIRBuilder(Builder):
                         [input_tensor, expert_indices, expert_mapping]
                     )
                     ordered_outputs.extend([new_op_dispatched, new_op_metadata])
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dispatch_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dispatch_module, dispatch_builder
+
+    ############### ttir.AllToAllDispatchMetadataOp ###############
+
+    @tag(ttir.AllToAllDispatchMetadataOp)
+    def all_to_all_dispatch_metadata(
+        self,
+        input_tensor: Operand,
+        expert_indices: Operand,
+        expert_scores: Operand,
+        expert_mapping: Operand,
+        num_devices: int = 2,
+        cluster_axis: int = 0,
+        dispatched_shape: Optional[Shape] = None,
+        dispatched_type: Optional[torch.dtype] = None,
+        indices_shape: Optional[Shape] = None,
+        indices_type: Optional[torch.dtype] = None,
+        scores_shape: Optional[Shape] = None,
+        scores_type: Optional[torch.dtype] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult, OpResult]:
+        assert (
+            dispatched_shape is not None
+        ), "dispatched_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            dispatched_type is not None
+        ), "dispatched_type must be provided for all_to_all_dispatch_metadata"
+        assert (
+            indices_shape is not None
+        ), "indices_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            indices_type is not None
+        ), "indices_type must be provided for all_to_all_dispatch_metadata"
+        assert (
+            scores_shape is not None
+        ), "scores_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            scores_type is not None
+        ), "scores_type must be provided for all_to_all_dispatch_metadata"
+
+        mlir_dispatched_type = self._get_type_from_torch_dtype(dispatched_type)
+        mlir_indices_type = self._get_type_from_torch_dtype(indices_type)
+        mlir_scores_type = self._get_type_from_torch_dtype(scores_type)
+
+        dispatched_result = self._create_ranked_tensor_type(
+            dispatched_shape, mlir_dispatched_type
+        )
+        indices_result = self._create_ranked_tensor_type(
+            indices_shape, mlir_indices_type
+        )
+        scores_result = self._create_ranked_tensor_type(scores_shape, mlir_scores_type)
+
+        num_devices_attr = IntegerAttr.get(IntegerType.get_signless(64), num_devices)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_signless(64), cluster_axis)
+
+        loc = self._get_location()
+
+        op = ttir.AllToAllDispatchMetadataOp(
+            dispatched_result,
+            indices_result,
+            scores_result,
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            num_devices_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        in0 = self._get_golden_tensor(input_tensor)
+        in1 = self._get_golden_tensor(expert_indices)
+        in2 = self._get_golden_tensor(expert_scores)
+        in3 = self._get_golden_tensor(expert_mapping)
+        (
+            golden_dispatched,
+            golden_indices,
+            golden_scores,
+        ) = self._build_all_to_all_dispatch_metadata_golden(
+            in0, in1, in2, in3, num_devices, cluster_axis
+        )
+        self._set_golden_tensor(op.dispatched, golden_dispatched)
+        self._set_golden_tensor(op.indices, golden_indices)
+        self._set_golden_tensor(op.scores, golden_scores)
+
+        return op.dispatched, op.indices, op.scores
+
+    @parse(ttir.AllToAllDispatchMetadataOp)
+    def all_to_all_dispatch_metadata_parser(
+        self,
+        old_op: ttir.AllToAllDispatchMetadataOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.all_to_all_dispatch_metadata_parser
+        )
+
+        input_tensor = global_dict[old_op.input_tensor]
+        expert_indices = global_dict[old_op.expert_indices]
+        expert_scores = global_dict[old_op.expert_scores]
+        expert_mapping = global_dict[old_op.expert_mapping]
+        dispatched_type = old_op.dispatched.type
+        indices_type = old_op.indices.type
+        scores_type = old_op.scores.type
+        num_devices_attr = old_op.num_devices
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            dispatched_type,
+            indices_type,
+            scores_type,
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            num_devices_attr,
+            cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_dispatched = new_op.dispatched
+        new_op_indices = new_op.indices
+        new_op_scores = new_op.scores
+
+        input0 = self._get_golden_tensor(input_tensor)
+        input1 = self._get_golden_tensor(expert_indices)
+        input2 = self._get_golden_tensor(expert_scores)
+        input3 = self._get_golden_tensor(expert_mapping)
+        num_devices = int(unpack_mlir_attr(num_devices_attr))
+        cluster_axis = int(unpack_mlir_attr(cluster_axis_attr))
+        (
+            golden_dispatched,
+            golden_indices,
+            golden_scores,
+        ) = self._build_all_to_all_dispatch_metadata_golden(
+            input0, input1, input2, input3, num_devices, cluster_axis
+        )
+        self._set_golden_tensor(new_op_dispatched, golden_dispatched)
+        self._set_golden_tensor(new_op_indices, golden_indices)
+        self._set_golden_tensor(new_op_scores, golden_scores)
+
+        op_map_dictionary = {
+            old_op.dispatched: new_op_dispatched,
+            old_op.indices: new_op_indices,
+            old_op.scores: new_op_scores,
+        }
+        return new_op, op_map_dictionary
+
+    @split(ttir.AllToAllDispatchMetadataOp)
+    def all_to_all_dispatch_metadata_split(
+        self,
+        old_op: ttir.AllToAllDispatchMetadataOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(
+            TTIRBuilder.all_to_all_dispatch_metadata_split
+        )
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            dispatch_module = Module.create()
+            dispatch_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.input_tensor.type,
+                old_op.expert_indices.type,
+                old_op.expert_scores.type,
+                old_op.expert_mapping.type,
+            ]
+
+            with InsertionPoint(dispatch_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(
+                    *op_input_types,
+                    name="all_to_all_dispatch_metadata_module",
+                )
+                def decorated_func(*inputs):
+                    input_tensor = inputs[0]
+                    expert_indices = inputs[1]
+                    expert_scores = inputs[2]
+                    expert_mapping = inputs[3]
+                    dispatched_type = old_op.dispatched.type
+                    indices_type = old_op.indices.type
+                    scores_type = old_op.scores.type
+
+                    new_op = ttir_op(
+                        dispatched_type,
+                        indices_type,
+                        scores_type,
+                        input_tensor,
+                        expert_indices,
+                        expert_scores,
+                        expert_mapping,
+                        old_op.num_devices,
+                        old_op.cluster_axis,
+                        loc=old_op.location,
+                    )
+                    new_op_dispatched = new_op.dispatched
+                    new_op_indices = new_op.indices
+                    new_op_scores = new_op.scores
+
+                    input0 = self._get_golden_tensor(old_op.input_tensor)
+                    input1 = self._get_golden_tensor(old_op.expert_indices)
+                    input2 = self._get_golden_tensor(old_op.expert_scores)
+                    input3 = self._get_golden_tensor(old_op.expert_mapping)
+                    old_dispatched = self._get_golden_tensor(old_op.dispatched)
+                    old_indices = self._get_golden_tensor(old_op.indices)
+                    old_scores = self._get_golden_tensor(old_op.scores)
+
+                    dispatch_builder._set_golden_tensor(
+                        new_op_dispatched, old_dispatched
+                    )
+                    dispatch_builder._set_golden_tensor(new_op_indices, old_indices)
+                    dispatch_builder._set_golden_tensor(new_op_scores, old_scores)
+                    dispatch_builder._set_golden_tensor(input_tensor, input0)
+                    dispatch_builder._set_golden_tensor(expert_indices, input1)
+                    dispatch_builder._set_golden_tensor(expert_scores, input2)
+                    dispatch_builder._set_golden_tensor(expert_mapping, input3)
+                    ordered_inputs.extend(
+                        [
+                            input_tensor,
+                            expert_indices,
+                            expert_scores,
+                            expert_mapping,
+                        ]
+                    )
+                    ordered_outputs.extend(
+                        [new_op_dispatched, new_op_indices, new_op_scores]
+                    )
 
                     return new_op
 

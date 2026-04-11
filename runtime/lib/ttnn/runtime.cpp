@@ -1355,6 +1355,7 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp:
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
   case ::tt::target::ttnn::OpType::TopKOp:
@@ -1764,6 +1765,14 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_AllToAllDispatchOp()->input_tensor(),
                   opContext.type_as_AllToAllDispatchOp()->expert_indices(),
                   opContext.type_as_AllToAllDispatchOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp: {
+    tensorRefs = {
+        opContext.type_as_AllToAllDispatchMetadataOp()->input_tensor(),
+        opContext.type_as_AllToAllDispatchMetadataOp()->expert_indices(),
+        opContext.type_as_AllToAllDispatchMetadataOp()->expert_scores(),
+        opContext.type_as_AllToAllDispatchMetadataOp()->expert_mapping()};
     break;
   }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {

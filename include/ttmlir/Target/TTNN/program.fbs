@@ -37,6 +37,7 @@ union OpType {
   AllReduceAsyncOp,
   AllReduceOp,
   AllToAllCombineOp,
+  AllToAllDispatchMetadataOp,
   AllToAllDispatchOp,
   ArangeOp,
   AssignOp,

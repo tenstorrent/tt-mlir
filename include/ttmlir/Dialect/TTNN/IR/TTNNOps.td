@@ -1649,6 +1649,49 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
+    let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens along with expert scores to devices holding their selected
+      experts via all-to-all communication. Returns the dispatched tokens,
+      all-gathered expert indices, and all-gathered expert scores.
+      Used in the MoE dispatch/combine flow with metadata-aware routing.
+
+      The metal kernel produces 3D outputs:
+        - dispatched: [1, total_tokens, H]
+        - indices:    [1, total_tokens, K]
+        - scores:     [1, total_tokens, K]
+      where total_tokens = D * S (num_devices * sequence_length).
+
+      Inputs:
+        - input_tensor:  4D [B, 1, S, H]
+        - expert_indices: 4D [B, 1, S, K]
+        - expert_scores:  4D [B, 1, S, K]
+        - expert_mapping: 2D [D, E] (devices x experts)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_CoreCoordAttr>:$drain_core);
+
+    let results = (outs AnyRankedTensor:$dispatched,
+                       AnyRankedTensor:$indices,
+                       AnyRankedTensor:$scores);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllToAllDispatchMetadataOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{

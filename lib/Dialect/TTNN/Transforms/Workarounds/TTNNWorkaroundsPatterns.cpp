@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
@@ -609,7 +610,9 @@ public:
           workarounds::decomposition::
               DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
-          workarounds::decomposition::TopKRouterGptDecompositionRewritePattern>(
+          workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
+          workarounds::decomposition::
+              AllToAllDispatchMetadataDrainCoreRewritePattern>(
           &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
