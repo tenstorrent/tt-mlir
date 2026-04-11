@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -125,6 +124,76 @@ LayoutFilterFn MatmulRuleBook::getInputLayoutFilter() const {
   // Reject width-sharded inputs for matmul/linear: accuracy issues observed
   // with width-sharded activation tensors feeding into matmul.
   return layout_filter_utils::rejectWidthSharded;
+}
+
+bool MatmulRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint,
+    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (!std::holds_alternative<MatmulAttrs>(hint.opSpecificAttrs)) {
+    return true;
+  }
+  const auto &matmulAttrs = std::get<MatmulAttrs>(hint.opSpecificAttrs);
+  if (!matmulAttrs.matmulProgramConfig.has_value()) {
+    return true;
+  }
+
+  auto programConfig = matmulAttrs.matmulProgramConfig.value();
+
+  if (inputLayouts.size() < 2) {
+    return true;
+  }
+
+  // Helper to safely extract TensorMemoryLayout from a layout attribute.
+  auto getMemLayoutVal =
+      [](TTNNLayoutAttr layout) -> std::optional<TensorMemoryLayout> {
+    if (!layout) {
+      return std::nullopt;
+    }
+    auto ml = layout.getMemLayout();
+    if (!ml) {
+      return std::nullopt;
+    }
+    return ml.getValue();
+  };
+
+  auto in0Mem = getMemLayoutVal(inputLayouts[0]);
+
+  return llvm::TypeSwitch<mlir::Attribute, bool>(programConfig)
+      .Case<MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(
+          [&](auto config) {
+            // mcast_in0=true broadcasts input A: incompatible with
+            // height-sharded input A. mcast_in0=false broadcasts input B:
+            // incompatible with width-sharded input A.
+            if (config.getMcastIn0()) {
+              if (in0Mem == TensorMemoryLayout::HeightSharded) {
+                return false;
+              }
+            } else {
+              if (in0Mem == TensorMemoryLayout::WidthSharded) {
+                return false;
+              }
+            }
+            return true;
+          })
+      .Case<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          [&](auto) {
+            // DRAM-sharded config requires input B to live in DRAM.
+            if (inputLayouts[1] &&
+                inputLayouts[1].getBufferType() != BufferType::DRAM) {
+              return false;
+            }
+            return true;
+          })
+      .Case<MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
+          [&](auto) {
+            // 2D block-sharded config: width-sharded input A is incompatible
+            // with the row-multicast pattern.
+            if (in0Mem == TensorMemoryLayout::WidthSharded) {
+              return false;
+            }
+            return true;
+          })
+      .Default([](mlir::Attribute) { return true; });
 }
 
 OutputHints MatmulRuleBook::getOutputHints(

@@ -32,6 +32,13 @@ struct MatmulRuleBook : OpRuleBook {
   /// Reject width-sharded inputs (accuracy issues).
   LayoutFilterFn getInputLayoutFilter() const override;
 
+  /// Reject output hint + input layout combinations that are incompatible with
+  /// the chosen program config type (e.g., DRAM-sharded requires input B in
+  /// DRAM; mcast_in0 rejects height-sharded input A).
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+
   /// Apply MatmulProgramConfig + fused activation dedup.
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;

@@ -176,6 +176,16 @@ generateMatmul1DHeightConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
       /*untilize_out=*/false);
 }
 
+// Mt threshold distinguishing prefill (large M) from decode (small M).
+// Shapes above this threshold stream weights from DRAM (in0BlockW=1) rather
+// than reusing cached tiles, to avoid L1 pressure.
+static constexpr int64_t kPrefillMtThreshold = 4;
+
+// Mt threshold above which fuse_batch must be disabled.
+// For very large M (e.g. long sequence lengths), fusing batch dimensions
+// causes excessively large per-core tile counts and L1 overflow.
+static constexpr int64_t kFuseBatchMtLimit = 64;
+
 // Generate MatmulMultiCoreReuseMultiCastProgramConfig for block sharded output.
 std::optional<mlir::Attribute>
 generateMatmul2DConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt, int64_t Kt,
@@ -187,7 +197,22 @@ generateMatmul2DConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt, int64_t Kt,
   int64_t perCoreM = divUp(Mt, gridY);
   int64_t perCoreN = divUp(Nt, gridX);
 
-  int64_t in0BlockW = (Kt % 2 == 0) ? 2 : 1;
+  // For prefill-like shapes (large Mt), stream input A from DRAM one tile at a
+  // time to avoid L1 overflow; for decode-like shapes, use a wider block to
+  // improve reuse.
+  int64_t in0BlockW;
+  if (Mt > kPrefillMtThreshold) {
+    in0BlockW = 1;
+  } else {
+    in0BlockW = (Kt % 2 == 0) ? 2 : 1;
+  }
+
+  // For very large M (long sequences), disable fuse_batch to prevent
+  // excessively large per-core tile counts and L1 overflow.
+  if (Mt > kFuseBatchMtLimit) {
+    fuseBatch = false;
+  }
+
   int64_t outSubblockH = 1;
 
   // out_subblock_w must divide out_block_w (== perCoreN) evenly.
@@ -207,14 +232,29 @@ generateMatmul2DConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt, int64_t Kt,
       fuseBatch);
 }
 
-// Stub for DRAM-sharded config (WidthSharded output with Mt==1, decode path).
-// Implemented in Task 3.
+// Generate MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig.
+// Only valid for decode-like shapes where Mt == 1. Input B must remain in DRAM.
+// Each core computes 1 row of output tiles (perCoreM=1) and a slice of columns.
 std::optional<mlir::Attribute>
 generateMatmulDRAMShardedConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                                 int64_t Kt, TTNNLayoutAttr outputLayout,
                                 UnaryWithParamAttr fusedActivation,
                                 int64_t maxSubblockSize, bool fuseBatch) {
-  return std::nullopt;
+  if (Mt != 1) {
+    return std::nullopt;
+  }
+
+  auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
+  int64_t numCores = gridX * gridY;
+
+  int64_t perCoreM = 1;
+  int64_t perCoreN = divUp(Nt, numCores);
+  int64_t in0BlockW = (Kt % 2 == 0) ? 2 : 1;
+
+  return MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr::get(
+      ctx, static_cast<uint64_t>(in0BlockW),
+      static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
+      fusedActivation);
 }
 
 std::optional<mlir::Attribute>
