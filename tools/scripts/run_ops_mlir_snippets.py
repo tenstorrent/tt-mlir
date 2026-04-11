@@ -373,9 +373,7 @@ def _process_file(
 
     snippets = extract_functions_from_mlir(content)
     if hasattr(args, "func") and args.func:
-        snippets = [
-            (name, mlir) for name, mlir in snippets if args.func in name
-        ]
+        snippets = [(name, mlir) for name, mlir in snippets if args.func in name]
     if not snippets:
         print(
             f"warning: no matching func.func definitions in {ops_path}, skipping",
@@ -403,9 +401,7 @@ def _process_file(
         result = SnippetResult(func_name=func_name)
 
         capture_ctx = (
-            contextlib.nullcontext([])
-            if args.print_ir
-            else _capture_fd_stderr()
+            contextlib.nullcontext([]) if args.print_ir else _capture_fd_stderr()
         )
         with capture_ctx as captured:
             try:
@@ -445,9 +441,7 @@ def _process_file(
             continue
 
         capture_ctx = (
-            contextlib.nullcontext([])
-            if args.print_ir
-            else _capture_fd_stderr()
+            contextlib.nullcontext([]) if args.print_ir else _capture_fd_stderr()
         )
         with capture_ctx as captured:
             try:

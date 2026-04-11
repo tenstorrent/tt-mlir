@@ -33,8 +33,8 @@ static void decomposeSoftmax(SoftmaxOp op, IRRewriter &rewriter) {
                                        rewriter.getBoolAttr(true), dimAttr);
 
   // x_shifted = x - m (broadcasts along reduced dim)
-  auto shifted = rewriter.create<SubtractOp>(loc, inputType, input,
-                                             maxVal.getResult());
+  auto shifted =
+      rewriter.create<SubtractOp>(loc, inputType, input, maxVal.getResult());
 
   // e = exp(x_shifted)
   auto expVal = rewriter.create<ExpOp>(loc, inputType, shifted.getResult());
@@ -62,8 +62,7 @@ public:
 
   void runOnOperation() final {
     llvm::SmallVector<SoftmaxOp> opsToDecompose;
-    getOperation()->walk(
-        [&](SoftmaxOp op) { opsToDecompose.push_back(op); });
+    getOperation()->walk([&](SoftmaxOp op) { opsToDecompose.push_back(op); });
 
     IRRewriter rewriter(&getContext());
     for (SoftmaxOp op : opsToDecompose) {

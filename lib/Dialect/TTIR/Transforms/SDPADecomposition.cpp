@@ -61,7 +61,8 @@ static void decomposeSDPA(ScaledDotProductAttentionOp op,
   }
 
   // Transpose K: [B, NKV, Sk, D] -> [B, NKV, D, Sk]
-  // Explicit permute because D2M matmul doesn't support transpose_b (TODO #2591).
+  // Explicit permute because D2M matmul doesn't support transpose_b (TODO
+  // #2591).
   int64_t keyRank = keyType.getRank();
   SmallVector<int64_t> keyPerm;
   for (int64_t i = 0; i < keyRank - 2; ++i) {
@@ -69,9 +70,9 @@ static void decomposeSDPA(ScaledDotProductAttentionOp op,
   }
   keyPerm.push_back(keyRank - 1);
   keyPerm.push_back(keyRank - 2);
-  auto keyTransposedType = RankedTensorType::get(
-      {kShape[0], kShape[1], kShape[3], kShape[2]}, elemType,
-      keyType.getEncoding());
+  auto keyTransposedType =
+      RankedTensorType::get({kShape[0], kShape[1], kShape[3], kShape[2]},
+                            elemType, keyType.getEncoding());
   auto keyT = rewriter.create<PermuteOp>(
       loc, keyTransposedType, key, rewriter.getDenseI64ArrayAttr(keyPerm));
 
@@ -82,8 +83,7 @@ static void decomposeSDPA(ScaledDotProductAttentionOp op,
   int64_t scoresSeq = isGQA ? groups * querySeqLen : querySeqLen;
   auto scoresType = RankedTensorType::get(
       {batch, scoresHead, scoresSeq, kvSeqLen}, elemType, encoding);
-  auto scores = rewriter.create<MatmulOp>(loc, scoresType, q,
-                                          keyT.getResult());
+  auto scores = rewriter.create<MatmulOp>(loc, scoresType, q, keyT.getResult());
 
   // Reshape scores back to [B, NH, Sq, Sk] for scaling/masking/softmax.
   auto fullScoresType = RankedTensorType::get(
@@ -140,17 +140,16 @@ static void decomposeSDPA(ScaledDotProductAttentionOp op,
   // Else:    [B, NH, Sq, Sk] x [B, NH, Sk, D] = [B, NH, Sq, D]
   int64_t outHead = isGQA ? numKVHeads : numHeads;
   int64_t outSeq = isGQA ? groups * querySeqLen : querySeqLen;
-  auto outMatmulType = RankedTensorType::get(
-      {batch, outHead, outSeq, headSize}, elemType, encoding);
-  auto output =
-      rewriter.create<MatmulOp>(loc, outMatmulType, probsVal, value);
+  auto outMatmulType = RankedTensorType::get({batch, outHead, outSeq, headSize},
+                                             elemType, encoding);
+  auto output = rewriter.create<MatmulOp>(loc, outMatmulType, probsVal, value);
 
   // Reshape back to [B, NH, Sq, D] if GQA.
   Value result = output.getResult();
   if (isGQA) {
-    result = reshapeTo(loc, rewriter, result,
-                       {batch, numHeads, querySeqLen, headSize}, elemType,
-                       encoding);
+    result =
+        reshapeTo(loc, rewriter, result,
+                  {batch, numHeads, querySeqLen, headSize}, elemType, encoding);
   }
 
   rewriter.replaceOp(op, result);
@@ -164,9 +163,8 @@ public:
 
   void runOnOperation() final {
     llvm::SmallVector<ScaledDotProductAttentionOp> opsToDecompose;
-    getOperation()->walk([&](ScaledDotProductAttentionOp op) {
-      opsToDecompose.push_back(op);
-    });
+    getOperation()->walk(
+        [&](ScaledDotProductAttentionOp op) { opsToDecompose.push_back(op); });
 
     IRRewriter rewriter(&getContext());
     for (ScaledDotProductAttentionOp op : opsToDecompose) {
