@@ -822,11 +822,11 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
     auto compositeView = info.op;
 
     // The composite_view handles its own inputs instead of relying on
-    // updateToLayoutOps, and does not use computePhysicalShape to recreate the
-    // input with its grid-aligned shape.
-    // Views don't own the data and we want to stack other views on top of the
-    // composite_view, it might be difficult to update the upstream to_layout:
-    // e.g. one input is from a slicing view.
+    // updateToLayoutOps. When a composite_view input comes directly from a
+    // single-use to_layout, we update the to_layout's grid to physically
+    // distribute data across multiple cores, preventing L1 overflow when
+    // multiple inputs must coexist. For other inputs (e.g. from slicing
+    // views), we insert a view_layout to logically reblock.
     SmallVector<Value> reblockedInputs;
     for (Value input : compositeView.getInputs()) {
       auto inputType = mlir::cast<RankedTensorType>(input.getType());
@@ -846,6 +846,39 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
       if (llvm::ArrayRef(currentGrid) == llvm::ArrayRef(inputOptimalGrid)) {
         reblockedInputs.push_back(input);
         continue;
+      }
+
+      // When the input comes directly from a to_layout op with a single use,
+      // update the to_layout's grid so that data is physically distributed
+      // across multiple cores. This prevents L1 memory overflow when multiple
+      // concat inputs must coexist in L1 on a single core.
+      if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
+          toLayoutOp && input.hasOneUse()) {
+        auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
+        if (emptyOp) {
+          RankedTensorType newTensorType = tensorWithOptimalGrid(
+              inputType, config, inputOptimalGrid, builder);
+
+          builder.setInsertionPoint(emptyOp);
+          auto newEmptyOp = builder.create<d2m::EmptyOp>(
+              emptyOp.getLoc(), newTensorType.getShape(),
+              newTensorType.getElementType(), newTensorType.getEncoding(),
+              config.targetSquareGridShape);
+
+          builder.setInsertionPoint(toLayoutOp);
+          auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
+              toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
+
+          toLayoutOp.getResult(0).replaceAllUsesWith(
+              newToLayoutOp.getResult(0));
+          toLayoutOp.erase();
+          if (emptyOp.getResult().use_empty()) {
+            emptyOp.erase();
+          }
+
+          reblockedInputs.push_back(newToLayoutOp.getResult(0));
+          continue;
+        }
       }
 
       auto viewTensorType = mlir::cast<RankedTensorType>(
