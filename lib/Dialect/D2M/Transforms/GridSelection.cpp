@@ -837,6 +837,10 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
         continue;
       }
 
+      // Use the original physical shape (tile-only alignment) for grid
+      // computation. Grid-aware alignment would inflate each input's concat
+      // dimension independently, making the sum of inputs exceed the output's
+      // physical size and breaking the composite_view concat invariant.
       auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
       auto inputPhysShape = inputLayout.getPhysicalShape(tileType.getShape());
       auto inputOptimalGrid =
@@ -852,12 +856,18 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
       // update the to_layout's grid so that data is physically distributed
       // across multiple cores. This prevents L1 memory overflow when multiple
       // concat inputs must coexist in L1 on a single core.
+      //
+      // Use reblockShapedType (not tensorWithOptimalGrid) to preserve the
+      // existing dim alignments. Recomputing grid-aware dim alignments per
+      // input would give each input different padding on the concat dimension,
+      // breaking the composite_view invariant that input physical dims sum to
+      // <= the output's physical dim.
       if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
           toLayoutOp && input.hasOneUse()) {
         auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
         if (emptyOp) {
-          RankedTensorType newTensorType = tensorWithOptimalGrid(
-              inputType, config, inputOptimalGrid, builder);
+          auto newTensorType = mlir::cast<RankedTensorType>(
+              utils::reblockShapedType(inputType, inputOptimalGrid));
 
           builder.setInsertionPoint(emptyOp);
           auto newEmptyOp = builder.create<d2m::EmptyOp>(
