@@ -1702,16 +1702,15 @@ private:
       mcastDimValues.reserve(mcastGridDims.size());
       for (int64_t gridDim : mcastGridDims) {
         mcastDimValues.push_back(
-            builder.create<mlir::arith::ConstantIndexOp>(loc, gridDim));
+            mlir::arith::ConstantIndexOp::create(builder, loc, gridDim));
       }
-      return builder
-          .create<d2m::RemoteLoadOp>(loc, shardType, loadBuffer, genericOperand,
-                                     gridIndices, mcastDimValues)
+      return d2m::RemoteLoadOp::create(builder, loc, shardType, loadBuffer,
+                                       genericOperand, gridIndices,
+                                       mcastDimValues)
           .getResult();
     }
-    return builder
-        .create<d2m::RemoteLoadOp>(loc, shardType, loadBuffer, genericOperand,
-                                   gridIndices)
+    return d2m::RemoteLoadOp::create(builder, loc, shardType, loadBuffer,
+                                     genericOperand, gridIndices)
         .getResult();
   }
 
@@ -1821,8 +1820,8 @@ private:
     mlir::SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, op, physicalRank);
 
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs, /*additionalArgs=*/mlir::ValueRange(),
+    auto generic = d2m::GenericOp::create(
+        rewriter, loc, inputs, outputs, /*additionalArgs=*/mlir::ValueRange(),
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
@@ -1839,8 +1838,9 @@ private:
     mlir::AffineMap inputIndexingMap = generic.getIndexingMap(0);
     mlir::SmallVector<mlir::Value> inputIndices =
         d2m::utils::buildGridIndices(rewriter, loc, inputIndexingMap);
-    mlir::Value inputLoadBuffer = rewriter.create<mlir::tensor::EmptyOp>(
-        loc, inputShardType.getShape(), inputShardType.getElementType());
+    mlir::Value inputLoadBuffer =
+        mlir::tensor::EmptyOp::create(rewriter, loc, inputShardType.getShape(),
+                                      inputShardType.getElementType());
     mlir::SmallVector<int64_t> mcastGridDims;
     if (enableMulticastInference) {
       mcastGridDims =
@@ -1922,13 +1922,12 @@ private:
           d2m::utils::buildGridIndices(rewriter, loc, storeMap);
       mlir::Value genericOperand = generic->getOperand(operandIdx);
       storeResults.push_back(
-          rewriter
-              .create<d2m::RemoteStoreOp>(loc, genericOperand.getType(),
-                                          genericOperand, indices,
-                                          linalgGeneric.getResult(outputIdx))
+          d2m::RemoteStoreOp::create(rewriter, loc, genericOperand.getType(),
+                                     genericOperand, indices,
+                                     linalgGeneric.getResult(outputIdx))
               .getResult());
     }
-    rewriter.create<d2m::YieldOp>(loc, storeResults);
+    d2m::YieldOp::create(rewriter, loc, storeResults);
 
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);

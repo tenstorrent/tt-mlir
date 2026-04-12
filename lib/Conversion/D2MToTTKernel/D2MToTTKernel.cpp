@@ -1475,19 +1475,21 @@ public:
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           if (isIntTile) {
-            rewriter.create<ttkernel::AddUnaryTileInt32Op>(loc, dstIdx,
-                                                           scalarParam);
+            ttkernel::AddUnaryTileInt32Op::create(rewriter, loc, dstIdx,
+                                                  scalarParam);
           } else {
-            rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+            ttkernel::AddUnaryTileOp::create(rewriter, loc, dstIdx,
+                                             scalarParam);
           }
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           if (isIntTile) {
-            rewriter.create<ttkernel::SubUnaryTileInt32Op>(loc, dstIdx,
-                                                           scalarParam);
+            ttkernel::SubUnaryTileInt32Op::create(rewriter, loc, dstIdx,
+                                                  scalarParam);
           } else {
-            rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+            ttkernel::SubUnaryTileOp::create(rewriter, loc, dstIdx,
+                                             scalarParam);
           }
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
