@@ -1451,6 +1451,31 @@ def all_to_all_combine_golden(
     return GoldenMapTensor(output_shards, input_tensor.mesh_shape)
 
 
+def selective_reduce_combine_golden(
+    dense_input_tensor: GoldenMapTensor,
+    dense_activations_tensor: GoldenMapTensor,
+    dense_token_maps_tensor: GoldenMapTensor,
+    dense_token_counts_tensor: GoldenMapTensor,
+    hidden_size=2880,
+    batch_size=1,
+    seq_size=128,
+    select_experts_k=4,
+    experts=32,
+    axis=None,
+) -> GoldenMapTensor:
+    """
+    Golden for selective_reduce_combine.
+
+    This is a fabric CCL op whose routing logic cannot be faithfully
+    reproduced on host. Return zeros with the same shape/dtype as the
+    dense input tensor so that the builder pipeline can proceed.
+    """
+    if isinstance(dense_input_tensor, GoldenMapTensor):
+        output_shape = tuple(int(d) for d in dense_input_tensor.shape)
+        return dense_input_tensor.zeros_like_builder(output_shape)
+    return torch.zeros_like(dense_input_tensor)
+
+
 def moe_expert_token_remap_golden(
     topk_tensor: GoldenMapTensor,
     expert_mapping: GoldenMapTensor,
@@ -7041,6 +7066,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SparseMatmulOp: sparse_matmul_golden,
     ttir.AllToAllDispatchOp: all_to_all_dispatch_golden,
     ttir.AllToAllCombineOp: all_to_all_combine_golden,
+    ttir.SelectiveReduceCombineOp: selective_reduce_combine_golden,
     ttir.MoeExpertTokenRemapOp: moe_expert_token_remap_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,

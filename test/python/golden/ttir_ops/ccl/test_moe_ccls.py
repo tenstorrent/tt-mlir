@@ -158,3 +158,136 @@ def test_moe_dispatch_combine(
         check_pcc=True,
         **get_request_kwargs(request),
     )
+
+
+# --- Selective reduce combine test (multi-device) ---
+# Shapes derived from tt-metal tests:
+# - DeepSeek decode: hidden=7168, batch=512, seq=1, K=2, experts=32, mesh=(1,16)
+# - GPT-OSS pipeline: hidden=2880, batch=128, seq=1, K=4, experts=128, mesh=(4,8)
+# We use a (1,2) mesh here but keep realistic per-device dimensions.
+
+
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize(
+    "hidden_size,batch,seq,select_experts_k,experts",
+    [
+        (2880, 128, 1, 4, 32),  # GPT-OSS style
+        (7168, 64, 1, 2, 16),  # DeepSeek decode style
+    ],
+    ids=["gpt_oss", "deepseek"],
+)
+def test_selective_reduce_combine(
+    target: str,
+    mesh_shape: Tuple[int, int],
+    hidden_size: int,
+    batch: int,
+    seq: int,
+    select_experts_k: int,
+    experts: int,
+    request,
+    device,
+):
+    """
+    Selective reduce combine on (1,2) mesh.
+
+    FullToShard(Devices) splits all 4 input tensors across devices along dim 1,
+    selective_reduce_combine runs per-device, ShardToFull(Devices) assembles the
+    full result.
+    """
+    D = mesh_shape[0] * mesh_shape[1]
+    experts_per_device = experts // D
+
+    # Shard tensor dim 1 across mesh dim 1
+    shard_shape_bd = [1, 1, 1, 1]
+    shard_shape_bd[2] = mesh_shape[0]  # mesh dim 0 -> tensor dim 2
+    shard_shape_bd[1] = mesh_shape[1]  # mesh dim 1 -> tensor dim 1
+    shard_dims_bd = [2, 1]
+
+    # For metadata/counts tensors: shard dim 1 across mesh dim 1
+    shard_shape_meta = [1, 1, 1, 1]
+    shard_shape_meta[2] = mesh_shape[0]
+    shard_shape_meta[1] = mesh_shape[1]
+    shard_dims_meta = [2, 1]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [
+                (experts_per_device, batch * D, seq, hidden_size),
+                (experts_per_device, batch * D, seq, hidden_size),
+                (1, batch * D, seq, select_experts_k),
+                (1, batch * D, seq, 1),
+            ],
+            [torch.bfloat16, torch.bfloat16, torch.int64, torch.int64],
+        )
+        def selective_reduce_combine_fn(
+            dense_input: Operand,
+            dense_activations: Operand,
+            dense_token_maps: Operand,
+            dense_token_counts: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Shard all inputs along dim 1
+            inp = builder.mesh_shard(
+                dense_input,
+                shard_type=MeshShardType.Devices,
+                shard_direction=MeshShardDirection.FullToShard,
+                shard_shape=shard_shape_bd,
+                shard_dims=shard_dims_bd,
+            )
+            act = builder.mesh_shard(
+                dense_activations,
+                shard_type=MeshShardType.Devices,
+                shard_direction=MeshShardDirection.FullToShard,
+                shard_shape=shard_shape_bd,
+                shard_dims=shard_dims_bd,
+            )
+            tok_maps = builder.mesh_shard(
+                dense_token_maps,
+                shard_type=MeshShardType.Devices,
+                shard_direction=MeshShardDirection.FullToShard,
+                shard_shape=shard_shape_meta,
+                shard_dims=shard_dims_meta,
+            )
+            tok_counts = builder.mesh_shard(
+                dense_token_counts,
+                shard_type=MeshShardType.Devices,
+                shard_direction=MeshShardDirection.FullToShard,
+                shard_shape=shard_shape_meta,
+                shard_dims=shard_dims_meta,
+            )
+
+            result = builder.selective_reduce_combine(
+                inp,
+                act,
+                tok_maps,
+                tok_counts,
+                hidden_size=hidden_size,
+                batch_size=batch,
+                seq_size=seq,
+                select_experts_k=select_experts_k,
+                experts=experts,
+                axis=1,
+                output_shape=(experts_per_device, batch, seq, hidden_size),
+                output_type=torch.bfloat16,
+                unit_attrs=unit_attrs,
+            )
+
+            return builder.mesh_shard(
+                result,
+                shard_type=MeshShardType.Devices,
+                shard_direction=MeshShardDirection.ShardToFull,
+                shard_shape=shard_shape_bd,
+                shard_dims=shard_dims_bd,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        mesh_name="mesh",
+        device=device,
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        check_pcc=True,
+        **get_request_kwargs(request),
+    )
