@@ -820,13 +820,24 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
   OpBuilder builder(compositeViewsToUpdate.front().op->getContext());
   for (const auto &info : compositeViewsToUpdate) {
     auto compositeView = info.op;
+    int32_t concatDim = compositeView.getDim();
 
-    // The composite_view handles its own inputs instead of relying on
-    // updateToLayoutOps. When a composite_view input comes directly from a
-    // single-use to_layout, we update the to_layout's grid to physically
-    // distribute data across multiple cores, preventing L1 overflow when
-    // multiple inputs must coexist. For other inputs (e.g. from slicing
-    // views), we insert a view_layout to logically reblock.
+    // Compute the output type first — its grid-aware dim alignments determine
+    // what physical shapes the inputs must match on non-concat dimensions.
+    auto outType =
+        mlir::cast<RankedTensorType>(compositeView.getResult().getType());
+    RankedTensorType newOutType =
+        tensorWithOptimalGrid(outType, config, info.grid, builder);
+    auto outLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
+
+    // Build per-input dim alignments that are coordinated with the output:
+    //  - Non-concat dims use the output's grid-aware alignment (so physical
+    //    sizes match).
+    //  - The concat dim uses tile-only alignment (so each input's contribution
+    //    isn't independently inflated, keeping sum ≤ output).
+    auto outDimAlignments = outLayout.getDimAlignments();
+
     SmallVector<Value> reblockedInputs;
     for (Value input : compositeView.getInputs()) {
       auto inputType = mlir::cast<RankedTensorType>(input.getType());
@@ -837,42 +848,53 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
         continue;
       }
 
-      // Use the original physical shape (tile-only alignment) for grid
-      // computation. Grid-aware alignment would inflate each input's concat
-      // dimension independently, making the sum of inputs exceed the output's
-      // physical size and breaking the composite_view concat invariant.
       auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
-      auto inputPhysShape = inputLayout.getPhysicalShape(tileType.getShape());
+      auto tileShape = tileType.getShape();
+
+      // Derive input dim alignments from the output, overriding the concat
+      // dim with tile-only alignment so each input's contribution isn't
+      // independently inflated.
+      llvm::SmallVector<int64_t> inputAlignments(outDimAlignments.begin(),
+                                                 outDimAlignments.end());
+      int64_t logicalRank = inputLayout.getLogicalShape().size();
+      int64_t concatLogicalDim =
+          concatDim < 0 ? logicalRank + concatDim : concatDim;
+      if (concatLogicalDim >= 0 &&
+          concatLogicalDim < static_cast<int64_t>(inputAlignments.size())) {
+        int64_t tileIdx = (concatLogicalDim >= logicalRank - 2)
+                              ? concatLogicalDim - (logicalRank - 2)
+                              : -1;
+        inputAlignments[concatLogicalDim] =
+            (tileIdx >= 0) ? tileShape[tileIdx] : 1;
+      }
+
+      auto coordLayout = ttcore::MetalLayoutAttr::get(
+          builder.getContext(), inputLayout.getLogicalShape(),
+          inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+          inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
+          inputAlignments);
+
+      auto inputPhysShape = coordLayout.getPhysicalShape(tileShape);
       auto inputOptimalGrid =
           computeOptimalGrid(inputType, inputPhysShape, config);
 
-      auto currentGrid = inputLayout.getGridShape(inputType);
-      if (llvm::ArrayRef(currentGrid) == llvm::ArrayRef(inputOptimalGrid)) {
-        reblockedInputs.push_back(input);
-        continue;
-      }
+      llvm::SmallVector<int64_t> deviceShape =
+          coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
+      auto newInputType = RankedTensorType::get(
+          deviceShape, inputType.getElementType(), coordLayout);
 
       // When the input comes directly from a to_layout op with a single use,
       // update the to_layout's grid so that data is physically distributed
-      // across multiple cores. This prevents L1 memory overflow when multiple
-      // concat inputs must coexist in L1 on a single core.
-      //
-      // Use reblockShapedType (not tensorWithOptimalGrid) to preserve the
-      // existing dim alignments. Recomputing grid-aware dim alignments per
-      // input would give each input different padding on the concat dimension,
-      // breaking the composite_view invariant that input physical dims sum to
-      // <= the output's physical dim.
+      // across multiple cores, preventing L1 overflow when multiple concat
+      // inputs must coexist in L1 on a single core.
       if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
           toLayoutOp && input.hasOneUse()) {
         auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
         if (emptyOp) {
-          auto newTensorType = mlir::cast<RankedTensorType>(
-              utils::reblockShapedType(inputType, inputOptimalGrid));
-
           builder.setInsertionPoint(emptyOp);
           auto newEmptyOp = builder.create<d2m::EmptyOp>(
-              emptyOp.getLoc(), newTensorType.getShape(),
-              newTensorType.getElementType(), newTensorType.getEncoding(),
+              emptyOp.getLoc(), newInputType.getShape(),
+              newInputType.getElementType(), newInputType.getEncoding(),
               config.targetSquareGridShape);
 
           builder.setInsertionPoint(toLayoutOp);
@@ -891,18 +913,11 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
         }
       }
 
-      auto viewTensorType = mlir::cast<RankedTensorType>(
-          utils::reblockShapedType(inputType, inputOptimalGrid));
       builder.setInsertionPoint(compositeView);
       auto view = builder.create<d2m::ViewLayoutOp>(compositeView.getLoc(),
-                                                    viewTensorType, input);
+                                                    newInputType, input);
       reblockedInputs.push_back(view.getResult());
     }
-
-    auto outType =
-        mlir::cast<RankedTensorType>(compositeView.getResult().getType());
-    RankedTensorType newOutType =
-        tensorWithOptimalGrid(outType, config, info.grid, builder);
 
     builder.setInsertionPoint(compositeView);
     auto newCompositeView = builder.create<d2m::CompositeViewOp>(
