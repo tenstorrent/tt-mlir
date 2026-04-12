@@ -27,9 +27,9 @@ module attributes {} {
     %indices: tensor<1x1x128x4xi64>,
     %scores: tensor<1x1x128x4xbf16>,
     %expert_mapping: tensor<1x1x8x32xi64>
-  ) -> (tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x2x128x4xbf16>) {
-    %dispatched, %idx_out, %scores_out = "ttir.all_to_all_dispatch_metadata"(%activations, %indices, %scores, %expert_mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64}> : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x8x32xi64>) -> (tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x2x128x4xbf16>)
-    return %dispatched, %idx_out, %scores_out : tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x2x128x4xbf16>
+  ) -> (tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>) {
+    %dispatched, %idx_out, %scores_out = "ttir.all_to_all_dispatch_metadata"(%activations, %indices, %scores, %expert_mapping) <{cluster_axis = 0 : i64, num_devices = 2 : i64}> : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x8x32xi64>) -> (tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>)
+    return %dispatched, %idx_out, %scores_out : tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>
   }
 }
 

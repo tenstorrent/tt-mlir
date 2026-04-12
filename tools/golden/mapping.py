@@ -1336,32 +1336,94 @@ def all_to_all_dispatch_golden(
 
 
 def all_to_all_dispatch_metadata_golden(
-    input_tensor,
-    expert_indices,
-    expert_scores,
-    expert_mapping,
+    input_tensor: GoldenMapTensor,
+    expert_indices: GoldenMapTensor,
+    expert_scores: GoldenMapTensor,
+    expert_mapping: GoldenMapTensor,
     num_devices=2,
     cluster_axis=0,
-):
-    """Golden for dispatch_metadata — placeholder for per-shard torch_function path.
+) -> Tuple:
+    """Cross-shard golden for all_to_all_dispatch_metadata.
 
-    The real cross-shard golden is in TTIRBuilder._build_all_to_all_dispatch_metadata_golden
-    which has access to the full GoldenMapTensor and can simulate cross-device routing.
-    This fallback just repeats the input as a rough approximation.
+    Mirrors tt-metal's gen_tensors_for_metadata_op / get_output_tensor:
+    - Dispatched: sparse routing — for each token and each of its K selected
+      experts, the token is placed on the device that owns that expert.
+      Non-routed slots are filled with random data (matching tt-metal).
+    - Indices (metadata): all-gathered — every ring device gets the full set
+      of expert indices from all ring devices.
+    - Scores: all-gathered — same as indices.
+
+    expert_mapping has new format [1, 1, D, E] where entry [0, 0, d, e] is
+    the linearized device ID that owns expert e (same for all d).
     """
-    D = num_devices if isinstance(num_devices, int) else 2
+    num_devs = num_devices if isinstance(num_devices, int) else 2
+    mesh_shape = input_tensor.mesh_shape
+    grouped_inputs = input_tensor.group_by_axis(cluster_axis)
+    grouped_indices = expert_indices.group_by_axis(cluster_axis)
+    grouped_scores = expert_scores.group_by_axis(cluster_axis)
 
-    def _to_dispatch_layout(tensor):
-        if tensor.shape[1] == 1:
-            return tensor.permute(1, 0, 2, 3)
-        if tensor.shape[2] == 1:
-            return tensor.permute(2, 0, 1, 3)
-        return tensor.unsqueeze(0)
+    # expert_mapping is replicated — get from any device
+    mapping_tensor = list(expert_mapping._shard_map.values())[0]
+    # Shape is [1, 1, D, E] — squeeze to [D, E], use row 0 since all rows identical
+    mapping_2d = mapping_tensor.reshape(-1, mapping_tensor.shape[-1])  # [D, E]
+    mapping_row = mapping_2d[0]  # [E] — mapping_row[e] = device_id owning expert e
 
-    dispatched = _to_dispatch_layout(input_tensor).repeat(1, D, 1, 1)
-    indices = _to_dispatch_layout(expert_indices).repeat(1, D, 1, 1)
-    scores = _to_dispatch_layout(expert_scores).repeat(1, D, 1, 1)
-    return dispatched, indices, scores
+    out_dispatched = {}
+    out_indices = {}
+    out_scores = {}
+
+    for ring_group_inp, ring_group_idx, ring_group_scr in zip(
+        grouped_inputs, grouped_indices, grouped_scores
+    ):
+        ring_device_ids = sorted(ring_group_inp.keys())
+        sample = ring_group_inp[ring_device_ids[0]]
+        M = sample.reshape(-1, sample.shape[-1]).shape[0]
+        H = sample.shape[-1]
+        K = ring_group_idx[ring_device_ids[0]].shape[-1]
+        total_tokens = num_devs * M
+
+        # Reconstruct full tensors across the ring in ring-position order
+        full_input = torch.cat(
+            [ring_group_inp[d].reshape(-1, H) for d in ring_device_ids], dim=0
+        )  # [total_tokens, H]
+        full_idx = torch.cat(
+            [ring_group_idx[d].reshape(-1, K) for d in ring_device_ids], dim=0
+        )  # [total_tokens, K]
+        full_scr = torch.cat(
+            [ring_group_scr[d].reshape(-1, K) for d in ring_device_ids], dim=0
+        )  # [total_tokens, K]
+
+        # --- Dispatched: sparse expert-based routing ---
+        # Initialize with zeros so non-routed slots are identifiable.
+        disp_per_dev = {
+            d: torch.zeros(1, total_tokens, H, dtype=full_input.dtype)
+            for d in ring_device_ids
+        }
+
+        for t in range(total_tokens):
+            token_data = full_input[t]  # [H]
+            for k in range(K):
+                expert_id = int(full_idx[t, k].item())
+                target_device_id = int(mapping_row[expert_id].item())
+                # Only route if target device is in this ring
+                if target_device_id in disp_per_dev:
+                    disp_per_dev[target_device_id][0, t, :] = token_data
+
+        # --- Indices/Scores: all-gathered (every device gets full set) ---
+        # 3D shapes matching metal kernel output: [1, tokens_global, C]
+        idx_out = full_idx.reshape(1, total_tokens, K)
+        scr_out = full_scr.reshape(1, total_tokens, K)
+
+        for dev_id in ring_device_ids:
+            out_dispatched[dev_id] = disp_per_dev[dev_id]  # already [1, total_tokens, H]
+            out_indices[dev_id] = idx_out.clone()
+            out_scores[dev_id] = scr_out.clone()
+
+    return (
+        GoldenMapTensor(out_dispatched, mesh_shape),
+        GoldenMapTensor(out_indices, mesh_shape),
+        GoldenMapTensor(out_scores, mesh_shape),
+    )
 
 
 def all_to_all_combine_golden(

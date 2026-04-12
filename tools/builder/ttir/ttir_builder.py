@@ -203,82 +203,15 @@ class TTIRBuilder(Builder):
         num_devices: int,
         cluster_axis: int,
     ) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
-        """Cross-shard golden for all_to_all_dispatch_metadata.
+        from golden.mapping import all_to_all_dispatch_metadata_golden
 
-        For each ring (group along cluster_axis), simulate the all-to-all:
-        the metal kernel allocates total_tokens = M * ring_devices slots per
-        device. Each slot i holds the token from ring position (i // M) at
-        local index (i % M). Slots for tokens not routed to this device's
-        experts are zeroed.
-        """
-        import torch
-
-        mesh_shape = input_tensor.mesh_shape
-        grouped_inputs = input_tensor.group_by_axis(cluster_axis)
-        grouped_indices = expert_indices.group_by_axis(cluster_axis)
-        grouped_scores = expert_scores.group_by_axis(cluster_axis)
-
-        # expert_mapping is replicated, grab any shard — shape [1, 1, D, E]
-        mapping_tensor = next(iter(expert_mapping.shard_map.values()))
-        if mapping_tensor.dim() == 4:
-            mapping_tensor = mapping_tensor.squeeze(0).squeeze(0)
-
-        out_dispatched = {}
-        out_indices = {}
-        out_scores = {}
-
-        for ring_group_inp, ring_group_idx, ring_group_scr in zip(
-            grouped_inputs, grouped_indices, grouped_scores
-        ):
-            ring_device_ids = sorted(ring_group_inp.keys())
-            # Get per-device token count M and feature dims
-            sample = ring_group_inp[ring_device_ids[0]]
-            M = sample.reshape(-1, sample.shape[-1]).shape[0]
-            H = sample.shape[-1]
-            K = ring_group_idx[ring_device_ids[0]].shape[-1]
-            total_tokens = M * num_devices
-
-            for target_dev_id in ring_device_ids:
-                # Pre-allocate full output: [1, total_tokens, C]
-                disp = torch.zeros(1, total_tokens, H, dtype=sample.dtype)
-                idx = torch.zeros(1, total_tokens, K, dtype=ring_group_idx[ring_device_ids[0]].dtype)
-                scr = torch.zeros(1, total_tokens, K, dtype=ring_group_scr[ring_device_ids[0]].dtype)
-
-                # Fill slot-by-slot from each ring device
-                for ring_pos, src_dev_id in enumerate(ring_device_ids):
-                    src_input = ring_group_inp[src_dev_id].reshape(-1, H)
-                    src_idx = ring_group_idx[src_dev_id].reshape(-1, K)
-                    src_scr = ring_group_scr[src_dev_id].reshape(-1, K)
-
-                    for t in range(M):
-                        slot = ring_pos * M + t
-                        # Check if this token is routed to target_dev_id
-                        routed = False
-                        for k in range(K):
-                            expert_id = int(src_idx[t, k].item())
-                            if expert_id < mapping_tensor.shape[1]:
-                                owner = int(mapping_tensor[target_dev_id, expert_id].item())
-                                if owner == target_dev_id:
-                                    routed = True
-                                    break
-                        if routed:
-                            disp[0, slot] = src_input[t]
-                            idx[0, slot] = src_idx[t]
-                            scr[0, slot] = src_scr[t]
-
-                # Reshape to 4D [1, num_devices, M, C]
-                disp = disp.reshape(1, num_devices, M, H)
-                idx = idx.reshape(1, num_devices, M, K)
-                scr = scr.reshape(1, num_devices, M, K)
-
-                out_dispatched[target_dev_id] = disp
-                out_indices[target_dev_id] = idx
-                out_scores[target_dev_id] = scr
-
-        return (
-            GoldenMapTensor(out_dispatched, mesh_shape),
-            GoldenMapTensor(out_indices, mesh_shape),
-            GoldenMapTensor(out_scores, mesh_shape),
+        return all_to_all_dispatch_metadata_golden(
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            num_devices=num_devices,
+            cluster_axis=cluster_axis,
         )
 
     def _build_all_to_all_combine_golden(

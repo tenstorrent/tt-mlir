@@ -1719,25 +1719,14 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllToAllDispatchMetadataOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // TTIR outputs are 4D [1, D, S, C]. Metal kernel produces 3D
-    // [1, D*S, C]. Convert output types to 3D for the TTNN op, then
-    // reshape results back to 4D for downstream TTIR consumers.
-    auto dispatched4D = cast<RankedTensorType>(
+    // TTIR outputs are 3D [1, tokens_global, C], matching the metal kernel.
+    // No output reshape needed.
+    auto dispatched3D = cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getDispatched().getType()));
-    auto indices4D = cast<RankedTensorType>(
+    auto indices3D = cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getIndices().getType()));
-    auto scores4D = cast<RankedTensorType>(
+    auto scores3D = cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getScores().getType()));
-
-    // Build 3D types by collapsing dims 1 and 2: [1, D, S, C] -> [1, D*S, C]
-    auto to3D = [&](RankedTensorType type4D) -> RankedTensorType {
-      auto shape = type4D.getShape();
-      SmallVector<int64_t> shape3D = {shape[0], shape[1] * shape[2], shape[3]};
-      return ttnn::utils::RankedTensorTypeFactory::create(type4D, shape3D);
-    };
-    auto dispatched3D = to3D(dispatched4D);
-    auto indices3D = to3D(indices4D);
-    auto scores3D = to3D(scores4D);
 
     // Reshape expert_mapping from 4D [1, 1, D, E] to 2D [D, E].
     Value expertMapping = adaptor.getExpertMapping();
@@ -1755,32 +1744,12 @@ public:
           /*memory_config=*/ttnn::MemoryConfigAttr());
     }
 
-    // Create the TTNN op with 3D output types.
-    auto ttnnOp = rewriter.create<ttnn::AllToAllDispatchMetadataOp>(
-        op.getLoc(), dispatched3D, indices3D, scores3D,
-        adaptor.getInputTensor(), adaptor.getExpertIndices(),
-        adaptor.getExpertScores(), expertMapping, op.getNumDevicesAttr(),
-        op.getClusterAxisAttr(),
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
+        op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
+        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
         /*memory_config=*/nullptr,
         /*drain_core=*/nullptr);
-
-    // Reshape each 3D output back to 4D for TTIR consumers.
-    auto reshapeTo4D = [&](Value result3D,
-                           RankedTensorType type4D) -> Value {
-      SmallVector<int32_t> shape4D;
-      for (int64_t d : type4D.getShape()) {
-        shape4D.push_back(static_cast<int32_t>(d));
-      }
-      return rewriter.create<ttnn::ReshapeOp>(
-          op.getLoc(), type4D, result3D, rewriter.getI32ArrayAttr(shape4D),
-          /*memory_config=*/ttnn::MemoryConfigAttr());
-    };
-
-    Value dispatched = reshapeTo4D(ttnnOp.getDispatched(), dispatched4D);
-    Value indices = reshapeTo4D(ttnnOp.getIndices(), indices4D);
-    Value scores = reshapeTo4D(ttnnOp.getScores(), scores4D);
-
-    rewriter.replaceOp(op, {dispatched, indices, scores});
     return success();
   }
 };

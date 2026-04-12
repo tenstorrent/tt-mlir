@@ -10,7 +10,6 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 LogicalResult AllToAllDispatchMetadataDrainCoreRewritePattern::matchAndRewrite(
     AllToAllDispatchMetadataOp srcOp, PatternRewriter &rewriter) const {
-  // Skip if drain_core is already set.
   if (srcOp.getDrainCoreAttr()) {
     return failure();
   }

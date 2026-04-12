@@ -156,6 +156,20 @@ private:
            dataType == ttcore::DataType::Int32;
   }
 
+  // Check if a sharded tensor's shard shape is compatible with tiling on device.
+  // TILE layout requires shard dimensions to be multiples of the tile size (32).
+  bool canTilizeShardedOnDevice(const LayoutInfo &layoutInfo) const {
+    if (!layoutInfo.isL1Sharded()) {
+      return true; // Not sharded — no constraint.
+    }
+    for (int64_t dim : layoutInfo.shardShape) {
+      if (dim % 32 != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
     // tt-metal untilize supports: bfloat16, float32, uint32, int32
     // (requires use_pack_untilize for uint32/int32)
@@ -528,7 +542,8 @@ private:
 
     // If the tensor tilizable on device, we can move the tensor to device and
     // perform the tilization on device.
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType) &&
+        canTilizeShardedOnDevice(output)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -689,7 +704,8 @@ private:
     // If we need to tilize and change the data type from a tilizable data
     // format to another format, we can move the tensor to the device, perform
     // the tilization, and then cast the data type on the device
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType) &&
+        canTilizeShardedOnDevice(input)) {
       currentInput =
           this->createToDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput =
@@ -705,7 +721,8 @@ private:
     // If we need to tilize and change the data format from another format
     // to a tilizable data format, we can cast the data type on host, move
     // the tensor to device, and then tilize on device.
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType)) {
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(output.dataType) &&
+        canTilizeShardedOnDevice(output)) {
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
       currentInput =
@@ -855,9 +872,10 @@ private:
       return;
     }
 
-    // If we should tilize and the input data type is device-tilizable, tilize
-    // on device
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
+    // If we should tilize and the input data type is device-tilizable and
+    // shard shape is tile-aligned, tilize on device
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType) &&
+        canTilizeShardedOnDevice(input)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
@@ -868,9 +886,11 @@ private:
       return;
     }
 
-    // If we should tilize and the input data type is not device tilizable,
-    // tilize on host
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
+    // If we should tilize and the input data type is not device tilizable
+    // or shard shape is not tile-aligned, tilize on host
+    if (info.shouldTilize() &&
+        (!canTilizeDataTypeOnDevice(input.dataType) ||
+         !canTilizeShardedOnDevice(input)) &&
         opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -880,9 +900,12 @@ private:
       return;
     }
 
-    // If we want to tilize a device tensor that is not device tilizable, we
-    // need to tilize on host and move it back
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
+    // If we want to tilize a device tensor that is not device tilizable or
+    // has non-tile-aligned shard shape, we need to tilize on host and move
+    // it back
+    if (info.shouldTilize() &&
+        (!canTilizeDataTypeOnDevice(input.dataType) ||
+         !canTilizeShardedOnDevice(input)) &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(
@@ -1049,9 +1072,10 @@ private:
       return;
     }
 
-    // If we should tilize and the input data type is device tilizable, tilize
-    // and typecast on device
-    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
+    // If we should tilize and the input data type is device tilizable and
+    // shard shape (if sharded) is tile-aligned, tilize and typecast on device
+    if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType) &&
+        canTilizeShardedOnDevice(input)) {
       currentInput =
           this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
@@ -1064,9 +1088,11 @@ private:
       return;
     }
 
-    // If we should tilize and the input data type is not device tilizable and
-    // we want to read back from device do everything on host
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
+    // If we should tilize and the input is not device tilizable (dtype or
+    // shard shape) and we want to read back from device, do everything on host
+    if (info.shouldTilize() &&
+        (!canTilizeDataTypeOnDevice(input.dataType) ||
+         !canTilizeShardedOnDevice(input)) &&
         opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
@@ -1078,10 +1104,12 @@ private:
       return;
     }
 
-    // If we should tilize and the input data type is not device tilizable and
-    // we don't want to read back from device: tilize on host, move back to
-    // device, and typecast on device
-    if (info.shouldTilize() && !canTilizeDataTypeOnDevice(input.dataType) &&
+    // If we should tilize and the input is not device tilizable (dtype or
+    // shard shape) and we don't want to read back from device: tilize on host,
+    // move back to device, and typecast on device
+    if (info.shouldTilize() &&
+        (!canTilizeDataTypeOnDevice(input.dataType) ||
+         !canTilizeShardedOnDevice(input)) &&
         !opsToCreate.createFromDeviceOp) {
       // Force-create a FromDeviceOp
       currentInput = this->createFromDeviceOpIfNeeded(

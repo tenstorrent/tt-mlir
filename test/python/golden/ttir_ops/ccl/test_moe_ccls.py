@@ -167,20 +167,16 @@ def test_moe_dispatch_combine(
 def _build_expert_mapping(E_total, D_total, mesh_cols, cluster_axis=0):
     """Build expert-to-device mapping tensor [1, 1, D_total, E_total].
 
-    Mirrors tt-metal's _gen_expert_mapping_6u / get_linearized_mesh_coord.
+    Mirrors tt-metal's gen_expert_mapping / get_linearized_mesh_coord.
     Each entry mapping[d, e] = linearized device ID that owns expert e.
     All rows are identical (every device sees the same mapping).
-
-    For cluster_axis=0 on a (rows, cols) mesh:
-      - experts_per_cluster = E_total / cols
-      - experts_per_device  = E_total / D_total
-      - owner(e) = (e % experts_per_cluster) // experts_per_device * cols + e // experts_per_cluster
+    Uses int32 dtype matching tt-metal's integer-typed generation.
     """
     experts_per_cluster = E_total // mesh_cols
     experts_per_device = E_total // D_total
 
     # Build one row of the mapping
-    row = torch.zeros(E_total, dtype=torch.bfloat16)
+    row = torch.zeros(E_total, dtype=torch.int32)
     for e in range(E_total):
         if cluster_axis == 0:
             cluster_id = e // experts_per_cluster
@@ -195,21 +191,27 @@ def _build_expert_mapping(E_total, D_total, mesh_cols, cluster_axis=0):
 
 
 def _build_expert_indices(batch, S, K, E_total):
-    """Build valid expert index tensors [batch, 1, S, K] with values in [0, E_total)."""
-    indices = torch.zeros(batch, 1, S, K, dtype=torch.bfloat16)
+    """Build valid expert index tensors [batch, 1, S, K] with values in [0, E_total).
+
+    Uses int32 dtype matching tt-metal's integer-typed generation (torch.int16 → ttnn.uint16).
+    """
+    indices = torch.zeros(batch, 1, S, K, dtype=torch.int32)
     for b in range(batch):
         for s in range(S):
             sel = torch.randperm(E_total)[:K].sort().values
-            indices[b, 0, s, :] = sel.to(torch.bfloat16)
+            indices[b, 0, s, :] = sel.to(torch.int32)
     return indices
 
 
 def _build_expert_scores(batch, S, K):
-    """Build valid normalized expert scores [batch, 1, S, K]."""
-    scores = torch.rand(batch, 1, S, K, dtype=torch.bfloat16) + 1e-3
-    # Normalize each token's scores to sum to 1
+    """Build valid normalized expert scores [batch, 1, S, K].
+
+    Matches tt-metal: torch.rand → float32 → normalize → bfloat16.
+    """
+    scores = torch.rand(batch, 1, S, K, dtype=torch.float32)
+    scores = scores + 1e-5  # avoid zeros (tt-metal uses 1e-5)
     scores = scores / scores.sum(dim=-1, keepdim=True)
-    return scores
+    return scores.to(torch.bfloat16)
 
 
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
@@ -243,42 +245,67 @@ def test_moe_dispatch_metadata(
     D_total = mesh_shape[0] * mesh_shape[1]  # 32 total devices
     tokens_global = M * ring_devices  # 128 total tokens across the ring
 
-    # Pre-build valid routing data
+    # Pre-build valid input data matching tt-metal's generation pattern.
     torch.manual_seed(42)
+    valid_activations = torch.rand(1, 1, tokens_global, H, dtype=torch.bfloat16)
     valid_mapping = _build_expert_mapping(E_total, D_total, mesh_cols, cluster_axis=0)
     valid_indices = _build_expert_indices(1, tokens_global, selected_experts_k, E_total)
     valid_scores = _build_expert_scores(1, tokens_global, selected_experts_k)
 
-    # Shard pattern: mesh dim 0 (4 rows) shards tensor dim 2 (token dim),
-    #                mesh dim 1 (8 cols) replicates.
-    # [1, 1, tokens_global, C] → per device [1, 1, M, C]
+    # Build per-device routing mask [rows, cols, tokens_global, 1].
+    # mask[r, c, t, 0] = 1.0 if token t is routed to device (r*cols + c).
+    # After mesh_shard (dim 0 across rows, dim 1 across cols), each device
+    # gets its own [1, 1, tokens_global, 1] mask. Multiplying the dispatched
+    # output by this mask zeros out unrouted (garbage) slots so PCC works.
+    mapping_row = valid_mapping.reshape(-1, E_total)[0]  # [E_total]
+    routed_mask = torch.zeros(
+        mesh_shape[0], mesh_shape[1], tokens_global, 1, dtype=torch.bfloat16
+    )
+    flat_idx = valid_indices.reshape(tokens_global, selected_experts_k)
+    for t in range(tokens_global):
+        for k in range(selected_experts_k):
+            expert_id = int(flat_idx[t, k].item())
+            target_dev = int(mapping_row[expert_id].item())
+            r, c = target_dev // mesh_cols, target_dev % mesh_cols
+            routed_mask[r, c, t, 0] = 1.0
+
+    # Shard patterns
     shard_shape_tokens = [1, 1, 1, 1]
-    shard_shape_tokens[2] = mesh_shape[0]  # mesh dim 0 → tensor dim 2
-    shard_dims_tokens = [2, -1]  # shard dim 2 across rows, replicate across cols
+    shard_shape_tokens[2] = mesh_shape[0]
+    shard_dims_tokens = [2, -1]  # dim 2 across rows, replicate across cols
+
+    shard_shape_mask = [1, 1, 1, 1]
+    shard_shape_mask[0] = mesh_shape[0]  # dim 0 across rows
+    shard_shape_mask[1] = mesh_shape[1]  # dim 1 across cols
+    shard_dims_mask = [0, 1]
 
     def module(builder: TTIRBuilder):
         @builder.func(
             [
-                (1, 1, tokens_global, H),  # activations [1, 1, tokens_global, H]
-                (1, 1, tokens_global, selected_experts_k),  # expert_indices
-                (1, 1, tokens_global, selected_experts_k),  # expert_scores
-                (1, 1, D_total, E_total),  # expert_mapping [1, 1, D, E]
+                (1, 1, tokens_global, H),
+                (1, 1, tokens_global, selected_experts_k),
+                (1, 1, tokens_global, selected_experts_k),
+                (1, 1, D_total, E_total),
+                (mesh_shape[0], mesh_shape[1], tokens_global, 1),  # routing mask
             ],
-            [torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.bfloat16],
+            [torch.bfloat16, torch.int32, torch.bfloat16, torch.int32, torch.bfloat16],
         )
         def moe_dispatch_metadata_gpt_oss(
             activations: Operand,
             expert_indices: Operand,
             expert_scores: Operand,
             expert_mapping: Operand,
+            routing_mask: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            # Override random goldens with valid routing data to avoid
-            # fabric deadlocks from nonsensical expert routing.
             from golden.mapping import GoldenMapTensor
 
             ms = builder._mesh_shape
+            builder._set_golden_tensor(
+                activations,
+                GoldenMapTensor({0: valid_activations}, mesh_shape=ms),
+            )
             builder._set_golden_tensor(
                 expert_indices,
                 GoldenMapTensor({0: valid_indices}, mesh_shape=ms),
@@ -291,9 +318,11 @@ def test_moe_dispatch_metadata(
                 expert_mapping,
                 GoldenMapTensor({0: valid_mapping}, mesh_shape=ms),
             )
+            builder._set_golden_tensor(
+                routing_mask,
+                GoldenMapTensor({0: routed_mask}, mesh_shape=ms),
+            )
 
-            # Shard activations/indices/scores along token dim across rows,
-            # replicate across columns.
             act = builder.mesh_shard(
                 activations,
                 shard_type=MeshShardType.Devices,
@@ -315,7 +344,6 @@ def test_moe_dispatch_metadata(
                 shard_shape=shard_shape_tokens,
                 shard_dims=shard_dims_tokens,
             )
-            # Replicate expert_mapping across all devices
             emap = builder.mesh_shard(
                 expert_mapping,
                 shard_type=MeshShardType.Replicate,
@@ -323,28 +351,35 @@ def test_moe_dispatch_metadata(
                 shard_shape=[1, 1, 1, 1],
                 shard_dims=[],
             )
+            # Shard mask: each device gets its own [1, 1, tokens_global, 1]
+            mask = builder.mesh_shard(
+                routing_mask,
+                shard_type=MeshShardType.Devices,
+                shard_direction=MeshShardDirection.FullToShard,
+                shard_shape=shard_shape_mask,
+                shard_dims=shard_dims_mask,
+            )
 
-            # dispatch_metadata along cluster_axis=0 (ring of 4 devices)
-            # Per-device input: [1, 1, M, H]
-            # Per-device output: [1, tokens_global, H] (3D from metal,
-            #   reshaped to [1, ring_devices, M, H] by TTIRToTTNN)
             dispatched, indices_out, scores_out = builder.all_to_all_dispatch_metadata(
-                act,
-                idx,
-                scr,
-                emap,
+                act, idx, scr, emap,
                 num_devices=ring_devices,
                 cluster_axis=0,
-                dispatched_shape=(1, ring_devices, M, H),
+                dispatched_shape=(1, tokens_global, H),
                 dispatched_type=torch.bfloat16,
-                indices_shape=(1, ring_devices, M, selected_experts_k),
+                indices_shape=(1, tokens_global, selected_experts_k),
                 indices_type=torch.bfloat16,
-                scores_shape=(1, ring_devices, M, selected_experts_k),
+                scores_shape=(1, tokens_global, selected_experts_k),
                 scores_type=torch.bfloat16,
                 unit_attrs=unit_attrs,
             )
 
-            return dispatched
+            # Reshape mask [1, 1, tokens_global, 1] → [1, tokens_global, 1]
+            # to match dispatched shape [1, tokens_global, H], then multiply
+            # to zero out unrouted garbage slots for clean PCC comparison.
+            mask_reshaped = builder.reshape(mask, (1, tokens_global, 1))
+            masked_dispatched = builder.multiply(dispatched, mask_reshaped)
+
+            return masked_dispatched
 
     compile_and_execute_ttir(
         module,

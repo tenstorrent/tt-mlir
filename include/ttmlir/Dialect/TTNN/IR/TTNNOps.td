@@ -1653,21 +1653,25 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
     let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
     let description = [{
       Routes tokens along with expert scores to devices holding their selected
-      experts via all-to-all communication. Returns the dispatched tokens,
+      experts via all-to-all communication within a ring (cluster_axis).
+      Returns dispatched tokens (sparse — only routed token slots are filled),
       all-gathered expert indices, and all-gathered expert scores.
-      Used in the MoE dispatch/combine flow with metadata-aware routing.
 
-      The metal kernel produces 3D outputs:
-        - dispatched: [1, total_tokens, H]
-        - indices:    [1, total_tokens, K]
-        - scores:     [1, total_tokens, K]
-      where total_tokens = D * S (num_devices * sequence_length).
+      Dimensions:
+        M = tokens per ring device
+        K = selected experts per token
+        D = total devices, E = total experts
 
-      Inputs:
-        - input_tensor:  4D [B, 1, S, H]
-        - expert_indices: 4D [B, 1, S, K]
-        - expert_scores:  4D [B, 1, S, K]
-        - expert_mapping: 2D [D, E] (devices x experts)
+      Input shapes (per device, after mesh sharding):
+        - input_tensor:   [1, 1, M, H]
+        - expert_indices: [1, 1, M, K]
+        - expert_scores:  [1, 1, M, K]
+        - expert_mapping: [D, E]  entry [d, e] = device ID owning expert e
+
+      Output shapes (per device, num_devices * M = tokens_global):
+        - dispatched: [1, tokens_global, H]
+        - indices:    [1, tokens_global, K]  (all-gathered across ring)
+        - scores:     [1, tokens_global, K]  (all-gathered across ring)
     }];
 
     let arguments = (ins AnyRankedTensor:$input_tensor,
