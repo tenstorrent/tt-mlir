@@ -52,7 +52,7 @@ if(TTMLIR_BUILD_LLVM)
         llvm-project
         # Super hacky way to install the python dependencies before the build
         # Sync nanobind with tt-metal's pinned version to avoid ODR violations
-        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -c ${CMAKE_CURRENT_LIST_DIR}/pip-constraints.txt -r mlir/python/requirements.txt && git config user.email \"tt-mlir@tenstorrent.com\" && git config user.name \"tenstorrent\" && git commit -m \"tt-mlir related patch\""
+        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -c ${CMAKE_CURRENT_LIST_DIR}/pip-constraints.txt -r mlir/python/requirements.txt && git config user.email \"tt-mlir@tenstorrent.com\" && git config user.name \"tenstorrent\""
         CMAKE_GENERATOR Ninja
         CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
