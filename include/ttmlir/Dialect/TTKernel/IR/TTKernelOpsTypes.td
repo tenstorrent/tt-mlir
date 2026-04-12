@@ -116,6 +116,11 @@ def TTKernel_TensorAccessorPageMapping : TTKernel_Type<"TensorAccessorPageMappin
   let description = "TensorAccessor struct that holds bank_id and bank_page_offset";
 }
 
+def TTKernel_DSpec : TTKernel_Type<"DSpec", "DSpec"> {
+  let summary = "DSpec type";
+  let description = "DistributionSpec that holds tensor distribution metadata";
+}
+
 def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
     let summary = "TTKernel compute data format type";
     let description = "Data format type in TTKernel dialect";

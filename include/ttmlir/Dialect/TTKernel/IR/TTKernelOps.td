@@ -3763,6 +3763,58 @@ def TTKernel_TensorAccessorIsLocalShardOp : TTKernel_Op<"tensor_accessor.is_loca
   }];
 }
 
+def TTKernel_TensorAccessorDSpecOp : TTKernel_Op<"tensor_accessor.dspec"> {
+  let summary = "Get DSpec from TensorAccessor";
+  let description = [{
+    Returns the DistributionSpec from a TensorAccessor.
+  }];
+  let arguments = (ins TTKernel_TensorAccessor:$tensor_accessor);
+  let results = (outs TTKernel_DSpec:$result);
+
+  let assemblyFormat = [{
+    `(` $tensor_accessor `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_DSpecShardShapeOp : TTKernel_Op<"dspec.shard_shape"> {
+  let summary = "DSpec shard_shape indexed access";
+  let description = [{
+    Returns dspec.shard_shape()[dim] as a uint32_t.
+  }];
+  let arguments = (ins TTKernel_DSpec:$dspec, I32:$dim);
+  let results = (outs I32:$result);
+
+  let assemblyFormat = [{
+    `(` $dspec `,` $dim `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_DSpecTensorStridesOp : TTKernel_Op<"dspec.tensor_strides"> {
+  let summary = "DSpec tensor_strides indexed access";
+  let description = [{
+    Returns dspec.tensor_strides()[dim] as a uint32_t.
+  }];
+  let arguments = (ins TTKernel_DSpec:$dspec, I32:$dim);
+  let results = (outs I32:$result);
+
+  let assemblyFormat = [{
+    `(` $dspec `,` $dim `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_DSpecShardStridesOp : TTKernel_Op<"dspec.shard_strides"> {
+  let summary = "DSpec shard_strides indexed access";
+  let description = [{
+    Returns dspec.shard_strides()[dim] as a uint32_t.
+  }];
+  let arguments = (ins TTKernel_DSpec:$dspec, I32:$dim);
+  let results = (outs I32:$result);
+
+  let assemblyFormat = [{
+    `(` $dspec `,` $dim `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Misc operations
 //===----------------------------------------------------------------------===//

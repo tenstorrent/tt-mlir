@@ -1743,6 +1743,40 @@ module {
       return
     }
 
+    // TEST: DSpec ops — tensor_accessor.dspec and dspec.{shard_shape,tensor_strides,shard_strides}
+
+    // CHECK-LABEL: func @test_dspec_ops
+    func.func @test_dspec_ops() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_offset = arith.constant 2 : i32
+      %crta_offset = arith.constant 0 : i32
+      %bank_address = arith.constant 303104 : i32
+      %page_size = arith.constant 32 : i32
+      %tensor_accessor_args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"
+      %tensor_accessor = "ttkernel.TensorAccessor"(%tensor_accessor_args, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      // CHECK: emitc.verbatim "auto [[DSPEC:dspec_[0-9]+]] = {}.dspec();" args %[[TA]] : !emitc.opaque<"TensorAccessor">
+      // CHECK: %[[DSPEC_LIT:.*]] = emitc.literal "[[DSPEC]]" : !emitc.opaque<"DSpec">
+      %dspec = "ttkernel.tensor_accessor.dspec"(%tensor_accessor) : (!ttkernel.TensorAccessor) -> !ttkernel.DSpec
+
+      %dim0 = arith.constant 0 : i32
+      %dim1 = arith.constant 1 : i32
+
+      // CHECK: emitc.verbatim "uint32_t [[SS0:.*]] = {}.shard_shape()[{}];" args %[[DSPEC_LIT]], {{.*}} : !emitc.opaque<"DSpec">, i32
+      // CHECK: emitc.literal "[[SS0]]" : i32
+      %shard_shape_0 = "ttkernel.dspec.shard_shape"(%dspec, %dim0) : (!ttkernel.DSpec, i32) -> i32
+
+      // CHECK: emitc.verbatim "uint32_t [[TS1:.*]] = {}.tensor_strides()[{}];" args %[[DSPEC_LIT]], {{.*}} : !emitc.opaque<"DSpec">, i32
+      // CHECK: emitc.literal "[[TS1]]" : i32
+      %tensor_strides_1 = "ttkernel.dspec.tensor_strides"(%dspec, %dim1) : (!ttkernel.DSpec, i32) -> i32
+
+      // CHECK: emitc.verbatim "uint32_t [[SHS0:.*]] = {}.shard_strides()[{}];" args %[[DSPEC_LIT]], {{.*}} : !emitc.opaque<"DSpec">, i32
+      // CHECK: emitc.literal "[[SHS0]]" : i32
+      %shard_strides_0 = "ttkernel.dspec.shard_strides"(%dspec, %dim0) : (!ttkernel.DSpec, i32) -> i32
+
+      return
+    }
+
     // TEST: Chained TensorAccessorArgs with literal, constexpr, and chained offsets
     // Tests the new functionality for chaining TensorAccessorArgs using
     // prev_args.next_compile_time_args_offset() in template arguments

@@ -182,8 +182,12 @@ std::vector<std::uint32_t> processKernelArgs(
 
       if constexpr (isCompileTime) {
         auto ctArgs = tensorAccessorArgs.get_compile_time_args();
+        for (auto a : ctArgs) {
+          LOG_TRACE(logger::LogRuntimeTTMetalKernelArg, "asdf a: ", a);
+        }
         argsVec.insert(argsVec.end(), ctArgs.begin(), ctArgs.end());
 
+        LOG_ASSERT(argsVec.size() <= args->size(), "Not enough TensorAccessor argument slots reverved in kernel argument spec");
         for (size_t i = 1; i < ctArgs.size(); ++i) {
           LOG_ASSERT(args->Get(argIdx + i)->arg_type() == target::metal::KernelArgType::KernelArgReserved, "Not enough TensorAccessor argument slots reverved in kernel argument spec");
         }
@@ -191,6 +195,7 @@ std::vector<std::uint32_t> processKernelArgs(
         auto rtArgs = tensorAccessorArgs.get_common_runtime_args();
         argsVec.insert(argsVec.end(), rtArgs.begin(), rtArgs.end());
 
+        LOG_ASSERT(argsVec.size() <= args->size(), "Not enough TensorAccessor argument slots reverved in kernel argument spec");
         for (size_t i = 1; i < rtArgs.size(); ++i) {
           LOG_ASSERT(args->Get(argIdx + i)->arg_type() == target::metal::KernelArgType::KernelArgReserved, "Not enough TensorAccessor argument slots reverved in kernel argument spec");
         }
@@ -198,8 +203,33 @@ std::vector<std::uint32_t> processKernelArgs(
       break;
     }
 
+    case target::metal::KernelArgType::KernelArgTensorStride: {
+      const auto *arg = kernelArg->arg_as_KernelArgTensorStride();
+      const target::metal::BufferRef *buffer =
+          reinterpret_cast<const target::metal::BufferRef *>(
+              argRefs->Get(arg->operand_idx()));
+      LOG_ASSERT(meshBuffers.find(buffer->global_id()) != meshBuffers.end(),
+                 "Buffer id referenced by TensorStride arg is no longer "
+                 "alive or was never created ",
+                 logger::Buffer(buffer->global_id()));
+
+      auto meshBuffer = meshBuffers.at(buffer->global_id());
+      auto physicalShardShape = meshBuffer->physical_shard_shape();
+      std::array<std::uint32_t, 2> stride = {static_cast<std::uint32_t>(physicalShardShape.width()), static_cast<std::uint32_t>(1)};
+      argsVec.insert(argsVec.end(), stride.begin(), stride.end());
+
+      LOG_ASSERT(argsVec.size() <= args->size(), "Not enough TensorStride argument slots reverved in kernel argument spec");
+      for (size_t i = 1; i < stride.size(); ++i) {
+        LOG_ASSERT(args->Get(argIdx + i)->arg_type() == target::metal::KernelArgType::KernelArgReserved, "Not enough TensorStride argument slots reverved in kernel argument spec");
+      }
+      break;
+    }
+
     case target::metal::KernelArgType::KernelArgReserved: {
-      // Nothing to do
+      // Some Reserved users, like TensorAccessor, conservatively reserve space for runtime dependent slots. Just zero fill slots that ended up not being used.
+      if (argIdx == argsVec.size()) {
+        argsVec.push_back(0);
+      }
       break;
     }
 

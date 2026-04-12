@@ -173,6 +173,9 @@ static mlir::Attribute convertKernelArg(Builder &builder,
   case ttkernel::ArgType::TensorAccessor: {
     llvm_unreachable("TensorAccessor is not supported in TTNN mode");
   }
+  case ttkernel::ArgType::TensorStride: {
+    llvm_unreachable("TensorStride is not supported in TTNN mode");
+  }
   case ttkernel::ArgType::Reserved: {
     llvm_unreachable("TensorAccessor is not supported in TTNN mode");
   }

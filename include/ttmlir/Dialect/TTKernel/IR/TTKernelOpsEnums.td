@@ -71,7 +71,8 @@ def TTKernel_ArgTypeNamedArgument : I32EnumAttrCase<"NamedArgument", 3, "named_a
 def TTKernel_ArgTypeGlobalSemaphore : I32EnumAttrCase<"GlobalSemaphore", 4, "global_semaphore">;
 def TTKernel_ArgTypeScalar : I32EnumAttrCase<"Scalar", 5, "scalar">;
 def TTKernel_ArgTypeTensorAccessor : I32EnumAttrCase<"TensorAccessor", 6, "tensor_accessor">;
-def TTKernel_ArgTypeReserved : I32EnumAttrCase<"Reserved", 7, "reserved">;
+def TTKernel_ArgTypeTensorStride : I32EnumAttrCase<"TensorStride", 7, "tensor_stride">;
+def TTKernel_ArgTypeReserved : I32EnumAttrCase<"Reserved", 8, "reserved">;
 
 def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
                          [
@@ -82,6 +83,7 @@ def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
                            TTKernel_ArgTypeGlobalSemaphore,
                            TTKernel_ArgTypeScalar,
                            TTKernel_ArgTypeTensorAccessor,
+                           TTKernel_ArgTypeTensorStride,
                            TTKernel_ArgTypeReserved
                          ]> {
   let genSpecializedAttr = 0;

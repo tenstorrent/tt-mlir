@@ -177,6 +177,9 @@ public:
         [ctx](mlir::tt::ttkernel::TensorAccessorPageMappingType type) -> Type {
           return emitc::OpaqueType::get(ctx, "PageMapping");
         });
+    addConversion([ctx](mlir::tt::ttkernel::DSpecType type) -> Type {
+      return emitc::OpaqueType::get(ctx, "DSpec");
+    });
     addConversion(
         [ctx](mlir::tt::ttkernel::FabricConnectionManagerType type) -> Type {
           return emitc::OpaqueType::get(
@@ -768,6 +771,103 @@ public:
     auto literalOp =
         rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName);
 
+    rewriter.replaceOp(op, literalOp.getResult());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Rewriter for tensor_accessor.dspec: emits `auto varN = ta.dspec();`
+// Needs a custom rewriter because the return type is `auto` (deduced from
+// the TensorAccessor template) which cannot be spelled as a concrete C++ type.
+class TTKernelTensorAccessorDSpecOpRewriter
+    : public OpConversionPattern<ttkernel::TensorAccessorDSpecOp> {
+  using Op = ttkernel::TensorAccessorDSpecOp;
+
+public:
+  TTKernelTensorAccessorDSpecOpRewriter(const TypeConverter &typeConverter,
+                                        MLIRContext *context)
+      : OpConversionPattern(typeConverter, context) {}
+
+  LogicalResult
+  matchAndRewrite(Op op, ttkernel::TensorAccessorDSpecOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (op.getResult().getUses().empty()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+
+    // Generate unique variable name from SSA number.
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    op->getResult(0).printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "dspec_" + ssaName.substr(1);
+
+    // Emit: auto dspec_N = ta.dspec();
+    std::string code = "auto " + varName + " = {}.dspec();";
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), rewriter.getStringAttr(code),
+        ValueRange{adaptor.getTensorAccessor()});
+
+    auto resultType =
+        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+    auto literalOp =
+        rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName);
+
+    rewriter.replaceOp(op, literalOp.getResult());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Rewriter for dspec indexed-access ops (dspec.shard_shape, dspec.tensor_strides,
+// dspec.shard_strides).  Emits: `uint32_t varN = dspec.METHOD()[dim];`
+template <typename SourceOp>
+class TTKernelDSpecIndexedMethodRewriter
+    : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelDSpecIndexedMethodRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Extract method name from op name: "ttkernel.dspec.shard_shape" -> "shard_shape"
+    auto [prefix, methodName] =
+        op.getOperation()->getName().getStringRef().rsplit('.');
+    if (methodName.empty()) {
+      return failure();
+    }
+
+    auto operands = adaptor.getOperands();
+    if (operands.size() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Expected dspec self and dim as operands");
+    }
+
+    // Generate unique variable name from SSA number.
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    op->getResult(0).printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "temp_" + ssaName.substr(1);
+
+    // Emit: uint32_t temp_N = dspec.METHOD()[dim];
+    std::string callStr =
+        "uint32_t " + varName + " = {}." + methodName.str() + "()[{}];";
+    rewriter.create<emitc::VerbatimOp>(
+        op->getLoc(), rewriter.getStringAttr(callStr), operands);
+
+    Type resultType =
+        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+    auto literalOp =
+        rewriter.create<emitc::LiteralOp>(op->getLoc(), resultType, varName);
     rewriter.replaceOp(op, literalOp.getResult());
     return success();
   }
@@ -1418,6 +1518,9 @@ public:
     patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter,
                                                        funcOp.getContext());
 
+    patterns.add<TTKernelTensorAccessorDSpecOpRewriter>(typeConverter,
+                                                        funcOp.getContext());
+
     patterns.add<TTKernelCreateFabricConnectionManagerOpRewriter>(
         typeConverter, funcOp.getContext());
 
@@ -1432,6 +1535,12 @@ public:
         TTKernelClassMethodRewriter<
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
+
+    patterns.add<
+        TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecShardShapeOp>,
+        TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecTensorStridesOp>,
+        TTKernelDSpecIndexedMethodRewriter<ttkernel::DSpecShardStridesOp>>(
+        typeConverter, funcOp.getContext());
 
     patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
                  ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
