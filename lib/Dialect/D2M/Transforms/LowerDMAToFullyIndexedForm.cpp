@@ -152,7 +152,7 @@ static Value generateFullyIndexedDMAOps(
 
   // Strided/non-contiguous: generate loops with guarded DMAs.
   auto [lbs, ubs, steps] = utils::getLoopBounds(builder, loc, shardShape);
-  auto nullDmaTx = builder.create<NullTxOp>(loc, txType);
+  auto nullDmaTx = NullTxOp::create(builder, loc, txType);
 
   scf::LoopNest loopNest = scf::buildLoopNest(
       builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
@@ -199,7 +199,7 @@ static Value generateFullyIndexedDMAOps(
                                                arith::CmpIPredicate::eq,
                                                moduloIterCount, zero);
 
-        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc, txType);
+        auto nulltx = NullTxOp::create(loopBuilder, innerLoc, txType);
 
         // Build guarded DMA.
         auto ifExpr = scf::IfOp::create(

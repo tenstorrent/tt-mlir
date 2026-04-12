@@ -877,9 +877,9 @@ public:
                           sourceLayout.getGridShape(sourceTy)))) {
           return Value();
         }
-        return rewriter
-            .create<d2m::EmptyOp>(op.getLoc(), type, AffineMapAttr::get(*inv),
-                                  AffineMapAttr::get(*fwd))
+        return d2m::EmptyOp::create(rewriter, op.getLoc(), type,
+                                    AffineMapAttr::get(*inv),
+                                    AffineMapAttr::get(*fwd))
             .getResult();
       };
 
@@ -892,9 +892,9 @@ public:
 
       auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
           type.getEncoding());
-      return rewriter
-          .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                type.getElementType(), layout, targetGridShape)
+      return d2m::EmptyOp::create(rewriter, op.getLoc(), type.getShape(),
+                                  type.getElementType(), layout,
+                                  targetGridShape)
           .getResult();
     };
 

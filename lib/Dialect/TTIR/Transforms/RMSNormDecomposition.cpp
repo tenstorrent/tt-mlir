@@ -19,7 +19,7 @@ static void decomposeRMSNorm(RMSNormOp op, IRRewriter &rewriter) {
   auto inputType = cast<RankedTensorType>(x.getType());
   int64_t rank = inputType.getRank();
 
-  auto xSquared = rewriter.create<MultiplyOp>(loc, inputType, x, x);
+  auto xSquared = MultiplyOp::create(rewriter, loc, inputType, x, x);
 
   // `normalized_shape` lists the trailing k input dims over which RMS is taken
   // (see RMSNormOp::verify). Mean of x^2 must run over all of them.
@@ -39,21 +39,21 @@ static void decomposeRMSNorm(RMSNormOp op, IRRewriter &rewriter) {
     reduceDims.push_back(static_cast<int32_t>(rank - normRank + i));
   }
 
-  auto meanOp = rewriter.create<MeanOp>(loc, reducedType, xSquared.getResult(),
-                                        rewriter.getBoolAttr(true),
-                                        rewriter.getI32ArrayAttr(reduceDims));
+  auto meanOp = MeanOp::create(rewriter, loc, reducedType, xSquared.getResult(),
+                               rewriter.getBoolAttr(true),
+                               rewriter.getI32ArrayAttr(reduceDims));
 
   float epsilon = op.getEpsilon().convertToFloat();
-  auto epsOp = rewriter.create<FullOp>(loc, reducedType,
-                                       rewriter.getF32FloatAttr(epsilon));
+  auto epsOp = FullOp::create(rewriter, loc, reducedType,
+                              rewriter.getF32FloatAttr(epsilon));
 
-  auto addEps = rewriter.create<AddOp>(loc, reducedType, meanOp.getResult(),
-                                       epsOp.getResult());
+  auto addEps = AddOp::create(rewriter, loc, reducedType, meanOp.getResult(),
+                              epsOp.getResult());
 
-  auto rsqrt = rewriter.create<RsqrtOp>(loc, reducedType, addEps.getResult());
+  auto rsqrt = RsqrtOp::create(rewriter, loc, reducedType, addEps.getResult());
 
   auto normalized =
-      rewriter.create<MultiplyOp>(loc, inputType, x, rsqrt.getResult());
+      MultiplyOp::create(rewriter, loc, inputType, x, rsqrt.getResult());
 
   Value result = normalized.getResult();
 
@@ -67,19 +67,19 @@ static void decomposeRMSNorm(RMSNormOp op, IRRewriter &rewriter) {
     auto reshapedType = RankedTensorType::get(newShape, vType.getElementType(),
                                               vType.getEncoding());
     SmallVector<int32_t> shapeI32(newShape.begin(), newShape.end());
-    return rewriter.create<ReshapeOp>(loc, reshapedType, v,
-                                      rewriter.getI32ArrayAttr(shapeI32));
+    return ReshapeOp::create(rewriter, loc, reshapedType, v,
+                             rewriter.getI32ArrayAttr(shapeI32));
   };
 
   if (op.getWeight()) {
     Value weight = reshapeToInputRank(op.getWeight());
-    result =
-        rewriter.create<MultiplyOp>(loc, inputType, result, weight).getResult();
+    result = MultiplyOp::create(rewriter, loc, inputType, result, weight)
+                 .getResult();
   }
 
   if (op.getBias()) {
     Value bias = reshapeToInputRank(op.getBias());
-    result = rewriter.create<AddOp>(loc, inputType, result, bias).getResult();
+    result = AddOp::create(rewriter, loc, inputType, result, bias).getResult();
   }
 
   rewriter.replaceOp(op, result);

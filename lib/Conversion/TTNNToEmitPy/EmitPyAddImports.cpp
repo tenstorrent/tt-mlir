@@ -25,10 +25,10 @@ namespace {
 static void addModuleImport(OpBuilder &builder, Block &block, Location loc,
                             StringRef moduleName) {
   builder.setInsertionPointToStart(&block);
-  builder.create<emitpy::ImportOp>(loc, moduleName, /*module_alias=*/nullptr,
-                                   /*members_to_import=*/nullptr,
-                                   /*member_aliases=*/nullptr,
-                                   /*import_all=*/nullptr);
+  emitpy::ImportOp::create(builder, loc, moduleName, /*module_alias=*/nullptr,
+                           /*members_to_import=*/nullptr,
+                           /*member_aliases=*/nullptr,
+                           /*import_all=*/nullptr);
 }
 
 // For each ImportedDeclaration func op in the block, create a
@@ -52,8 +52,8 @@ static LogicalResult addImportedDeclarationImports(OpBuilder &builder,
   builder.setInsertionPointToStart(&block);
   for (auto &[sourceFile, names] : grouped) {
     SmallVector<StringRef> noAliases(names.size(), "");
-    builder.create<emitpy::ImportOp>(
-        block.front().getLoc(), sourceFile, /*module_alias=*/nullptr,
+    emitpy::ImportOp::create(
+        builder, block.front().getLoc(), sourceFile, /*module_alias=*/nullptr,
         builder.getStrArrayAttr(names), builder.getStrArrayAttr(noAliases),
         /*import_all=*/nullptr);
   }
