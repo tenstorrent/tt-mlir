@@ -1432,19 +1432,21 @@ public:
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           if (isIntTile) {
-            rewriter.create<ttkernel::AddUnaryTileInt32Op>(loc, dstIdx,
-                                                           scalarParam);
+            ttkernel::AddUnaryTileInt32Op::create(rewriter, loc, dstIdx,
+                                                  scalarParam);
           } else {
-            rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+            ttkernel::AddUnaryTileOp::create(rewriter, loc, dstIdx,
+                                             scalarParam);
           }
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Bits(rewriter, loc, adaptor.getRhs());
           if (isIntTile) {
-            rewriter.create<ttkernel::SubUnaryTileInt32Op>(loc, dstIdx,
-                                                           scalarParam);
+            ttkernel::SubUnaryTileInt32Op::create(rewriter, loc, dstIdx,
+                                                  scalarParam);
           } else {
-            rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+            ttkernel::SubUnaryTileOp::create(rewriter, loc, dstIdx,
+                                             scalarParam);
           }
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
@@ -2835,10 +2837,10 @@ public:
 
     switch (txKind) {
     case d2m::DMAType::Read:
-      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      ttkernel::NocAsyncReadBarrierOp::create(rewriter, op.getLoc());
       break;
     case d2m::DMAType::Write:
-      rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+      ttkernel::NocAsyncWriteBarrierOp::create(rewriter, op.getLoc());
       break;
     case d2m::DMAType::McastWrite:
       break;

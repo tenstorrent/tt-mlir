@@ -232,8 +232,8 @@ private:
     // Insert tile_matmul_block right after the compute loop, then erase it.
     OpBuilder builder(computeLoop->getContext());
     builder.setInsertionPointAfter(computeLoop);
-    builder.create<d2m::TileMatmulBlockOp>(computeLoop->getLoc(), inputA,
-                                           inputB, outputC);
+    d2m::TileMatmulBlockOp::create(builder, computeLoop->getLoc(), inputA,
+                                   inputB, outputC);
     computeLoop->erase();
 
     return success();

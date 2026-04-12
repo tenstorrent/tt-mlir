@@ -579,10 +579,10 @@ public:
     }
 
     // Create new 2-region GenericOp: datamovement + compute.
-    auto newGeneric = rewriter.create<GenericOp>(
-        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
-        generic.getBlockFactors(), generic.getIndexingMaps(),
+    auto newGeneric = GenericOp::create(
+        rewriter, generic->getLoc(), generic.getResultTypes(),
+        generic.getInputs(), generic.getOutputs(), generic.getAdditionalArgs(),
+        generic.getGrid(), generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(),
         rewriter.getArrayAttr(
             {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement),

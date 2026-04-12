@@ -160,7 +160,7 @@ static bool isOneAttr(mlir::Attribute attr) {
       // converted to i32 or f32, which will not reduce precision because we
       // don't use larger types in TTIR.
       if (auto fillValueAttr = utils::splatToFillValue(builder, elementsAttr)) {
-        return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
+        return ttir::FullOp::create(builder, loc, type, shape, fillValueAttr);
       }
     }
     return ttir::ConstantOp::create(builder, loc, type, elementsAttr);

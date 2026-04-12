@@ -170,7 +170,7 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
                                                arith::CmpIPredicate::eq,
                                                moduloIterCount, zero);
 
-        auto nulltx = loopBuilder.create<NullTxOp>(innerLoc, txType);
+        auto nulltx = NullTxOp::create(loopBuilder, innerLoc, txType);
 
         auto ifExpr = loopBuilder.create<scf::IfOp>(
             innerLoc, TypeRange(SmallVector<Value>{nulltx}), predicate,
