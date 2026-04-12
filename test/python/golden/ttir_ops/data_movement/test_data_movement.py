@@ -66,6 +66,17 @@ pytestmark = pytest.mark.frontend("ttir")
         ([(3, 2, 96, 64), (3, 2, 32, 64), (3, 2, 64, 64)], 2),
         ([(4, 2, 64, 64), (4, 1, 64, 64), (4, 3, 64, 64)], 1),
         ([(3, 3, 64, 64), (2, 3, 64, 64), (1, 3, 64, 64)], 0),
+        ##################################
+        #    Large tensors (multi-core)  #
+        ##################################
+        # These exercise the grid selection path where concat inputs are
+        # large enough that single-core allocation would overflow L1,
+        # requiring the to_layout ops to distribute data across cores.
+        ([(1, 32, 128, 64), (1, 32, 128, 64)], 3),
+        ([(1, 32, 128, 128), (1, 32, 128, 128)], 3),
+        ([(1, 32, 64, 128), (1, 32, 64, 128)], 2),
+        ([(512, 512), (512, 512)], 1),
+        ([(512, 512), (512, 512)], 0),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
