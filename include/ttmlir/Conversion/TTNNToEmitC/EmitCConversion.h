@@ -2300,15 +2300,16 @@ public:
              "Expected two outputs (expert_indices and expert_weights) for "
              "TopKRouterGptOp.");
       using ReturnTy = std::tuple<::ttnn::Tensor, ::ttnn::Tensor>;
-      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
-          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+      auto callOp = emitc::CallOpaqueOp::create(
+          rewriter, op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
           opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
           /*template_args=*/nullptr, operands);
 
       SmallVector<Value> results;
       for (unsigned i = 0; i < op.getNumResults(); ++i) {
-        auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
-            op.getLoc(),
+        auto getTensorOp = emitc::CallOpaqueOp::create(
+            rewriter, op.getLoc(),
             rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
             "::std::get", /*args=*/nullptr,
             rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),

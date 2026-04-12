@@ -1244,8 +1244,8 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
     uses.emplace_back(use.getOwner(), use.getOperandNumber());
   }
 
-  Operation *spillOp = builder.create<ToMemoryConfigOp>(loc, newTensorType,
-                                                        result, memConfigAttr);
+  Operation *spillOp = ToMemoryConfigOp::create(builder, loc, newTensorType,
+                                                result, memConfigAttr);
 
   for (auto &[useOp, operandIdx] : uses) {
     useOp->setOperand(operandIdx, spillOp->getResult(0));
@@ -1287,8 +1287,8 @@ void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
   Location loc =
       ttmlir::utils::appendLocationSuffix(consumer->getLoc(), "_reshard");
 
-  auto reshardOp = builder.create<ToMemoryConfigOp>(loc, reshardType,
-                                                    spillOutput, memConfig);
+  auto reshardOp = ToMemoryConfigOp::create(builder, loc, reshardType,
+                                            spillOutput, memConfig);
   consumer->setOperand(operandIdx, reshardOp->getResult(0));
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
