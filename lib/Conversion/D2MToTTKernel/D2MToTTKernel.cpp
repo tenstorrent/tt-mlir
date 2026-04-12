@@ -1980,17 +1980,20 @@ static size_t getTensorAccessorCTASlots(Value remoteMemref) {
   }
 
   auto shapedType = mlir::cast<ShapedType>(remoteMemref.getType());
-  ArrayRef<int64_t> gridShape = layout.getGridShape(shapedType);
+  // Further investigation for sizing numBanks: https://github.com/tenstorrent/tt-mlir/issues/7943
+  auto chipDesc = ttcore::getOpChipDescAttr(remoteMemref.getDefiningOp());
+  ArrayRef<int64_t> gridShape = chipDesc.getGrid();
   ArrayRef<int64_t> shardShape = layout.getShardShape(shapedType);
   size_t rank = shardShape.size();
   size_t numBanks = 1;
   for (int64_t g : gridShape) {
     numBanks *= static_cast<size_t>(g);
   }
+  numBanks = std::max(numBanks, static_cast<size_t>(chipDesc.getNumDramChannels()));
 
   // rank + num_banks + tensor_shape[rank] + shard_shape[rank] + packed
-  // bank_coords (2 coords per uint32_t, rounded up).
-  slots += 1 + 1 + rank + rank + (numBanks + 1) / 2;
+  // bank_coords.
+  slots += 1 + 1 + rank + rank + numBanks;
   return slots;
 }
 
@@ -2016,6 +2019,7 @@ static size_t getTensorStrideSlots(Value remoteMemref) {
   assert(layout);
   auto shapedType = mlir::cast<ShapedType>(remoteMemref.getType());
   size_t rank = layout.getShardShape(shapedType).size();
+  assert(rank == 2 && "TensorStride kernel argument only supports rank 2 tensors");
   return rank;
 }
 

@@ -159,8 +159,6 @@ createMeshBufferForShardedMetalBuffer(
       tt_metal::Shape(shardShapeInPages),
       coreRangeSet, tt_metal::ShardOrientation::ROW_MAJOR);
 
-  LOG_TRACE(logger::LogRuntimeTTMetalKernelArg, "asdf buf: ", bufferDistributionSpec.tensor_shape_in_pages().size());
-
   tt_metal::BufferShardingArgs bufferShardingArgs(
       bufferDistributionSpec,
       metalShardSpecBuffer,

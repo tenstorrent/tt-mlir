@@ -182,9 +182,6 @@ std::vector<std::uint32_t> processKernelArgs(
 
       if constexpr (isCompileTime) {
         auto ctArgs = tensorAccessorArgs.get_compile_time_args();
-        for (auto a : ctArgs) {
-          LOG_TRACE(logger::LogRuntimeTTMetalKernelArg, "asdf a: ", a);
-        }
         argsVec.insert(argsVec.end(), ctArgs.begin(), ctArgs.end());
 
         LOG_ASSERT(argsVec.size() <= args->size(), "Not enough TensorAccessor argument slots reverved in kernel argument spec");
@@ -214,8 +211,8 @@ std::vector<std::uint32_t> processKernelArgs(
                  logger::Buffer(buffer->global_id()));
 
       auto meshBuffer = meshBuffers.at(buffer->global_id());
-      auto physicalShardShape = meshBuffer->physical_shard_shape();
-      std::array<std::uint32_t, 2> stride = {static_cast<std::uint32_t>(physicalShardShape.width()), static_cast<std::uint32_t>(1)};
+      std::array<std::uint32_t, 2> tensorShape = meshBuffer->device_local_config().sharding_args.shard_spec()->tensor2d_shape_in_pages;
+      std::array<std::uint32_t, 2> stride = {tensorShape[1], 1};
       argsVec.insert(argsVec.end(), stride.begin(), stride.end());
 
       LOG_ASSERT(argsVec.size() <= args->size(), "Not enough TensorStride argument slots reverved in kernel argument spec");
