@@ -2786,6 +2786,36 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
+  // TODO: Remove grid capping once tt-metal fixes core allocation
+  // (https://github.com/tenstorrent/tt-metal/issues/40978)
+  // Must match the runtime workaround in
+  // paged_scaled_dot_product_attention_decode.cpp
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      pagedSdpaProgramConfig = std::nullopt;
+  auto computeGrid = device->compute_with_storage_grid_size();
+  if (device->arch() == ::tt::ARCH::BLACKHOLE) {
+    ::ttnn::operations::transformer::SDPAProgramConfig cfg;
+    cfg.q_chunk_size = 0;
+    cfg.k_chunk_size = 0;
+    auto safeGrid = computeGrid;
+    uint32_t B = pageTableShape[0];
+    uint32_t numKVHeads = keyShape[1];
+    uint32_t numCores = safeGrid.x * safeGrid.y;
+    uint32_t coresPerBatchUncapped = numCores / B;
+    if (coresPerBatchUncapped > 0) {
+      uint32_t headsPerCore =
+          (numKVHeads + coresPerBatchUncapped - 1) / coresPerBatchUncapped;
+      if (numKVHeads % headsPerCore != 0) {
+        safeGrid = {std::min<size_t>(computeGrid.x, 8),
+                    std::min<size_t>(computeGrid.y, 8)};
+      }
+    }
+    cfg.compute_with_storage_grid_size = safeGrid;
+    cfg.max_cores_per_head_batch = safeGrid.x * safeGrid.y;
+    cfg.exp_approx_mode = false;
+    pagedSdpaProgramConfig = cfg;
+  }
+
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
@@ -2793,7 +2823,7 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         /*slidingWindowSize=*/std::nullopt,
         detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        pagedSdpaProgramConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -2863,13 +2893,41 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
 
+  // TODO: Remove grid capping once tt-metal fixes core allocation
+  // (https://github.com/tenstorrent/tt-metal/issues/40978)
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      pagedSdpaRuntimeConfig = std::nullopt;
+  auto runtimeComputeGrid = device->compute_with_storage_grid_size();
+  if (device->arch() == ::tt::ARCH::BLACKHOLE) {
+    ::ttnn::operations::transformer::SDPAProgramConfig cfg;
+    cfg.q_chunk_size = 0;
+    cfg.k_chunk_size = 0;
+    auto safeGrid = runtimeComputeGrid;
+    uint32_t B = pageTableShape[0];
+    uint32_t numKVHeads = keyShape[1];
+    uint32_t numCores = safeGrid.x * safeGrid.y;
+    uint32_t coresPerBatchUncapped = numCores / B;
+    if (coresPerBatchUncapped > 0) {
+      uint32_t headsPerCore =
+          (numKVHeads + coresPerBatchUncapped - 1) / coresPerBatchUncapped;
+      if (numKVHeads % headsPerCore != 0) {
+        safeGrid = {std::min<size_t>(runtimeComputeGrid.x, 8),
+                    std::min<size_t>(runtimeComputeGrid.y, 8)};
+      }
+    }
+    cfg.compute_with_storage_grid_size = safeGrid;
+    cfg.max_cores_per_head_batch = safeGrid.x * safeGrid.y;
+    cfg.exp_approx_mode = false;
+    pagedSdpaRuntimeConfig = cfg;
+  }
+
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        pagedSdpaRuntimeConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
