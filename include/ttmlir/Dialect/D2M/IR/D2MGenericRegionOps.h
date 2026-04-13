@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.h"
 #include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.h"
 
 #define GET_OP_CLASSES

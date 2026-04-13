@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRD2MDialect
         D2MOpsTypes.cpp
         D2MGenericRegionOps.cpp
         D2MOpsInterfaces.cpp
+        D2MGenericRegionOpsInterfaces.cpp
         D2MTraits.cpp
 
         ADDITIONAL_HEADER_DIRS
@@ -16,6 +17,7 @@ add_mlir_dialect_library(MLIRD2MDialect
         MLIRD2MOpsAttrsIncGen
         D2MGenericRegionOpsIncGen
         D2MOpsInterfacesIncGen
+        D2MGenericRegionOpsInterfacesIncGen
 
         LINK_LIBS PUBLIC
         MLIRAffineDialect

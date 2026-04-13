@@ -138,6 +138,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MAddScratchInputs());
+  pm.addPass(d2m::createD2MMarkSynchronizableOpBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {

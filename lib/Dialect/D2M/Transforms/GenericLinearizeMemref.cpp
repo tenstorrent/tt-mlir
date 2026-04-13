@@ -48,6 +48,10 @@ public:
     return linearResult.compose(map);
   }
 
+  // this function is hacky and assumes buffer maps to one remote load only
+  // if I need to rewrite this, can change below function to find first use where it is not a 
+  // dps init?
+
   // When the memref being linearized is also an implicit remote_load local
   // buffer, inserting collapse_shape "after value" can place it after alloc
   // but before the remote_load that materializes the buffer contents. Anchor

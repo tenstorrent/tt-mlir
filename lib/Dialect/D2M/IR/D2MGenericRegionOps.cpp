@@ -9,6 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/OpImplementation.h"
@@ -1246,11 +1247,15 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
       ttcore::getBufferType(result.getType(), /*isView=*/false);
 
   // Create a new RemoteStoreOp with bufferized operands and result
-  mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
-      rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
-      localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
-      getSemaphore(), getSemaphoreIndices());
-
+  rewriter.create<RemoteStoreOp>(
+    getLoc(), resultBufferType, *memrefBuffer, getIndices(),
+    localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
+    getSemaphore(), getSemaphoreIndices());
+  
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *memrefBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -1854,11 +1859,18 @@ void BlockMaskOp::getEffects(
 // YieldOp / WaitOp / ReserveOp / PushOp / PopOp
 //===----------------------------------------------------------------------===//
 
+// this is a hack, we need a proper, syncrhonized yield op
 mlir::LogicalResult YieldOp::verify() {
+  auto syncRegion = getOperation()->getParentOfType<SynchronizedRegionOp>();
+  if (syncRegion) {
+    return ::mlir::success();
+  }
+
   auto generic = getOperation()->getParentOfType<GenericOp>();
   if (!generic || !generic.hasPureTensorSemantics()) {
     return emitOpError()
-           << "used outside of generic op with pure tensor semantics";
+           << "used outside of generic op with pure tensor semantics or "
+              "synchronized region";
   }
 
   return ::mlir::success();

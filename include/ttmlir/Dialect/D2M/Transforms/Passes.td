@@ -1034,6 +1034,14 @@ def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MMarkSynchronizableOpBuffers : Pass<"d2m-mark-synchronizable-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Mark synchronizable op buffers.";
+  let description = [{
+    fill in description
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MLowerLoadStoreOpsToExplicitCBForm : Pass<"d2m-lower-load-store-ops-to-explicit-cb-form", "::mlir::ModuleOp"> {
   let summary = "Lower load/store operations to explicit CB form.";
   let description = [{
