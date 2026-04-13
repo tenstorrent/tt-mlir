@@ -4176,7 +4176,7 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
     let description = [{
       std::format style format string:
       ```c++
-      rewriter.create<ttkernel::DPrintOp>(loc, "nocY={} nocX={} addr={}\\n",
+      ttkernel::DPrintOp::create(rewriter, loc, "nocY={} nocX={} addr={}\\n",
                                         nocY, nocX, addr);
       ```
       ```

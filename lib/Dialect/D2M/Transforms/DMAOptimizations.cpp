@@ -374,7 +374,7 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
   rewriter.setInsertionPoint(forOp);
   auto txType =
       mlir::cast<MemTxType>(group->barrier.getMemTx().getType()).getDmaType();
-  Value nullTx = rewriter.create<NullTxOp>(loc, txType);
+  Value nullTx = NullTxOp::create(rewriter, loc, txType);
 
   // Capture operands from the barrier group before erasing.
   Value currentTx = group->barrier.getMemTx();
@@ -399,19 +399,19 @@ static bool deferOneWriteBarrier(scf::ForOp &forOp) {
   Value iv = newFor.getInductionVar();
   Value lb = newFor.getLowerBound();
   Value notFirst =
-      rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, iv, lb);
+      arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ne, iv, lb);
   auto ifOp =
-      rewriter.create<scf::IfOp>(loc, notFirst, /*withElseRegion=*/false);
+      scf::IfOp::create(rewriter, loc, notFirst, /*withElseRegion=*/false);
 
   rewriter.setInsertionPointToStart(ifOp.thenBlock());
-  rewriter.create<DMAWaitOp>(loc, prevTx);
-  rewriter.create<PopOp>(loc, popCB);
+  DMAWaitOp::create(rewriter, loc, prevTx);
+  PopOp::create(rewriter, loc, popCB);
 
   // Epilogue: handle the final iteration's deferred write barrier.
   rewriter.setInsertionPointAfter(newFor);
   Value finalTx = newFor.getResults().back();
-  rewriter.create<DMAWaitOp>(loc, finalTx);
-  rewriter.create<PopOp>(loc, popCB);
+  DMAWaitOp::create(rewriter, loc, finalTx);
+  PopOp::create(rewriter, loc, popCB);
 
   return true;
 }

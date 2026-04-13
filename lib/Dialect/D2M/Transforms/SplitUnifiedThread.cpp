@@ -141,7 +141,7 @@ static void insertPopBeforeTerminator(PatternRewriter &rewriter, Location loc,
   } else {
     rewriter.setInsertionPointToEnd(block);
   }
-  rewriter.create<PopOp>(loc, cb);
+  PopOp::create(rewriter, loc, cb);
 }
 
 // Find load-store pairs that share the same localBuffer in a block.
@@ -226,8 +226,8 @@ static LogicalResult processSharedBufferPairs(Block *computeBlock,
             "could not find associated CB for shared pair");
       }
       rewriter.setInsertionPoint(storeOp);
-      rewriter.create<WaitOp>(loc, cb);
-      rewriter.create<PopOp>(loc, cb);
+      WaitOp::create(rewriter, loc, cb);
+      PopOp::create(rewriter, loc, cb);
     } else if (!loadNeedsDMA && storeNeedsDMA) {
       Value cb = findAssociatedCB(loadOp, loadOp.getMemref(), rewriter, cache,
                                   portCounters);
@@ -235,8 +235,8 @@ static LogicalResult processSharedBufferPairs(Block *computeBlock,
         return loadOp.emitError("could not find associated CB for shared pair");
       }
       rewriter.setInsertionPoint(loadOp);
-      rewriter.create<ReserveOp>(loc, cb);
-      rewriter.create<PushOp>(loc, cb);
+      ReserveOp::create(rewriter, loc, cb);
+      PushOp::create(rewriter, loc, cb);
     }
     // Else if both sides are streaming/need DMA, let the DM thread handle
     // everything.
@@ -284,9 +284,9 @@ static LogicalResult processComputeLoads(Block *computeBlock,
 
       Block *block = allocOp->getBlock();
       rewriter.setInsertionPoint(allocOp);
-      rewriter.create<ReserveOp>(loc, cb);
-      rewriter.create<PushOp>(loc, cb);
-      auto waitOp = rewriter.create<WaitOp>(loc, cb);
+      ReserveOp::create(rewriter, loc, cb);
+      PushOp::create(rewriter, loc, cb);
+      auto waitOp = WaitOp::create(rewriter, loc, cb);
 
       // Replace all uses of the alloc, not just the load's operand as
       // downstream compute ops reference the alloc result directly and
@@ -301,7 +301,7 @@ static LogicalResult processComputeLoads(Block *computeBlock,
       Operation *lastUse = findLastUseOfAliasedValue(waitOp.getResult(), block);
       if (lastUse && lastUse != loadOp.getOperation()) {
         rewriter.setInsertionPointAfter(lastUse);
-        rewriter.create<PopOp>(loc, cb);
+        PopOp::create(rewriter, loc, cb);
       } else {
         insertPopBeforeTerminator(rewriter, loc, cb, block);
       }
@@ -309,7 +309,7 @@ static LogicalResult processComputeLoads(Block *computeBlock,
     } else {
       // Needs datamovement: wait before load, pop before terminator.
       rewriter.setInsertionPoint(loadOp);
-      auto waitOp = rewriter.create<WaitOp>(loc, cb);
+      auto waitOp = WaitOp::create(rewriter, loc, cb);
 
       Region *computeRegion = loadOp->getParentRegion();
       rewriter.replaceUsesWithIf(
@@ -360,7 +360,7 @@ static LogicalResult processComputeStores(Block *computeBlock,
       memref::AllocOp allocOp = findAllocOp(localBuffer);
       if (allocOp && isLocalAlloc(allocOp, computeBlock)) {
         rewriter.setInsertionPoint(allocOp);
-        auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+        auto reserveOp = ReserveOp::create(rewriter, loc, cb);
         // Replace all uses as compute ops reference the alloc directly and
         // must write into the CB. Assumes 1:1 alloc-to-store relationship.
         rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
@@ -379,9 +379,9 @@ static LogicalResult processComputeStores(Block *computeBlock,
       }
 
       rewriter.setInsertionPoint(storeOp);
-      rewriter.create<PushOp>(loc, cb);
-      rewriter.create<WaitOp>(loc, cb);
-      rewriter.create<PopOp>(loc, cb);
+      PushOp::create(rewriter, loc, cb);
+      WaitOp::create(rewriter, loc, cb);
+      PopOp::create(rewriter, loc, cb);
       toErase.insert(storeOp);
     } else {
       // Needs datamovement: insert reserve + push, replace in-region buffer
@@ -395,7 +395,7 @@ static LogicalResult processComputeStores(Block *computeBlock,
       } else {
         rewriter.setInsertionPointToStart(storeOp->getBlock());
       }
-      auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+      auto reserveOp = ReserveOp::create(rewriter, loc, cb);
       Region *computeRegion = storeOp->getParentRegion();
       rewriter.replaceUsesWithIf(
           localBuffer, reserveOp.getResult(), [&](OpOperand &use) {
@@ -403,7 +403,7 @@ static LogicalResult processComputeStores(Block *computeBlock,
           });
       // Push goes at the store position (after compute fills the buffer).
       rewriter.setInsertionPoint(storeOp);
-      rewriter.create<PushOp>(loc, cb);
+      PushOp::create(rewriter, loc, cb);
       toErase.insert(storeOp);
     }
   }
@@ -418,7 +418,7 @@ static void processGetScratchOps(Block *computeBlock, PatternRewriter &rewriter,
 
   for (GetScratchFromCBOp op : ops) {
     rewriter.setInsertionPoint(op);
-    auto reserveOp = rewriter.create<ReserveOp>(op.getLoc(), op.getCb());
+    auto reserveOp = ReserveOp::create(rewriter, op.getLoc(), op.getCb());
     rewriter.replaceAllUsesWith(op.getResult(), reserveOp.getResult());
     toErase.insert(op);
   }
@@ -498,8 +498,8 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     }
 
     rewriter.setInsertionPoint(loadOp);
-    auto newLoad = rewriter.create<RemoteLoadOp>(
-        loadOp.getLoc(), memref, loadOp.getIndices(), cb,
+    auto newLoad = RemoteLoadOp::create(
+        rewriter, loadOp.getLoc(), memref, loadOp.getIndices(), cb,
         loadOp.getMcastStartIndex(), loadOp.getMcastShape());
     // Preserve preallocated semaphore indices set by
     // D2MPreallocateMcastSemaphores (needed by LowerLoadStoreOpsToDMA).
@@ -545,10 +545,10 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     }
 
     rewriter.setInsertionPoint(storeOp);
-    rewriter.create<RemoteStoreOp>(
-        storeOp.getLoc(), memref, storeOp.getIndices(), cb,
-        storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
-        storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
+    RemoteStoreOp::create(rewriter, storeOp.getLoc(), memref,
+                          storeOp.getIndices(), cb, storeOp.getStartDevice(),
+                          storeOp.getDeviceMcastShape(), storeOp.getSemaphore(),
+                          storeOp.getSemaphoreIndices());
     toErase.insert(storeOp);
   }
   return success();
@@ -644,10 +644,10 @@ public:
     }
 
     // Create new 2-region GenericOp: datamovement + compute.
-    auto newGeneric = rewriter.create<GenericOp>(
-        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
-        generic.getBlockFactors(), generic.getIndexingMaps(),
+    auto newGeneric = GenericOp::create(
+        rewriter, generic->getLoc(), generic.getResultTypes(),
+        generic.getInputs(), generic.getOutputs(), generic.getAdditionalArgs(),
+        generic.getGrid(), generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(),
         rewriter.getArrayAttr(
             {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement),

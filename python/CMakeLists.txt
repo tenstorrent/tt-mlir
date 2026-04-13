@@ -144,7 +144,6 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     MLIRTestToLLVMIRTranslation
     MLIRVCIXToLLVMIRTranslation
     MLIRX86VectorTransforms
-  PYTHON_BINDINGS_LIBRARY nanobind
 )
 
 # Create a separate library for PassTracker compiled with -fno-rtti to match MLIR
@@ -211,8 +210,6 @@ if(TTMLIR_ENABLE_STABLEHLO)
     StablehloPythonExtensions
     SdyPythonSources
     SdyPythonExtensions
-    MpmdPythonSources
-    MpmdPythonExtensions
   )
 endif()
 
@@ -223,6 +220,7 @@ add_mlir_python_common_capi_library(TTMLIRPythonCAPI
   RELATIVE_INSTALL_ROOT ".."
   DECLARED_SOURCES ${TTMLIR_PYTHON_SOURCES}
 )
+
 
 add_mlir_python_modules(TTMLIRPythonModules
   ROOT_PREFIX "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir"
