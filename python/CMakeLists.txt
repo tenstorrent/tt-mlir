@@ -113,6 +113,7 @@ declare_mlir_python_sources(TTMLIRPythonExtensions)
 declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   MODULE_NAME _ttmlir
   ADD_TO_PARENT TTMLIRPythonExtensions
+  PYTHON_BINDINGS_LIBRARY nanobind
   SOURCES
     TTMLIRModule.cpp
     TTModule.cpp
