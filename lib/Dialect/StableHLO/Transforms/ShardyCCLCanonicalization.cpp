@@ -5,6 +5,7 @@
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::stablehlo {
@@ -34,7 +35,20 @@ public:
 
     if (failed(applyPatternsGreedily(module, std::move(patterns), config))) {
       signalPassFailure();
+      return;
     }
+
+    // Remove dead CCL ops that may remain after canonicalization
+    // (e.g. unused all_reduce on argmax's max value output).
+    IRRewriter rewriter(ctx);
+    module.walk([&](Operation *op) {
+      if (isa<mlir::sdy::AllReduceOp, mlir::sdy::AllGatherOp,
+              mlir::sdy::AllSliceOp, mlir::sdy::AllToAllOp,
+              mlir::sdy::ReduceScatterOp>(op) &&
+          op->use_empty()) {
+        rewriter.eraseOp(op);
+      }
+    });
   }
 };
 } // namespace mlir::tt::stablehlo

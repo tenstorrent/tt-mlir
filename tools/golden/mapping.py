@@ -1287,69 +1287,6 @@ def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     return input_tensor.to(dtype)
 
 
-def argmax_golden(
-    input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=False
-) -> GoldenMapTensor:
-    """
-    Custom golden function for argmax.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to find argmax of
-    dim_arg : List[int], optional
-        List of dimensions to reduce over. If None, reduces over all dimensions (default: None)
-    keep_dim : bool, optional
-        Whether to keep the reduced dimension (default: False)
-
-    Returns
-    -------
-    GoldenMapTensor
-        Indices of maximum values along specified dimension(s) as int32 tensor
-    """
-    if dim_arg is None:
-        # Reduce over all dimensions - return flattened index
-        result = torch.argmax(input_tensor, keepdim=keep_dim)
-    elif len(dim_arg) == 1:
-        # Single dimension reduction
-        result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
-    else:
-        # Multiple dimension reduction
-        all_dims = list(range(input_tensor.dim()))
-
-        # Keep reduction dimensions as given
-        reduce_dims = dim_arg
-
-        # Permute: move reduction dims to the end
-        non_reduce_dims = [d for d in all_dims if d not in reduce_dims]
-        perm_order = non_reduce_dims + reduce_dims
-        permuted = input_tensor.permute(*perm_order)
-
-        # Flatten reduction dimensions
-        reduce_size = 1
-        for d in reduce_dims:
-            reduce_size *= input_tensor.size(d)
-
-        # Reshape and apply argmax
-        non_reduce_shape = [input_tensor.size(d) for d in non_reduce_dims]
-        reshaped = permuted.reshape(*non_reduce_shape, reduce_size)
-        result_flat = torch.argmax(reshaped, dim=-1)
-
-        # Handle keepdim
-        if keep_dim:
-            output_shape = []
-            for i in range(input_tensor.dim()):
-                if i in reduce_dims:
-                    output_shape.append(1)
-                else:
-                    output_shape.append(input_tensor.size(i))
-            result = result_flat.reshape(*output_shape)
-        else:
-            result = result_flat
-
-    return result.to(torch.int32)
-
-
 def sparse_matmul_golden(
     a: GoldenMapTensor,
     b: GoldenMapTensor,
@@ -1603,60 +1540,6 @@ def linear_golden(
         else bias
     )
     return torch.add(output, bias)
-
-
-def sdpa_golden(
-    query: GoldenMapTensor,
-    key: GoldenMapTensor,
-    value: GoldenMapTensor,
-    attention_mask=None,
-    is_causal=True,
-    scale=None,
-    **kwargs,
-) -> GoldenMapTensor:
-    """
-    Golden function for scaled dot product attention.
-    Matches tt-metal's FlashAttention implementation where scale is fused into
-    exp: exp((QK + mask - max) * scale). This means the mask is effectively
-    scaled, unlike PyTorch's standard SDPA which computes QK * scale + mask.
-
-    Supports standard attention and Grouped-Query Attention (GQA).
-    """
-    q_heads = query.shape[1]
-    kv_heads = key.shape[1]
-
-    # Handle GQA: broadcast K/V heads to match Q heads
-    if q_heads != kv_heads:
-        assert q_heads % kv_heads == 0
-        num_repeats = q_heads // kv_heads
-        key = torch.repeat_interleave(key, num_repeats, dim=1)
-        value = torch.repeat_interleave(value, num_repeats, dim=1)
-
-    # QK = Q @ K^T
-    qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
-
-    # Apply causal mask if requested (before scaling, matching tt-metal)
-    if is_causal and attention_mask is None:
-        seq_len_q = qk.shape[-2]
-        seq_len_k = qk.shape[-1]
-        causal_mask = torch.triu(
-            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
-        )
-        qk = torch.add(qk, causal_mask)
-
-    # Add attention mask (before scaling, matching tt-metal)
-    if attention_mask is not None:
-        qk = torch.add(qk, attention_mask.float())
-
-    # Scale AFTER masking (tt-metal fuses scale into exp)
-    if scale is not None:
-        qk = torch.mul(qk, scale)
-
-    # Softmax + matmul with V
-    attn_weights = torch.softmax(qk, dim=-1)
-    output = torch.matmul(attn_weights, value.float())
-
-    return output.to(query.dtype)
 
 
 def sdpa_decode_golden(
@@ -2010,30 +1893,6 @@ def less_than_golden(
     return result_bool.to(input_tensor.dtype)
 
 
-def logical_or_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
-) -> GoldenMapTensor:
-    """
-    Golden function for logical_or operation.
-
-    Elementwise logical OR.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Left-hand side tensor.
-    other_tensor : GoldenMapTensor
-        Right-hand side tensor.
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor with the same dtype as input_tensor containing the logical OR results.
-    """
-    result_bool = torch.logical_or(input_tensor, other_tensor)
-    return result_bool.to(input_tensor.dtype)
-
-
 def logical_xor_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:
@@ -2215,34 +2074,19 @@ def prod_golden(
         return result
 
 
-def embedding_golden(
-    indices_tensor: GoldenMapTensor, weight_tensor: GoldenMapTensor
+def ttir_embedding_golden(
+    indices_tensor: GoldenMapTensor,
+    weight_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    """
-    Custom golden function for embedding operation.
-
-    Parameters
-    ----------
-    indices_tensor : GoldenMapTensor
-        Tensor containing indices to look up
-    weight_tensor : GoldenMapTensor
-        Weight tensor containing embedding vectors. Can be "effectively 2D"
-        with leading singleton dimensions (e.g., shape (1, 1, vocab, embed)).
-
-    Returns
-    -------
-    GoldenMapTensor
-        Embedded vectors corresponding to input indices
-    """
-    # Handle "effectively 2D" weights with leading singleton dimensions.
-    # Reshape to 2D for torch.nn.Embedding which requires exactly 2D weights.
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     vocab_size = weight_tensor.size(-2)
     embed_dim = weight_tensor.size(-1)
     weight_2d = weight_tensor.reshape(vocab_size, embed_dim)
     embedding = torch.nn.Embedding.from_pretrained(weight_2d)
     golden_typecast = indices_tensor.to(torch.int32)
     golden_input = torch.clamp(golden_typecast, 0, (vocab_size - 1))
-    return embedding(golden_input)
+    return embedding(golden_input).to(output_dtype)
 
 
 def select_golden(
@@ -2901,27 +2745,6 @@ def unsqueeze_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor
     """
     dim = kwargs.get("dim", 0)
     return torch.unsqueeze(input_tensor, dim=dim)
-
-
-def clamp_scalar_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for clamp_scalar operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'min' and 'max'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Clamped tensor
-    """
-    min_val = kwargs.get("min", None)
-    max_val = kwargs.get("max", None)
-    return torch.clamp(input_tensor, min=min_val, max=max_val)
 
 
 def clamp_tensor_golden(
@@ -4107,6 +3930,69 @@ def ttir_max_golden(
         return result.to(output_dtype)
 
 
+def ttir_argmax_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg_attr: ArrayAttr,
+    keep_dim_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg_attr)
+    keep_dim = unpack_mlir_attr(keep_dim_attr)
+
+    if dim_arg is None:
+        result = torch.argmax(input_tensor, keepdim=keep_dim)
+    elif len(dim_arg) == 1:
+        result = torch.argmax(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+    else:
+        all_dims = list(range(input_tensor.dim()))
+        reduce_dims = dim_arg
+        non_reduce_dims = [d for d in all_dims if d not in reduce_dims]
+        perm_order = non_reduce_dims + reduce_dims
+        permuted = input_tensor.permute(*perm_order)
+
+        reduce_size = 1
+        for d in reduce_dims:
+            reduce_size *= input_tensor.size(d)
+
+        non_reduce_shape = [input_tensor.size(d) for d in non_reduce_dims]
+        reshaped = permuted.reshape(*non_reduce_shape, reduce_size)
+        result_flat = torch.argmax(reshaped, dim=-1)
+
+        if keep_dim:
+            output_shape = []
+            for i in range(input_tensor.dim()):
+                if i in reduce_dims:
+                    output_shape.append(1)
+                else:
+                    output_shape.append(input_tensor.size(i))
+            result = result_flat.reshape(*output_shape)
+        else:
+            result = result_flat
+
+    return result.to(torch.int32)
+
+
+def ttir_clamp_scalar_golden(
+    input_tensor: GoldenMapTensor,
+    min_attr,
+    max_attr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    min_val = unpack_mlir_attr(min_attr)
+    max_val = unpack_mlir_attr(max_attr)
+    return torch.clamp(input_tensor, min=min_val, max=max_val).to(output_dtype)
+
+
+def ttir_logical_or_golden(
+    input_tensor: GoldenMapTensor,
+    other_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_or(input_tensor, other_tensor).to(output_dtype)
+
+
 def ttir_reduce_or_golden(
     input_tensor: GoldenMapTensor,
     dim_arg_attr: ArrayAttr,
@@ -5213,6 +5099,43 @@ def stablehlo_tanh_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.tanh(input_tensor).to(output_dtype)
+
+
+def stablehlo_sign_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sign(input_tensor).to(output_dtype)
+
+
+def stablehlo_convert_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.to(output_dtype)
+
+
+def stablehlo_cbrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    golden_sign = torch.sign(input_tensor)
+    golden_cbrt = torch.pow(torch.abs(input_tensor), 1 / 3)
+    return torch.mul(golden_sign, golden_cbrt).to(output_dtype)
+
+
+def stablehlo_expm1_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.expm1(input_tensor).to(output_dtype)
+
+
+def stablehlo_isfinite_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.isfinite(input_tensor).to(output_dtype)
 
 
 def stablehlo_transpose_golden(
@@ -6716,6 +6639,228 @@ def ttir_paged_flash_multi_latent_attention_decode_golden(
     return GoldenMapTensor(output_shards, query.mesh_shape)
 
 
+def ttir_sdpa_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    attention_mask: Optional[GoldenMapTensor],
+    is_causal_attr: BoolAttr,
+    scale_attr: Optional[FloatAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """
+    Matches tt-metal's FlashAttention implementation where scale is fused into
+    exp: exp((QK + mask - max) * scale). This means the mask is effectively
+    scaled, unlike PyTorch's standard SDPA which computes QK * scale + mask.
+    Supports standard attention and Grouped-Query Attention (GQA).
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    is_causal = unpack_mlir_attr(is_causal_attr)
+    scale = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
+
+    q_heads = query.shape[1]
+    kv_heads = key.shape[1]
+
+    if q_heads != kv_heads:
+        assert q_heads % kv_heads == 0
+        num_repeats = q_heads // kv_heads
+        key = torch.repeat_interleave(key, num_repeats, dim=1)
+        value = torch.repeat_interleave(value, num_repeats, dim=1)
+
+    qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
+
+    if is_causal and attention_mask is None:
+        seq_len_q = qk.shape[-2]
+        seq_len_k = qk.shape[-1]
+        causal_mask = torch.triu(
+            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+        )
+        qk = torch.add(qk, causal_mask)
+
+    if attention_mask is not None:
+        qk = torch.add(qk, attention_mask.float())
+
+    if scale is not None:
+        qk = torch.mul(qk, scale)
+
+    attn_weights = torch.softmax(qk, dim=-1)
+    output = torch.matmul(attn_weights, value.float())
+
+    return output.to(output_dtype)
+
+
+def ttir_paged_sdpa_decode_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    page_table: GoldenMapTensor,
+    output: GoldenMapTensor,
+    is_causal_attr: BoolAttr,
+    attention_mask: Optional[GoldenMapTensor] = None,
+    cur_pos_tensor: Optional[GoldenMapTensor] = None,
+    attention_sink: Optional[GoldenMapTensor] = None,
+    scale_attr: Optional[FloatAttr] = None,
+    output_type_mlir: Optional[Type] = None,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    scale_val = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
+    is_causal_val = unpack_mlir_attr(is_causal_attr)
+
+    query_t = _gmt_leaf_torch(query)
+    key_t = _gmt_leaf_torch(key)
+    value_t = _gmt_leaf_torch(value)
+    pt = _gmt_leaf_torch(page_table.long())
+
+    # Query: [B, S, H, D] -> [B, H, S, D]
+    q = query_t.float().permute(0, 2, 1, 3)
+    b, nh, s_q, d = q.shape
+
+    # K/V are paged: [num_blocks, num_kv_heads, block_size, head_dim]
+    num_blocks, nkv, block_size, _ = key_t.shape
+    blocks_per_user = pt.shape[-1]
+    seq_len = blocks_per_user * block_size
+
+    # Clamp indices so random golden page tables stay in-range (parse tests only).
+    pt_flat = pt.view(-1).clamp(0, num_blocks - 1)
+
+    # Unpage K using page table
+    k_unpaged = key_t[pt_flat]
+    k_unpaged = k_unpaged.reshape(b, blocks_per_user, nkv, block_size, d)
+    k_unpaged = k_unpaged.transpose(1, 2).reshape(b, nkv, seq_len, d).float()
+
+    # Unpage V using page table
+    dv = value_t.shape[-1]
+    v_unpaged = value_t[pt_flat]
+    v_unpaged = v_unpaged.reshape(b, blocks_per_user, nkv, block_size, dv)
+    v_unpaged = v_unpaged.transpose(1, 2).reshape(b, nkv, seq_len, dv).float()
+
+    # GQA expansion
+    head_rep = nh // nkv
+    if head_rep > 1:
+        k_unpaged = k_unpaged.repeat_interleave(head_rep, dim=1)
+        v_unpaged = v_unpaged.repeat_interleave(head_rep, dim=1)
+
+    # Build attention mask
+    attn_mask = None
+    if attention_mask is not None:
+        attn_mask = _gmt_leaf_torch(attention_mask.float())
+    elif is_causal_val and cur_pos_tensor is not None:
+        cur_t = _gmt_leaf_torch(cur_pos_tensor)
+        attn_mask = torch.zeros((b, nh, s_q, seq_len), dtype=torch.float32)
+        for i in range(b):
+            start_idx = int(cur_t[i].item())
+            attn_mask[i, :, :, start_idx + 1 :] = torch.finfo(torch.float32).min
+
+    if attention_sink is not None and attn_mask is not None:
+        sink_t = _gmt_leaf_torch(attention_sink)
+        sink_len = sink_t.shape[-1] if sink_t.dim() > 0 else 1
+        attn_mask[..., :sink_len] = 0
+
+    out = torch.nn.functional.scaled_dot_product_attention(
+        q, k_unpaged, v_unpaged, attn_mask=attn_mask, scale=scale_val, is_causal=False
+    )
+
+    # [B, H, S, D] -> [B, S, H, D]
+    out = out.permute(0, 2, 1, 3).to(output_dtype)
+    return GoldenMapTensor(
+        {k: out.clone() for k in query.shard_map.keys()},
+        query.mesh_shape,
+    )
+
+
+def _gmt_leaf_torch(t: Union[GoldenMapTensor, torch.Tensor]) -> torch.Tensor:
+    """Resolve GoldenMapTensor (recursively) to a torch.Tensor for scalar/index ops."""
+    while isinstance(t, GoldenMapTensor):
+        keys = sorted(t.shard_map.keys())
+        t = t.shard_map[keys[0]]
+    return t
+
+
+def ttir_paged_update_cache_golden(
+    cache_tensor: GoldenMapTensor,
+    input_tensor: GoldenMapTensor,
+    update_index_tensor: GoldenMapTensor,
+    share_cache_attr: BoolAttr,
+    page_table_tensor: Optional[GoldenMapTensor] = None,
+    output_type_mlir: Optional[Type] = None,
+) -> GoldenMapTensor:
+    result = cache_tensor.clone()
+    # cache: [num_blocks, num_heads, block_size, head_dim]
+    # input: [batch, seq_len, num_heads, head_dim]
+    # update_index: [batch] - sequence position to update
+    # page_table: [batch, max_blocks_per_seq]
+    block_size = cache_tensor.shape[2]
+    indices = _gmt_leaf_torch(update_index_tensor.to(torch.long))
+    batch = input_tensor.shape[0]
+    seq_len = input_tensor.shape[1]
+    page_t = (
+        _gmt_leaf_torch(page_table_tensor) if page_table_tensor is not None else None
+    )
+    num_blocks = cache_tensor.shape[0]
+
+    for device_id, res_shard in result.shard_map.items():
+        inp_shard = input_tensor.shard_map[device_id]
+        for b_idx in range(batch):
+            for s in range(seq_len):
+                pos = indices[b_idx].item() + s
+                block_idx = pos // block_size
+                offset = pos % block_size
+                if page_t is not None:
+                    pg_cols = page_t.size(1)
+                    pg_idx = min(max(block_idx, 0), pg_cols - 1)
+                    physical_block = page_t[b_idx, pg_idx].long().item()
+                else:
+                    physical_block = block_idx
+                physical_block = min(max(int(physical_block), 0), num_blocks - 1)
+                res_shard[:, :, offset, :][physical_block] = inp_shard[b_idx, s, :, :]
+    return result
+
+
+def ttir_paged_fill_cache_golden(
+    cache_tensor: GoldenMapTensor,
+    input_tensor: GoldenMapTensor,
+    page_table_tensor: GoldenMapTensor,
+    batch_idx_tensor: Optional[GoldenMapTensor] = None,
+    output_type_mlir: Optional[Type] = None,
+) -> GoldenMapTensor:
+    result = cache_tensor.clone()
+    # cache: [num_blocks, num_heads, block_size, head_dim]
+    # input: [batch, num_heads, seq_len, head_dim]
+    # page_table: [batch, max_blocks_per_seq]
+    block_size = cache_tensor.shape[2]
+    batch = input_tensor.shape[0]
+    seq_len = input_tensor.shape[2]
+    num_blocks = cache_tensor.shape[0]
+    page_t = _gmt_leaf_torch(page_table_tensor)
+    max_pg_rows = page_t.size(0)
+    max_pg_cols = page_t.size(1)
+    batch_indices_t = (
+        _gmt_leaf_torch(batch_idx_tensor.to(torch.long).reshape(-1))
+        if batch_idx_tensor is not None
+        else None
+    )
+
+    for device_id, res_shard in result.shard_map.items():
+        inp_shard = input_tensor.shard_map[device_id]
+        for b_idx in range(batch):
+            page_table_batch_idx = (
+                int(batch_indices_t[b_idx].item())
+                if batch_indices_t is not None
+                else b_idx
+            )
+            page_table_batch_idx = min(max(page_table_batch_idx, 0), max_pg_rows - 1)
+            for seq_pos in range(seq_len):
+                blk_idx = seq_pos // block_size
+                offset = seq_pos % block_size
+                pg_col = min(max(blk_idx, 0), max_pg_cols - 1)
+                physical_block = int(page_t[page_table_batch_idx, pg_col].long().item())
+                physical_block = min(max(physical_block, 0), num_blocks - 1)
+                res_shard[physical_block, :, offset, :] = inp_shard[
+                    b_idx, :, seq_pos, :
+                ]
+    return result
+
+
 def debug_annotate_golden(
     input_tensor: GoldenMapTensor,
     annotation_attr: StringAttr,
@@ -6791,7 +6936,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Logical operations
     ttir.LogicalAndOp: ttir_logical_and_golden,
     ttir.LogicalLeftShiftOp: logical_left_shift_golden,
-    ttir.LogicalOrOp: logical_or_golden,
+    ttir.LogicalOrOp: ttir_logical_or_golden,
     ttir.LogicalRightShiftOp: ttir_logical_right_shift_golden,
     ttir.LogicalXorOp: logical_xor_golden,
     ttir.LogicalNotOp: ttir_logical_not_golden,
@@ -6824,7 +6969,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.UnsqueezeOp: unsqueeze_golden,
     ttir.ReverseOp: ttir_reverse_golden,
     ttir.PermuteOp: ttir_permute_golden,
-    ttir.ClampScalarOp: clamp_scalar_golden,
+    ttir.ClampScalarOp: ttir_clamp_scalar_golden,
     ttir.ClampTensorOp: ttir_clamp_tensor_golden,
     ttir.CumSumOp: ttir_cumsum_golden,
     ttir.BroadcastOp: ttir_broadcast_golden,
@@ -6835,7 +6980,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: matmul_golden,
-    ttir.EmbeddingOp: embedding_golden,
+    ttir.EmbeddingOp: ttir_embedding_golden,
     ttir.EmbeddingBackwardOp: ttir_embedding_backward_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
@@ -6869,9 +7014,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AvgPool2dOp: avg_pool2d_golden,
     ttir.GlobalAvgPool2dOp: global_avg_pool2d_golden,
     ttir.MaxPool2dWithIndicesOp: ttir_max_pool2d_with_indices,
-    ttir.ArgMaxOp: argmax_golden,
+    ttir.ArgMaxOp: ttir_argmax_golden,
     ttir.LinearOp: linear_golden,
-    ttir.ScaledDotProductAttentionOp: sdpa_golden,
+    ttir.ScaledDotProductAttentionOp: ttir_sdpa_golden,
     ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
@@ -6881,6 +7026,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
+    ttir.PagedUpdateCacheOp: ttir_paged_update_cache_golden,
+    ttir.PagedFillCacheOp: ttir_paged_fill_cache_golden,
     # CCL (Collective Communication Library) operations
     ttir.MeshShardOp: ttir_mesh_shard_golden,
     ttir.AllGatherOp: ttir_all_gather_golden,
@@ -6899,6 +7046,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LeakyReluOp: leaky_relu_golden,
     # Attention operations
     ttir.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
+    ttir.PagedScaledDotProductAttentionDecodeOp: ttir_paged_sdpa_decode_golden,
     # ----- D2M OPS -----
     # D2M Layout operations (identity functions)
     d2m.ToLayoutOp: (lambda x, **kwargs: x),
@@ -6930,6 +7078,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SqrtOp: stablehlo_sqrt_golden,
     stablehlo.TanOp: stablehlo_tan_golden,
     stablehlo.TanhOp: stablehlo_tanh_golden,
+    stablehlo.SignOp: stablehlo_sign_golden,
+    stablehlo.ConvertOp: stablehlo_convert_golden,
+    stablehlo.CbrtOp: stablehlo_cbrt_golden,
+    stablehlo.Expm1Op: stablehlo_expm1_golden,
+    stablehlo.IsFiniteOp: stablehlo_isfinite_golden,
     stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,

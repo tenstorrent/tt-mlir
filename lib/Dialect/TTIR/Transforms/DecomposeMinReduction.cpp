@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRDECOMPOSEMINREDUCTION
@@ -30,6 +31,9 @@ public:
 
     IRRewriter rewriter(&getContext());
     for (MinOp op : opsToDecompose) {
+      if (utils::isOuterReduction(op)) {
+        continue;
+      }
       rewriter.setInsertionPoint(op);
       auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
       auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());

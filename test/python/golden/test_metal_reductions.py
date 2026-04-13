@@ -34,6 +34,38 @@ def _mean_atol(shape, dim_arg, dtype):
     return math.prod(shape) * per_elem_tol / reduction_size
 
 
+def _reduction_atol(reduce_type: str, shape, dim_arg, dtype):
+    if reduce_type == "sum":
+        return _sum_atol(shape, dtype)
+    if reduce_type == "mean":
+        return _mean_atol(shape, dim_arg, dtype)
+    if reduce_type in ("max", "min"):
+        return _max_atol(dtype)
+    raise ValueError(f"Unsupported reduce_type: {reduce_type}")
+
+
+_REDUCE_TYPES = ["sum", "max", "min", "mean"]
+
+_3D_OUTER_REDUCE = {
+    combo: _REDUCE_TYPES[i % len(_REDUCE_TYPES)]
+    for i, combo in enumerate(
+        (b, m, n) for b in [2, 3, 8, 16, 64] for m in [1, 2, 4, 8] for n in [1, 2, 8]
+    )
+}
+
+_4D_OUTER_REDUCE = {
+    combo: _REDUCE_TYPES[i % len(_REDUCE_TYPES)]
+    for i, combo in enumerate(
+        (a, b, m, n, d)
+        for a in [2, 3, 4, 8, 16, 32, 64]
+        for b in [2, 4, 8]
+        for m in [2]
+        for n in [4]
+        for d in [0, 1]
+    )
+}
+
+
 def create_reductions_constrained_inputs(
     input_shape, reduce_type, dim_arg, keep_dim, dtype
 ):
@@ -142,7 +174,7 @@ def test_sum_3d(
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_sum_3d_outer(
+def test_reduce_outer_3d(
     b: int,
     m: int,
     n: int,
@@ -161,6 +193,7 @@ def test_sum_3d_outer(
             "all-reduce is missing, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
         )
 
+    reduce_type = _3D_OUTER_REDUCE[(b, m, n)]
     tile_size = 32
     shape = (
         b,
@@ -169,11 +202,13 @@ def test_sum_3d_outer(
     )
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=_sum_atol(shape, dtype),
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )
 
 
@@ -185,7 +220,7 @@ def test_sum_3d_outer(
 @pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_sum_4d_outer(
+def test_reduce_outer_4d(
     a: int,
     b: int,
     m: int,
@@ -209,6 +244,7 @@ def test_sum_4d_outer(
             "analysis splits the reduction dim due to odd batch size, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
         )
 
+    reduce_type = _4D_OUTER_REDUCE[(a, b, m, n, dim_arg[0])]
     tile_size = 32
     shape = (
         a,
@@ -218,11 +254,13 @@ def test_sum_4d_outer(
     )
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=_sum_atol(shape, dtype),
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )
 
 

@@ -32,9 +32,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ScheduleDMA.cpp
         LowerDMAToFullyIndexedForm.cpp
         LowerLoadStoreOpsToDMA.cpp
-        LowerLoadStoreOpsToExplicitCBForm.cpp
         ExpandDMAReadCompositeView.cpp
-        ConvertLocalLoadStoreOpsToAliasedCBs.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

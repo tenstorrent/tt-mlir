@@ -12,8 +12,10 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <deque>
@@ -160,27 +162,51 @@ AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
 
 Value lookThroughSubView(Value memref);
 
-void collectDstLoadOrStore(GenericOp gOp, affine::AffineLoadOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard = false);
-void collectDstLoadOrStore(GenericOp gOp, affine::AffineStoreOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard = false);
-void collectDstLoadOrStore(GenericOp gOp, memref::LoadOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard = false);
-void collectDstLoadOrStore(GenericOp gOp, memref::StoreOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard = false);
+Value stripDstRegionWrappers(Value memref);
 
-void collectDstLoadThenBcast(GenericOp gOp, affine::AffineLoadOp loadOp,
-                             d2m::TileBcastOp bcastOp, CopyInfoMap &copyInfos,
-                             int dstSlice,
-                             Operation *outermostInnerComputeLoop);
+bool isSameLogicalMemRefRegion(Value lhs, Value rhs);
+
+SmallVector<Value>
+getObviousCarriedOutputRegions(OperandLoadStoreRegisterOpInterface computeOp);
+
+SmallVector<int64_t>
+getAccumClassificationOperandIndices(OperandLoadStoreRegisterOpInterface op);
+
+void recordDstAccess(affine::AffineLoadOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard);
+void recordDstAccess(affine::AffineStoreOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard);
+void recordDstAccess(memref::LoadOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard);
+void recordDstAccess(memref::StoreOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard);
+void recordDstAccess(affine::AffineLoadOp loadOp, d2m::TileBcastOp bcastOp,
+                     CopyInfoMap &copyInfos, int dstSlice,
+                     Operation *outermostInnerComputeLoop, bool emitGuard);
+
+void collectDstStoreAccess(affine::AffineStoreOp storeOp,
+                           CopyInfoMap &copyInfos, int dstSlice,
+                           Operation *outermostInnerComputeLoop);
+void collectDstStoreAccess(memref::StoreOp storeOp, CopyInfoMap &copyInfos,
+                           int dstSlice, Operation *outermostInnerComputeLoop);
+
+void collectDstLoadWithAccumAnalysis(affine::AffineLoadOp loadOp,
+                                     int64_t operandIdx,
+                                     ArrayRef<Value> carriedOutputRegions,
+                                     ArrayRef<int64_t> accumOperandIndices,
+                                     CopyInfoMap &copyInfos, int dstSlice,
+                                     Operation *outermostInnerComputeLoop,
+                                     bool noAccumGuard = false);
+void collectDstLoadWithAccumAnalysis(memref::LoadOp loadOp, int64_t operandIdx,
+                                     ArrayRef<Value> carriedOutputRegions,
+                                     ArrayRef<int64_t> accumOperandIndices,
+                                     CopyInfoMap &copyInfos, int dstSlice,
+                                     Operation *outermostInnerComputeLoop,
+                                     bool noAccumGuard = false);
 
 scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,
                               ValueRange guardIVs, bool isBcastGuard);

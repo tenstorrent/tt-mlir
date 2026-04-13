@@ -1048,23 +1048,6 @@ def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
   ];
 }
 
-def D2MLowerLoadStoreOpsToExplicitCBForm : Pass<"d2m-lower-load-store-ops-to-explicit-cb-form", "::mlir::ModuleOp"> {
-  let summary = "Lower load/store operations to explicit CB form.";
-  let description = [{
-    This pass converts remote_load and remote_store operations from implicit form
-    to explicit CB form.
-  }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
-}
-
-def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store-ops-to-aliased-cbs", "::mlir::ModuleOp"> {
-  let summary = "Convert local load/store operations to aliased circular buffers.";
-  let description = [{
-    This pass converts local load/store operations to aliased circular buffers.
-  }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
-}
-
 def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
   let summary = "Lower d2m.scratch_allocate ops to memref.subview of the scratch buffer.";
   let description = [{

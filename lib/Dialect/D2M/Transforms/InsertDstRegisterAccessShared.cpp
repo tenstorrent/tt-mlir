@@ -19,6 +19,8 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -473,18 +475,106 @@ Value lookThroughSubView(Value memref) {
       return nullptr;
     }
   }
+  if (mlir::isa<CBType>(memref.getType())) {
+    return memref;
+  }
   if (mlir::isa<BlockArgument>(memref)) {
     return memref;
   }
   return nullptr;
 }
 
-// Template implementation for collectDstLoadOrStore.
+Value stripDstRegionWrappers(Value memref) {
+  if (!memref) {
+    return nullptr;
+  }
+  while (auto *definingOp = memref.getDefiningOp()) {
+    if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+      memref = definingOp->getOperand(0);
+      continue;
+    }
+    break;
+  }
+  return memref;
+}
+
+bool isSameLogicalMemRefRegion(Value lhs, Value rhs) {
+  lhs = stripDstRegionWrappers(lhs);
+  rhs = stripDstRegionWrappers(rhs);
+
+  if (lhs == rhs) {
+    return true;
+  }
+
+  auto lhsSubView = lhs.getDefiningOp<memref::SubViewOp>();
+  auto rhsSubView = rhs.getDefiningOp<memref::SubViewOp>();
+  if (!lhsSubView || !rhsSubView) {
+    return false;
+  }
+
+  return isSameLogicalMemRefRegion(lhsSubView.getSource(),
+                                   rhsSubView.getSource()) &&
+         llvm::equal(lhsSubView.getStaticOffsets(),
+                     rhsSubView.getStaticOffsets()) &&
+         llvm::equal(lhsSubView.getStaticSizes(),
+                     rhsSubView.getStaticSizes()) &&
+         llvm::equal(lhsSubView.getStaticStrides(),
+                     rhsSubView.getStaticStrides()) &&
+         llvm::equal(lhsSubView.getOffsets(), rhsSubView.getOffsets()) &&
+         llvm::equal(lhsSubView.getSizes(), rhsSubView.getSizes()) &&
+         llvm::equal(lhsSubView.getStrides(), rhsSubView.getStrides());
+}
+
+SmallVector<Value>
+getObviousCarriedOutputRegions(OperandLoadStoreRegisterOpInterface computeOp) {
+  SmallVector<Value> outputs;
+
+  if (auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(
+          computeOp.getOperation())) {
+    outputs.append(dpsOp.getDpsInits().begin(), dpsOp.getDpsInits().end());
+  }
+
+  for (Value result : computeOp->getResults()) {
+    for (Operation *user : result.getUsers()) {
+      if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
+        if (affineStore.getValue() == result) {
+          outputs.push_back(affineStore.getMemRef());
+        }
+      } else if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(user)) {
+        if (memrefStore.getValue() == result) {
+          outputs.push_back(memrefStore.getMemRef());
+        }
+      }
+    }
+  }
+
+  return outputs;
+}
+
+SmallVector<int64_t>
+getAccumClassificationOperandIndices(OperandLoadStoreRegisterOpInterface op) {
+  SmallVector<int64_t> operandIndices;
+  auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(op.getOperation());
+
+  for (OpOperand &operand : op->getOpOperands()) {
+    if (op.isScalarOperand(operand.getOperandNumber())) {
+      continue;
+    }
+    if (dpsOp && dpsOp.isDpsInit(&operand)) {
+      continue;
+    }
+    operandIndices.push_back(operand.getOperandNumber());
+  }
+
+  return operandIndices;
+}
+
+// Core recording logic: record a load/store with an optional guard.
 template <typename LoadOrStoreTy>
-static void collectDstLoadOrStoreImpl(GenericOp gOp, LoadOrStoreTy loadOrStore,
-                                      CopyInfoMap &copyInfos, int dstSlice,
-                                      Operation *outermostInnerComputeLoop,
-                                      bool noAccumGuard) {
+static void recordDstAccessImpl(LoadOrStoreTy loadOrStore,
+                                CopyInfoMap &copyInfos, int dstSlice,
+                                Operation *outermostInnerComputeLoop,
+                                bool emitGuard) {
   if (!outermostInnerComputeLoop) {
     outermostInnerComputeLoop = loadOrStore;
   }
@@ -493,50 +583,44 @@ static void collectDstLoadOrStoreImpl(GenericOp gOp, LoadOrStoreTy loadOrStore,
   Value assocCB = lookThroughSubView(loadOrStore.getMemRef());
 
   SmallVector<Value> guardIVs;
-  if (assocCB && !noAccumGuard) {
+  if (assocCB && emitGuard) {
     guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
   }
 
   iter->second.record(loadOrStore, dstSlice, guardIVs);
 }
 
-// Explicit instantiations for the four load/store types.
-void collectDstLoadOrStore(GenericOp gOp, affine::AffineLoadOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard) {
-  collectDstLoadOrStoreImpl(gOp, loadOrStore, copyInfos, dstSlice,
-                            outermostInnerComputeLoop, noAccumGuard);
+void recordDstAccess(affine::AffineLoadOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard) {
+  recordDstAccessImpl(loadOrStore, copyInfos, dstSlice,
+                      outermostInnerComputeLoop, emitGuard);
 }
 
-void collectDstLoadOrStore(GenericOp gOp, affine::AffineStoreOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard) {
-  collectDstLoadOrStoreImpl(gOp, loadOrStore, copyInfos, dstSlice,
-                            outermostInnerComputeLoop, noAccumGuard);
+void recordDstAccess(affine::AffineStoreOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard) {
+  recordDstAccessImpl(loadOrStore, copyInfos, dstSlice,
+                      outermostInnerComputeLoop, emitGuard);
 }
 
-void collectDstLoadOrStore(GenericOp gOp, memref::LoadOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard) {
-  collectDstLoadOrStoreImpl(gOp, loadOrStore, copyInfos, dstSlice,
-                            outermostInnerComputeLoop, noAccumGuard);
+void recordDstAccess(memref::LoadOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard) {
+  recordDstAccessImpl(loadOrStore, copyInfos, dstSlice,
+                      outermostInnerComputeLoop, emitGuard);
 }
 
-void collectDstLoadOrStore(GenericOp gOp, memref::StoreOp loadOrStore,
-                           CopyInfoMap &copyInfos, int dstSlice,
-                           Operation *outermostInnerComputeLoop,
-                           bool noAccumGuard) {
-  collectDstLoadOrStoreImpl(gOp, loadOrStore, copyInfos, dstSlice,
-                            outermostInnerComputeLoop, noAccumGuard);
+void recordDstAccess(memref::StoreOp loadOrStore, CopyInfoMap &copyInfos,
+                     int dstSlice, Operation *outermostInnerComputeLoop,
+                     bool emitGuard) {
+  recordDstAccessImpl(loadOrStore, copyInfos, dstSlice,
+                      outermostInnerComputeLoop, emitGuard);
 }
 
-void collectDstLoadThenBcast(GenericOp gOp, affine::AffineLoadOp loadOp,
-                             d2m::TileBcastOp bcastOp, CopyInfoMap &copyInfos,
-                             int dstSlice,
-                             Operation *outermostInnerComputeLoop) {
+void recordDstAccess(affine::AffineLoadOp loadOp, d2m::TileBcastOp bcastOp,
+                     CopyInfoMap &copyInfos, int dstSlice,
+                     Operation *outermostInnerComputeLoop, bool emitGuard) {
   if (!outermostInnerComputeLoop) {
     outermostInnerComputeLoop = loadOp;
   }
@@ -545,11 +629,104 @@ void collectDstLoadThenBcast(GenericOp gOp, affine::AffineLoadOp loadOp,
   Value assocCB = lookThroughSubView(loadOp.getMemRef());
 
   SmallVector<Value> guardIVs;
-  if (assocCB) {
+  if (assocCB && emitGuard) {
     guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
   }
 
   iter->second.record(loadOp, bcastOp, dstSlice, guardIVs);
+}
+
+// Heuristically identify CB loads that feed a loop-carried accumulator tile.
+template <typename LoadTy>
+static bool
+isObviousLoopCarriedAccumulationLoad(LoadTy loadOp, int64_t operandIdx,
+                                     ArrayRef<Value> carriedOutputRegions,
+                                     ArrayRef<int64_t> accumOperandIndices) {
+  if (accumOperandIndices.size() <= 1 ||
+      !llvm::is_contained(accumOperandIndices, operandIdx)) {
+    return false;
+  }
+
+  for (Value outputRegion : carriedOutputRegions) {
+    if (isSameLogicalMemRefRegion(loadOp.getMemRef(), outputRegion)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// Decide whether this load should preserve the DST tile across outer-loop
+// iterations instead of reloading every time.
+template <typename LoadTy>
+static bool shouldGuardDstLoadForAccumulation(
+    LoadTy loadOp, int64_t operandIdx, ArrayRef<Value> carriedOutputRegions,
+    ArrayRef<int64_t> accumOperandIndices, bool noAccumGuard = false) {
+  if (noAccumGuard || !lookThroughSubView(loadOp.getMemRef())) {
+    return false;
+  }
+
+  return isObviousLoopCarriedAccumulationLoad(
+      loadOp, operandIdx, carriedOutputRegions, accumOperandIndices);
+}
+
+// Record a store that drains a computed DST tile back to memory.
+template <typename StoreTy>
+static void collectDstStoreAccessImpl(StoreTy storeOp, CopyInfoMap &copyInfos,
+                                      int dstSlice,
+                                      Operation *outermostInnerComputeLoop) {
+  recordDstAccessImpl(storeOp, copyInfos, dstSlice, outermostInnerComputeLoop,
+                      /*emitGuard=*/false);
+}
+
+void collectDstStoreAccess(affine::AffineStoreOp storeOp,
+                           CopyInfoMap &copyInfos, int dstSlice,
+                           Operation *outermostInnerComputeLoop) {
+  collectDstStoreAccessImpl(storeOp, copyInfos, dstSlice,
+                            outermostInnerComputeLoop);
+}
+
+void collectDstStoreAccess(memref::StoreOp storeOp, CopyInfoMap &copyInfos,
+                           int dstSlice, Operation *outermostInnerComputeLoop) {
+  collectDstStoreAccessImpl(storeOp, copyInfos, dstSlice,
+                            outermostInnerComputeLoop);
+}
+
+// Collect a single load access and determine whether it needs an accumulation
+// guard.
+template <typename LoadTy>
+static void collectDstLoadWithAccumAnalysisImpl(
+    LoadTy loadOp, int64_t operandIdx, ArrayRef<Value> carriedOutputRegions,
+    ArrayRef<int64_t> accumOperandIndices, CopyInfoMap &copyInfos, int dstSlice,
+    Operation *outermostInnerComputeLoop, bool noAccumGuard) {
+  const bool emitGuard = shouldGuardDstLoadForAccumulation(
+      loadOp, operandIdx, carriedOutputRegions, accumOperandIndices,
+      noAccumGuard);
+  recordDstAccessImpl(loadOp, copyInfos, dstSlice, outermostInnerComputeLoop,
+                      emitGuard);
+}
+
+void collectDstLoadWithAccumAnalysis(affine::AffineLoadOp loadOp,
+                                     int64_t operandIdx,
+                                     ArrayRef<Value> carriedOutputRegions,
+                                     ArrayRef<int64_t> accumOperandIndices,
+                                     CopyInfoMap &copyInfos, int dstSlice,
+                                     Operation *outermostInnerComputeLoop,
+                                     bool noAccumGuard) {
+  collectDstLoadWithAccumAnalysisImpl(loadOp, operandIdx, carriedOutputRegions,
+                                      accumOperandIndices, copyInfos, dstSlice,
+                                      outermostInnerComputeLoop, noAccumGuard);
+}
+
+void collectDstLoadWithAccumAnalysis(memref::LoadOp loadOp, int64_t operandIdx,
+                                     ArrayRef<Value> carriedOutputRegions,
+                                     ArrayRef<int64_t> accumOperandIndices,
+                                     CopyInfoMap &copyInfos, int dstSlice,
+                                     Operation *outermostInnerComputeLoop,
+                                     bool noAccumGuard) {
+  collectDstLoadWithAccumAnalysisImpl(loadOp, operandIdx, carriedOutputRegions,
+                                      accumOperandIndices, copyInfos, dstSlice,
+                                      outermostInnerComputeLoop, noAccumGuard);
 }
 
 scf::IfOp createLoadLoopGuard(PatternRewriter &rewriter, Location loc,

@@ -74,6 +74,10 @@ collectDstAccesses(GenericOp gOp, Region &region,
       }
     }
     const bool noAccumGuardForLoads = totalCBLoads >= 2;
+    const SmallVector<Value> carriedOutputRegions =
+        getObviousCarriedOutputRegions(computeOp);
+    const SmallVector<int64_t> accumOperandIndices =
+        getAccumClassificationOperandIndices(computeOp);
 
     int numLoads = 0;
     int firstInputDstSlice = -1;
@@ -90,8 +94,10 @@ collectDstAccesses(GenericOp gOp, Region &region,
           firstInputDstSlice = dstSlice;
         }
         ++numLoads;
-        collectDstLoadOrStore(gOp, potentialLoad, copyInfos, dstSlice,
-                              outermostInnerComputeLoop, noAccumGuardForLoads);
+        collectDstLoadWithAccumAnalysis(
+            potentialLoad, operandIdx, carriedOutputRegions,
+            accumOperandIndices, copyInfos, dstSlice, outermostInnerComputeLoop,
+            noAccumGuardForLoads);
       }
     }
 
@@ -126,7 +132,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
           dstSlice = dstSliceAllocationState.allocate();
           dstSliceAllocationState.setStoreToDst();
         }
-        collectDstLoadOrStore(gOp, potentialStore, copyInfos, dstSlice,
+        collectDstStoreAccess(potentialStore, copyInfos, dstSlice,
                               outermostInnerComputeLoop);
       } else if (auto scratchStore = mlir::dyn_cast<memref::StoreOp>(user)) {
         assert(!dstSliceAllocationState.didStoreToDst() &&
@@ -151,7 +157,7 @@ collectDstAccesses(GenericOp gOp, Region &region,
           dstSlice = dstSliceAllocationState.allocate();
           dstSliceAllocationState.setStoreToDst();
         }
-        collectDstLoadOrStore(gOp, scratchStore, copyInfos, dstSlice,
+        collectDstStoreAccess(scratchStore, copyInfos, dstSlice,
                               outermostInnerComputeLoop);
       } else {
         assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
@@ -175,8 +181,8 @@ collectDstAccesses(GenericOp gOp, Region &region,
               computeOp->getOperand(0).getDefiningOp<affine::AffineLoadOp>();
           TT_assert(loadOp != nullptr);
           auto bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
-          collectDstLoadThenBcast(gOp, loadOp, bcastOp, copyInfos, dstSlice,
-                                  outermostInnerComputeLoop);
+          recordDstAccess(loadOp, bcastOp, copyInfos, dstSlice,
+                          outermostInnerComputeLoop, /*emitGuard=*/true);
         } else {
           dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
         }

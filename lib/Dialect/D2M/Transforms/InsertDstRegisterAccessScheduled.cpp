@@ -165,6 +165,10 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           }
         }
         const bool noAccumGuardForLoads = totalCBLoads >= 2;
+        const SmallVector<Value> carriedOutputRegions =
+            getObviousCarriedOutputRegions(computeOp);
+        const SmallVector<int64_t> accumOperandIndices =
+            getAccumClassificationOperandIndices(computeOp);
 
         for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
           if (computeOp.isScalarOperand(operandIdx)) {
@@ -176,13 +180,15 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
           Value operand = computeOp->getOperand(operandIdx);
           if (auto affineLoad = operand.getDefiningOp<affine::AffineLoadOp>();
               affineLoad && notDstMemspace(affineLoad)) {
-            collectDstLoadOrStore(
-                op, affineLoad, copyInfos, dstStackAllocator.allocate(),
+            collectDstLoadWithAccumAnalysis(
+                affineLoad, operandIdx, carriedOutputRegions,
+                accumOperandIndices, copyInfos, dstStackAllocator.allocate(),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                      memrefLoad && notDstMemspace(memrefLoad)) {
-            collectDstLoadOrStore(
-                op, memrefLoad, copyInfos, dstStackAllocator.allocate(),
+            collectDstLoadWithAccumAnalysis(
+                memrefLoad, operandIdx, carriedOutputRegions,
+                accumOperandIndices, copyInfos, dstStackAllocator.allocate(),
                 outermostInnerComputeLoop, noAccumGuardForLoads);
           }
         }
@@ -213,10 +219,10 @@ collectDstAccessesScheduled(GenericOp op, Region &region,
             }
 
             if (isAffineStore) {
-              collectDstLoadOrStore(op, affineStore, copyInfos, dstSliceIndex,
+              collectDstStoreAccess(affineStore, copyInfos, dstSliceIndex,
                                     outermostInnerComputeLoop);
             } else {
-              collectDstLoadOrStore(op, memrefStore, copyInfos, dstSliceIndex,
+              collectDstStoreAccess(memrefStore, copyInfos, dstSliceIndex,
                                     outermostInnerComputeLoop);
             }
           } else if (user->hasTrait<D2MGenericRegionComputeOpTrait>()) {

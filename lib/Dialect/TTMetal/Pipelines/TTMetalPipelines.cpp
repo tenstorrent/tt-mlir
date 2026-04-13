@@ -223,13 +223,10 @@ void createTTIRToTTMetalMiddleendPipeline(
   // GenericLinearizeMemref generates affine apply ops that must be lowered here
   pm.addPass(mlir::createLowerAffinePass());
 
-  // Frontend of DMA lowering pipeline; lower abstract
-  // remote loads and stores to explicit CB form split the
-  // unified thread into separate compute and datamovement
-  // threads.
+  // Frontend of DMA lowering pipeline; insert compute-side CB
+  // sync ops and split the unified thread into separate compute
+  // and datamovement threads.
   pm.addPass(d2m::createD2MHoistCBAllocs());
-  pm.addPass(d2m::createD2MConvertLocalLoadStoreOpsToAliasedCBs());
-  pm.addPass(d2m::createD2MLowerLoadStoreOpsToExplicitCBForm());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
 
   // Backend of DMA lowering pipeline; generic ops are now
