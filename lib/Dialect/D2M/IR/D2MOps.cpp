@@ -1397,7 +1397,7 @@ void d2m::GenericOp::build(
       builder.getArrayAttr(builder.getAttr<ThreadAttr>(singleThreadType));
 
   build(builder, state, TypeRange(outputs), inputs, outputs, additionalArgs,
-        grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads, 
+        grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads,
         fabricConnectionConfig, /*numRegions=*/1);
 }
 
@@ -2255,8 +2255,7 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
       thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
-      thisOp.getFabricConnectionConfigAttr(),
-      thisOp.getNumRegions());
+      thisOp.getFabricConnectionConfigAttr(), thisOp.getNumRegions());
 }
 
 // Clone one generic region and retarget its block args to reblocked operands.

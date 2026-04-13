@@ -2158,13 +2158,13 @@ public:
     size_t argIndex;
     Type argResultType;
 
-    if (auto memrefType = mlir::dyn_cast<MemRefType>(op.getResult().getType())) {
+    if (auto memrefType =
+            mlir::dyn_cast<MemRefType>(op.getResult().getType())) {
       Type convertedType = getTypeConverter()->convertType(memrefType);
       if (mlir::isa<ttkernel::CBType>(convertedType)) {
         // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
         // Handle identically to D2MGetCBRewriter: CBPort compile-time arg.
-        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort,
-                                        op.getOperandIndex());
+        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
         argResultType = convertedType;
 
         rewriter.modifyOpInPlace(entry, [&]() {

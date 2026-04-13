@@ -96,14 +96,14 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
 
   // Create CBLayoutAttr for the scratch buffer (single-buffered).
   auto cbLayout =
-    ttcore::CBLayoutAttr::get(scratchShardShape, tileType, /*buffers=*/1);
+      ttcore::CBLayoutAttr::get(scratchShardShape, tileType, /*buffers=*/1);
 
   auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
       genericOp.getContext(), ttcore::MemorySpace::DeviceL1);
 
   // Shard memref type for the scratch buffer inside the region.
-  MemRefType scratchShardMemRefType = MemRefType::get(
-      scratchShardShape, tileType, cbLayout, l1MemorySpace);
+  MemRefType scratchShardMemRefType =
+      MemRefType::get(scratchShardShape, tileType, cbLayout, l1MemorySpace);
 
   // Insert memref.alloc + scratch_init at the start of the region body.
   Region &region = genericOp.getRegion(0);

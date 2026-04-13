@@ -814,7 +814,7 @@ public:
           builder.create<YieldOp>(innerLoc, storeResult);
         },
         ThreadType::Unified);
-        
+
     return genericOp.getResult(0);
   }
 

@@ -21,7 +21,7 @@ def D2MInsertScratchBuffers : Pass<"d2m-insert-scratch-buffers", "::mlir::Module
     `numTiles = 128KB / tile_size_bytes`.
 
     This pass runs after bufferization (in memref space) and before the
-    D2MAllocate pass. It inserts a `memref.alloc` with `CBLayoutAttr` 
+    D2MAllocate pass. It inserts a `memref.alloc` with `CBLayoutAttr`
     and a `d2m.scratch_init` anchor op at the start of the generic's region body.
 
     Example transformation:

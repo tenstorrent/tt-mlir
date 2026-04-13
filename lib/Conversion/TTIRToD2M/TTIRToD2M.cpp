@@ -2614,7 +2614,6 @@ public:
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
-
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
     {

@@ -1071,7 +1071,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                 llvm::all_of(memrefCtx.allocSize,
                              [](auto size) { return size >= 0; })));
 
-
       TT_debug(memrefCtx.varIndex < 0);
       memrefCtx.varIndex =
           problem.def([&, &memref = memref,
