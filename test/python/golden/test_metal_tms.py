@@ -368,7 +368,9 @@ def test_reshape(
         ((1, 128), 0, 1),  # Four tiles (from GPT model)
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_arange(
     shape: tuple,
