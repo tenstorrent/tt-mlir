@@ -31,8 +31,7 @@ static std::optional<uint64_t> computeCBBytesForCandidate(
 
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getInputsAndOutputs())) {
-    if (genericOp.isOutputOperandIdx(operandIndex) ||
-        genericOp.isScratchInput(operandIndex)) {
+    if (genericOp.isOutputOperandIdx(operandIndex)) {
       continue;
     }
 

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -128,7 +128,7 @@ private:
   /// memref, followed by an expand_shape if the requested type is
   /// multi-dimensional.
   ///
-  /// The scratch buffer has shape [1, N] from AddScratchInputs.
+  /// The scratch buffer has shape [1, N] from InsertScratchBuffers.
   /// Each scratch_allocate requests a memref with numElements total tiles.
   /// We emit:
   ///   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)

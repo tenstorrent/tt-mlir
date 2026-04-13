@@ -2614,8 +2614,6 @@ public:
         rewriter.getAffineMapArrayAttr(indexingMaps),
         rewriter.getArrayAttr(iteratorTypes));
 
-    // Mark index tile (index 0) as scratch - it doesn't need streaming.
-    generic.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({0}));
 
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);
@@ -2927,7 +2925,7 @@ public:
         rewriter.getArrayAttr(emptyIteratorTypes),
         rewriter.getArrayAttr(
             rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Unified)),
-        /*scratch_inputs=*/nullptr, fabricConnectionConfig, /*numRegions=*/1);
+        fabricConnectionConfig, /*numRegions=*/1);
 
     // Create one bb in 'generic''s region and set its arguments.
     auto insertPoint = rewriter.saveInsertionPoint();

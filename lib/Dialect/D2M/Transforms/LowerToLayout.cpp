@@ -814,10 +814,7 @@ public:
           builder.create<YieldOp>(innerLoc, storeResult);
         },
         ThreadType::Unified);
-
-    // Mark mask inputs (indices 1, 2) as scratch - they don't need streaming.
-    genericOp.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({1, 2}));
-
+        
     return genericOp.getResult(0);
   }
 

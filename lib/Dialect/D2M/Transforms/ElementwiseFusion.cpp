@@ -277,7 +277,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
       consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
       mergedAdditionalArgs, consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
-      consumer.getThreads(), consumer.getScratchInputsAttr(),
+      consumer.getThreads(),
       consumer.getFabricConnectionConfigAttr(), /*regions=*/1);
 
   /////////////////////////////////////////////////////////////////////////////

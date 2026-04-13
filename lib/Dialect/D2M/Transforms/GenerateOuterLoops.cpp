@@ -139,7 +139,7 @@ public:
         /* block_factors */ generic.getBlockFactors(),
         /* indexing_maps */ generic.getIndexingMaps(),
         /* iterator_types */ generic.getIteratorTypes(), generic.getThreads(),
-        generic.getScratchInputsAttr(), generic.getFabricConnectionConfigAttr(),
+        generic.getFabricConnectionConfigAttr(),
         generic.getNumRegions());
 
     // Process the single region

@@ -353,7 +353,7 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
       genericOp.getOutputs(), genericOp.getAdditionalArgs(),
       genericOp.getGrid(), genericOp.getBlockFactors(),
       rewriter.getArrayAttr(newIndexingMaps), genericOp.getIteratorTypes(),
-      genericOp.getThreads(), genericOp.getScratchInputsAttr(),
+      genericOp.getThreads(),
       genericOp.getFabricConnectionConfigAttr(),
       /*regions=*/1);
 
