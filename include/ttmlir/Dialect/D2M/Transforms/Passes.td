@@ -1034,8 +1034,8 @@ def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
   ];
 }
 
-def D2MMarkSynchronizableOpBuffers : Pass<"d2m-mark-synchronizable-op-buffers", "::mlir::ModuleOp"> {
-  let summary = "Mark synchronizable op buffers.";
+def D2MMarkSynchronizedOpBuffers : Pass<"d2m-mark-synchronized-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Mark synchronized op buffers.";
   let description = [{
     fill in description
   }];
