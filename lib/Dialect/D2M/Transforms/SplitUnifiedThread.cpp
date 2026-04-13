@@ -410,20 +410,6 @@ static LogicalResult processComputeStores(Block *computeBlock,
   return success();
 }
 
-// Replace GetScratchFromCBOp with reserve.
-static void processGetScratchOps(Block *computeBlock, PatternRewriter &rewriter,
-                                 DenseSet<Operation *> &toErase) {
-  SmallVector<GetScratchFromCBOp> ops;
-  computeBlock->walk([&](GetScratchFromCBOp op) { ops.push_back(op); });
-
-  for (GetScratchFromCBOp op : ops) {
-    rewriter.setInsertionPoint(op);
-    auto reserveOp = rewriter.create<ReserveOp>(op.getLoc(), op.getCb());
-    rewriter.replaceAllUsesWith(op.getResult(), reserveOp.getResult());
-    toErase.insert(op);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // DMA thread: convert implicit-form ops to explicit CB form
 // ---------------------------------------------------------------------------
@@ -652,7 +638,7 @@ public:
         rewriter.getArrayAttr(
             {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement),
              rewriter.getAttr<ThreadAttr>(ThreadType::Compute)}),
-        generic.getScratchInputsAttr(), generic.getFabricConnectionConfigAttr(),
+             generic.getFabricConnectionConfigAttr(),
         /*numRegions*/ 2);
 
     Block *dmBlock = &newGeneric.getRegion(0).emplaceBlock();
@@ -703,7 +689,6 @@ public:
                                     portCounters, toErase))) {
       return failure();
     }
-    processGetScratchOps(computeBlock, rewriter, toErase);
 
     // DMA thread: convert datamovement ops to explicit CB form.
     if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter, dmaCache,
