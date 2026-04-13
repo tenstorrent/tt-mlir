@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-add-scratch-inputs %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-scratch-buffers %s | FileCheck %s
 
 #l1 = #ttcore.memory_space<l1>
 #parallel = #ttcore.iterator_type<parallel>
@@ -10,13 +10,12 @@
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // Two tile_add ops in a fused generic → scratch_init should be inserted.
-// Verify: memref.alloc + scratch_init inside region, no scratch_inputs attr.
+// Verify: memref.alloc + scratch_init inside region.
 
 // CHECK-LABEL: func.func @two_adds_gets_scratch
 // CHECK: d2m.generic
-// CHECK-NOT: scratch_inputs
 // CHECK: ins(%{{.*}}, %{{.*}} :
-// CHECK: memref.alloc() {d2m.scratch} : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
+// CHECK: memref.alloc() : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
 // CHECK-NEXT: d2m.scratch_init
 func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
@@ -64,8 +63,7 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
 
 // CHECK-LABEL: func.func @add_and_mul_gets_scratch
 // CHECK: d2m.generic
-// CHECK-NOT: scratch_inputs
-// CHECK: memref.alloc() {d2m.scratch} : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
+// CHECK: memref.alloc() : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
 // CHECK-NEXT: d2m.scratch_init
 func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
@@ -109,7 +107,7 @@ func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) 
   return
 }
 
-// Single tile_add → no scratch (needsScratch requires > 1 binary FPU op).
+// Single tile_add → no scratch (needsScratch requires > 1 op).
 
 // CHECK-LABEL: func.func @single_add_no_scratch
 // CHECK-NOT: scratch_init

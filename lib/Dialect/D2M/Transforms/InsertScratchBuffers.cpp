@@ -13,10 +13,10 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
-#define DEBUG_TYPE "D2MAddScratchInputs"
+#define DEBUG_TYPE "D2MInsertScratchBuffers"
 
 namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MADDSCRATCHINPUTS
+#define GEN_PASS_DEF_D2MINSERTSCRATCHBUFFERS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
@@ -115,15 +115,14 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
 
   auto scratchAlloc = builder.create<memref::AllocOp>(genericOp.getLoc(),
                                                       scratchShardMemRefType);
-  scratchAlloc->setAttr("d2m.scratch", builder.getUnitAttr());
   builder.create<ScratchInitOp>(genericOp.getLoc(), scratchAlloc.getResult());
 
   return success();
 }
 
-class D2MAddScratchInputs
-    : public impl::D2MAddScratchInputsBase<D2MAddScratchInputs> {
-  using D2MAddScratchInputsBase::D2MAddScratchInputsBase;
+class D2MInsertScratchBuffers
+    : public impl::D2MInsertScratchBuffersBase<D2MInsertScratchBuffers> {
+  using D2MInsertScratchBuffersBase::D2MInsertScratchBuffersBase;
 
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();

@@ -1,5 +1,4 @@
 add_mlir_dialect_library(MLIRD2MTransforms
-        AddScratchInputs.cpp
         Allocate.cpp
         DMAOptimizations.cpp
         DecomposeArange.cpp
@@ -20,6 +19,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ElementwiseFusion.cpp
         OpScheduler.cpp
         SFPUTileLoopFission.cpp
+        InsertScratchBuffers.cpp
         InsertSpillAndScratch.cpp
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp

@@ -7,11 +7,11 @@
 
 include "mlir/Pass/PassBase.td"
 
-// Add scratch buffer to d2m.generic ops (post-bufferization)
-def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
-  let summary = "Add scratch buffer inside fused d2m.generic ops.";
+// Insert scratch buffers to d2m.generic ops (post-bufferization)
+def D2MInsertScratchBuffers : Pass<"d2m-insert-scratch-buffers", "::mlir::ModuleOp"> {
+  let summary = "Insert scratch buffers inside fused d2m.generic ops.";
   let description = [{
-    This pass adds a scratch buffer inside fused `d2m.generic` operations
+    This pass inserts a scratch buffer inside fused `d2m.generic` operations
     that may need to spill intermediate results. A generic is considered to
     need scratch when its compute region contains more than one `linalg.generic`
     op (indicating elementwise fusion).
@@ -21,8 +21,8 @@ def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
     `numTiles = 128KB / tile_size_bytes`.
 
     This pass runs after bufferization (in memref space) and before the
-    D2MAllocate pass. It inserts a `memref.alloc` and a `d2m.scratch_init`
-    anchor op at the start of the generic's region body.
+    D2MAllocate pass. It inserts a `memref.alloc` with `CBLayoutAttr` 
+    and a `d2m.scratch_init` anchor op at the start of the generic's region body.
 
     Example transformation:
     ```mlir
@@ -1075,7 +1075,7 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
        `memref.subview` of the scratch memref at the computed offset.
     6. Erases the `d2m.scratch_init` anchor op.
 
-    The scratch buffer has shape `[1, N]` (set by AddScratchInputs). Each
+    The scratch buffer has shape `[1, N]` with `CBLayoutAttr` (set by InsertScratchBuffers). Each
     `d2m.scratch_allocate` requests a 1D `memref<M x tile>`, which is lowered to
     `memref.subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>`.
 
