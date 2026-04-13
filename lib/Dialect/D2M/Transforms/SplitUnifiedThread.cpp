@@ -638,7 +638,7 @@ public:
         rewriter.getArrayAttr(
             {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement),
              rewriter.getAttr<ThreadAttr>(ThreadType::Compute)}),
-             generic.getFabricConnectionConfigAttr(),
+        generic.getFabricConnectionConfigAttr(),
         /*numRegions*/ 2);
 
     Block *dmBlock = &newGeneric.getRegion(0).emplaceBlock();
