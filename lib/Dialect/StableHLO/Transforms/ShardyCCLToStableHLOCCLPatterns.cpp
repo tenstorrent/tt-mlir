@@ -273,6 +273,14 @@ public:
                                 PatternRewriter &rewriter) const override {
     MLIRContext *context = getContext();
 
+    // Skip conversion if all operation results are unused to avoid creating
+    // dead code
+    if (llvm::all_of(srcOp->getResults(),
+                     [](auto result) { return result.use_empty(); })) {
+      rewriter.eraseOp(srcOp);
+      return success();
+    }
+
     // Set a default channel handle attr since we don't use it in tt-mlir stack
     // but stablehlo::AllReduceOp rewriter requires it.
     mlir::stablehlo::ChannelHandleAttr channelHandleAttr =
