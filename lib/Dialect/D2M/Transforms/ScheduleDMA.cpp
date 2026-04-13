@@ -368,7 +368,12 @@ public:
     unsigned numDatamovementThreads = chipDesc.getNumDatamovementThreads();
 
     // If only 1 DMA thread available, nothing to schedule.
-    if (numDatamovementThreads <= 1) {
+    // for ccl case, simple splitting is to use 1 thread; more advanced splitting would be to split on
+    // fabric ops into fabric threads and non fabric dma ops into reaminging threads
+    // so we have two classes of threads essntially, so we split fabric ops using number of fabric threads available and 
+    // remaining dma ops based on all dma threads available
+    // fabric ops are a subclasss of normal dma ops
+    if (true) { 
       return;
     }
 

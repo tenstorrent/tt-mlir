@@ -1060,6 +1060,14 @@ def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MMarkSynchronizableOpBuffers : Pass<"d2m-mark-synchronizable-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Mark synchronizable op buffers.";
+  let description = [{
+    fill in description
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
   let summary = "Lower d2m.scratch_allocate ops to memref.subview of the scratch buffer.";
   let description = [{

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "ttmlir/AffineMapUtils.h"
@@ -12,6 +13,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -26,6 +28,11 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
+#include <llvm/ADT/SmallVector.h>
+#include <llvm/Support/ErrorHandling.h>
+#include <llvm/Support/LogicalResult.h>
+#include <mlir/IR/Builders.h>
+#include <mlir/Support/WalkResult.h>
 #include <optional>
 
 //===---------------------------------------------------------------------===//
@@ -369,6 +376,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     FuncAnalysisData analysis;
 
+    // TODO: separate out to earlier pass if needed
+    //if (failed(attachCBLayoutAttr(funcOp, analysis))) {
+    //  return failure();
+    //}
+
     if (failed(validateGenericOpForms(funcOp))) {
       return failure();
     }
@@ -401,11 +413,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
+    // TODO: reblocking needs to look at all CBs not just ones tied to operands
     if (failed(reblockGenerics(funcOp, analysis))) {
       return failure();
     }
 
-    if (failed(insertOperandStreams(funcOp, analysis))) {
+    if (failed(inferOperandAliasing(funcOp, analysis))) {
       return failure();
     }
 
@@ -632,13 +645,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             }
             auto operandMemSpace =
                 ttcore::getMemorySpace(operandCtx.operand->get().getType());
-            if (!requiresCBAllocation(genericOp, genericIt->second, operandCtx,
+            if (canAliasOperand(genericOp, genericIt->second, operandCtx,
                                       operandMemSpace)) {
               continue;
             }
             Value operandAlloc = d2m::GenericOp::getOperandAlloc(
                 region, operandCtx.operandIndex());
-            // If getOperandAlloc fails but requiresCBAllocation is true,
+            // If getOperandAlloc fails but canAliasOperand is true,
             // assume that is because the local buffer associated with this
             // operand might be shared by a pair of remote load and store ops
             // (buffer is not exclusive to a single operand).
@@ -1307,6 +1320,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     analysis.generics = std::move(updatedGenerics);
     return success();
   }
+  
 
   /// Sweep through all collected generic ops and make several in-place
   /// modifications:
@@ -1314,11 +1328,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ///    memspace decided by the planner;
   ///  - create local CB allocs inside the generic for streamed operands.
   ///
-  LogicalResult insertOperandStreams(func::FuncOp funcOp,
+  LogicalResult inferOperandAliasing(func::FuncOp funcOp,
                                      const FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
-
-    const auto &L1memInfo = memSpaces[ordinal(MemorySpace::DeviceL1)];
 
     llvm::DenseSet<Operation *> visited;
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
@@ -1362,8 +1374,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           }
         }
         TT_assert(remappedMemSpace.has_value());
-        const MemorySpace finalRemappedMemSpace = *remappedMemSpace;
-        if (requiresCBAllocation(genericOp, genericCtx, operandCtx,
+        if (!canAliasOperand(genericOp, genericCtx, operandCtx,
                                  *remappedMemSpace)) {
 
           // Record all aliases along the operand def-chain.
@@ -1381,35 +1392,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               }
             }
           }
-
-          auto &operand = *operandCtx.operand;
-
-          if (failed(insertStream(
-                  rewriter, operand, genericOp, operandCtx,
-                  (finalRemappedMemSpace == MemorySpace::DeviceDRAM ? DRAMAttr
-                                                                    : L1Attr),
-                  L1memInfo, analysis.sequencing))) {
-            return failure();
-          }
         }
-      }
-
-      // Fix up CB ops in the body:
-      for (Region &region : genericOp->getRegions()) {
-        TT_assert(region.hasOneBlock());
-        Block &block = region.getBlocks().front();
-
-        block.walk([&](Operation *blockOp) {
-          llvm::TypeSwitch<Operation *, void>(blockOp)
-              .Case([&](d2m::ReserveOp op) {
-                op->getResult(0).setType(
-                    op.getCbType().getUnderlyingAs<MemRefType>());
-              })
-              .Case([&](d2m::WaitOp op) {
-                op->getResult(0).setType(
-                    op.getCbType().getUnderlyingAs<MemRefType>());
-              });
-        });
+        else {
+          // TODO: insert alias op
+        }
       }
 
       // Post stream insertion and reblocking, remote_load
@@ -1430,7 +1416,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         TT_debug(memrefIt2 != analysis.memrefs.end());
         const MemorySpace operandMemSpace = *memrefIt2->second.remappedMemSpace;
 
-        if (requiresCBAllocation(genericOp, genericCtx, operandCtx,
+        if (!canAliasOperand(genericOp, genericCtx, operandCtx,
                                  operandMemSpace)) {
           Type cbUnderlyingType;
           TT_assert(!genericOp->getRegions().empty());
@@ -1603,87 +1589,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       insertDealloc(rewriter, allocOp, memrefCtx.live.last,
                     analysis.sequencing);
     }
-
-    return success();
-  }
-
-  LogicalResult insertStream(RewriterBase &rewriter, OpOperand &operand,
-                             d2m::GenericOp op,
-                             const OperandContext &operandCtx,
-                             ttcore::MemorySpaceAttr remappedMemspace,
-                             const MemorySpaceInfo &info,
-                             const SequenceMapping &sequencing) {
-    const MemRefType bufferType = operandCtx.bufferType;
-    TT_debug(bufferType != nullptr);
-
-    // Compute the shard shape for the CB alloc inside the generic region.
-    auto shardShape =
-        mlir::cast<ttcore::DeviceLayoutInterface>(bufferType.getLayout())
-            .getShardShape(bufferType);
-    Type elementType = bufferType.getElementType();
-
-    // Replace the in-generic alloc with a CBLayoutAttr-tagged alloc that
-    // represents the circular buffer for this operand.
-    rewriter.startOpModification(op);
-    {
-      for (Region &region : op->getRegions()) {
-        TT_assert(region.hasOneBlock());
-
-        const auto operandIndex = operandCtx.operand->getOperandNumber();
-        Value oldTensor = d2m::GenericOp::getOperandAlloc(region, operandIndex);
-        if (!oldTensor) {
-          oldTensor = findSharedOutputBuffer(op, operandCtx);
-        }
-        if (oldTensor && oldTensor.getDefiningOp()) {
-          OpBuilder::InsertionGuard guard(rewriter);
-          rewriter.setInsertionPoint(oldTensor.getDefiningOp());
-          if (auto getCbOp =
-                  mlir::dyn_cast<d2m::GetCBOp>(oldTensor.getDefiningOp())) {
-            // Update the get_cb op's result type to reflect the new shard
-            // shape, preserving it as a CBType.
-            auto oldCbType =
-                mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
-            auto oldUnderlying =
-                oldCbType.template getUnderlyingAs<MemRefType>();
-            auto newUnderlying =
-                MemRefType::get(shardShape, elementType,
-                                /*layout=*/MemRefLayoutAttrInterface{},
-                                oldUnderlying.getMemorySpace());
-            getCbOp.getResult().setType(
-                d2m::CBType::get(getCbOp.getContext(), newUnderlying));
-          } else {
-            Value newValue;
-            if (auto oldAllocOp = mlir::dyn_cast<memref::AllocOp>(
-                    oldTensor.getDefiningOp())) {
-              auto oldMemRefType = mlir::cast<MemRefType>(oldTensor.getType());
-              auto cbLayout = ttcore::CBLayoutAttr::get(
-                  bufferType.getContext(), shardShape,
-                  ttcore::getElementSizeBytes(elementType), numStreamBuffers);
-              auto newAllocOp = rewriter.create<memref::AllocOp>(
-                  oldTensor.getLoc(),
-                  MemRefType::get(shardShape, elementType, cbLayout,
-                                  oldMemRefType.getMemorySpace()));
-              // Transfer address and alignment from the old alloc (assigned
-              // by the planner in assignAllocAddresses).
-              if (auto addrAttr = oldAllocOp->getAttr("address")) {
-                newAllocOp->setAttr("address", addrAttr);
-              }
-              if (auto alignAttr = oldAllocOp.getAlignmentAttr()) {
-                newAllocOp.setAlignmentAttr(alignAttr);
-              }
-              newValue = newAllocOp.getResult();
-            } else {
-              auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(
-                  oldTensor.getLoc(), shardShape, elementType);
-              newValue = newEmptyOp.getResult();
-            }
-            rewriter.replaceAllUsesWith(oldTensor, newValue);
-            rewriter.eraseOp(oldTensor.getDefiningOp());
-          }
-        }
-      }
-    }
-    rewriter.finalizeOpModification(op);
 
     return success();
   }
@@ -1868,16 +1773,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return Value();
   }
 
-  bool requiresCBAllocation(d2m::GenericOp genericOp,
+  bool canAliasOperand(d2m::GenericOp genericOp,
                             const GenericOpContext &genericCtx,
                             const OperandContext &operandCtx,
                             MemorySpace memspace) const {
 
     if (isOperandExemptFromStreaming(operandCtx, memspace)) {
-      return false;
+      return true;
     }
 
-    return inferStreamRequirement(genericOp, genericCtx, operandCtx, memspace);
+    return !inferStreamRequirement(genericOp, genericCtx, operandCtx, memspace);
   }
 
   /// @return `true` if `operandCtx` is an output that is exempt from stream

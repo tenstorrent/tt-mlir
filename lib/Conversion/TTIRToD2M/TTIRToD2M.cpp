@@ -525,7 +525,7 @@ protected:
       RankedTensorType shardType = getShardType(inputs[i]);
 
       // Get the generic operand (the remote memref/tensor)
-      Value genericOperand = generic->getOperand(i);
+      generic->getOperand(i);
 
       // Build grid indices from the indexing map
       SmallVector<Value> indices = inputIndices[i];
@@ -535,31 +535,7 @@ protected:
           loc, shardType.getShape(), shardType.getElementType());
       Value buffer = bufferOp.getResult();
 
-      Value loadResult;
-      if (!mcastGridDims[i].empty()) {
-        // Build mcast dimension indices (constant Values) for the grid
-        // dimensions that need multicast
-        SmallVector<Value> mcastDims;
-        for (int64_t gridDim : mcastGridDims[i]) {
-          mcastDims.push_back(
-              builder.create<arith::ConstantIndexOp>(loc, gridDim));
-        }
-
-        // Create remote_load with high-level multicast form
-        loadResult =
-            builder
-                .create<d2m::RemoteLoadOp>(loc, shardType, buffer,
-                                           genericOperand, indices, mcastDims)
-                .getResult();
-      } else {
-        // Create remote_load without multicast (original behavior)
-        loadResult = builder
-                         .create<d2m::RemoteLoadOp>(loc, shardType, buffer,
-                                                    genericOperand, indices)
-                         .getResult();
-      }
-
-      operands.push_back(loadResult);
+      operands.push_back(buffer);
     }
 
     // Process output operands - create tensor.empty operations.
@@ -2629,6 +2605,661 @@ private:
 };
 } // namespace
 
+
+
+//forwarding AG
+//    step 1:
+// load my chunk of input
+// write out to correct place on next device and increment semaphore
+//    step 2:
+// for loop (ring - 1 steps)
+// wait for semaphore inc
+// write out chunk to next device in the correct place in the output directly and increment semaphore
+
+// concerns: local input forwarding could intheory be parallelized with forwarding
+// but that requires actually having addition connections/BW to benefit
+// actually it's not just local input that would benefit from parallelized forwarding
+// each chunk in above approach would have to be completely received wherease ideally we 
+// would like to the following in parallel
+
+// thread 1: start sending local input to next device
+// thread 2: take what we previously received and forward it to next device
+//  aside form above conversation, this also requires a CB for forwrading to happen correctly in parallel
+//    a) or at least a semaphore incrementing to tell us we need to forward another bit of data
+//    and in that case we would be forwarding directly to the output
+//    b) or we could have a CB for forwarding and then we could forward to and do correct remote cb ops for streaming remotely
+//    but then we also have to locally store (with a noc remote store) the chunk we recive before we forward
+// thread 3 (if we do 2b): take incoming data that came from previous device and store in output tensor
+
+// 2b is the best option imo since we can forward large chunks regardless of how we have sharded our output
+// and noc remote store can just handle the coalesced write
+// and we also get a lot of parallelization so each chunk of data will only take as much time as needed to
+// complexity is we need 3 threads, two fabric ones, one local one
+
+// getting two fabric threads is not possible right now, bt we should still have the remote streaming mechanism
+// and also have a separate thread for doing local store? so we can move large chunks of data through fabric?
+
+// method 2b also wold have a very similar to ideal RS implementation perhaps, except we have even one more thread
+// that is loading locally the device local input chunk to add with
+// and then compute wait on both chunks, adds them, and writes out data to next device (remote forwrad streaming)
+
+
+
+
+// forwarding reduce scatter
+//    step 1:
+// load a chunk of input
+// write out to some scratch buffer on next device? and increment semaphore
+//    step 2:
+// for loop (ring - 1 steps)
+// 
+// wait for semaphore inc
+// load correct chunk in local input and add with chunk in scratch buffer and store output in a a cb or directly in output
+// store result back in scratch or in output, then send it to next device and increment semaphore
+
+// scratch buffer needs to be double buffered?
+// or same size as the whole input?
+
+
+// write out chunk to next device in the correct place in the output directly and increment semaphore
+
+
+// write out tensore to next device
+// wait for chunk from previous device
+
+class D2MReduceScatterRingForwardingAlgorithmRewriter : public OpConversionPattern<ttir::ReduceScatterOp>,
+                             D2MNamedRewriterCommon {
+public:
+  D2MReduceScatterRingForwardingAlgorithmRewriter(const TypeConverter &typeConverter,
+                       mlir::MLIRContext *ctx,
+                       ttcore::MemorySpace defaultInputMemSpace,
+                       ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                       bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::ReduceScatterOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+  Value createEmptyOp(mlir::ConversionPatternRewriter &rewriter,
+                         mlir::Location loc,
+                         Type originalInputType,
+                         llvm::SmallVector<int64_t> workerGridShape) const {
+    auto tensorType =
+        mlir::cast<mlir::RankedTensorType>(originalInputType);
+    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+    Type tiledElementType = ttcore::TileType::get(
+        tensorType.getElementType(), ttcore::TileType::getDefaultShape());
+    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef,
+        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded);
+    auto optimalGrid = d2m::utils::computeOptimalBlockShardedGrid(
+        layout.getPhysicalShape(ttcore::TileType::getDefaultShape()),
+        workerGridShape);
+    llvm::SmallVector<int64_t> deviceShape =
+        layout.getDeviceShape(optimalGrid, ttcore::TileType::getDefaultShape());
+    auto emptyOp = rewriter.create<d2m::EmptyOp>(
+        loc, deviceShape, tiledElementType, layout);
+    return emptyOp.getResult();
+  }
+
+  // fix!!! make this a common function
+  Value createGlobalSemaphore(mlir::Location loc,
+                              mlir::ConversionPatternRewriter &rewriter,
+                              llvm::SmallVector<int64_t> workerGridShape,
+                              uint32_t initialValue) const {
+    Type elementType = mlir::IntegerType::get(rewriter.getContext(), 32,
+                                              mlir::IntegerType::Unsigned);
+    ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), workerGridShape, ttcore::OOBVal::Undef,
+        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded,
+        ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+            rewriter.getContext(), workerGridShape.size()),
+        {1, 1});
+    llvm::SmallVector<int64_t> deviceShape =
+        layout.getDeviceShape(workerGridShape, {});
+    auto emptyOp =
+        rewriter.create<d2m::EmptyOp>(loc, deviceShape, elementType, layout);
+    auto createGlobalSemaphoreOp =
+        rewriter.create<d2m::CreateGlobalSemaphoreOp>(
+            loc, d2m::GlobalSemaphoreType::get(rewriter.getContext()),
+            emptyOp.getResult(),
+            rewriter.getIntegerAttr(elementType, initialValue));
+    return createGlobalSemaphoreOp.getResult();
+  }
+
+  // rewriter, inputRank, op.getScatterDim(), inputPhysicalShape[op.getScatterDim()] / num_devices
+  // get affine map to translate unit grid to unitgrid+grid dim for device/shard idx 
+  // need a view where first dim is device idx, and later dims are normal worker core grid
+  // have a normal operand grid
+  // fix!!!: not needed??? is below function createDeviceShardedViewLayoutOp enough???
+  Value extendedRankView(mlir::ConversionPatternRewriter &rewriter,
+                                          mlir::Location loc,
+                                          Value tensor) const {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(tensor.getType());
+    uint32_t tensorRank = tensorType.getShape().size() / 2;
+    auto mapping = rewriter.getMultiDimIdentityMap(tensorRank+1).shiftDims(1);
+    
+    
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+    llvm::SmallVector<int64_t> physicalShape = layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    llvm::SmallVector<int64_t> newGrid(tensorRank + 1, 1);
+    auto newTensorShape = layout.getDeviceShape(newGrid, ttcore::TileType::getDefaultShape());
+
+    auto newTensorType = RankedTensorType::get(
+        newTensorShape, tensorType.getElementType(),
+        tensorType.getEncoding());
+
+    auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
+        loc, newTensorType, tensor, mapping,
+        /*reinterpretLayout=*/false);
+
+    return unitReblockingView.getResult();
+  }
+
+  // TODO: see if this can be simplified/commonized with projectLogicalMapToUnitDeviceSpace
+  Value createDeviceShardedViewLayoutOp(mlir::ConversionPatternRewriter &rewriter,
+                                          mlir::Location loc,
+                                          Value tensor,
+                                          uint32_t dimToShard,
+                                          uint32_t num_devices) const {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(tensor.getType());
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+    llvm::SmallVector<int64_t> physicalShape = layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    uint32_t tensorRank = physicalShape.size();
+    auto deviceShardOffset = physicalShape[dimToShard] / num_devices;
+    
+    // Create affine map to translate input indices to output indices in the following manner:
+    // (num_devices, 1, 1, 1, y, x) -> (1, 1, Y, X)
+    mlir::SmallVector<mlir::AffineExpr> results;
+    for (uint32_t i = 0; i < tensorRank; i++) {
+      results.push_back(mlir::getAffineConstantExpr(0, rewriter.getContext()));
+    }
+    for (uint32_t i = 0; i < tensorRank; i++) {
+      auto currentIndex =
+          mlir::getAffineDimExpr((tensorRank + 1) + (i + 1), rewriter.getContext());
+      if (i == dimToShard) {
+        // device index * device shard size + shard index
+        auto deviceIndex = mlir::getAffineDimExpr(0, rewriter.getContext());
+        auto deviceShardOffsetExpr = mlir::getAffineConstantExpr(
+            deviceShardOffset, rewriter.getContext());
+        results.push_back(deviceIndex * deviceShardOffsetExpr + currentIndex);
+      } else {
+        results.push_back(currentIndex);
+      }
+    }
+
+    auto deviceShardIndexingMap = mlir::AffineMap::get(2 * (tensorRank + 1), 0, results,
+                                                  rewriter.getContext());
+    
+    // create a view that projects onto unit grid, then expands to higher rank to include device idx
+    llvm::SmallVector<int64_t> unitGrid(tensorRank, 1);
+    auto [_, unitGridReblockMap] =
+        ttmlir::utils::calculateReblockMapForGrid(
+          layout.getDeviceShape(unitGrid, ttcore::TileType::getDefaultShape()), layout.getGridShape(tensorType),
+            tensorType.getContext());
+    auto reblockMap = unitGridReblockMap.compose(deviceShardIndexingMap);
+    
+    // new device shape is same as old shape with an extra dim for both grid and shard
+    // grid shape[0] = num_devices
+    // shard shape[0] = 1
+    // shard shape[dimToShard] = original shard shape[dimToShard] / num_devices
+    // get device shape on unit grid
+    auto newTensorShape = layout.getDeviceShape(llvm::SmallVector<int64_t>(tensorRank, 1), ttcore::TileType::getDefaultShape());
+    // then adjust shard idx[dimToShard] to be divided by num_devices
+    newTensorShape[tensorRank + dimToShard] /= num_devices;
+    // then add a new dim for the device idx
+    newTensorShape.insert(newTensorShape.begin() + tensorRank, 1);
+    newTensorShape.insert(newTensorShape.begin(), num_devices);
+
+    auto newTensorType = RankedTensorType::get(
+        newTensorShape, tensorType.getElementType(),
+        tensorType.getEncoding());
+    auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
+        loc, newTensorType, tensor, reblockMap,
+        /*reinterpretLayout=*/false);
+    return unitReblockingView.getResult();
+  }
+
+  // TODO: it would be good to always add a reverse view on the output actually (i.e. 
+  // port this logic to grid selection if it 
+  // doesn't already exist)
+  Value createInverseDeviceShardedViewLayoutOp(mlir::ConversionPatternRewriter &rewriter,
+                                          mlir::Location loc,
+                                          Value tensor,
+                                          uint32_t dimToShard,
+                                          uint32_t num_devices,
+                                          ArrayRef<int64_t> targetDeviceShape) const {
+    auto tensorType = mlir::cast<mlir::RankedTensorType>(tensor.getType());
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+    llvm::SmallVector<int64_t> physicalShape = layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    uint32_t logicalRank = 2; //physicalShape.size() - 1;
+
+    llvm::errs() << "physicalShape.size(): " << physicalShape.size() << "\n";
+
+    auto deviceShardOffset = physicalShape[dimToShard] / num_devices;
+    
+    // Create affine map to translate input indices to output indices in the following manner:
+    // (1, 1, Y, X) -> (num_devices, 1, 1, 1, y, x)
+    mlir::SmallVector<mlir::AffineExpr> results;
+    // device index * device shard size + shard index
+    auto deviceShardOffsetExpr = mlir::getAffineConstantExpr(
+        deviceShardOffset, rewriter.getContext());
+    auto deviceIndex = mlir::getAffineDimExpr(logicalRank + dimToShard, rewriter.getContext()).floorDiv(deviceShardOffsetExpr);
+    results.push_back(deviceIndex);
+    for (uint32_t i = 0; i < logicalRank; i++) {
+      results.push_back(mlir::getAffineConstantExpr(0, rewriter.getContext()));
+    }
+    // add first shard idx
+    results.push_back(mlir::getAffineConstantExpr(0, rewriter.getContext()));
+    for (uint32_t i = 0; i < logicalRank; i++) {
+      auto currentIndex =
+          mlir::getAffineDimExpr(logicalRank + i, rewriter.getContext());
+      if (i == dimToShard) {
+        auto deviceShardOffsetExpr = mlir::getAffineConstantExpr(
+            deviceShardOffset, rewriter.getContext());
+        results.push_back(currentIndex % deviceShardOffsetExpr);
+      } else {
+        results.push_back(currentIndex);
+      }
+    }
+
+    auto inverseDeviceShardIndexingMap = mlir::AffineMap::get(2 * logicalRank, 0, results,
+                                                  rewriter.getContext());
+    
+    // create a view that projects onto unit grid, then expands to higher rank to include device idx
+    llvm::SmallVector<int64_t> unitGrid(logicalRank, 1);
+    auto [_, gridReblockMap] =
+        ttmlir::utils::calculateReblockMapForGrid(
+            targetDeviceShape, unitGrid,
+            tensorType.getContext());
+    auto reblockMap = inverseDeviceShardIndexingMap.compose(gridReblockMap);
+
+    auto newTensorType = RankedTensorType::get(
+      targetDeviceShape, tensorType.getElementType(),
+        tensorType.getEncoding());
+    auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
+        loc, newTensorType, tensor, reblockMap,
+        /*reinterpretLayout=*/false);
+    return unitReblockingView.getResult();
+  }
+
+  // fix!!!: commonize with all gather
+  uint32_t getWorkerCoreSplitDim(Value input, uint32_t num_cores, uint32_t excludeDim = 0) const {
+    auto inputTensorType = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto inputLayout = mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
+    auto inputPhysicalShape = inputLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
+    uint32_t inputRank = inputPhysicalShape.size();
+
+    uint32_t workerCoreSplitDim = inputRank;
+    for (uint32_t i = 0; i < inputRank; i++) {
+      if (i != excludeDim && inputPhysicalShape[i] % num_cores == 0) {
+        workerCoreSplitDim = i;
+        break;
+      }
+    }
+    assert(workerCoreSplitDim != inputRank &&
+           "No dim found for worker core split");
+    return workerCoreSplitDim;
+  }
+
+  // fix!!!: commonize with GridSelection::deriveGridAttrForOutput
+  static ttcore::GridAttr deriveGridAttrForOutput(Value output,
+                                                ArrayRef<int64_t> gridShape,
+                                                OpBuilder &builder) {
+    auto layout = ttcore::getDeviceLayout(cast<ShapedType>(output.getType()));
+    auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(layout);
+    if (!metalLayout) {
+      return builder.getAttr<ttcore::GridAttr>(gridShape);
+    }
+
+    if (auto invMap = d2m::utils::getVirtualGridInverseMapping(output)) {
+      // Get virtual to physical map from output as well.
+      auto fwdMap = *d2m::utils::getVirtualGridForwardMapping(output);
+      size_t rank = gridShape.size();
+      fwdMap = ttmlir::utils::affineMapDropBackResults(fwdMap, rank);
+      for (int i = rank - 1; i >= 0; i--) {
+        fwdMap = ttmlir::utils::dropDim(fwdMap, rank + i);
+      }
+      fwdMap =
+          fwdMap.insertResult(getAffineConstantExpr(0, builder.getContext()), 0);
+
+      return builder.getAttr<ttcore::GridAttr>(gridShape, fwdMap, *invMap);
+    }
+
+    auto existingRemapping = d2m::utils::getAssociatedRemapping(output);
+    if (!existingRemapping.has_value() || existingRemapping->isEmpty() ||
+        existingRemapping->isIdentity()) {
+      return builder.getAttr<ttcore::GridAttr>(gridShape);
+    }
+
+    auto indexMap = *existingRemapping;
+    constexpr size_t kExpectedDimsFor2DDeviceShape = 2 * 2;
+    bool is2DPermutation =
+        indexMap.isPermutation() &&
+        indexMap.getNumResults() == kExpectedDimsFor2DDeviceShape &&
+        indexMap.getNumInputs() == kExpectedDimsFor2DDeviceShape;
+    if (!is2DPermutation) {
+      return builder.getAttr<ttcore::GridAttr>(gridShape);
+    }
+
+    auto [forwardMap, inverseMap] =
+        ttmlir::utils::createGridForwardAndInverseMapFor2DPermutation(
+            indexMap, gridShape.size(), builder.getContext());
+    return builder.getAttr<ttcore::GridAttr>(gridShape, forwardMap, inverseMap);
+  }
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceScatterOp op, ttir::ReduceScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // ring forwarding algorithm for reduce scatter
+    mlir::Location loc = op->getLoc();
+
+    auto device = ttcore::lookupDevice(op);
+    auto workerGridShape = llvm::to_vector(device.getWorkerGrid().getShape());
+    auto meshShape = device.getMeshShape();
+    assert(meshShape.size() == 2 && "Mesh shape must be 2D");
+
+    uint32_t clusterAxis = op.getClusterAxis();
+    assert(clusterAxis <= meshShape.size() &&
+           "Cluster axis must be one of the mesh dimensions");
+
+    // Get the supported topology
+    auto topology = device.getMeshTopology()[clusterAxis];
+    if (topology != ttcore::Topology::Ring) {
+      return rewriter.notifyMatchFailure(op, "Only ring topology is supported");
+    }
+    // TODO: get num links from DeviceAttr
+    uint32_t num_links = 1;
+    // We use unidir routing mode for ring topology so we get 2 cores for each
+    // link
+    int num_cores = 1; // fix once added logic for ring direction
+        //topology == ttcore::Topology::Ring ? num_links * 2 : num_links * 1;
+    int num_devices = meshShape[clusterAxis];
+
+    // Create global semaphores for synchronization
+    Value startSemaphore =
+        createGlobalSemaphore(loc, rewriter, workerGridShape, 0);
+    // better name???
+    Value iterationSemaphore =
+        createGlobalSemaphore(loc, rewriter, workerGridShape, 0);
+
+    // create input and output
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+    SmallVector<Value> origInputs = adaptor.getOperands();
+    auto input = rewriter.create<d2m::ToLayoutOp>(origInputs[0].getLoc(),
+      origInputs[0], createEmptyOp(rewriter, loc, origInputs[0].getType(), workerGridShape))
+        ->getResult(0);
+    auto scratchInput = createEmptyOp(rewriter, loc, origInputs[0].getType(), workerGridShape);
+    auto output = rewriter.create<d2m::ToLayoutOp>(origOutputs[0].getLoc(),
+      origOutputs[0], createEmptyOp(rewriter, loc, origOutputs[0].getType(), workerGridShape))
+        ->getResult(0);
+    auto inputDeviceShardedView = createDeviceShardedViewLayoutOp(rewriter, loc, input, op.getScatterDim(), num_devices);
+    auto scratchInputDeviceShardedView = createDeviceShardedViewLayoutOp(rewriter, loc, scratchInput, op.getScatterDim(), num_devices);
+    auto outputDeviceShardedView = createDeviceShardedViewLayoutOp(rewriter, loc, output, op.getScatterDim(), 1);
+
+    // Find dim to split work across cores and use it to calc view grids for
+    // input and output Go through all dims in order and find one that where
+    // num_cores divides the dim size
+    uint32_t workerCoreSplitDim = getWorkerCoreSplitDim(inputDeviceShardedView, num_cores, 0);
+    // inputRank is the logical rank of the original tensor
+    uint32_t inputRank =
+      mlir::cast<mlir::RankedTensorType>(origInputs[0].getType())
+          .getShape()
+          .size();
+    // gridRank is the grid rank from the device-sharded view (half of the device shape rank)
+    auto inputDeviceShardedViewType = mlir::cast<mlir::RankedTensorType>(inputDeviceShardedView.getType());
+    uint32_t gridRank = inputDeviceShardedViewType.getRank() / 2;
+    llvm::SmallVector<int64_t> inputViewGrid(gridRank, 1);
+    llvm::SmallVector<int64_t> outputViewGrid(gridRank, 1);
+    inputViewGrid[0] = num_devices;
+    inputViewGrid[workerCoreSplitDim] *= num_cores;
+    outputViewGrid[workerCoreSplitDim] *= num_cores;
+
+    auto inputViewTensorType = mlir::cast<mlir::RankedTensorType>(inputDeviceShardedView.getType());
+    auto inputStreamTensorType =
+        d2m::utils::reblockShapedType(inputViewTensorType, inputViewGrid);
+    auto inputStreamReblockMap = ttmlir::utils::calculateReblockMap(
+      inputViewTensorType.getShape(), inputStreamTensorType.getShape(),
+        rewriter.getContext());
+    Value inputStreamResult =
+        rewriter
+            .create<d2m::ViewLayoutOp>(op.getLoc(), inputStreamTensorType,
+                                       inputDeviceShardedView, inputStreamReblockMap)
+            ->getResult(0);
+    Value scratchInputStreamResult =
+        rewriter
+            .create<d2m::ViewLayoutOp>(op.getLoc(), inputStreamTensorType,
+                                       scratchInputDeviceShardedView, inputStreamReblockMap)
+            ->getResult(0);
+
+    auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(outputDeviceShardedView.getType());
+    auto outputStreamTensorType =
+        d2m::utils::reblockShapedType(outputTensorType, outputViewGrid);
+    auto outputStreamReblockMap = ttmlir::utils::calculateReblockMap(
+        outputTensorType.getShape(), outputStreamTensorType.getShape(),
+        rewriter.getContext());
+    Value outputStreamResult =
+        rewriter
+            .create<d2m::ViewLayoutOp>(op.getLoc(), outputStreamTensorType,
+                                       outputDeviceShardedView, outputStreamReblockMap)
+            ->getResult(0);
+
+    // Create generic in explicit form: block factors, indexing maps, and
+    // iterator types are empty
+    SmallVector<mlir::AffineMap> emptyIndexingMaps;
+    SmallVector<mlir::Attribute> emptyIteratorTypes;
+    ArrayRef<int64_t> emptyBlockFactors = {};
+    auto genericGrid=
+      deriveGridAttrForOutput(outputStreamResult, outputViewGrid, rewriter);
+    // fix!! make this less hacky!!!
+    // remove the first dim (device idx)
+    auto fabricConnectionConfig = ttcore::FabricConnectionConfigAttr::get(
+        rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
+        ttcore::RoutingMode::UnidirRingTorus, num_links);
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, TypeRange(outputStreamResult), ValueRange({inputStreamResult, scratchInputStreamResult}),
+        ValueRange({outputStreamResult}), ValueRange({startSemaphore, iterationSemaphore}),
+        genericGrid,
+        rewriter.getI64ArrayAttr(emptyBlockFactors),
+        rewriter.getAffineMapArrayAttr(emptyIndexingMaps),
+        rewriter.getArrayAttr(emptyIteratorTypes),
+        rewriter.getArrayAttr(
+            rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Unified)),
+        /*scratch_inputs=*/nullptr, fabricConnectionConfig, /*numRegions=*/1);
+
+    // Create one bb in 'generic''s region and set its arguments.
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegions().front();
+      mlir::Block *block =rewriter.createBlock(&region);
+
+      // Populate 'block'.
+      {
+        // get the start device on the cluster axis and shape to multicast along
+        // that axis
+        SmallVector<Value> nextDevice;
+        SmallVector<Value> previousDevice;
+        for (uint32_t dim = 0; dim < meshShape.size(); dim++) {
+          if (dim == clusterAxis) {
+            // add 1 to mesh position for next device and mod by num_devices
+            nextDevice.push_back(
+                rewriter.create<arith::RemSIOp>(loc, rewriter.create<arith::AddIOp>(loc, rewriter.create<d2m::MeshPositionOp>(loc, dim), rewriter.create<arith::ConstantIndexOp>(loc, 1)), rewriter.create<arith::ConstantIndexOp>(loc, num_devices)));
+            // subtract 1 from mesh position for previous device and mod by num_devices
+            previousDevice.push_back(
+                rewriter.create<arith::RemSIOp>(loc, 
+                  rewriter.create<arith::SubIOp>(loc, 
+                    rewriter.create<arith::AddIOp>(loc, 
+                      rewriter.create<d2m::MeshPositionOp>(loc, dim), 
+                      rewriter.create<arith::ConstantIndexOp>(loc, num_devices)
+                    ),
+                    rewriter.create<arith::ConstantIndexOp>(loc, 1)
+                  ), 
+                  rewriter.create<arith::ConstantIndexOp>(loc, num_devices)
+                ));
+            // fix once added logic for ring direction!!!
+          } else {
+            nextDevice.push_back(
+                rewriter.create<d2m::MeshPositionOp>(loc, dim));
+            previousDevice.push_back(
+                rewriter.create<d2m::MeshPositionOp>(loc, dim));
+          }
+        }
+
+        SmallVector<Value> coreIndices;
+        for (uint32_t i = 0; i < inputRank; i++) {
+          coreIndices.push_back(rewriter.create<d2m::CoreIndexOp>(loc, i));
+        }
+
+        // Synchronize with previous device since that is our only sender in ring forwarding algorithm
+        rewriter.create<d2m::DeviceSynchronizeOp>(loc, startSemaphore,
+                                                  previousDevice, ValueRange(),
+                                                  1, coreIndices);
+              
+
+        auto meshPosition =
+            rewriter.create<d2m::MeshPositionOp>(loc, clusterAxis);
+        SmallVector<Value> beginIterationIndices = coreIndices;
+        beginIterationIndices.insert(
+          beginIterationIndices.begin(), meshPosition);
+
+        SmallVector<SmallVector<int64_t>> mcastGridDims(1);
+        // fix!!!
+        auto blockArgsVec = createBlockArguments(
+            rewriter, block, loc, TypeRange({inputStreamResult}),
+            TypeRange({}), generic, {beginIterationIndices},
+            mcastGridDims);
+        Value inputLocalBuffer = blockArgsVec[0];
+
+        // initial load/store from input to scratch tensor
+        auto inputLocalBufferLoadResult = rewriter
+          .create<d2m::RemoteLoadOp>(loc, inputLocalBuffer.getType(), inputLocalBuffer,
+                                    inputStreamResult, beginIterationIndices)
+          .getResult();
+        rewriter.create<d2m::RemoteStoreOp>(
+          loc, scratchInputStreamResult.getType(), scratchInputStreamResult,
+          beginIterationIndices, inputLocalBufferLoadResult, nextDevice, ValueRange(),
+          iterationSemaphore, coreIndices);
+
+        // for loop: ////////////////////////////////////////////////////////////////////////////
+        // create scratch input
+        // remote_load local_buf input[indices]
+        // for int i = 0; i < ring size - 1; i++
+        //   remote_store from buf on next device into scratch input with sem inc
+        //   remote_load local_buf input[indices] (order probably doesn’t matter here if scheduled on separate threads)
+        //   wait for semaphore
+        //   remote_load local_buf scratch_input[indices]
+        //   add tensor 0, tensor 1 to get tensor 2 and store in buf?
+        // endfor
+        auto forLoop = rewriter.create<mlir::affine::AffineForOp>(loc, 1, num_devices, 1);
+        {
+          OpBuilder::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(forLoop.getBody());
+          
+          // iterate over the shards starting from the one corresposing to our mesh position
+          // and going backwards (partially reducing our local shard with the shard coming from previous device in each iteration)
+          // until we have iterated over all of them
+          SmallVector<Value> iterationIndices = coreIndices;
+          Value iterationIndex = rewriter.create<arith::RemSIOp>(loc, 
+            rewriter.create<arith::SubIOp>(loc, 
+              rewriter.create<arith::AddIOp>(loc, 
+                meshPosition, 
+                rewriter.create<arith::ConstantIndexOp>(loc, num_devices)
+              ),
+              forLoop.getInductionVar()
+            ), 
+            rewriter.create<arith::ConstantIndexOp>(loc, num_devices));
+          iterationIndices.insert(iterationIndices.begin(), iterationIndex);
+          Value iteration_count = forLoop.getInductionVar();
+
+          // fix!!! do we need separate cbs?
+          auto blockArgsVec = createBlockArguments(
+            rewriter, block, loc, TypeRange({inputStreamResult, scratchInputStreamResult}),
+            TypeRange({outputStreamResult}), generic, {beginIterationIndices, beginIterationIndices},
+            mcastGridDims);
+          Value inputLocalBuffer = blockArgsVec[0];
+          Value scratchLocalBuffer = blockArgsVec[1];
+          Value outputLocalBuffer = blockArgsVec[2];
+
+
+          auto inputLocalBufferLoadResult = rewriter
+              .create<d2m::RemoteLoadOp>(loc, inputLocalBuffer.getType(), inputLocalBuffer,
+                                        inputStreamResult, iterationIndices)
+              .getResult();
+          rewriter.create<d2m::SemaphoreWaitOp>(
+              loc, iterationSemaphore, iteration_count);
+          auto scratchLocalBufferLoadResult = rewriter
+              .create<d2m::RemoteLoadOp>(loc, scratchLocalBuffer.getType(), scratchLocalBuffer,
+                                        scratchInputStreamResult, iterationIndices)
+              .getResult();
+
+          // add the two together
+          uint32_t numInputs = 2;
+          uint32_t numOutputs = 1;
+          SmallVector<mlir::AffineMap> linalgIndexingMaps =
+            getIdentityAffineMapsArray(rewriter, numInputs + numOutputs, gridRank);
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(gridRank, mlir::utils::IteratorType::parallel);
+          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+            loc,
+            /* result tensor types */
+            outputLocalBuffer.getType(),
+            /* inputs */ ValueRange{inputLocalBufferLoadResult, scratchLocalBufferLoadResult},
+            /* outputs */ outputLocalBuffer, linalgIndexingMaps,
+            linalgIteratorTypes,
+            [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                mlir::ValueRange bbArgs) {
+                mlir::Value yield = bbBuilder.create<d2m::TileAddOp>(
+                    loc,
+                    /* resultTypes */ bbArgs.take_back(numOutputs).getTypes(),
+                    /* operands */ bbArgs.take_front(numInputs));
+              bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+            });
+
+          // send to next device
+          rewriter.create<d2m::RemoteStoreOp>(
+            loc, scratchInputStreamResult.getType(), scratchInputStreamResult,
+            iterationIndices, linalgGeneric->getResult(0), nextDevice, ValueRange(),
+            iterationSemaphore, coreIndices);
+        } // end for loop
+
+        // final load/store from scratch tensor to output
+        auto blockArgsVec2 = createBlockArguments(
+          rewriter, block, loc, TypeRange({scratchInputStreamResult}),
+          TypeRange({}), generic, {beginIterationIndices},
+          mcastGridDims);
+        Value scratchLocalBuffer = blockArgsVec2[0];
+
+        rewriter.create<d2m::SemaphoreWaitOp>(
+          loc, iterationSemaphore, rewriter.create<arith::ConstantIndexOp>(loc, num_devices));
+        auto scratchLocalBufferLoadResult = rewriter
+          .create<d2m::RemoteLoadOp>(loc, scratchLocalBuffer.getType(), scratchLocalBuffer,
+                                    scratchInputStreamResult, beginIterationIndices)
+          .getResult();
+
+        SmallVector<Value> outputIndices = coreIndices;
+        outputIndices.insert(
+          outputIndices.begin(), rewriter.create<arith::ConstantIndexOp>(loc, 0));
+        auto finalRemoteStoreOp = rewriter.create<d2m::RemoteStoreOp>(
+          loc, outputStreamResult.getType(), outputStreamResult,
+          outputIndices, scratchLocalBufferLoadResult);
+
+        SmallVector<Value> storeResults;
+        storeResults.push_back(finalRemoteStoreOp.getResult());
+        rewriter.create<d2m::YieldOp>(loc, storeResults);
+      }
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    auto inverseDeviceShardView = createInverseDeviceShardedViewLayoutOp(rewriter, loc, generic->getResult(0), op.getScatterDim(), num_devices, mlir::cast<mlir::RankedTensorType>(output.getType()).getShape());
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, inverseDeviceShardView,
+                                          op->getResult(0).getType()));
+    return llvm::success();
+  }
+};
+
 class D2MAllGatherRewriter : public OpConversionPattern<ttir::AllGatherOp>,
                              D2MNamedRewriterCommon {
 public:
@@ -3442,7 +4073,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MMatmulBlockToLinalgGeneric,
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>,
     // CCL
-    D2MAllGatherRewriter
+    D2MAllGatherRewriter,
+    //D2MAllGatherRingForwardingAlgorithmRewriter,
+    D2MReduceScatterRingForwardingAlgorithmRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
   // High-priority rewriter for SliceStatic ops that violate NoC constraints.
