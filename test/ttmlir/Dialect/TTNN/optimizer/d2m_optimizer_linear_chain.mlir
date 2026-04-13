@@ -46,11 +46,9 @@ module {
   // CHECK-SAME: %arg2: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <interleaved>>>)
   // CHECK-SAME: -> tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}memref<1x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>> {
   // CHECK: %[[ADD_OUT:.*]] = "ttnn.add"
-  // CHECK-SAME: (tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}#ttnn.buffer_type<l1>>, <block_sharded>>>,
-  // CHECK-SAME: tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}#ttnn.buffer_type<l1>>, <interleaved>>>)
+  // CHECK-SAME: (tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}#ttnn.buffer_type<l1>>, <block_sharded>>>, tensor<64x64xbf16, #ttnn.ttnn_layout<{{.*}}#ttnn.buffer_type<l1>>, <interleaved>>>)
   // CHECK: %[[MULTIPLY_OUT:.*]] = "ttnn.multiply"
   // CHECK-SAME: (%[[ADD_OUT]]
-  // CHECK: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%[[MULTIPLY_OUT]])
   // CHECK-SAME: memref<1x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>>
-  // CHECK: return %[[TO_LAYOUT]]
+  // CHECK: return %[[MULTIPLY_OUT]]
 }

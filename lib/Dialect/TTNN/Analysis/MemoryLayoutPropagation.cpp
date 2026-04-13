@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
@@ -1235,6 +1236,10 @@ void MemoryLayoutPropagation::applyToIR() {
   fixupConvDeallocate(func);
   insertReturnDramSpills();
 
+  // Sync D2M subgraph function types to match dispatch op's current inputs
+  // (e.g. after reshard insertion, operand types may have changed).
+  d2m_optimizer_utils::syncAllD2MFuncTypes(func);
+
   // Third pass: update function return types.
   updateFunctionReturnTypes();
 }
@@ -1243,6 +1248,33 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
                                             const BeamCandidate &candidate) {
   TTNNLayoutAttr chosenLayout = getOutputLayoutForResult(candidate, 0);
   if (!chosenLayout) {
+    return;
+  }
+
+  // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
+  // and D2M subgraph function body.
+  if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
+    auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+    Type originalElementType = tensorType.getElementType();
+    Type newElementType = originalElementType;
+    if (!mlir::isa<mlir::quant::QuantizedType>(originalElementType)) {
+      newElementType = chosenLayout.getScalarElementType();
+    }
+    RankedTensorType newTensorType =
+        RankedTensorType::get(tensorShape, newElementType, chosenLayout);
+    d2m_optimizer_utils::applyChosenLayoutToD2MSubgraphOp(
+        dispatchOp, newTensorType, chosenLayout, deviceGrid);
+
+    // Attach L1 usage annotation for spill management.
+    if (chosenLayout.hasL1BufferType() &&
+        candidate.validationResult.isSuccess() &&
+        candidate.validationResult.outputL1Usage > 0) {
+      OpBuilder builder(op->getContext());
+      op->setAttr(
+          "ttnn.output_l1_usage",
+          builder.getI64IntegerAttr(candidate.validationResult.outputL1Usage));
+    }
     return;
   }
 
