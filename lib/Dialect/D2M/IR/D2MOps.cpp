@@ -1621,6 +1621,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 }
 
 // GenericOp verification
+// TODO: check all top level ops are syncrhonized
 ::mlir::LogicalResult d2m::GenericOp::verify() {
   if (hasPureTensorSemantics()) {
     if (this->getNumRegions() != 1 && !isExplicitDatamovementForm()) {

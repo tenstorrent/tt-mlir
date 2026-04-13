@@ -11,14 +11,14 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 
 namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MMARKSYNCHRONIZABLEOPBUFFERS
+#define GEN_PASS_DEF_D2MMARKSYNCHRONIZEDOPBUFFERS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
 
-class D2MMarkSynchronizableOpBuffers : public impl::D2MMarkSynchronizableOpBuffersBase<D2MMarkSynchronizableOpBuffers> {
+class D2MMarkSynchronizedOpBuffers : public impl::D2MMarkSynchronizedOpBuffersBase<D2MMarkSynchronizedOpBuffers> {
 public:
-  using impl::D2MMarkSynchronizableOpBuffersBase<D2MMarkSynchronizableOpBuffers>::D2MMarkSynchronizableOpBuffersBase;
+  using impl::D2MMarkSynchronizedOpBuffersBase<D2MMarkSynchronizedOpBuffers>::D2MMarkSynchronizedOpBuffersBase;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
@@ -26,7 +26,7 @@ public:
 
     moduleOp->walk(
         [&](d2m::GenericOp genericOp) { 
-            if (failed(markSynchronizableOpBuffers(rewriter, genericOp))) {
+            if (failed(markSynchronizedOpBuffers(rewriter, genericOp))) {
               return WalkResult::interrupt();
             }
             return WalkResult::advance();
@@ -86,7 +86,7 @@ public:
     return success();
   }
 
-  LogicalResult markSynchronizableOpBuffers(IRRewriter &rewriter, d2m::GenericOp genericOp) {
+  LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter, d2m::GenericOp genericOp) {
 
     struct CBInfo {
       SmallVector<Operation*> producers;
@@ -95,7 +95,7 @@ public:
 
     // loop over memrefs in generic, separate out to separate pass or rewriter?
     // go through ops with synchronizable interface being used as input and attach CB layout aatribute on their 
-    // operands using interface to tell which are synchronizable inputs and which are synchronizable outputs
+    // operands using interface to tell which are Synchronized inputs and which are Synchronized outputs
     // separate out handling for allocs inside generic and outside
     llvm::DenseMap<Value, CBInfo> cb_info;
     genericOp->getRegions().front().walk([&](Operation *op) {
@@ -168,16 +168,16 @@ public:
       // add this alloc to list of allocs that need to become a cb
       // and assert only one use as producer and one use as consumer
       // add this alloc to list of allocs that need to become a cb 
-      if (SynchronizableOpInterface synchronizable_op = dyn_cast<SynchronizableOpInterface>(op)) {
+      if (SynchronizableOpInterface synchronized_op = dyn_cast<SynchronizableOpInterface>(op)) {
         for (auto& operand : op->getOpOperands()) {
-          if (synchronizable_op.isProducer(operand) && synchronizable_op.isConsumer(operand)) {
+          if (synchronized_op.isProducer(operand) && synchronized_op.isConsumer(operand)) {
             llvm_unreachable("A single op operand cannot be both a producer and consumer");
           }
-          else if (synchronizable_op.isProducer(operand)) {
+          else if (synchronized_op.isProducer(operand)) {
             llvm::errs() << "operand x in op y is producer" << "\n";
             cb_info[operand.get()].producers.push_back(op);
           } 
-          else if (synchronizable_op.isConsumer(operand)) {
+          else if (synchronized_op.isConsumer(operand)) {
             llvm::errs() << "operand x in op y is consumer" << "\n";
             cb_info[operand.get()].consumers.push_back(op);
           } 
