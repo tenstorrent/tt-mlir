@@ -98,6 +98,16 @@ module {
     return %0 : tensor<32x1x1xf32>
   }
 
+  // 3D min reducing outer dim (0): ttir.min is preserved; D2M uses tile_minimum.
+  // CHECK-LABEL: func @min_3d_reduce_outer
+  func.func @min_3d_reduce_outer(%arg0: tensor<32x128x96xf32>) -> tensor<1x128x96xf32> {
+    // CHECK-NOT: d2m.tile_negative
+    // CHECK: d2m.tile_fill
+    // CHECK: d2m.tile_minimum
+    %0 = "ttir.min"(%arg0) <{dim_arg = [0 : i32], keep_dim = true}> : (tensor<32x128x96xf32>) -> tensor<1x128x96xf32>
+    return %0 : tensor<1x128x96xf32>
+  }
+
   // 3D mean reducing second-to-last dim (C): tensor<32x8192x1xf32> -> tensor<32x1x1xf32>
   // CHECK-LABEL: func @mean_3d_reduce_second_to_last
   func.func @mean_3d_reduce_second_to_last(%arg0: tensor<32x8192x1xf32>) -> tensor<32x1x1xf32> {
