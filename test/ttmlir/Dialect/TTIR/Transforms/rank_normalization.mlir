@@ -210,7 +210,7 @@ func.func @constant_1d_promoted() -> tensor<4xi64> {
 }
 
 // =============================================================================
-// Test 10b2: 1D ttir.full - shape attr promoted to match result (verifier)
+// 1D ttir.full - shape attr promoted to match result (verifier)
 // =============================================================================
 // ttir.full requires `shape` to match the result tensor shape; rank normalization
 // promotes tensor<1xsi32> to tensor<1x1xsi32> and must prepend 1 to `shape`.
@@ -224,6 +224,36 @@ func.func @full_1d_with_1d_arg(%arg0: tensor<1xsi32>) -> tensor<1xsi32> {
   %0 = "ttir.full"() <{fill_value = 128 : i32, shape = array<i32: 1>}> : () -> tensor<1xsi32>
   %1 = "ttir.add"(%arg0, %0) : (tensor<1xsi32>, tensor<1xsi32>) -> tensor<1xsi32>
   return %1 : tensor<1xsi32>
+}
+
+// =============================================================================
+// 1D ttir.zeros - shape attr promoted to match result
+// =============================================================================
+
+// CHECK-LABEL: func.func @zeros_1d_promoted
+// CHECK-SAME: (%arg0: tensor<1x64xf32>) -> tensor<1x64xf32>
+// CHECK: %[[Z:.*]] = "ttir.zeros"() <{shape = array<i32: 1, 64>}> : () -> tensor<1x64xf32>
+// CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[Z]]) : (tensor<1x64xf32>, tensor<1x64xf32>) -> tensor<1x64xf32>
+// CHECK: return %[[ADD]] : tensor<1x64xf32>
+func.func @zeros_1d_promoted(%arg0: tensor<64xf32>) -> tensor<64xf32> {
+  %0 = "ttir.zeros"() <{shape = array<i32: 64>}> : () -> tensor<64xf32>
+  %1 = "ttir.add"(%arg0, %0) : (tensor<64xf32>, tensor<64xf32>) -> tensor<64xf32>
+  return %1 : tensor<64xf32>
+}
+
+// =============================================================================
+// 1D ttir.ones - shape attr promoted to match result
+// =============================================================================
+
+// CHECK-LABEL: func.func @ones_1d_promoted
+// CHECK-SAME: (%arg0: tensor<1x128xbf16>) -> tensor<1x128xbf16>
+// CHECK: %[[O:.*]] = "ttir.ones"() <{shape = array<i32: 1, 128>}> : () -> tensor<1x128xbf16>
+// CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %[[O]]) : (tensor<1x128xbf16>, tensor<1x128xbf16>) -> tensor<1x128xbf16>
+// CHECK: return %[[ADD]] : tensor<1x128xbf16>
+func.func @ones_1d_promoted(%arg0: tensor<128xbf16>) -> tensor<128xbf16> {
+  %0 = "ttir.ones"() <{shape = array<i32: 128>}> : () -> tensor<128xbf16>
+  %1 = "ttir.add"(%arg0, %0) : (tensor<128xbf16>, tensor<128xbf16>) -> tensor<128xbf16>
+  return %1 : tensor<128xbf16>
 }
 
 // =============================================================================

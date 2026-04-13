@@ -2479,19 +2479,20 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
 
 /// Lowers `ttir.full`, `ttir.zeros`, and `ttir.ones` through
 /// `lowerRankedTensorFillViaGeneric` (`d2m.tile_fill` + remote_store).
-template <typename OpTy>
-class D2MFullLikeOpRewriter : public OpConversionPattern<OpTy>,
-                              D2MNamedRewriterCommon {
-  static_assert(std::is_same_v<OpTy, ttir::FullOp> ||
-                std::is_same_v<OpTy, ttir::ZerosOp> ||
-                std::is_same_v<OpTy, ttir::OnesOp>);
+template <typename ConcreteOp>
+class D2MConstantFillOpRewriter : public OpConversionPattern<ConcreteOp>,
+                                  D2MNamedRewriterCommon {
+  static_assert(std::is_same_v<ConcreteOp, ttir::FullOp> ||
+                std::is_same_v<ConcreteOp, ttir::ZerosOp> ||
+                std::is_same_v<ConcreteOp, ttir::OnesOp>);
 
-  static mlir::Attribute getFillAttr(OpTy op, RankedTensorType resultType) {
-    if constexpr (std::is_same_v<OpTy, ttir::FullOp>) {
+  static mlir::Attribute getFillAttr(ConcreteOp op,
+                                     RankedTensorType resultType) {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::FullOp>) {
       return op.getFillValueAttr();
     }
     Type elemTy = resultType.getElementType();
-    constexpr bool kOnes = std::is_same_v<OpTy, ttir::OnesOp>;
+    constexpr bool kOnes = std::is_same_v<ConcreteOp, ttir::OnesOp>;
     if (auto floatTy = mlir::dyn_cast<mlir::FloatType>(elemTy)) {
       return mlir::FloatAttr::get(floatTy, kOnes ? 1.0 : 0.0);
     }
@@ -2502,21 +2503,21 @@ class D2MFullLikeOpRewriter : public OpConversionPattern<OpTy>,
   }
 
 public:
-  D2MFullLikeOpRewriter(const TypeConverter &typeConverter,
-                        mlir::MLIRContext *ctx,
-                        ttcore::MemorySpace defaultInputMemSpace,
-                        ttcore::MemorySpace defaultOutputMemSpace,
-                        bool ttnnMode, bool collapseTensors,
-                        bool enableMulticastInference)
-      : OpConversionPattern<OpTy>(typeConverter, ctx),
+  D2MConstantFillOpRewriter(const TypeConverter &typeConverter,
+                            mlir::MLIRContext *ctx,
+                            ttcore::MemorySpace defaultInputMemSpace,
+                            ttcore::MemorySpace defaultOutputMemSpace,
+                            bool ttnnMode, bool collapseTensors,
+                            bool enableMulticastInference)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, collapseTensors,
                                enableMulticastInference) {}
 
   LogicalResult
-  matchAndRewrite(OpTy op, typename OpTy::Adaptor adaptor,
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    (void)adaptor;
+    Location loc = op.getLoc();
     RankedTensorType resultType = op.getResult().getType();
     mlir::Attribute fillAttr = getFillAttr(op, resultType);
     if (!fillAttr) {
@@ -2525,17 +2526,11 @@ public:
               "fill value attribute (full)");
     }
 
-    mlir::FailureOr<mlir::Value> filled = lowerRankedTensorFillViaGeneric(
-        rewriter, op.getLoc(), resultType, fillAttr);
+    mlir::FailureOr<mlir::Value> filled =
+        lowerRankedTensorFillViaGeneric(rewriter, loc, resultType, fillAttr);
     if (mlir::failed(filled)) {
-      if constexpr (std::is_same_v<OpTy, ttir::FullOp>) {
-        return rewriter.notifyMatchFailure(
-            op,
-            "full lowering expects float or integer fill attribute matching "
-            "tensor element type");
-      }
       return rewriter.notifyMatchFailure(
-          op, "could not lower zeros/ones fill via tile_fill");
+          op, "could not lower constant fill via tile_fill");
     }
     rewriter.replaceOp(op, *filled);
     return success();
@@ -3573,9 +3568,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MMatmulBlockToLinalgGeneric,
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>,
     // Full / zeros / ones (constant fill via tile_fill).
-    D2MFullLikeOpRewriter<ttir::FullOp>,
-    D2MFullLikeOpRewriter<ttir::ZerosOp>,
-    D2MFullLikeOpRewriter<ttir::OnesOp>,
+    D2MConstantFillOpRewriter<ttir::FullOp>,
+    D2MConstantFillOpRewriter<ttir::ZerosOp>,
+    D2MConstantFillOpRewriter<ttir::OnesOp>,
     // CCL
     D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
