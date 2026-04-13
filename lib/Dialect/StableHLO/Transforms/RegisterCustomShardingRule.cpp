@@ -148,50 +148,122 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
 
 static mlir::sdy::OpShardingRuleAttr
 getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() < 3 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "SDPA expects at least 3 operands (Q, K, V) and 1 result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
   auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   auto kType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
   auto vType = llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
   auto outType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
 
-  // SDPA requires Q/K/V and output to have identical shapes.
-  if (qType.getShape() != kType.getShape() ||
-      qType.getShape() != vType.getShape() ||
-      qType.getShape() != outType.getShape()) {
+  if (!qType || !kType || !vType || !outType) {
+    op.getOperation()->emitWarning() << "SDPA requires ranked tensor types";
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  ArrayRef<int64_t> shape = qType.getShape();
-
-  // SDPA is assumed to operate on 4D tensors: [B, H, S, D]
-  // If the shape does not match, conservatively fallback to a pointwise rule.
-  if (shape.size() != 4) {
+  // SDPA operates on 4D tensors: [B, H, S, D]
+  if (qType.getRank() != 4 || kType.getRank() != 4 || vType.getRank() != 4 ||
+      outType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "SDPA requires 4D tensors [B, H, S, D]";
     return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
   }
 
-  // SDPA can shard batch (B) and head (H) dimensions freely.
-  // Sequence (S) and hidden (D) dimensions generally require replication,
-  // unless a more advanced distributed attention algorithm is implemented.
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kShape = kType.getShape();
+  ArrayRef<int64_t> vShape = vType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  // Grouped-Query / Multi-Query Attention support:
+  //   Q/Out: [B, num_q_heads,  S, D]
+  //   K/V:   [B, num_kv_heads, S, D]
+  // Constraints:
+  //   - Q and Output must have the same shape
+  //   - K and V must have the same shape
+  //   - B, S, D must match across all tensors
+  //   - num_q_heads must be divisible by num_kv_heads (GQA group ratio)
+  if (kShape != vShape || qShape != outShape ||
+      qShape[0] != kShape[0] || // B
+      qShape[2] != kShape[2] || // S
+      qShape[3] != kShape[3]) { // D
+    op.getOperation()->emitWarning()
+        << "SDPA shape validation failed: incompatible Q/K/V/Out dimensions";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t qHeads = qShape[1];
+  int64_t kvHeads = kShape[1];
+  if (qHeads % kvHeads != 0) {
+    op.getOperation()->emitWarning()
+        << "SDPA: num_q_heads (" << qHeads
+        << ") must be divisible by num_kv_heads (" << kvHeads << ")";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // For standard MHA (qHeads == kvHeads), all tensors have identical shapes
+  // so we can use the efficient addPointwise builder.
+  if (qHeads == kvHeads) {
+    auto getFactorType = [](int64_t dim) -> mlir::sdy::FactorType {
+      if (dim == 0 || dim == 1) {
+        return mlir::sdy::FactorType::kPassThrough;
+      }
+      return mlir::sdy::FactorType::kNeedReplication;
+    };
+    return mlir::sdy::OpShardingRuleBuilder(op)
+        .addPointwise(qShape, getFactorType)
+        .build();
+  }
+
+  // GQA/MQA path: Q/Out have more heads than K/V, so we cannot use
+  // addPointwise (requires identical shapes). Use buildHeadShardedCustomCallRule
+  // for the head dimension, plus explicit B/S/D factors.
   //
   // Dimension assignment:
-  // dim 0 -> Batch
-  // dim 1 -> Head
-  // dim 2 -> Sequence length
-  // dim 3 -> Hidden size
-  auto getFactorType = [&](int64_t dim) -> mlir::sdy::FactorType {
-    if (dim == 0 || dim == 1) {
-      // Allow sharding
-      return mlir::sdy::FactorType::kPassThrough;
-    }
-    // Disallow sharding, require replication
-    return mlir::sdy::FactorType::kNeedReplication;
+  //   dim 0 -> Batch         (kPassThrough)
+  //   dim 1 -> Head          (kPassThrough via head-sharded helper)
+  //   dim 2 -> Sequence len  (kNeedReplication)
+  //   dim 3 -> Hidden size   (kNeedReplication)
+  //
+  // Head dimension: single factor with size = qHeads linking Q/K/V/Out dim 1.
+  // For GQA, K/V dim 1 (kvHeads) differs from the factor size (qHeads), but
+  // Shardy handles this proportionally: sharding by F gives qHeads/F Q-heads
+  // and kvHeads/F KV-heads, preserving the GQA ratio.
+  // This is the same pattern used by paged SDPA decode.
+  int64_t numOperands = op.getNumOperands();
+
+  sdy::OpShardingRuleBuilder builder(op);
+
+  // Helper: build operand dim vector with Q/K/V dims set, rest kNullDim.
+  auto makeOpDims = [&](int64_t qDim, int64_t kDim,
+                        int64_t vDim) -> SmallVector<int64_t> {
+    SmallVector<int64_t> dims(numOperands, sdy::kNullDim);
+    dims[0] = qDim;
+    dims[1] = kDim;
+    dims[2] = vDim;
+    return dims;
   };
 
-  // Build the final sharding rule:
-  // - Pass-through on B/H dims
-  // - Replication on S/D dims
-  return mlir::sdy::OpShardingRuleBuilder(op)
-      .addPointwise(shape, getFactorType)
-      .build();
+  // Batch (dim 0): kPassThrough — can be sharded freely.
+  builder.addFactor(makeOpDims(0, 0, 0), {0}, qShape[0],
+                    sdy::FactorType::kPassThrough);
+
+  // Head (dim 1): kPassThrough — can be sharded.
+  // Single factor links Q/K/V/Out head dims together using Q's head count.
+  builder.addFactor(makeOpDims(1, 1, 1), {1}, qHeads,
+                    sdy::FactorType::kPassThrough);
+
+  // Sequence length (dim 2): kNeedReplication — cannot shard without
+  // distributed attention support.
+  builder.addFactor(makeOpDims(2, 2, 2), {2}, qShape[2],
+                    sdy::FactorType::kNeedReplication);
+
+  // Hidden size (dim 3): kNeedReplication — cannot shard.
+  builder.addFactor(makeOpDims(3, 3, 3), {3}, qShape[3],
+                    sdy::FactorType::kNeedReplication);
+
+  return builder.build();
 }
 
 static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
