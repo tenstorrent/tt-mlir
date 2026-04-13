@@ -85,26 +85,26 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   // Count external users (users outside producer's own regions and outside
   // consumer's regions).
   for (auto result : producer->getResults()) {
-    Operation *soleExternalUser = nullptr;
-    bool allSameOp = true;
+    Operation *singleExternalUser = nullptr;
+    bool isSingleExternalUser = true;
     for (auto *user : result.getUsers()) {
+      // Skip users inside the producer's own regions.
       if (producer.getOperation()->isProperAncestor(user)) {
         continue;
       }
+      // Skip users inside the consumer's regions (e.g., remote_load
+      // operations).
       if (consumer.getOperation()->isProperAncestor(user)) {
         continue;
       }
-      if (!soleExternalUser) {
-        soleExternalUser = user;
-      } else if (user != soleExternalUser) {
-        allSameOp = false;
+      if (!singleExternalUser) {
+        singleExternalUser = user;
+      } else if (user != singleExternalUser) {
+        isSingleExternalUser = false;
         break;
       }
     }
-    if (!soleExternalUser || !allSameOp) {
-      return false;
-    }
-    if (soleExternalUser != consumer.getOperation()) {
+    if (!singleExternalUser || !isSingleExternalUser) {
       return false;
     }
   }
@@ -125,24 +125,9 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  // Duplicate producer-result inputs must use the same indexing map as the
-  // fused operand; otherwise operand dedup in getFusedOperands would change
-  // access semantics (same SSA value, different maps).
-  const unsigned fusedInIdx = fusionTargetOperand->getOperandNumber();
-  AffineMap consMap = consumer.getIndexingMap(fusedInIdx);
-  Value fusedProducerValue = fusionTargetOperand->get();
-
-  for (auto [inputIdx, inp] : llvm::enumerate(consumer.getInputs())) {
-    if (inputIdx == fusedInIdx) {
-      continue;
-    }
-    if (inp == fusedProducerValue &&
-        consumer.getIndexingMap(inputIdx) != consMap) {
-      return false;
-    }
-  }
-
   // Rank/perm checks
+  AffineMap consMap =
+      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
   if (consMap.getNumResults() != producer.getNumDims()) {
     return false;
   }
