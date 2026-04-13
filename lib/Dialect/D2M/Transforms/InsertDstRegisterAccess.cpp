@@ -18,7 +18,9 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -822,6 +824,10 @@ public:
         }
       }
       const bool noAccumGuardForLoads = totalCBLoads >= 2;
+      const SmallVector<Value> carriedOutputRegions =
+          getObviousCarriedOutputRegions(computeOp);
+      const SmallVector<int64_t> accumOperandIndices =
+          getAccumClassificationOperandIndices(computeOp);
 
       int numLoads = 0;
       int firstInputDstSlice = -1;
@@ -839,8 +845,11 @@ public:
             firstInputDstSlice = dstSlice;
           }
           ++numLoads;
-          collectDstLoadOrStore<affine::AffineLoadOp>(
-              gOp, potentialLoad, copyInfos, dstSlice,
+          // Record a CB-backed input load and add an Accum guard only when this
+          // operand looks like the loop-carried accumulator.
+          collectDstLoadWithAccumAnalysis<affine::AffineLoadOp>(
+              potentialLoad, operandIdx, carriedOutputRegions,
+              accumOperandIndices, copyInfos, dstSlice,
               outermostInnerComputeLoop, noAccumGuardForLoads);
         }
       }
@@ -882,9 +891,9 @@ public:
             dstSlice = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
           }
-          collectDstLoadOrStore<affine::AffineStoreOp>(
-              gOp, potentialStore, copyInfos, dstSlice,
-              outermostInnerComputeLoop);
+          // Record the final DST writeback into the reserved output CB slot.
+          collectDstStoreAccess<affine::AffineStoreOp>(
+              potentialStore, copyInfos, dstSlice, outermostInnerComputeLoop);
         } else if (auto scratchStore = mlir::dyn_cast<memref::StoreOp>(user)) {
           // Collect DST->scratch stores (scratch spills from
           // InsertSpillAndScratch).
@@ -912,9 +921,9 @@ public:
             dstSlice = dstSliceAllocationState.allocate();
             dstSliceAllocationState.setStoreToDst();
           }
-          collectDstLoadOrStore<memref::StoreOp>(gOp, scratchStore, copyInfos,
-                                                 dstSlice,
-                                                 outermostInnerComputeLoop);
+          // Record the DST spill into scratch using the slice chosen above.
+          collectDstStoreAccess<memref::StoreOp>(
+              scratchStore, copyInfos, dstSlice, outermostInnerComputeLoop);
         } else {
           // The consumer is another compute op, set or allocate an intermediate
           // DST slice for it.
@@ -945,8 +954,8 @@ public:
                 computeOp->getOperand(0).getDefiningOp<affine::AffineLoadOp>();
             TT_assert(loadOp != nullptr);
             auto bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
-            collectDstLoadThenBcast(gOp, loadOp, bcastOp, copyInfos, dstSlice,
-                                    outermostInnerComputeLoop);
+            recordDstAccess(loadOp, bcastOp, copyInfos, dstSlice,
+                            outermostInnerComputeLoop, /*emitGuard=*/true);
           } else {
             dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
           }
@@ -982,21 +991,137 @@ public:
         return nullptr;
       }
     }
+    if (mlir::isa<CBType>(memref.getType())) {
+      return memref;
+    }
     if (mlir::isa<BlockArgument>(memref)) {
       return memref;
     }
     return nullptr;
   }
 
-  // Collect a single load or store and determine its loop guard.
-  // noAccumGuard: when true, suppress Accum guard generation (e.g. for SFPU
-  // operands loaded into DST per-tile — DST is acquired/released each time so
-  // there is no accumulation across outer loop iterations).
+  // Strip dst-region wrappers that preserve the underlying logical memref.
+  static Value stripDstRegionWrappers(Value memref) {
+    if (!memref) {
+      return nullptr;
+    }
+    while (auto *definingOp = memref.getDefiningOp()) {
+      if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+        memref = definingOp->getOperand(0);
+        continue;
+      }
+      break;
+    }
+    return memref;
+  }
+
+  // Check whether two memrefs name the same logical region after subview
+  // decomposition and dst-region wrapper stripping.
+  static bool isSameLogicalMemRefRegion(Value lhs, Value rhs) {
+    lhs = stripDstRegionWrappers(lhs);
+    rhs = stripDstRegionWrappers(rhs);
+
+    if (lhs == rhs) {
+      return true;
+    }
+
+    auto lhsSubView = lhs.getDefiningOp<memref::SubViewOp>();
+    auto rhsSubView = rhs.getDefiningOp<memref::SubViewOp>();
+    if (!lhsSubView || !rhsSubView) {
+      return false;
+    }
+
+    return isSameLogicalMemRefRegion(lhsSubView.getSource(),
+                                     rhsSubView.getSource()) &&
+           llvm::equal(lhsSubView.getStaticOffsets(),
+                       rhsSubView.getStaticOffsets()) &&
+           llvm::equal(lhsSubView.getStaticSizes(),
+                       rhsSubView.getStaticSizes()) &&
+           llvm::equal(lhsSubView.getStaticStrides(),
+                       rhsSubView.getStaticStrides()) &&
+           llvm::equal(lhsSubView.getOffsets(), rhsSubView.getOffsets()) &&
+           llvm::equal(lhsSubView.getSizes(), rhsSubView.getSizes()) &&
+           llvm::equal(lhsSubView.getStrides(), rhsSubView.getStrides());
+  }
+
+  // Gather output regions that are obvious candidates for a carried
+  // accumulator.
+  static SmallVector<Value> getObviousCarriedOutputRegions(
+      OperandLoadStoreRegisterOpInterface computeOp) {
+    SmallVector<Value> outputs;
+
+    // Add all DPS inits to the list of output regions.
+    if (auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(
+            computeOp.getOperation())) {
+      outputs.append(dpsOp.getDpsInits().begin(), dpsOp.getDpsInits().end());
+    }
+
+    // Push all store op memrefs to the list of output regions.
+    for (Value result : computeOp->getResults()) {
+      for (Operation *user : result.getUsers()) {
+        if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(user)) {
+          if (affineStore.getValue() == result) {
+            outputs.push_back(affineStore.getMemRef());
+          }
+        } else if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(user)) {
+          if (memrefStore.getValue() == result) {
+            outputs.push_back(memrefStore.getMemRef());
+          }
+        }
+      }
+    }
+
+    return outputs;
+  }
+
+  // Gather the non-scalar tile operands that participate in accumulation
+  // classification, excluding DPS init operands.
+  static SmallVector<int64_t> getAccumClassificationOperandIndices(
+      OperandLoadStoreRegisterOpInterface computeOp) {
+    SmallVector<int64_t> operandIndices;
+    auto dpsOp =
+        mlir::dyn_cast<DestinationStyleOpInterface>(computeOp.getOperation());
+
+    for (OpOperand &operand : computeOp->getOpOperands()) {
+      if (computeOp.isScalarOperand(operand.getOperandNumber())) {
+        continue;
+      }
+      if (dpsOp && dpsOp.isDpsInit(&operand)) {
+        continue;
+      }
+      operandIndices.push_back(operand.getOperandNumber());
+    }
+
+    return operandIndices;
+  }
+
+  // Heuristically identify CB loads that feed a loop-carried accumulator tile.
+  template <typename LoadTy>
+  static bool
+  isObviousLoopCarriedAccumulationLoad(LoadTy loadOp, int64_t operandIdx,
+                                       ArrayRef<Value> carriedOutputRegions,
+                                       ArrayRef<int64_t> accumOperandIndices) {
+    if (accumOperandIndices.size() <= 1 ||
+        !llvm::is_contained(accumOperandIndices, operandIdx)) {
+      return false;
+    }
+
+    for (Value outputRegion : carriedOutputRegions) {
+      if (isSameLogicalMemRefRegion(loadOp.getMemRef(), outputRegion)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Record a DST access under the chosen loop nest and optionally attach an
+  // Accum guard to the generated copy loop.
   template <typename LoadOrStoreTy>
-  static void collectDstLoadOrStore(GenericOp gOp, LoadOrStoreTy loadOrStore,
-                                    CopyInfoMap &copyInfos, int dstSlice,
-                                    Operation *outermostInnerComputeLoop,
-                                    bool noAccumGuard = false) {
+  static void recordDstAccess(LoadOrStoreTy loadOrStore, CopyInfoMap &copyInfos,
+                              int dstSlice,
+                              Operation *outermostInnerComputeLoop,
+                              bool emitGuard) {
     if (!outermostInnerComputeLoop) {
       // If there is no outermostInnerComputeLoop, the common ancestor is the
       // operation itself.
@@ -1007,22 +1132,20 @@ public:
     Value assocCB = lookThroughSubView(loadOrStore.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (assocCB && !noAccumGuard) {
+    if (assocCB && emitGuard) {
       guardIVs = getGuardLoopIVs(loadOrStore, outermostInnerComputeLoop);
     }
 
     iter->second.record(loadOrStore, dstSlice, guardIVs);
   }
 
-  // Collect a load-bcast pair.
-  static void collectDstLoadThenBcast(GenericOp gOp,
-                                      affine::AffineLoadOp loadOp,
-                                      d2m::TileBcastOp bcastOp,
-                                      CopyInfoMap &copyInfos, int dstSlice,
-                                      Operation *outermostInnerComputeLoop) {
+  // Overloaded recordDstAccess for affine.load with bcast.
+  static void recordDstAccess(affine::AffineLoadOp loadOp,
+                              d2m::TileBcastOp bcastOp, CopyInfoMap &copyInfos,
+                              int dstSlice,
+                              Operation *outermostInnerComputeLoop,
+                              bool emitGuard) {
     if (!outermostInnerComputeLoop) {
-      // If there is no outermostInnerComputeLoop, the common ancestor is the
-      // operation itself.
       outermostInnerComputeLoop = loadOp;
     }
 
@@ -1030,11 +1153,51 @@ public:
     Value assocCB = lookThroughSubView(loadOp.getMemRef());
 
     SmallVector<Value> guardIVs;
-    if (assocCB) {
+    if (assocCB && emitGuard) {
       guardIVs = getGuardLoopIVs(loadOp, outermostInnerComputeLoop);
     }
 
     iter->second.record(loadOp, bcastOp, dstSlice, guardIVs);
+  }
+
+  // Decide whether this load should preserve the DST tile across outer-loop
+  // iterations instead of reloading every time.
+  template <typename LoadTy>
+  static bool shouldGuardDstLoadForAccumulation(
+      LoadTy loadOp, int64_t operandIdx, ArrayRef<Value> carriedOutputRegions,
+      ArrayRef<int64_t> accumOperandIndices, bool noAccumGuard = false) {
+    if (noAccumGuard || !lookThroughSubView(loadOp.getMemRef())) {
+      return false;
+    }
+
+    return isObviousLoopCarriedAccumulationLoad(
+        loadOp, operandIdx, carriedOutputRegions, accumOperandIndices);
+  }
+
+  // Record a store that drains a computed DST tile back to memory.
+  template <typename StoreTy>
+  static void collectDstStoreAccess(StoreTy storeOp, CopyInfoMap &copyInfos,
+                                    int dstSlice,
+                                    Operation *outermostInnerComputeLoop) {
+    recordDstAccess(storeOp, copyInfos, dstSlice, outermostInnerComputeLoop,
+                    /*emitGuard=*/false);
+  }
+
+  // Collect a single load access and determine whether it needs an accumulation
+  // guard. noAccumGuard: when true, suppress Accum guard generation (e.g. for
+  // SFPU operands loaded into DST per-tile — DST is acquired/released each time
+  // so there is no accumulation across outer loop iterations).
+  template <typename LoadTy>
+  static void collectDstLoadWithAccumAnalysis(
+      LoadTy loadOp, int64_t operandIdx, ArrayRef<Value> carriedOutputRegions,
+      ArrayRef<int64_t> accumOperandIndices, CopyInfoMap &copyInfos,
+      int dstSlice, Operation *outermostInnerComputeLoop,
+      bool noAccumGuard = false) {
+    const bool emitGuard = shouldGuardDstLoadForAccumulation(
+        loadOp, operandIdx, carriedOutputRegions, accumOperandIndices,
+        noAccumGuard);
+    recordDstAccess(loadOp, copyInfos, dstSlice, outermostInnerComputeLoop,
+                    emitGuard);
   }
 
   // Consumes the recorded load/store info to generate two data copy loops: one
@@ -1727,6 +1890,12 @@ public:
         }
       }
       const bool noAccumGuardForLoads = totalCBLoads >= 2;
+      // Collect the output regions and operand indices for accumulation
+      // analysis.
+      const SmallVector<Value> carriedOutputRegions =
+          getObviousCarriedOutputRegions(computeOp);
+      const SmallVector<int64_t> accumOperandIndices =
+          getAccumClassificationOperandIndices(computeOp);
 
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         // Skip scalar operands - they don't need to be loaded from dst
@@ -1739,13 +1908,19 @@ public:
         Value operand = computeOp->getOperand(operandIdx);
         if (auto affineLoad = operand.getDefiningOp<affine::AffineLoadOp>();
             affineLoad && notDstMemspace(affineLoad)) {
-          collectDstLoadOrStore<affine::AffineLoadOp>(
-              op, affineLoad, copyInfos, dstStackAllocator.allocate(),
+          // Record an affine input load and guard only the carried-accumulator
+          // case in the scheduled path.
+          collectDstLoadWithAccumAnalysis<affine::AffineLoadOp>(
+              affineLoad, operandIdx, carriedOutputRegions, accumOperandIndices,
+              copyInfos, dstStackAllocator.allocate(),
               outermostInnerComputeLoop, noAccumGuardForLoads);
         } else if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>();
                    memrefLoad && notDstMemspace(memrefLoad)) {
-          collectDstLoadOrStore<memref::LoadOp>(
-              op, memrefLoad, copyInfos, dstStackAllocator.allocate(),
+          // Record a memref input load and guard only the carried-accumulator
+          // case in the scheduled path.
+          collectDstLoadWithAccumAnalysis<memref::LoadOp>(
+              memrefLoad, operandIdx, carriedOutputRegions, accumOperandIndices,
+              copyInfos, dstStackAllocator.allocate(),
               outermostInnerComputeLoop, noAccumGuardForLoads);
         }
       }
@@ -1785,11 +1960,13 @@ public:
           }
 
           if (isAffineStore) {
-            collectDstLoadOrStore<affine::AffineStoreOp>(
-                op, affineStore, copyInfos, dstSliceIndex,
+            // Record the affine writeback from DST to the destination buffer.
+            collectDstStoreAccess<affine::AffineStoreOp>(
+                affineStore, copyInfos, dstSliceIndex,
                 outermostInnerComputeLoop);
           } else {
-            collectDstLoadOrStore<memref::StoreOp>(op, memrefStore, copyInfos,
+            // Record the memref writeback from DST to the destination buffer.
+            collectDstStoreAccess<memref::StoreOp>(memrefStore, copyInfos,
                                                    dstSliceIndex,
                                                    outermostInnerComputeLoop);
           }
