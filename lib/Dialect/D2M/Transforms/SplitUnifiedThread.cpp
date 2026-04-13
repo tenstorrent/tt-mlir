@@ -144,6 +144,76 @@ static void insertPopBeforeTerminator(PatternRewriter &rewriter, Location loc,
   rewriter.create<PopOp>(loc, cb);
 }
 
+// Build the set of values that alias `value` through view-like operations
+// in the given block. Includes `value` itself and any view-like results
+// derived from it.
+static llvm::SmallPtrSet<Value, 8> buildValueAliasSet(Value value,
+                                                      Block *block) {
+  llvm::SmallPtrSet<Value, 8> aliases;
+  aliases.insert(value);
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (Operation &op : *block) {
+      if (!mlir::isa<mlir::ViewLikeOpInterface>(op)) {
+        continue;
+      }
+      for (OpOperand &operand : op.getOpOperands()) {
+        if (aliases.contains(operand.get())) {
+          for (Value result : op.getResults()) {
+            if (aliases.insert(result).second) {
+              changed = true;
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+  return aliases;
+}
+
+// Find all top-level operations in `block` that contain a memref.load from a
+// value in `aliases`, where a preceding top-level operation stored to those
+// aliases. Each such point is a PACK→L1→UNPACK transition that requires
+// push+wait to initialize the CB read pointer. In fused kernels the output CB
+// may be used as a ping-pong intermediate across many compute phases, producing
+// multiple transitions.
+// If `beforeOp` is non-null, only considers operations before it.
+static SmallVector<Operation *>
+findAllIntermediateReadPoints(const llvm::SmallPtrSet<Value, 8> &aliases,
+                              Block *block, Operation *beforeOp = nullptr) {
+  SmallVector<Operation *> readPoints;
+  bool hasStoredBefore = false;
+  for (Operation &op : *block) {
+    if (beforeOp && &op == beforeOp) {
+      break;
+    }
+    bool opHasLoad = false;
+    op.walk([&](memref::LoadOp loadOp) {
+      if (aliases.contains(loadOp.getMemref())) {
+        opHasLoad = true;
+      }
+    });
+    // If this op loads from the alias set and data was stored by a
+    // preceding op, this is an intermediate read point.
+    if (opHasLoad && hasStoredBefore) {
+      readPoints.push_back(&op);
+      // Reset: require a new store before the next transition.
+      hasStoredBefore = false;
+    }
+    // Check if this op stores to the alias set. For ping-pong ops that
+    // both load and store (read old value, compute, write new value),
+    // the store here re-arms the flag for the next cycle.
+    op.walk([&](memref::StoreOp storeOp) {
+      if (aliases.contains(storeOp.getMemref())) {
+        hasStoredBefore = true;
+      }
+    });
+  }
+  return readPoints;
+}
+
 // Find load-store pairs that share the same localBuffer in a block.
 static SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>>
 findSharedBufferPairs(Block *block) {
@@ -364,6 +434,26 @@ static LogicalResult processComputeStores(Block *computeBlock,
         // Replace all uses as compute ops reference the alloc directly and
         // must write into the CB. Assumes 1:1 alloc-to-store relationship.
         rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
+
+        // When the output buffer is reused as an intermediate (written then
+        // read within the compute block before the final remote_store),
+        // insert pop+push+wait at each transition to initialize the CB
+        // read pointer. The pop resets the available counter so that
+        // wait_front refreshes rd_ptr instead of returning immediately on
+        // stale data. The first transition needs only push+wait since
+        // there is no prior push to pop.
+        auto aliases = buildValueAliasSet(reserveOp.getResult(), computeBlock);
+        bool firstTransition = true;
+        for (Operation *readPoint :
+             findAllIntermediateReadPoints(aliases, computeBlock, storeOp)) {
+          rewriter.setInsertionPoint(readPoint);
+          if (!firstTransition) {
+            rewriter.create<PopOp>(loc, cb);
+          }
+          rewriter.create<PushOp>(loc, cb);
+          rewriter.create<WaitOp>(loc, cb);
+          firstTransition = false;
+        }
       } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
         // The alloc was already replaced by a WaitOp from an earlier load
         // (read-modify-write on same buffer). If it's the same CB,
@@ -410,15 +500,25 @@ static LogicalResult processComputeStores(Block *computeBlock,
   return success();
 }
 
-// Replace GetScratchFromCBOp with reserve.
+// Replace GetScratchFromCBOp with reserve, push, wait.
+// The push+wait initializes the scratch CB for both PACK and UNPACK access,
+// setting up the read pointer so that copy_tile can address the buffer
+// correctly. The unpack_stall_on_pack operations between compute phases
+// ensure L1 data consistency. This mirrors the input CB initialization
+// pattern (reserve→push→wait at the alloc site).
 static void processGetScratchOps(Block *computeBlock, PatternRewriter &rewriter,
                                  DenseSet<Operation *> &toErase) {
   SmallVector<GetScratchFromCBOp> ops;
   computeBlock->walk([&](GetScratchFromCBOp op) { ops.push_back(op); });
 
   for (GetScratchFromCBOp op : ops) {
+    Value cb = op.getCb();
+    Location loc = op.getLoc();
+
     rewriter.setInsertionPoint(op);
-    auto reserveOp = rewriter.create<ReserveOp>(op.getLoc(), op.getCb());
+    auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+    rewriter.create<PushOp>(loc, cb);
+    rewriter.create<WaitOp>(loc, cb);
     rewriter.replaceAllUsesWith(op.getResult(), reserveOp.getResult());
     toErase.insert(op);
   }

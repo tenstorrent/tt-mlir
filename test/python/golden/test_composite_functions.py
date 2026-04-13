@@ -295,7 +295,7 @@ def test_digamma(
             builder.set_goldens({x: x_tensor}, {result: output_golden})
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -340,7 +340,7 @@ def test_lgamma(
 
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -385,7 +385,7 @@ def test_multigammaln(
 
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -432,7 +432,7 @@ def test_polygamma(
 
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -465,7 +465,7 @@ def test_glu_split(
 
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -497,7 +497,7 @@ def test_reglu_split(
 
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -529,7 +529,7 @@ def test_geglu_split(
 
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -561,7 +561,7 @@ def test_swiglu_split(
 
             return result
 
-    options = []
+    options = ["enable-elementwise-fusion=true"]
     compile_and_execute_ttir(
         module,
         target=target,
