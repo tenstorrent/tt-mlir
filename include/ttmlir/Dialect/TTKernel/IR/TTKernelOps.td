@@ -2964,8 +2964,7 @@ def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_aran
     let summary = "Experimental Write Full Linear Index Tile Op";
     let description = [{
       Writes a full linear index tile pattern to a CB, where element[i,j] = i * 32 + j
-      (linear index as float, 0-1023). This is used for arange operations to generate
-      index tiles directly in L1 memory.
+      (0-1023) in the CB's native data format (Float32, Float16_b, or Int32).
 
       The resulting tile looks like:
       [[  0,   1,   2, ...,  31],
