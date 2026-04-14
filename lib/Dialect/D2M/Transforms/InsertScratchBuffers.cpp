@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
@@ -60,29 +61,24 @@ static bool needsScratch(GenericOp genericOp) {
 // Add a scratch buffer inside a single d2m.generic op's region
 // (post-bufferization). Creates a memref.alloc + scratch_init at the start of
 // the region body.
-static LogicalResult addScratchToGeneric(GenericOp genericOp) {
+static void addScratchToGeneric(GenericOp genericOp) {
   // Skip if not in compute-only form.
   if (!genericOp.isComputeOnlyForm()) {
-    return failure();
+    return;
   }
 
   // Only add scratch to fused generics with multiple linalg.generic ops,
   // which indicates elementwise fusion produced a multi-op kernel whose
   // intermediate results must be spilled to L1.
   if (!needsScratch(genericOp)) {
-    return failure();
+    return;
   }
 
   // Find a tiled input to get the tile type.
   MemRefType refMemRefType = findTiledInputType(genericOp);
-  if (!refMemRefType) {
-    return failure();
-  }
+  TT_assert(refMemRefType);
 
   ttcore::TileType tileType = getTileType(refMemRefType);
-  if (!tileType) {
-    return failure();
-  }
 
   // Calculate number of tiles that fit in the scratch buffer.
   size_t tileSizeBytes = tileType.getSizeBytes();
@@ -106,18 +102,12 @@ static LogicalResult addScratchToGeneric(GenericOp genericOp) {
       MemRefType::get(scratchShardShape, tileType, cbLayout, l1MemorySpace);
 
   // Insert memref.alloc + scratch_init at the start of the region body.
-  Region &region = genericOp.getRegion(0);
-  if (region.empty()) {
-    return failure();
-  }
-  Block &block = region.front();
+  Block &block = genericOp.getRegion(0).front();
   OpBuilder builder(&block, block.begin());
 
   auto scratchAlloc = builder.create<memref::AllocOp>(genericOp.getLoc(),
                                                       scratchShardMemRefType);
   builder.create<ScratchInitOp>(genericOp.getLoc(), scratchAlloc.getResult());
-
-  return success();
 }
 
 class D2MInsertScratchBuffers
@@ -133,9 +123,7 @@ class D2MInsertScratchBuffers
         [&](GenericOp genericOp) { genericsToProcess.push_back(genericOp); });
 
     for (GenericOp genericOp : genericsToProcess) {
-      // addScratchToGeneric returns failure for generics that don't need
-      // scratch (not an error). We intentionally ignore the result.
-      (void)addScratchToGeneric(genericOp);
+      addScratchToGeneric(genericOp);
     }
   }
 };
