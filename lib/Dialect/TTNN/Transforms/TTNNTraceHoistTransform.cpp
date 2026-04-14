@@ -392,12 +392,7 @@ private:
     // 1. traceId - Identifier for the captured trace
     // 2. trace input slots - Persistent device memory for input data
     // 3. trace output slots - Persistent device memory for output data
-    //
-    // The trace output slots serve double duty: they are the buffers that the
-    // captured trace writes to on replay, AND they provide the actual output
-    // values for the first (capture) invocation. The warmup call's results are
-    // deallocated immediately after use to avoid holding redundant copies in
-    // device memory during trace capture.
+
     llvm::SmallVector<mlir::Type> outputTypes;
 
     // Trace ID for the captured trace, used for correlation between capture and
@@ -499,9 +494,7 @@ private:
     }
 
     // Execute the trace function once without capture to compile programs and
-    // populate program cache. The results are not used — the subsequent
-    // deallocation pass will insert deallocates for them, freeing device memory
-    // before trace capture begins.
+    // populate program cache.
     builder.create<func::CallOp>(runAndCaptureTraceFunc.getLoc(), traceFunc,
                                  traceInputSlots);
 
@@ -520,9 +513,12 @@ private:
                                             deviceOp, beginTraceCaptureOp,
                                             /*cq_id=*/0);
 
+    // Execute the trace once to fill output slots with real computed values.
+    builder.create<ttnn::ExecuteTraceOp>(runAndCaptureTraceFunc.getLoc(),
+                                         deviceOp, beginTraceCaptureOp,
+                                         /*cq_id=*/0, /*blocking=*/false);
+
     // Assemble return values: trace ID and persistent slots.
-    // The trace output slots serve as both the captured trace's output buffers
-    // and the actual outputs for the first invocation.
     llvm::SmallVector<mlir::Value> returnValues;
 
     // Return the trace ID for correlation with execution.
@@ -532,8 +528,8 @@ private:
     for (mlir::Value inputSlot : traceInputSlots) {
       returnValues.push_back(inputSlot);
     }
-    // Return the trace output slots for all outputs that will be captured on
-    // device. These also serve as the actual outputs for the first invocation.
+    // Return the trace output slots. After the execute_trace above, these
+    // contain valid computed results for the first invocation.
     for (mlir::Value outputSlot : captureTraceCall.getResults()) {
       returnValues.push_back(outputSlot);
     }
