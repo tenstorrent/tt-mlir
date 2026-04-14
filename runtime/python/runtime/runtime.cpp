@@ -363,11 +363,18 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_owned_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
-         ::tt::target::DataType dataType) {
-        return tt::runtime::createOwnedHostTensor(
-            reinterpret_cast<const void *>(ptr), shape, stride, itemsize,
-            dataType);
+         ::tt::target::DataType dataType,
+         std::optional<std::uint64_t> logicalId) {
+        const void *data = reinterpret_cast<const void *>(ptr);
+        if (logicalId.has_value()) {
+          return tt::runtime::createOwnedHostTensor(
+              data, shape, stride, itemsize, dataType, logicalId.value());
+        }
+        return tt::runtime::createOwnedHostTensor(data, shape, stride, itemsize,
+                                                  dataType);
       },
+      nb::arg("ptr"), nb::arg("shape"), nb::arg("stride"), nb::arg("itemsize"),
+      nb::arg("data_type"), nb::arg("logical_id") = nb::none(),
       "Create a tensor with owned memory");
   m.def(
       "create_empty_tensor",

@@ -218,6 +218,22 @@ def test_memcpy():
     shutdown_distributed_runtime()
 
 
+def test_create_owned_host_tensor_with_logical_id():
+    launch_distributed_runtime()
+
+    reference_torch_tensor = torch.randn(177, 211, dtype=torch.float32)
+    tensor = get_runtime_tensor_from_torch(
+        reference_torch_tensor, storage=Storage.Owned, logical_id=1234
+    )
+
+    output_torch_tensor = torch.empty_like(reference_torch_tensor)
+    ttrt.runtime.memcpy(output_torch_tensor.data_ptr(), tensor)
+
+    assert torch.allclose(output_torch_tensor, reference_torch_tensor)
+
+    shutdown_distributed_runtime()
+
+
 def test_deallocate():
     launch_distributed_runtime()
 
