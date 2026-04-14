@@ -243,7 +243,7 @@ def test_binary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        print_ir=True,
+        print_ir=False,
         pipeline_options=pipeline_options,
     )
 
@@ -263,7 +263,7 @@ def test_binary_ops_auto_reblock_large_tensor(request, device, target: str):
         **get_request_kwargs(request),
         target=target,
         device=device,
-        print_ir=True,
+        print_ir=False,
     )
 
 
@@ -1210,7 +1210,7 @@ def test_binary_ops_broadcast_shard_dims(
         module,
         **get_request_kwargs(request),
         target=target,
-        print_ir=True,
+        print_ir=False,
         device=device,
     )
 

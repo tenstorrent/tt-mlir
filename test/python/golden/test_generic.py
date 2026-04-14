@@ -211,7 +211,7 @@ def test_generic(
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        print_ir=True,
+        print_ir=False,
         check_pcc=True,
         **get_request_kwargs(request),
     )
@@ -344,6 +344,7 @@ def test_generic_allocator_reblock_policy(
             "use-tile-matmul=false enable-l1-acc=false}"
         ),
         check_pcc=True,
+        print_ir=False,
     )
 
     d2m_module = read_artifact(tmp_path, test_base, "d2m_module.mlir")
@@ -479,7 +480,7 @@ def test_generic_eltwise_reblock(
         target=target,
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline{}",
-        print_ir=True,
+        print_ir=False,
         check_pcc=True,
         **get_request_kwargs(request),
     )
