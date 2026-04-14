@@ -404,6 +404,10 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
       *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
       dataType);
 
+  LOG_INFO("Controller enqueuing CreateHostTensor commandId=", commandId,
+           " outputGlobalId=", outputTensorHandle.getGlobalId(),
+           " logicalId=<unset>");
+
   pushToCommandAndResponseQueues(commandId,
                                  fb::CommandType::CreateHostTensorCommand,
                                  std::move(commandBuilder));
@@ -423,6 +427,10 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   uint64_t commandId = CommandFactory::buildCreateHostTensorCommand(
       *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
       dataType, logicalId);
+
+  LOG_INFO("Controller enqueuing CreateHostTensor commandId=", commandId,
+           " outputGlobalId=", outputTensorHandle.getGlobalId(),
+           " logicalId=", logicalId);
 
   pushToCommandAndResponseQueues(commandId,
                                  fb::CommandType::CreateHostTensorCommand,
