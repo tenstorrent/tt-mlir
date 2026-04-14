@@ -152,6 +152,114 @@ struct PendingDSTPackingResult {
   int64_t numDstFlips = 0;
 };
 
+/// When the standard numDstFlips-based outer loop factorization collapses to 1
+/// (heterogeneous output shapes like eltwise 8×8 fused with reduce 8×1), try
+/// to find a shared chunk size R along the common parallel (row) dimension.
+///
+/// Both ops process R rows per outer iteration, giving matching Phase 1 scf.for
+/// loops that SpillAndScratch can later fuse. Per-op numTilesPerFlip is
+/// recomputed for the per-iteration shard and clamped to the output column
+/// count so that the Phase 2 scratch_space_loop step is 1 for all ops (avoiding
+/// a combined row+column cross-step in SpillAndScratch).
+static std::optional<DSTPackingRegionInfo>
+trySharedParallelChunking(d2m::GenericOp generic,
+                          ArrayRef<linalg::GenericOp> linalgOps,
+                          unsigned maxDstPhysicalSizeTiles) {
+  struct OpInfo {
+    Value outputValue;
+    int64_t rowDim;
+    int64_t colProduct;
+    int64_t shardSizeTiles;
+    int64_t maxDstTiles;
+  };
+  SmallVector<OpInfo> opInfos;
+  int64_t commonRowDim = -1;
+
+  for (linalg::GenericOp linalgOp : linalgOps) {
+    Value outputValue = linalgOp.getOutputs().front();
+    auto outputType = mlir::dyn_cast<ShapedType>(outputValue.getType());
+    if (!outputType || !outputType.hasStaticShape() ||
+        outputType.getRank() < 2) {
+      return std::nullopt;
+    }
+    ArrayRef<int64_t> shape = outputType.getShape();
+    int64_t rowDim = shape[0];
+    int64_t colProduct = 1;
+    for (size_t i = 1; i < shape.size(); i++) {
+      colProduct *= shape[i];
+    }
+    int64_t shardSizeTiles = rowDim * colProduct;
+    if (shardSizeTiles <= 1) {
+      return std::nullopt;
+    }
+
+    std::optional<int64_t> maxDst =
+        getMaxDstTilesForLinalgOp(linalgOp, maxDstPhysicalSizeTiles);
+    if (!maxDst) {
+      return std::nullopt;
+    }
+
+    if (commonRowDim == -1) {
+      commonRowDim = rowDim;
+    }
+    if (rowDim != commonRowDim) {
+      return std::nullopt;
+    }
+
+    opInfos.push_back(
+        {outputValue, rowDim, colProduct, shardSizeTiles, *maxDst});
+  }
+
+  if (opInfos.size() < 2 || commonRowDim < 2) {
+    return std::nullopt;
+  }
+
+  // Try R values from largest valid factor down. R must be a proper factor
+  // (< commonRowDim) and >= 2 so that per-iteration shards remain multi-tile.
+  for (int64_t R : llvm::reverse(ttmlir::utils::getFactors(commonRowDim))) {
+    if (R >= commonRowDim || R < 2) {
+      continue;
+    }
+
+    int64_t numOuterIters = commonRowDim / R;
+    DSTPackingRegionInfo results;
+    bool allValid = true;
+
+    for (const auto &info : opInfos) {
+      int64_t perIterShard = info.shardSizeTiles / numOuterIters;
+      if (perIterShard < 2) {
+        allValid = false;
+        break;
+      }
+
+      // Clamp numTilesPerFlip to colProduct so Phase 2 produces row tile
+      // size = 1, ensuring all ops share the same scratch_space_loop step.
+      int64_t maxFlip =
+          getLargestLegalChunkSize(perIterShard, info.maxDstTiles);
+      int64_t numTilesPerFlip = std::min(maxFlip, info.colProduct);
+      int64_t numDstFlips = perIterShard / numTilesPerFlip;
+
+      if (numDstFlips < 2) {
+        allValid = false;
+        break;
+      }
+
+      results.perResult.try_emplace(
+          info.outputValue,
+          DSTPackingPerResultInfo{numDstFlips, numTilesPerFlip, perIterShard});
+    }
+
+    if (allValid) {
+      results.numOuterLoopIters = numOuterIters;
+      results.numTilesPerResult =
+          opInfos.front().shardSizeTiles / numOuterIters;
+      return results;
+    }
+  }
+
+  return std::nullopt;
+}
+
 static std::optional<DSTPackingRegionInfo>
 computeDSTPackingForRegion(d2m::GenericOp generic,
                            ArrayRef<linalg::GenericOp> linalgOps,
@@ -237,6 +345,23 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
   TT_assertv(commonNumOuterLoopIters.has_value(),
              "expected a common num_outer_loop_iters when pending dst packing "
              "results are non-empty");
+
+  // When the standard factorization collapses to 1 and the region contains
+  // ops with different output shard sizes, try shared-parallel chunking.
+  if (*commonNumOuterLoopIters <= 1 && pendingResults.size() >= 2) {
+    int64_t firstShard = pendingResults.front().numDstFlips *
+                         pendingResults.front().numTilesPerFlip;
+    bool heterogeneous = llvm::any_of(pendingResults, [&](const auto &pr) {
+      return (pr.numDstFlips * pr.numTilesPerFlip) != firstShard;
+    });
+    if (heterogeneous) {
+      auto sharedResult = trySharedParallelChunking(generic, linalgOps,
+                                                    maxDstPhysicalSizeTiles);
+      if (sharedResult) {
+        return *sharedResult;
+      }
+    }
+  }
 
   std::optional<int64_t> commonNumTilesPerResult;
   for (const PendingDSTPackingResult &pending : pendingResults) {
