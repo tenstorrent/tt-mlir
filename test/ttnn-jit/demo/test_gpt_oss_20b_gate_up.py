@@ -68,7 +68,7 @@ GPT-OSS gate up proj activation subgraph:
 """
 
 
-@ttnn_jit.jit(debug=True)
+@ttnn_jit.jit(debug=True, extra_pipeline_options="enable-elementwise-fusion=true")
 def gptoss_gateup_subgraph(
     left_input,
     right_input,
