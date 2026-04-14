@@ -1915,8 +1915,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const bool baseNeedsStream =
         inferBaseStreamRequirement(genericOp, operandCtx, memspace);
 
-    const bool blocked = allocation::isOperandBlocked(
-        genericOp, operandCtx.operandIndex(), genericCtx.reblockedFactors);
+    const bool blocked =
+        !genericCtx.isExplicitDatamovement &&
+        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
+                                     genericCtx.reblockedFactors);
 
     if (blocked) {
       if (!operandCtx.isOutput) {
