@@ -26,15 +26,17 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
   }
 
   // ttnn::sampling kernel expects 4D input [N, C, H, W] where N*C*H == 32.
-  // The compiler passes 2D [batch, candidates]. Use view to reshape without
-  // device dispatch (metadata-only operation).
+  // The compiler passes 2D [batch, candidates]. Reshape to 4D.
+  // Note: Tensor::reshape was tried but is slower (28ms vs 16ms) — use
+  // ttnn::reshape which is faster despite being a device dispatch.
   auto inputShape = inputValues.logical_shape();
   if (inputShape.rank() == 2) {
     uint32_t batch = inputShape[0];
     uint32_t candidates = inputShape[1];
-    auto shape4d = ::ttnn::Shape({1, 1, batch, candidates});
-    inputValues = inputValues.reshape(shape4d);
-    inputIndices = inputIndices.reshape(shape4d);
+    inputValues =
+        ::ttnn::reshape(inputValues, ::ttnn::Shape({1, 1, batch, candidates}));
+    inputIndices =
+        ::ttnn::reshape(inputIndices, ::ttnn::Shape({1, 1, batch, candidates}));
   }
 
   // Ensure correct layouts: input_values must be TILE, others ROW_MAJOR.
@@ -66,11 +68,10 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
       ::ttnn::sampling(inputValues, inputIndices, k, p, temp, seed);
 
   // Reshape output from [1, 1, 1, batch] to match expected 1D output shape.
-  // Use Tensor::reshape (metadata-only) to avoid device dispatch.
   auto outShape = output.logical_shape();
   if (outShape.rank() == 4 && outShape[0] == 1 && outShape[1] == 1 &&
       outShape[2] == 1) {
-    output = output.reshape(::ttnn::Shape({outShape[3]}));
+    output = ::ttnn::reshape(output, ::ttnn::Shape({outShape[3]}));
   }
 
   // ttnn::sampling returns UINT32. Typecast to INT32 to match compiler type.
