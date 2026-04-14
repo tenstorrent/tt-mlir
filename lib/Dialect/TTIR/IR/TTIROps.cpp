@@ -5850,6 +5850,120 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// MoeGPTDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::MoeGPTDecodeOp::verify() {
+  RankedTensorType hiddenType = getHiddenStates().getType();
+  RankedTensorType indicesType = getTopkIndices().getType();
+  RankedTensorType scoresType = getTopkScores().getType();
+  RankedTensorType dispatchMappingType = getDispatchMapping().getType();
+  RankedTensorType moeGptMappingType = getMoeGptMapping().getType();
+  RankedTensorType gateUpType = getGateUpProj().getType();
+  RankedTensorType gateUpBiasType = getGateUpProjBias().getType();
+  RankedTensorType downType = getDownProj().getType();
+  RankedTensorType downBiasType = getDownProjBias().getType();
+  RankedTensorType resultType = getResult().getType();
+  int64_t numDevices = static_cast<int64_t>(getNumDevices());
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  int64_t numExperts = static_cast<int64_t>(getNumExperts());
+  int64_t numExpertsPerTok = static_cast<int64_t>(getNumExpertsPerTok());
+  int64_t intermediateSize = static_cast<int64_t>(getIntermediateSize());
+
+  if (hiddenType.getRank() != 3) {
+    return emitOpError("hidden_states must be a 3D tensor [B, S, H]");
+  }
+  if (indicesType.getRank() != 3 || scoresType.getRank() != 3) {
+    return emitOpError("topk tensors must be 3D [B, S, K]");
+  }
+  if (dispatchMappingType.getRank() != 4 || moeGptMappingType.getRank() != 4) {
+    return emitOpError(
+        "dispatch_mapping and moe_gpt_mapping must be 4D tensors [1, 1, E, "
+        "D]");
+  }
+  if (dispatchMappingType.getShape()[0] != 1 ||
+      dispatchMappingType.getShape()[1] != 1 ||
+      moeGptMappingType.getShape()[0] != 1 ||
+      moeGptMappingType.getShape()[1] != 1) {
+    return emitOpError(
+        "dispatch_mapping and moe_gpt_mapping leading dimensions must be 1");
+  }
+  if (gateUpType.getRank() != 3 || gateUpBiasType.getRank() != 2) {
+    return emitOpError("gate_up tensors must be [E, H, 2I] and [E, 2I]");
+  }
+  if (downType.getRank() != 3 || downBiasType.getRank() != 2) {
+    return emitOpError("down tensors must be [E, I, H] and [E, H]");
+  }
+  if (resultType.getRank() != 3) {
+    return emitOpError("result must be a 3D tensor [B, S, H]");
+  }
+
+  if (numDevices <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+  if (numExperts <= 0 || numExpertsPerTok <= 0 || intermediateSize <= 0) {
+    return emitOpError("num_experts, num_experts_per_tok, and "
+                       "intermediate_size must be positive");
+  }
+  if (hiddenType.getShape()[1] != 1) {
+    return emitOpError(
+        "moe_gpt_decode currently expects decode inputs with S=1");
+  }
+
+  if (indicesType.getShape() != scoresType.getShape()) {
+    return emitOpError("topk_indices and topk_scores must have the same shape");
+  }
+  if (indicesType.getShape()[0] != hiddenType.getShape()[0] ||
+      indicesType.getShape()[1] != hiddenType.getShape()[1] ||
+      indicesType.getShape()[2] != numExpertsPerTok) {
+    return emitOpError("topk tensors must have shape [B, S, K]");
+  }
+
+  if (dispatchMappingType.getShape() != moeGptMappingType.getShape()) {
+    return emitOpError(
+        "dispatch_mapping and moe_gpt_mapping must have the same shape");
+  }
+  if (dispatchMappingType.getShape()[2] != numExperts ||
+      moeGptMappingType.getShape()[2] != numExperts) {
+    return emitOpError("mapping E dimensions must match num_experts");
+  }
+  if (dispatchMappingType.getShape()[3] != numDevices ||
+      moeGptMappingType.getShape()[3] != numDevices) {
+    return emitOpError("mapping D dimensions must match num_devices");
+  }
+  if (gateUpType.getShape()[0] != numExperts ||
+      gateUpBiasType.getShape()[0] != numExperts ||
+      downType.getShape()[0] != numExperts ||
+      downBiasType.getShape()[0] != numExperts) {
+    return emitOpError("expert parameter tensors must agree on num_experts");
+  }
+
+  int64_t hiddenSize = hiddenType.getShape()[2];
+  if (gateUpType.getShape()[1] != hiddenSize ||
+      downType.getShape()[2] != hiddenSize ||
+      downBiasType.getShape()[1] != hiddenSize) {
+    return emitOpError("hidden dimension must match expert parameter tensors");
+  }
+  if (downType.getShape()[1] != intermediateSize) {
+    return emitOpError(
+        "down_proj intermediate dimension must match intermediate_size");
+  }
+  if (gateUpType.getShape()[2] != intermediateSize * 2 ||
+      gateUpBiasType.getShape()[1] != intermediateSize * 2) {
+    return emitOpError(
+        "gate_up tensors must encode a fused [gate, up] projection");
+  }
+  if (resultType.getShape() != hiddenType.getShape()) {
+    return emitOpError("result must have the same shape as hidden_states");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // CumSumOp
 //===----------------------------------------------------------------------===//
 
