@@ -274,6 +274,17 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             referenceLayout.getDimAlignments(), collapsedIntervals,
             referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
             ttcore::TensorMemoryLayout::Interleaved);
+      } else if (referenceLayout.getMemorySpace() ==
+                 ttcore::MemorySpace::DeviceDRAM) {
+        // Target is DRAM: write directly to DRAM to avoid L1 capacity
+        // constraints for large tensors. The subsequent DRAM→L1 step
+        // handles scattering to the appropriate grid.
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(),
+            referenceLayout.getDimAlignments(),
+            referenceLayout.getCollapsedIntervals(),
+            referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
+            referenceLayout.getMemoryLayout());
       } else {
         layout = ttcore::MetalLayoutAttr::get(
             ctx, referenceLayout.getLogicalShape(),
@@ -934,8 +945,13 @@ public:
       // unless we are copying from an interleaved DRAM tensor on a unit grid.
       const bool isDRAMInterleaved = currentInfo.layout->getMemoryLayout() ==
                                      ttcore::TensorMemoryLayout::Interleaved;
-      auto bounceGrid =
-          llvm::to_vector(isDRAMInterleaved ? targetInfo.getGridShape()
+      // Use the target grid when the DRAM source is interleaved (no
+      // meaningful source grid) or when the source sits on a unit grid
+      // (single-bank DRAM that may be too large for a single L1 core).
+      const bool isUnitGrid = llvm::all_of(currentInfo.getGridShape(),
+                                           [](int64_t d) { return d == 1; });
+      auto bounceGrid = llvm::to_vector((isDRAMInterleaved || isUnitGrid)
+                                            ? targetInfo.getGridShape()
                                             : currentInfo.getGridShape());
       // No existing remapping for DRAM→L1 transfer.
       auto l1Type = typeBuilder.modifyDeviceType(

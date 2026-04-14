@@ -469,7 +469,27 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     bufferDetailType = target::metal::BufferDetail::MetalBuffer;
     bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
 
-    if (isSharded) {
+    if (isSharded && isMemrefDeviceDRAMMemspace(memref)) {
+      // D2M DRAM buffers use cyclic page-interleaved distribution across
+      // DRAM banks (dramMap).  Encode them as InterleavedBufferConfig so
+      // the runtime distributes pages with the same round-robin pattern
+      // the kernel addressing expects.
+      auto shardLayout =
+          mlir::cast<ttcore::ShardLayoutAttr>(memref.getLayout());
+      uint64_t pageSize = device.getMemrefSizeBytes(memref);
+      uint64_t gridVolume =
+          ttmlir::utils::volume(shardLayout.getGridShape(memref));
+      uint64_t size = ttmlir::utils::alignUp(gridVolume * pageSize, pageSize);
+
+      auto interleavedBufferConfig =
+          target::metal::CreateInterleavedBufferConfig(*cache.fbb, size,
+                                                       pageSize);
+      bufferDetail = target::metal::CreateMetalBuffer(
+                         *cache.fbb, bufferType,
+                         target::metal::BufferConfig::InterleavedBufferConfig,
+                         interleavedBufferConfig.Union(), 0)
+                         .Union();
+    } else if (isSharded) {
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape, systemDesc,
