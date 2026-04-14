@@ -631,7 +631,14 @@ void createTTNNToEmitPyPipeline(
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
-void createTTNNPipelineD2MPass(OpPassManager &pm);
+// Options for createTTNNPipelineD2MPass.
+struct TTNNPipelineD2MOptions {
+  bool ttnnMode = true;
+  bool enableElementwiseFusion = false;
+};
+
+void createTTNNPipelineD2MPass(OpPassManager &pm,
+                               const TTNNPipelineD2MOptions &options);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

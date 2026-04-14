@@ -384,7 +384,9 @@ void createTTIRToTTNNDevicePipeline(
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
     if (options.enableD2MFusing) {
-      createTTNNPipelineD2MPass(devicePm);
+      TTNNPipelineD2MOptions d2mOpts;
+      d2mOpts.enableElementwiseFusion = true;
+      createTTNNPipelineD2MPass(devicePm, d2mOpts);
       devicePm.addPass(createTTNNCollaspeD2M());
       devicePm.addPass(createCanonicalizerPass());
     }
@@ -594,7 +596,8 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   cpuPm.addPass(createEmitPyNameVarsPass());
 }
 
-void createTTNNPipelineD2MPass(OpPassManager &pm) {
+void createTTNNPipelineD2MPass(OpPassManager &pm,
+                               const TTNNPipelineD2MOptions &d2mOptions) {
   // TODO(vtang): pass to strip intermediate layouts.
   pm.addPass(tt::createConvertTTNNToTTIRPass());
   // pm.addPass(strip layouts pass)
@@ -602,8 +605,8 @@ void createTTNNPipelineD2MPass(OpPassManager &pm) {
   // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
   // only works on top-level modules (doesn't run module has a parent op).
   ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
-  ttmetalOptions.ttnnMode = true;
-  ttmetalOptions.enableElementwiseFusion = true;
+  ttmetalOptions.ttnnMode = d2mOptions.ttnnMode;
+  ttmetalOptions.enableElementwiseFusion = d2mOptions.enableElementwiseFusion;
   ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
   ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
   ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
@@ -753,7 +756,8 @@ void registerTTNNPipelines() {
       [](OpPassManager &pm) {
         auto &devicePm =
             pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
-        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm);
+        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm,
+                                                  TTNNPipelineD2MOptions{});
       });
 }
 } // namespace mlir::tt::ttnn
