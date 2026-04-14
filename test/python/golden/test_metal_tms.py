@@ -368,7 +368,9 @@ def test_reshape(
         ((1, 128), 0, 1),  # Four tiles (from GPT model)
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_arange(
     shape: tuple,
@@ -383,11 +385,15 @@ def test_arange(
 
     Tests tiled arange implementation with various shapes and parameters.
     """
+
+    if dtype == torch.int32:
+        pytest.xfail(
+            reason="Currently no llk for multiplying a tile with a scalar for i32, Issue: https://github.com/tenstorrent/tt-mlir/issues/7946"
+        )
+
     num_elements = shape[0] * shape[1]
     end = start + num_elements * step
     arange_dimension = 1  # Arange is always on the last dimension
-
-    golden = torch.arange(start, end, step, dtype=dtype).reshape(shape)
 
     def arange_module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -413,4 +419,6 @@ def test_arange(
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline",
         **get_request_kwargs(request),
+        atol=1e-6,
+        check_atol=True,
     )

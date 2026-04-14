@@ -33,6 +33,7 @@
 
 #include <array>
 #include <limits>
+#include <type_traits>
 
 namespace mlir::tt {
 
@@ -2476,30 +2477,60 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   }
 };
 
-class D2MFullOpRewriter : public OpConversionPattern<ttir::FullOp>,
-                          D2MNamedRewriterCommon {
+/// Lowers `ttir.full`, `ttir.zeros`, and `ttir.ones` through
+/// `lowerRankedTensorFillViaGeneric` (`d2m.tile_fill` + remote_store).
+template <typename ConcreteOp>
+class D2MConstantFillOpRewriter : public OpConversionPattern<ConcreteOp>,
+                                  D2MNamedRewriterCommon {
+  static_assert(std::is_same_v<ConcreteOp, ttir::FullOp> ||
+                std::is_same_v<ConcreteOp, ttir::ZerosOp> ||
+                std::is_same_v<ConcreteOp, ttir::OnesOp>);
+
+  static mlir::Attribute getFillAttr(ConcreteOp op,
+                                     RankedTensorType resultType) {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::FullOp>) {
+      return op.getFillValueAttr();
+    }
+    Type elemTy = resultType.getElementType();
+    constexpr bool kOnes = std::is_same_v<ConcreteOp, ttir::OnesOp>;
+    if (auto floatTy = mlir::dyn_cast<mlir::FloatType>(elemTy)) {
+      return mlir::FloatAttr::get(floatTy, kOnes ? 1.0 : 0.0);
+    }
+    if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(elemTy)) {
+      return mlir::IntegerAttr::get(intTy, static_cast<int64_t>(kOnes ? 1 : 0));
+    }
+    return {};
+  }
+
 public:
-  D2MFullOpRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
-                    ttcore::MemorySpace defaultInputMemSpace,
-                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-                    bool collapseTensors, bool enableMulticastInference)
-      : OpConversionPattern<ttir::FullOp>(typeConverter, ctx),
+  D2MConstantFillOpRewriter(const TypeConverter &typeConverter,
+                            mlir::MLIRContext *ctx,
+                            ttcore::MemorySpace defaultInputMemSpace,
+                            ttcore::MemorySpace defaultOutputMemSpace,
+                            bool ttnnMode, bool collapseTensors,
+                            bool enableMulticastInference)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, collapseTensors,
                                enableMulticastInference) {}
 
   LogicalResult
-  matchAndRewrite(ttir::FullOp op, ttir::FullOp::Adaptor adaptor,
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     RankedTensorType resultType = op.getResult().getType();
-    Attribute fillAttr = op.getFillValueAttr();
+    mlir::Attribute fillAttr = getFillAttr(op, resultType);
+    if (!fillAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "expected float or integer tensor element type (zeros/ones) or "
+              "fill value attribute (full)");
+    }
+
     mlir::FailureOr<mlir::Value> filled =
         lowerRankedTensorFillViaGeneric(rewriter, loc, resultType, fillAttr);
     if (mlir::failed(filled)) {
       return rewriter.notifyMatchFailure(
-          op, "full lowering expects float or integer fill attribute and "
-              "matching tensor element type");
+          op, "could not lower constant fill via tile_fill");
     }
     rewriter.replaceOp(op, *filled);
     return success();
@@ -2550,12 +2581,14 @@ public:
         ttcore::getDeviceLayout(output).getRank() / 2;
 
     // Create scratch tensor for index tile (single tile per core).
-    Type f32Type = rewriter.getF32Type();
+    auto outputTileType =
+        mlir::cast<ttcore::TileType>(outputTensorType.getElementType());
+    Type outputElemType = outputTileType.getElementType();
     llvm::ArrayRef<int64_t> gridShape =
         outputLayout.getGridShape(outputTensorType);
     SmallVector<int64_t> scratchShape(gridShape.begin(), gridShape.end());
     scratchShape.append({1, 1}); // One tile
-    auto tileType = ttcore::TileType::get(f32Type);
+    auto tileType = ttcore::TileType::get(outputElemType);
     SmallVector<int64_t> scratchLogicalShape = {1, 1};
     auto scratchLayout = ttcore::MetalLayoutAttr::get(
         rewriter.getContext(), scratchLogicalShape, ttcore::OOBVal::Undef,
@@ -3536,6 +3569,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MPermuteRewriter,
     D2MMatmulBlockToLinalgGeneric,
     D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalInfo>,
+    // Full / zeros / ones (constant fill via tile_fill).
+    D2MConstantFillOpRewriter<ttir::FullOp>,
+    D2MConstantFillOpRewriter<ttir::ZerosOp>,
+    D2MConstantFillOpRewriter<ttir::OnesOp>,
     // CCL
     D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
@@ -3548,9 +3585,6 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Creation ops 1:1 conversion.
   patterns.add<D2MEmptyOpRewriter>(typeConverter, ctx);
-  patterns.add<D2MFullOpRewriter>(
-      typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode,
-      collapseTensors, enableMulticastInference);
 
   // Mesh ops 1:1 conversion.
   patterns.add<D2MMeshShardOpRewriter>(typeConverter, ctx);

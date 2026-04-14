@@ -2494,7 +2494,8 @@ def D2M_FillArangeTileOp : D2M_GenericRegionOp<"fill_arange_tile",
   let summary = "Write full linear index pattern to a tile CB";
   let description = [{
       The `fill_arange_tile` operation writes a linear index pattern
-      to a tile CB, where element[i,j] = i * 32 + j (the linear index as float).
+      to a tile CB, where element[i,j] = i * 32 + j in the tile's native data
+      format (f32, bf16, or i32).
 
       This is used for arange operations. Each element gets its linear index value
       (0-1023) within the tile, which can be used to compute global indices.
