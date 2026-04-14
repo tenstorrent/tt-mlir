@@ -60,7 +60,7 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Flatten or convert composite ops. Composites with custom sharding rules
   // are converted to stablehlo.custom_call ops so Shardy can propagate through
-  // them. All other composites are flattened (inlined) as before.
+  // them. All other composites are flattened (inlined).
   pm.addPass(createFlattenOrConvertCompositesPass());
 
   // Register custom sharding rules for unsupported ops in Shardy.
@@ -113,7 +113,7 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Re-outline composite ops from flattened groups.
   pm.addPass(createReoutlineCompositePass());
 
-  // Fuse custom_calls with surrounding CCL ops (all_gather, all_slice) into
+  // Fuse custom_calls with surrounding CCL ops into
   // distributed variants that handle cross-device communication internally.
   pm.addPass(createFuseDistributedCustomCallsPass());
 

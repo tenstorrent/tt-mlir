@@ -29,27 +29,32 @@ inline constexpr llvm::StringLiteral kCompDecompositionKey("decomposition");
 inline constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
 inline constexpr llvm::StringLiteral kCompNameKey("name");
 
-// Key for carrying composite attributes on custom_call ops converted from
-// composites with custom sharding rules.
+// Discardable attribute key on custom_call ops converted from composites
+// with custom sharding rules. Carries the original composite attributes.
+// Not to be confused with kCompAttrsKey which is the stablehlo.composite
+// internal attribute key.
 inline constexpr llvm::StringLiteral
-    kCompositeAttributesKey("tt.composite_attributes");
+    kCustomCallCompositeAttrsKey("tt.composite_attributes");
 
-// UnitAttr marker on custom_call ops that were converted from composites
-// with custom sharding rules. Useful for debugging.
+// UnitAttr tag on custom_call ops that were converted from composites
+// with custom sharding rules.
 inline constexpr llvm::StringLiteral
     kHasCustomShardingAttr("tt.has_custom_sharding");
 
+inline constexpr llvm::StringLiteral
+    kTTRMSNormCustomCallTargetName("tenstorrent.rms_norm");
+
 // Composite names that have custom sharding rules. These composites are
-// converted to stablehlo.custom_call ops (instead of being flattened) so
-// that Shardy can propagate shardings through them using the CustomCall
-// sharding model. This array is the single source of truth used by both
-// FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass.
+// converted to stablehlo.custom_call ops so that Shardy can propagate shardings
+// defined by the custom sharding rule for that composite as if the composite
+// is one op. This array is the source of truth used by any pass that deals
+// with ops and sharding (currently these passes are
+// FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
 inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
-    "tenstorrent.rms_norm",
+    kTTRMSNormCustomCallTargetName,
 };
 
-// Target name for the distributed RMS norm custom_call created by the
-// FuseDistributedCustomCallsPass when fusing all_gather + rms_norm + all_slice.
+// Target name for the distributed RMS norm custom_call op.
 inline constexpr llvm::StringLiteral
     kDistributedRmsNormTargetName("tenstorrent.distributed_rms_norm");
 

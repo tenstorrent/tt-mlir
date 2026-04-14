@@ -25,6 +25,7 @@
 
 using namespace mlir;
 using namespace mlir::tt;
+using namespace mlir::tt::stablehlo::utils;
 
 namespace mlir::tt::ttir {
 
@@ -355,7 +356,7 @@ public:
 // Converts stablehlo.custom_call @tenstorrent.rms_norm -> ttir.rms_norm.
 // This handles composites that were converted to custom_calls by
 // FlattenOrConvertCompositesPass because they have custom sharding rules.
-// Attributes are carried in the "tt.composite_attributes" discardable attr.
+// Attributes are carried in a discardable attr.
 class CustomCallRMSNormConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
@@ -367,7 +368,9 @@ public:
   matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (adaptor.getCallTargetNameAttr() != "tenstorrent.rms_norm") {
+
+    if (adaptor.getCallTargetNameAttr() != kTTRMSNormCustomCallTargetName ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
       return failure();
     }
 
@@ -379,12 +382,11 @@ public:
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
-    auto compositeAttrs =
-        mlir::dyn_cast_or_null<DictionaryAttr>(srcOp->getDiscardableAttr(
-            mlir::tt::stablehlo::utils::kCompositeAttributesKey));
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
     if (!compositeAttrs) {
       return rewriter.notifyMatchFailure(
-          srcOp, "missing tt.composite_attributes on custom_call");
+          srcOp, "missing attributes on converted custom_call op");
     }
 
     // Determine the number of normalized dimensions from the stored attribute.
@@ -454,7 +456,7 @@ public:
 // ttir.distributed_rms_norm.
 // This handles custom_calls created by FuseDistributedCustomCallsPass when
 // fusing all_gather + rms_norm + all_slice into a distributed variant.
-// Attributes (cluster_axis, epsilon) are read from "tt.composite_attributes".
+// Attributes (cluster_axis, epsilon) are read from the appropriate attribute.
 // Operands: input, optional weight.
 class CustomCallDistributedRMSNormConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
@@ -482,7 +484,7 @@ public:
 
     auto compositeAttrs =
         mlir::dyn_cast_or_null<DictionaryAttr>(srcOp->getDiscardableAttr(
-            mlir::tt::stablehlo::utils::kCompositeAttributesKey));
+            mlir::tt::stablehlo::utils::kCustomCallCompositeAttrsKey));
     if (!compositeAttrs) {
       return rewriter.notifyMatchFailure(
           srcOp, "missing tt.composite_attributes on custom_call");

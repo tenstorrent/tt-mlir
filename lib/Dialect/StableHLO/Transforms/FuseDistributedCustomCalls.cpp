@@ -113,7 +113,7 @@ public:
 
     // Build new composite attributes: copy from original and add cluster_axis.
     auto origAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
-        customCallOp->getDiscardableAttr(utils::kCompositeAttributesKey));
+        customCallOp->getDiscardableAttr(utils::kCustomCallCompositeAttrsKey));
     SmallVector<NamedAttribute> newAttrEntries;
     if (origAttrs) {
       for (auto entry : origAttrs) {
@@ -142,7 +142,7 @@ public:
         /*operand_layouts=*/nullptr,
         /*result_layouts=*/nullptr,
         /*output_operand_aliases=*/nullptr);
-    distributedCall->setDiscardableAttr(utils::kCompositeAttributesKey,
+    distributedCall->setDiscardableAttr(utils::kCustomCallCompositeAttrsKey,
                                         newCompositeAttrs);
     distributedCall->setDiscardableAttr(utils::kHasCustomShardingAttr,
                                         rewriter.getUnitAttr());

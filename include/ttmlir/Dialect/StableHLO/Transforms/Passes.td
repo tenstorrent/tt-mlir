@@ -306,8 +306,7 @@ def FlattenOrConvertCompositesPass : Pass<"flatten-or-convert-composites", "::ml
        are converted to `stablehlo.custom_call` ops. The composite name becomes the
        `call_target_name`, composite attributes are carried as a
        `tt.composite_attributes` discardable attribute, and a `tt.has_custom_sharding`
-       UnitAttr is added for debugging. This allows Shardy to propagate shardings
-       through the custom_call using the registered CustomCall sharding model.
+       UnitAttr is used to tag the op.
 
     2. All other composites are inlined (flattened) by cloning the callee body at the
        call site. Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
@@ -599,24 +598,20 @@ def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
 
 def FuseDistributedCustomCallsPass : Pass<"fuse-distributed-custom-calls", "::mlir::ModuleOp">
 {
-  let summary = "Fuse custom_call ops with surrounding CCL ops into distributed variants.";
+  let summary = "Fuse custom_call ops with surrounding CCL ops into distributed op variants.";
   let description = [{
-    This pass pattern-matches custom_call ops (marked with `tt.has_custom_sharding`)
-    that are surrounded by CCL operations (all_gather inputs, all_slice output) and
-    fuses them into a single distributed custom_call that handles cross-device
-    communication internally.
+    This pass pattern-matches custom_call ops marked with `tt.has_custom_sharding`
+    which are surrounded by CCL ops and fuses them into a single distributed
+    custom_call variant, that handles cross-device communication internally.
 
-    For example, the pattern:
+    Example.
+    Before fusing:
       all_gather(local_input) -> gathered_input
       all_gather(local_weight) -> gathered_weight
       custom_call @tenstorrent.rms_norm(gathered_input, gathered_weight) -> gathered_result
       sdy.all_slice(gathered_result) -> local_result
-
-    Is fused into:
+    After fusing:
       custom_call @tenstorrent.distributed_rms_norm(local_input, local_weight) -> local_result
-
-    The distributed variant handles the cross-device reduction of statistics internally
-    (e.g., all-gather of partial RMS statistics), so external CCL ops are not needed.
   }];
 
   let dependentDialects = [
