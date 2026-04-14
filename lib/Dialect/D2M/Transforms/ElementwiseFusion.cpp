@@ -104,9 +104,13 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
         break;
       }
     }
+
+    // No external use, or uses by more than one distinct op. This would
+    // leave other live users with a removed producer.
     if (!singleExternalUser || !isSingleExternalUser) {
       return false;
     }
+    // The sole external user must be this consumer.
     if (singleExternalUser != consumer.getOperation()) {
       return false;
     }
@@ -156,11 +160,11 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
   return arg.compose(inv).compose(consMapForFused);
 }
 
-// Consumer input indices that reuse the fused producer result (excluding the
-// fused edge at fusedIdx). Must stay aligned with getFusedOperands.
+// Collect list of consumer input indices that reuse the fused producer result,
+// excluding the fused operand at index fusedIdx.
 static SmallVector<unsigned>
-collectSkippedDuplicateProducerResultInputs(OpOperand *fusedOperand,
-                                            GenericOp consumer) {
+collectSkippedDuplicateProdResults(OpOperand *fusedOperand,
+                                   GenericOp consumer) {
   SmallVector<unsigned> skipped;
   Value producerResult = fusedOperand->get();
   auto inputs = consumer.getInputs();
@@ -235,7 +239,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
                                     SmallVector<AffineMap> &fusedMaps,
                                     PatternRewriter &rewriter) {
   SmallVector<unsigned> skippedDups =
-      collectSkippedDuplicateProducerResultInputs(fusedOperand, consumer);
+      collectSkippedDuplicateProdResults(fusedOperand, consumer);
 
   /////////////////////////////////////////////////////////////////////////////
   // Create fused op
