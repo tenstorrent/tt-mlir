@@ -854,19 +854,15 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
       // Derive input dim alignments from the output, overriding the concat
       // dim with tile-only alignment so each input's contribution isn't
       // independently inflated.
+      // Note: concatDim is already normalized to [0, rank) by TTIRToD2M.
+      // For tile dims (height/width), use the tile shape alignment (e.g. 32).
+      // For batch dims, use 1 — no tile alignment is required and the output's
+      // grid-aware alignment handles the final padded result.
       llvm::SmallVector<int64_t> inputAlignments(outDimAlignments.begin(),
                                                  outDimAlignments.end());
       int64_t logicalRank = inputLayout.getLogicalShape().size();
-      int64_t concatLogicalDim =
-          concatDim < 0 ? logicalRank + concatDim : concatDim;
-      if (concatLogicalDim >= 0 &&
-          concatLogicalDim < static_cast<int64_t>(inputAlignments.size())) {
-        int64_t tileIdx = (concatLogicalDim >= logicalRank - 2)
-                              ? concatLogicalDim - (logicalRank - 2)
-                              : -1;
-        inputAlignments[concatLogicalDim] =
-            (tileIdx >= 0) ? tileShape[tileIdx] : 1;
-      }
+      int64_t tileIdx = concatDim - (logicalRank - 2);
+      inputAlignments[concatDim] = (tileIdx >= 0) ? tileShape[tileIdx] : 1;
 
       auto coordLayout = ttcore::MetalLayoutAttr::get(
           builder.getContext(), inputLayout.getLogicalShape(),
