@@ -14,6 +14,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Casting.h"
 
 #include <tuple>
@@ -106,6 +107,9 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     if (!singleExternalUser || !isSingleExternalUser) {
       return false;
     }
+    if (singleExternalUser != consumer.getOperation()) {
+      return false;
+    }
   }
 
   if (checkConsumer && !isValidElementwiseFusionTarget(consumer)) {
@@ -152,15 +156,34 @@ static AffineMap computeFusedArgMap(GenericOp producer, OpOperand *prodOpnd,
   return arg.compose(inv).compose(consMapForFused);
 }
 
+// Consumer input indices that reuse the fused producer result (excluding the
+// fused edge at fusedIdx). Must stay aligned with getFusedOperands.
+static SmallVector<unsigned>
+collectSkippedDuplicateProducerResultInputs(OpOperand *fusedOperand,
+                                            GenericOp consumer) {
+  SmallVector<unsigned> skipped;
+  Value producerResult = fusedOperand->get();
+  auto inputs = consumer.getInputs();
+  size_t fusedIdx = fusedOperand->getOperandNumber();
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    if (i == fusedIdx) {
+      continue;
+    }
+    if (inputs[i] == producerResult) {
+      skipped.push_back(static_cast<unsigned>(i));
+    }
+  }
+  return skipped;
+}
+
 static std::tuple<SmallVector<Value>, SmallVector<Value>,
-                  SmallVector<AffineMap>, SmallVector<unsigned>>
+                  SmallVector<AffineMap>>
 getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
                  GenericOp consumer) {
   SmallVector<Value> fusedInputs;
   SmallVector<Value> fusedOutputs;
   SmallVector<Type> fusedResultTypes;
   SmallVector<AffineMap> fusedMaps;
-  SmallVector<unsigned> skippedDuplicatePositions;
 
   Value producerResult = fusedOperand->get();
   AffineMap prodResMap = producer.getIndexingMap(
@@ -173,7 +196,6 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
   // consumer inputs before fused
   for (size_t i = 0; i < fusedIdx; ++i) {
     if (inputs[i] == producerResult) {
-      skippedDuplicatePositions.push_back(static_cast<unsigned>(i));
       continue;
     }
     fusedInputs.push_back(inputs[i]);
@@ -187,7 +209,6 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
   // remaining consumer inputs after fused
   for (size_t i = fusedIdx + 1; i < inputs.size(); ++i) {
     if (inputs[i] == producerResult) {
-      skippedDuplicatePositions.push_back(static_cast<unsigned>(i));
       continue;
     }
     fusedInputs.push_back(inputs[i]);
@@ -203,15 +224,19 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
   }
 
   return std::make_tuple(std::move(fusedInputs), std::move(fusedOutputs),
-                         std::move(fusedMaps),
-                         std::move(skippedDuplicatePositions));
+                         std::move(fusedMaps));
 }
 
-static GenericOp createFusedGeneric(
-    OpOperand *fusedOperand, GenericOp producer, GenericOp consumer,
-    SmallVector<Value> &fusedInputs, SmallVector<Value> &fusedOutputs,
-    SmallVector<Value> &mergedAdditionalArgs, SmallVector<AffineMap> &fusedMaps,
-    const SmallVector<unsigned> &skippedDups, PatternRewriter &rewriter) {
+static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
+                                    GenericOp consumer,
+                                    SmallVector<Value> &fusedInputs,
+                                    SmallVector<Value> &fusedOutputs,
+                                    SmallVector<Value> &mergedAdditionalArgs,
+                                    SmallVector<AffineMap> &fusedMaps,
+                                    PatternRewriter &rewriter) {
+  SmallVector<unsigned> skippedDups =
+      collectSkippedDuplicateProducerResultInputs(fusedOperand, consumer);
+
   /////////////////////////////////////////////////////////////////////////////
   // Create fused op
   /////////////////////////////////////////////////////////////////////////////
@@ -541,14 +566,14 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
     assert(producer);
 
     // Build fused op operands, maps, results
-    auto [fusedInputs, fusedOutputs, fusedMaps, skippedDups] =
+    auto [fusedInputs, fusedOutputs, fusedMaps] =
         getFusedOperands(fusedOperand, producer, consumer);
     auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
         consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
 
-    auto fusedOp = createFusedGeneric(fusedOperand, producer, consumer,
-                                      fusedInputs, fusedOutputs, mergedCaptures,
-                                      fusedMaps, skippedDups, rewriter);
+    auto fusedOp =
+        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
+                           fusedOutputs, mergedCaptures, fusedMaps, rewriter);
 
     // Replace uses: from producer and consumer results to fused results.
     int resIdx = 0;
