@@ -3874,6 +3874,31 @@ createOp(FlatbufferObjectCache &cache, TopKOp op) {
       (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SamplingOp>
+createOp(FlatbufferObjectCache &cache, SamplingOp op) {
+  auto inputValues = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputValues()));
+  auto inputIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputIndices()));
+  auto k = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getK()));
+  auto p = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getP()));
+  auto temp = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTemp()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Optional<uint32_t> seed;
+  if (op.getSeed().has_value()) {
+    seed = op.getSeed().value();
+  }
+
+  return ::tt::target::ttnn::CreateSamplingOp(
+      *cache.fbb, inputValues, inputIndices, k, p, temp, seed, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::TopKRouterGptOp>
 createOp(FlatbufferObjectCache &cache, TopKRouterGptOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4453,6 +4478,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       pagedFillCacheOp) {
     return createOperation(cache, createOp(cache, pagedFillCacheOp),
                            debugString, locInfo);
+  }
+  if (auto samplingOp = dyn_cast<SamplingOp>(op); samplingOp) {
+    return createOperation(cache, createOp(cache, samplingOp), debugString,
+                           locInfo);
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,

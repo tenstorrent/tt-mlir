@@ -291,6 +291,9 @@ public:
   static TTNNOperandsWorkarounds
   createPagedFillCacheOpOperandsWorkarounds(Operation *op);
 
+  static TTNNOperandsWorkarounds
+  createSamplingOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
