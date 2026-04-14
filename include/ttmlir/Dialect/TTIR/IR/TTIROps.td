@@ -6021,6 +6021,37 @@ def TTIR_TopKRouterGptOp : TTIR_NamedOp<"topk_router_gpt"> {
   let hasVerifier = 1;
 }
 
+def TTIR_MoeGPTDecodeOp : TTIR_NamedOp<"moe_gpt_decode"> {
+    let summary = "GPT-OSS fused decode composite placeholder.";
+    let description = [{
+      Placeholder TTIR op for the frontend GPT-OSS decode composite. This op
+      carries the decode routing and expert tensors through composite
+      legalization, while the StableHLO decomposition remains available for
+      sharding propagation before legalization.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$hidden_states,
+                         AnyRankedTensor:$topk_indices,
+                         AnyRankedTensor:$topk_scores,
+                         AnyRankedTensor:$dispatch_mapping,
+                         AnyRankedTensor:$moe_gpt_mapping,
+                         AnyRankedTensor:$gate_up_proj,
+                         AnyRankedTensor:$gate_up_proj_bias,
+                         AnyRankedTensor:$down_proj,
+                         AnyRankedTensor:$down_proj_bias,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         I64Attr:$num_experts,
+                         I64Attr:$num_experts_per_tok,
+                         I64Attr:$intermediate_size,
+                         F32Attr:$alpha,
+                         F32Attr:$limit);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{
