@@ -1827,6 +1827,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                             const OperandContext &operandCtx,
                             MemorySpace memspace) const {
 
+    // Blocked operands must be registered with the memory planner so their
+    // in-generic allocs receive an L1 address. This runs before
+    // reblockGenerics, so the view doesn't exist yet and
+    // isOperandExemptFromStreaming would incorrectly skip the alloc.
+    if (allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
+                                     genericCtx.reblockedFactors)) {
+      return true;
+    }
+
     if (isOperandExemptFromStreaming(operandCtx, memspace)) {
       return false;
     }
