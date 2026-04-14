@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <cxxabi.h>
@@ -167,10 +168,15 @@ public:
     (UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT == 1)
       pybind11::scoped_ostream_redirect stream(*fd);
 #endif
-      *fd << green << std::setw(23) << type_names[type] << reset_text_attrs
-          << " | " << bold << level_colors[static_cast<int>(level)]
-          << std::setw(8) << level_names[static_cast<int>(level)]
-          << reset_text_attrs << " | ";
+      if (use_color_) {
+        *fd << green << std::setw(23) << type_names[type] << reset_text_attrs
+            << " | " << bold << level_colors[static_cast<int>(level)]
+            << std::setw(8) << level_names[static_cast<int>(level)]
+            << reset_text_attrs << " | ";
+      } else {
+        *fd << std::setw(23) << type_names[type] << " | " << std::setw(8)
+            << level_names[static_cast<int>(level)] << " | ";
+      }
       ((*fd << args), ...);
       *fd << std::endl;
     }
@@ -213,12 +219,29 @@ private:
 #if !defined(UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT) ||                          \
     (UTILS_LOGGER_PYTHON_OSTREAM_REDIRECT == 0)
     const char *file_env = std::getenv("TTMLIR_RUNTIME_LOGGER_FILE");
+    bool logging_to_file = false;
     if (file_env) {
       log_file.open(file_env);
       if (log_file.is_open()) {
         fd = &log_file;
+        logging_to_file = true;
       }
     }
+    auto envTruthy = [](const char *v) -> bool {
+      if (!v || !v[0]) {
+        return false;
+      }
+      std::string s(v);
+      for (char &c : s) {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+      }
+      return s == "1" || s == "TRUE" || s == "YES" || s == "ON";
+    };
+    const bool force_color = envTruthy(std::getenv("TTMLIR_RUNTIME_LOGGER_COLOR"));
+    const bool no_color =
+        std::getenv("NO_COLOR") != nullptr ||
+        envTruthy(std::getenv("TTMLIR_RUNTIME_LOGGER_NO_COLOR"));
+    use_color_ = force_color || (!no_color && !logging_to_file);
 #endif
   }
 
@@ -238,6 +261,7 @@ private:
   std::ostream *fd = &std::cout;
   uint64_t mask = (1ULL << LogAlways);
   Level min_level = Level::Info;
+  bool use_color_ = true;
 };
 
 template <typename... Args>

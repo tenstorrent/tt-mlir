@@ -368,6 +368,104 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
         return WalkResult::interrupt();
       }
 
+      // IotaOp special handling: when the iota dimension is sharded,
+      // simply shrinking the output type changes the generated values
+      // from global indices to local indices (0..localSize-1 on every
+      // shard). The correct semantics require each shard to hold its
+      // slice of the global sequence. Fix: keep the iota at global
+      // shape and insert an sdy.all_slice composite that will lower to
+      // ttir.mesh_partition, slicing the global iota per-shard.
+      if (auto iotaOp = mlir::dyn_cast<mlir::stablehlo::IotaOp>(op)) {
+        uint64_t iotaDim = iotaOp.getIotaDimension();
+        llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+            tensorShardings[0].getDimShardings();
+
+        if (!dimShardings[iotaDim].getAxes().empty()) {
+          auto globalType = mlir::cast<mlir::RankedTensorType>(
+              op->getResult(0).getType());
+          auto localType = (*newTypes)[0];
+
+          // 1. Remove the sdy annotation so the iota keeps global shape.
+          op->removeAttr(mlir::sdy::TensorShardingAttr::name);
+
+          // 2. Build a trivial decomposition function (slice placeholder)
+          //    required by stablehlo::CompositeOp. The body is never
+          //    executed — ShardyAllSliceToTTIRMeshPartitionConversion
+          //    replaces the composite with ttir.mesh_partition directly.
+          mlir::ModuleOp moduleOp =
+              funcOp->getParentOfType<mlir::ModuleOp>();
+          static int iotaSliceCounter = 0;
+          std::string funcName =
+              "sdy.all_slice_iota" +
+              std::to_string(++iotaSliceCounter);
+          auto decompFnType =
+              builder.getFunctionType({globalType}, {localType});
+          auto callee = mlir::func::FuncOp::create(
+              op->getLoc(), funcName, decompFnType);
+          callee.setPrivate();
+          moduleOp.push_back(callee);
+
+          mlir::Block *entryBlock = callee.addEntryBlock();
+          mlir::OpBuilder fnBuilder(entryBlock, entryBlock->begin());
+          llvm::SmallVector<int64_t> startIndices(globalType.getRank(), 0);
+          llvm::SmallVector<int64_t> limitIndices(
+              localType.getShape().begin(), localType.getShape().end());
+          llvm::SmallVector<int64_t> strides(globalType.getRank(), 1);
+          auto sliceResult = fnBuilder.create<mlir::stablehlo::SliceOp>(
+              op->getLoc(), localType, entryBlock->getArgument(0),
+              fnBuilder.getDenseI64ArrayAttr(startIndices),
+              fnBuilder.getDenseI64ArrayAttr(limitIndices),
+              fnBuilder.getDenseI64ArrayAttr(strides));
+          fnBuilder.create<mlir::func::ReturnOp>(
+              op->getLoc(), sliceResult->getResults());
+
+          // 3. Create the sdy.all_slice composite op.
+          //    The out_sharding must be fully closed; the original
+          //    annotation may still have open dims because
+          //    CloseShardingsPass runs later in the pipeline.
+          llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
+              closedDimShardings;
+          for (auto ds : tensorShardings[0].getDimShardings()) {
+            closedDimShardings.push_back(
+                mlir::sdy::DimensionShardingAttr::get(
+                    context, ds.getAxes(), /*isClosed=*/true));
+          }
+          auto closedSharding = mlir::sdy::TensorShardingAttr::get(
+              context, tensorShardings[0].getMeshOrRef(),
+              closedDimShardings,
+              tensorShardings[0].getReplicatedAxes(),
+              /*unknownAxes=*/{});
+
+          llvm::SmallVector<mlir::NamedAttribute> compAttrsVec;
+          compAttrsVec.push_back(mlir::NamedAttribute(
+              mlir::StringAttr::get(context, "out_sharding"),
+              closedSharding));
+          mlir::DictionaryAttr compAttrs =
+              mlir::DictionaryAttr::get(context, compAttrsVec);
+          mlir::SymbolRefAttr decomp =
+              mlir::SymbolRefAttr::get(context, callee.getSymName());
+
+          mlir::OperationState compState(
+              op->getLoc(),
+              mlir::stablehlo::CompositeOp::getOperationName());
+          compState.addOperands(op->getResult(0));
+          compState.addTypes(localType);
+          compState.addAttribute(utils::kCompDecompositionKey, decomp);
+          compState.addAttribute(utils::kCompAttrsKey, compAttrs);
+          compState.addAttribute(utils::kCompNameKey,
+                                 builder.getStringAttr("sdy.all_slice"));
+
+          builder.setInsertionPointAfter(op);
+          mlir::Operation *compositeOp = builder.create(compState);
+
+          // 4. Redirect all uses of the iota to the composite result
+          //    (except the composite's own operand use).
+          op->getResult(0).replaceAllUsesExcept(compositeOp->getResult(0),
+                                                compositeOp);
+          break; // Skip the generic path for this op.
+        }
+      }
+
       // Create new operation state to update the original operation with
       // it's new computed shapes.
       FailureOr<mlir::OperationState> state =

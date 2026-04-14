@@ -4,6 +4,8 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#include "op_tensor_trace.h"
+
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
@@ -104,6 +106,9 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#include <optional>
+#include <vector>
+
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
@@ -168,9 +173,19 @@ void ProgramExecutor::execute() {
         perf::Env::get().tracyProgramMetadata);
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
+    std::vector<std::optional<bool>> opTensorInputZeros;
+    if (opTensorTraceEnvEnabled()) {
+      opTensorInputZeros =
+          opTensorTraceCaptureInputZeroState(op, context.get());
+    }
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
+    if (opTensorTraceEnvEnabled()) {
+      opTensorTraceLogCompletedOp(op, context.get(), opTensorInputZeros);
+    } else if (opTensorTraceOpDumpEnabled()) {
+      opTensorTraceOpDump(op, context.get());
+    }
     dumpPerfCountersIfNeeded();
   }
   LOG_DEBUG(LogType::LogRuntimeTTNN,

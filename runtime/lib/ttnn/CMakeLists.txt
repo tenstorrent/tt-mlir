@@ -16,6 +16,7 @@ endif()
 
 add_library(TTRuntimeTTNN
   STATIC
+  op_tensor_trace.cpp
   runtime.cpp
   program_executor.cpp
 )
@@ -26,6 +27,7 @@ target_include_directories(TTRuntimeTTNN PUBLIC
   ${PROJECT_BINARY_DIR}/runtime/include
   ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
 )
+target_include_directories(TTRuntimeTTNN PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(TTRuntimeTTNN SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTNN PUBLIC TTRuntimeTypes TTRuntimeTTNNOps TTRuntimeTTNNTypes TTRuntimeTTNNUtils)
 target_link_libraries(TTRuntimeTTNN PUBLIC coverage_config)

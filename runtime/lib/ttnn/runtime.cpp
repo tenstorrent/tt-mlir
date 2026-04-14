@@ -435,6 +435,7 @@ TensorDesc getTensorDesc(::tt::runtime::Tensor tensor) {
   desc.itemsize = getTensorElementSize(tensor);
   desc.stride = getTensorStride(tensor);
   desc.shape = getTensorShape(tensor);
+  desc.physicalVolume = getTensorVolume(tensor);
   return desc;
 }
 
@@ -1317,6 +1318,13 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::TopKOp: {
+    auto outs = opContext.type_as_TopKOp()->outputs();
+    if (outs && outs->size() > 0) {
+      tensorRef = outs->Get(0);
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::CpuOp:
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
@@ -1334,7 +1342,6 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
-  case ::tt::target::ttnn::OpType::TopKOp:
   case ::tt::target::ttnn::OpType::BreakpointOp:
   case ::tt::target::ttnn::OpType::PrintOp:
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
@@ -1701,7 +1708,7 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
-    tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
+    tensorRefs = {opContext.type_as_MeshPartitionOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
