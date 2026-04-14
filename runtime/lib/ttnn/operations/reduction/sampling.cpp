@@ -26,8 +26,7 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
   }
 
   // ttnn::sampling kernel expects 4D input [N, C, H, W] where N*C*H == 32.
-  // The compiler may pass 2D [batch, candidates]. Reshape to [1, 1, 32,
-  // candidates].
+  // The compiler passes 2D [batch, candidates]. Reshape to 4D.
   auto inputShape = inputValues.logical_shape();
   if (inputShape.rank() == 2) {
     uint32_t batch = inputShape[0];
@@ -38,7 +37,9 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
         ::ttnn::reshape(inputIndices, ::ttnn::Shape({1, 1, batch, candidates}));
   }
 
-  // Ensure correct layouts: input_values=TILE, others=ROW_MAJOR.
+  // Ensure correct layouts: input_values must be TILE, others ROW_MAJOR.
+  // The compiler workarounds pass requests these layouts but they may not
+  // always be applied (e.g. when the layout pass optimizes them away).
   if (inputIndices.layout() != ::ttnn::Layout::ROW_MAJOR) {
     inputIndices = ::ttnn::to_layout(inputIndices, ::ttnn::Layout::ROW_MAJOR,
                                      std::nullopt, std::nullopt);
@@ -56,29 +57,22 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
                              std::nullopt);
   }
 
-  // Kernel requires k as UINT32, but compiler may pass INT32.
+  // Kernel requires k as UINT32.
   if (k.dtype() != ::tt::tt_metal::DataType::UINT32) {
     k = ::ttnn::typecast(k, ::tt::tt_metal::DataType::UINT32);
-  }
-  // Kernel requires input_indices as UINT32 or INT32 (either is fine).
-  if (inputIndices.dtype() != ::tt::tt_metal::DataType::UINT32 &&
-      inputIndices.dtype() != ::tt::tt_metal::DataType::INT32) {
-    inputIndices =
-        ::ttnn::typecast(inputIndices, ::tt::tt_metal::DataType::INT32);
   }
 
   ::ttnn::Tensor output =
       ::ttnn::sampling(inputValues, inputIndices, k, p, temp, seed);
 
-  // Reshape output from [1, 1, 1, batch] to match expected output shape.
+  // Reshape output from [1, 1, 1, batch] to match expected 1D output shape.
   auto outShape = output.logical_shape();
   if (outShape.rank() == 4 && outShape[0] == 1 && outShape[1] == 1 &&
       outShape[2] == 1) {
     output = ::ttnn::reshape(output, ::ttnn::Shape({outShape[3]}));
   }
 
-  // ttnn::sampling returns UINT32 but the compiler may expect a different type.
-  // Typecast to INT32 (the closest supported signed type).
+  // ttnn::sampling returns UINT32. Typecast to INT32 to match compiler type.
   if (output.dtype() == ::tt::tt_metal::DataType::UINT32) {
     output = ::ttnn::typecast(output, ::tt::tt_metal::DataType::INT32);
   }
