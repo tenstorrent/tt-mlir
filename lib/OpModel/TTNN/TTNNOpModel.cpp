@@ -1449,6 +1449,30 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PowScalar
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+buildEltwiseBinaryCompositeScalarOpTFromMLIR(mlir::Attribute exponent) {
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+      eltwiseBinaryCompositeScalarOpT;
+  eltwiseBinaryCompositeScalarOpT.type =
+      ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
+
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
+    ::tt::target::ttnn::FloatingPointTypeT fp;
+    fp.value = floatAttr.getValue().convertToFloat();
+    eltwiseBinaryCompositeScalarOpT.rhs.Set(fp);
+  } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
+    ::tt::target::ttnn::IntegralTypeT i32;
+    i32.value = static_cast<int32_t>(intAttr.getInt());
+    eltwiseBinaryCompositeScalarOpT.rhs.Set(i32);
+  } else {
+    assert(false && "Invalid exponent");
+  }
+
+  return eltwiseBinaryCompositeScalarOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, mlir::Attribute exponent,
@@ -1465,30 +1489,31 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Helper lambda to create the query with any exponent value type.
-  auto powScalarQuery = [=](auto convertedExponent) {
-    return [=]() {
-      return QUERY_OP_CONSTRAINTS(
-          ::ttnn::pow, device, inputSpec, convertedExponent,
-          detail::getNullableMemoryConfig(outputLayout));
-    };
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+      eltwiseBinaryCompositeScalarOpT =
+          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent);
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseBinaryCompositeScalarOpResult result =
+        unifiedOpLib::callEltwiseBinaryCompositeScalar(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseBinaryCompositeScalarOpT, inputSpec, device,
+            outputMemoryConfig);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "EltwiseBinaryCompositeScalarOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
-  // The invoke function of PowScalarOp is templated over the exponent value
-  // type. That's why the following code is arranged in this way.
-  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                       query);
-  }
-  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
-    float convertedExponent = value.getValue().convertToFloat();
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                       query);
-  }
-  return llvm::createStringError("Invalid exponent");
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -1509,28 +1534,30 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Helper lambda to create the query with any exponent value type.
-  auto powScalarQuery = [=](auto convertedExponent) {
-    return [=]() {
-      return QUERY_OP_RUNTIME(::ttnn::pow, device, inputSpec, convertedExponent,
-                              detail::getNullableMemoryConfig(outputLayout));
-    };
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
+      eltwiseBinaryCompositeScalarOpT =
+          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent);
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseBinaryCompositeScalarOpResult result =
+        unifiedOpLib::callEltwiseBinaryCompositeScalar(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME,
+            eltwiseBinaryCompositeScalarOpT, inputSpec, device,
+            outputMemoryConfig);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from "
+        "EltwiseBinaryCompositeScalarOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
-  // The invoke function of PowScalarOp is templated over the exponent value
-  // type. That's why the following code is arranged in this way.
-  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(exponent)) {
-    int32_t convertedExponent = static_cast<int32_t>(value.getInt());
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpRuntime(query);
-  }
-  if (auto value = mlir::dyn_cast<mlir::FloatAttr>(exponent)) {
-    float convertedExponent = value.getValue().convertToFloat();
-    auto query = powScalarQuery(convertedExponent);
-    return operation::getOpRuntime(query);
-  }
-
-  return llvm::createStringError("Invalid exponent");
+  return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

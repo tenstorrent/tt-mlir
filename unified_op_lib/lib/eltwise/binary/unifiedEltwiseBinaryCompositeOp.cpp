@@ -82,23 +82,31 @@ EltwiseBinaryCompositeScalarOpResult callEltwiseBinaryCompositeScalar(
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {
-    ::ttnn::graph::ConstraintQueryResponse response;
-    response.error_message = "Constraint query not implemented for "
-                             "EltwiseBinaryCompositeScalarOp yet";
-    return response;
+    return std::visit(
+        [&](auto &&exponent) {
+          return QUERY_OP_CONSTRAINTS(::ttnn::pow, device,
+                                      std::get<::ttnn::TensorSpec>(lhs),
+                                      exponent, params.outputMemoryConfig);
+        },
+        params.exponent);
   }
   case CallType::QUERY_OP_RUNTIME: {
-    ::ttnn::graph::RuntimeQueryResponse response;
-    response.error_message = "Runtime query not implemented for "
-                             "EltwiseBinaryCompositeScalarOp yet";
-    return response;
+    return std::visit(
+        [&](auto &&exponent) {
+          return QUERY_OP_RUNTIME(::ttnn::pow, device,
+                                  std::get<::ttnn::TensorSpec>(lhs), exponent,
+                                  params.outputMemoryConfig);
+        },
+        params.exponent);
   }
   case CallType::EXECUTE: {
     const auto &input = *std::get<const ::ttnn::Tensor *>(lhs);
 
-    return std::visit([&](auto &&exponent) {                                                                                                                                                                                                                               
-      return ::ttnn::pow(input, exponent, params.outputMemoryConfig);                                                                                                                                                                                                    
-    }, params.exponent);
+    return std::visit(
+        [&](auto &&exponent) {
+          return ::ttnn::pow(input, exponent, params.outputMemoryConfig);
+        },
+        params.exponent);
   }
   }
 }
