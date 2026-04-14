@@ -27,6 +27,7 @@ void registerBinaryBindings(nb::module_ &m) {
       .def("store", &tt::runtime::Flatbuffer::store);
 
   nb::class_<tt::runtime::Binary>(m, "Binary")
+      .def_prop_ro("id", &tt::runtime::Binary::id)
       .def_prop_ro("version", &tt::runtime::Binary::getVersion)
       .def_prop_ro("schema_hash", &tt::runtime::Flatbuffer::getSchemaHash)
       .def("check_schema_hash", &tt::runtime::Flatbuffer::checkSchemaHash)

@@ -230,6 +230,7 @@ getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle) {
   __builtin_trap();
 }
+size_t getProgramIndex(CallbackContext programContextHandle) { __builtin_trap(); }
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor) { __builtin_trap(); }
 tt::target::DataType getTensorDataType(Tensor tensor) { __builtin_trap(); }
 TensorDesc getTensorDesc(Tensor tensor) { __builtin_trap(); }

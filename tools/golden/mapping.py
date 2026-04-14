@@ -7250,3 +7250,20 @@ def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
         return GOLDEN_MAPPINGS[ttir_op_class]
 
     assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
+
+
+# New-style golden interface for Chisel: fn(op: Operation, inputs: Dict[str, GoldenMapTensor], asm_state: AsmState) -> GoldenMapTensor
+# Functions will be migrated incrementally from GOLDEN_MAPPINGS.
+CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {}
+
+
+def get_chisel_golden_function(op_class: type) -> Optional[Callable]:
+    """
+    Get the chisel golden function for a given operation class.
+
+    Chisel golden functions have the interface:
+        fn(op: Operation, inputs: Dict[str, GoldenMapTensor], asm_state: AsmState) -> GoldenMapTensor
+
+    Returns None if no chisel golden implementation exists.
+    """
+    return CHISEL_GOLDEN_MAPPINGS.get(op_class, None)
