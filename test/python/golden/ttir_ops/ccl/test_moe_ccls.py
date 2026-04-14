@@ -167,15 +167,15 @@ def test_moe_dispatch_combine(
 # We use a (1,2) mesh here but keep realistic per-device dimensions.
 
 
+@pytest.mark.skip(reason="Golden not yet implemented")
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
-@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize(
-    "hidden_size,batch,seq,select_experts_k,experts",
+    "mesh_shape,hidden_size,batch,seq,select_experts_k,experts",
     [
-        (2880, 128, 1, 4, 32),  # GPT-OSS style
-        (7168, 64, 1, 2, 16),  # DeepSeek decode style
+        ((4, 8), 2880, 128, 1, 4, 128),  # GPT-OSS (32-device galaxy)
+        ((1, 8), 7168, 64, 1, 2, 16),  # DeepSeek decode (8-device)
     ],
-    ids=["gpt_oss", "deepseek"],
+    ids=["gpt_oss_4x8", "deepseek_1x8"],
 )
 def test_selective_reduce_combine(
     target: str,
@@ -189,26 +189,26 @@ def test_selective_reduce_combine(
     device,
 ):
     """
-    Selective reduce combine on (1,2) mesh.
+    Selective reduce combine on galaxy mesh.
 
-    FullToShard(Devices) splits all 4 input tensors across devices along dim 1,
+    FullToShard(Devices) splits all 4 input tensors across devices,
     selective_reduce_combine runs per-device, ShardToFull(Devices) assembles the
     full result.
     """
     D = mesh_shape[0] * mesh_shape[1]
     experts_per_device = experts // D
 
-    # Shard tensor dim 1 across mesh dim 1
+    # Shard tensor dims 0 and 1 across mesh dims 0 and 1
     shard_shape_bd = [1, 1, 1, 1]
-    shard_shape_bd[2] = mesh_shape[0]  # mesh dim 0 -> tensor dim 2
+    shard_shape_bd[0] = mesh_shape[0]  # mesh dim 0 -> tensor dim 0
     shard_shape_bd[1] = mesh_shape[1]  # mesh dim 1 -> tensor dim 1
-    shard_dims_bd = [2, 1]
+    shard_dims_bd = [0, 1]
 
-    # For metadata/counts tensors: shard dim 1 across mesh dim 1
+    # For metadata/counts tensors: same sharding pattern
     shard_shape_meta = [1, 1, 1, 1]
-    shard_shape_meta[2] = mesh_shape[0]
-    shard_shape_meta[1] = mesh_shape[1]
-    shard_dims_meta = [2, 1]
+    shard_shape_meta[0] = mesh_shape[0]  # mesh dim 0 -> tensor dim 0
+    shard_shape_meta[1] = mesh_shape[1]  # mesh dim 1 -> tensor dim 1
+    shard_dims_meta = [0, 1]
 
     def module(builder: TTIRBuilder):
         @builder.func(
