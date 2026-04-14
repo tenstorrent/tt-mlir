@@ -19,7 +19,6 @@ from ttmlir.ir import (
 )
 
 
-@cache
 def get_op_outputs(op: Operation) -> list:
     """Extract output tensors (results with shape and element_type) from an MLIR operation."""
     outputs = []
@@ -29,7 +28,6 @@ def get_op_outputs(op: Operation) -> list:
     return outputs
 
 
-@cache
 def get_op_inputs(op: Operation) -> list:
     """Extract input tensors (operands with shape and element_type) from an MLIR operation."""
     inputs = []
