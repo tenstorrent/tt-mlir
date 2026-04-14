@@ -8,6 +8,8 @@
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+using namespace mlir::tt::stablehlo::utils;
+
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FUSEDISTRIBUTEDCUSTOMCALLSPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
@@ -40,8 +42,7 @@ determineClusterAxis(mlir::DenseIntElementsAttr replicaGroups,
 
 // Fuse all_gather + custom_call @tenstorrent.rms_norm + sdy.all_slice into a
 // single custom_call @tenstorrent.distributed_rms_norm that operates on local
-// (per-device) tensors and handles cross-device statistics reduction
-// internally.
+// (per-device) tensors which handles cross-device reduction internally.
 class FuseRMSNormWithCCLPattern
     : public OpRewritePattern<mlir::stablehlo::CustomCallOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -49,20 +50,21 @@ class FuseRMSNormWithCCLPattern
 public:
   LogicalResult matchAndRewrite(mlir::stablehlo::CustomCallOp customCallOp,
                                 PatternRewriter &rewriter) const override {
+
     // Only operate on custom_calls that were converted from composites with
     // custom sharding rules.
-    if (!customCallOp->hasAttr(utils::kHasCustomShardingAttr)) {
+    if (!customCallOp->hasAttr(kHasCustomShardingAttr)) {
       return failure();
     }
 
-    if (customCallOp.getCallTargetName() != "tenstorrent.rms_norm") {
+    if (customCallOp.getCallTargetName() != kTTRMSNormCustomCallTargetName) {
       return failure();
     }
 
     // The custom_call must have at least one operand (input).
     if (customCallOp.getNumOperands() < 1) {
       return rewriter.notifyMatchFailure(customCallOp,
-                                         "rms_norm requires at least input");
+                                         "at least one operand is required");
     }
 
     // Check that the input (operand 0) comes from an all_gather.
@@ -70,7 +72,7 @@ public:
                               .getDefiningOp<mlir::stablehlo::AllGatherOp>();
     if (!inputAllGather) {
       return rewriter.notifyMatchFailure(
-          customCallOp, "rms_norm input does not come from an all_gather op");
+          customCallOp, "rms_norm operand does not come from an all_gather op");
     }
 
     // Check that the custom_call has exactly one user: an sdy.all_slice
@@ -79,13 +81,14 @@ public:
       return rewriter.notifyMatchFailure(
           customCallOp, "rms_norm result has multiple uses, cannot fuse");
     }
+
     auto *soleUser = *customCallOp.getResult(0).getUsers().begin();
     auto allSliceComposite =
         mlir::dyn_cast<mlir::stablehlo::CompositeOp>(soleUser);
     if (!allSliceComposite ||
         !allSliceComposite.getName().starts_with("sdy.all_slice")) {
       return rewriter.notifyMatchFailure(
-          customCallOp, "rms_norm sole user is not an sdy.all_slice composite");
+          customCallOp, "rms_norm sole user is not an sdy.all_slice");
     }
 
     // Derive cluster_axis from the input all_gather's replica_groups.
@@ -100,7 +103,7 @@ public:
     SmallVector<mlir::Value> localOperands;
     // Operand 0: local input (the all_gather's input).
     localOperands.push_back(inputAllGather.getOperand(0));
-    // Operand 1+: weight/bias - may come from all_gather or directly.
+    // Operand 1+: weight/bias, may come from all_gather or directly.
     for (unsigned i = 1; i < customCallOp.getNumOperands(); ++i) {
       mlir::Value operand = customCallOp.getOperand(i);
       if (auto opAllGather =
@@ -144,8 +147,6 @@ public:
         /*output_operand_aliases=*/nullptr);
     distributedCall->setDiscardableAttr(utils::kCustomCallCompositeAttrsKey,
                                         newCompositeAttrs);
-    distributedCall->setDiscardableAttr(utils::kHasCustomShardingAttr,
-                                        rewriter.getUnitAttr());
 
     // Collect all_gathers to potentially erase after the custom_call is gone.
     SmallVector<mlir::stablehlo::AllGatherOp> allGathersToCleanup;
