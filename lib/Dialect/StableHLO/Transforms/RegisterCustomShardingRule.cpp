@@ -928,18 +928,17 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
-// Sharding rule for tenstorrent.rms_norm (custom_call converted from
-// composite).
+// Sharding rule for RMS norm custom_call (converted from composite).
 //
 // Operands:
 //   operand 0: input  [batch dims..., normalized dims...]
-//   operand 1: weight [normalized dims...] (optional)
-//   operand 2: bias   [normalized dims...] (optional)
+//   operand 1: weight [normalized dims...] (optional operand)
+//   operand 2: bias   [normalized dims...] (optional operand)
 // Result: same shape as input.
 //
 // Batch dimensions can be freely sharded. Normalized dimensions require
 // replication because RMS norm reduces over them and Shardy needs to
-// insert collectives to handle cross-device reductions.
+// insert collectives to handle cross-device reduction ops.
 static mlir::sdy::OpShardingRuleAttr
 getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
@@ -948,7 +947,7 @@ getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   }
 
   auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
-      op->getDiscardableAttr(utils::kCompositeAttributesKey));
+      op->getDiscardableAttr(utils::kCustomCallCompositeAttrsKey));
   if (!compositeAttrs) {
     return mlir::sdy::OpShardingRuleAttr();
   }
@@ -1044,10 +1043,7 @@ private:
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
-          // Sharding rules for composites converted to custom_calls.
-          // The names must match entries in kCompositesWithCustomSharding
-          // (StableHLOUtils.h).
-          {"tenstorrent.rms_norm", getRMSNormShardingRule},
+          {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
       };
 };
 
