@@ -332,9 +332,9 @@ public:
     rewriter.create<DMAWaitOp>(loc, newCopy.getResult());
     rewriter.create<PushOp>(loc, cb);
 
-    // Pop the source CB to signal consumption. The consumer-side pop insertion
-    // was deferred from ExplicitCBForm because local_copy is a DM op and the
-    // pop must live on the DM thread, which is only available after splitting.
+    // Pop the source CB to signal consumption.  This pop was deferred from
+    // the splitter because local_copy is a DM op — the pop must live on the
+    // DM thread.  Assuption is that exactly one thread consumes from this CB.
     if (auto srcWait = src.getDefiningOp<WaitOp>()) {
       rewriter.create<PopOp>(loc, srcWait.getCb());
     }

@@ -187,6 +187,11 @@ static bool isLocalAlloc(memref::AllocOp allocOp, Block *block) {
   return block->getParent()->isAncestor(allocOp->getParentRegion());
 }
 
+// Trace a value through view-like ops to a memref.alloc.
+static memref::AllocOp findAllocOp(Value value) {
+  return traceToDefiningOp<memref::AllocOp>(value);
+}
+
 // ---------------------------------------------------------------------------
 // Compute thread: insert CB sync ops for implicit-form remote_load/store
 // ---------------------------------------------------------------------------
@@ -320,7 +325,17 @@ static LogicalResult processComputeLoads(Block *computeBlock,
         rewriter.replaceAllUsesWith(loadOp.getResult(), waitOp.getResult());
       }
 
-      insertPopBeforeTerminator(rewriter, loc, cb, loadOp->getBlock());
+      // Insert pop only when the waited data has compute consumers.
+      // When all consumers are DM ops (e.g. local_copy), the pop is
+      // managed by the DM thread via LowerLoadStoreOpsToDMA.
+      bool allDMConsumers =
+          !waitOp.getResult().use_empty() &&
+          llvm::all_of(waitOp.getResult().getUsers(), [](Operation *user) {
+            return isa<ShardDMAOpInterface>(user);
+          });
+      if (!allDMConsumers) {
+        insertPopBeforeTerminator(rewriter, loc, cb, loadOp->getBlock());
+      }
       toErase.insert(loadOp);
     }
   }
@@ -410,6 +425,78 @@ static LogicalResult processComputeStores(Block *computeBlock,
   return success();
 }
 
+// Process implicit-form local_copy ops in the compute thread.
+// local_copy is a DM-only op: compute needs a wait on the destination CB
+// so downstream compute ops can read the result.
+static LogicalResult processComputeLocalCopies(Block *computeBlock,
+                                               PatternRewriter &rewriter,
+                                               CBCache &cache,
+                                               PortCounter &portCounters,
+                                               DenseSet<Operation *> &toErase) {
+  SmallVector<LocalCopyOp> copies;
+  computeBlock->walk([&](LocalCopyOp op) {
+    if (op.isImplicitForm() && !toErase.contains(op)) {
+      copies.push_back(op);
+    }
+  });
+
+  for (LocalCopyOp copyOp : copies) {
+    Location loc = copyOp.getLoc();
+    Value src = copyOp.getSrc();
+    Value dst = copyOp.getDst();
+
+    // --- Source side (compute → copy) ---
+    // When the source traces to a ReserveOp (compute-produced buffer),
+    // insert push so the DMA thread can wait on the source CB.
+    if (auto reserveOp = traceToDefiningOp<ReserveOp>(src)) {
+      rewriter.setInsertionPoint(copyOp);
+      rewriter.create<PushOp>(loc, reserveOp.getCb());
+    }
+
+    // --- Destination side (copy → compute) ---
+    Value dstCb = findAssociatedCB(copyOp, dst, rewriter, cache, portCounters);
+    if (!dstCb) {
+      return copyOp.emitError(
+          "could not find associated CB for local_copy destination");
+    }
+
+    // Insert wait to produce a readable memref for downstream compute ops.
+    rewriter.setInsertionPoint(copyOp);
+    auto waitOp = rewriter.create<WaitOp>(loc, dstCb);
+
+    // Replace all uses of the destination buffer with the wait result.
+    rewriter.replaceAllUsesWith(dst, waitOp.getResult());
+
+    // If the dst came from a ReserveOp that is now unused, collect it for
+    // erasure (compute reads via wait, not reserve).
+    if (auto reserveOp = dst.getDefiningOp<ReserveOp>()) {
+      if (reserveOp.getResult().use_empty()) {
+        toErase.insert(reserveOp);
+      }
+    }
+
+    // Insert pop after last use of the waited value if there are
+    // compute consumers.  DM-only consumers are handled on the DM thread.
+    bool hasComputeConsumers =
+        llvm::any_of(waitOp.getResult().getUsers(), [](Operation *user) {
+          return !isa<ShardDMAOpInterface>(user);
+        });
+    if (hasComputeConsumers) {
+      Operation *lastUse =
+          findLastUseOfAliasedValue(waitOp.getResult(), copyOp->getBlock());
+      if (lastUse) {
+        rewriter.setInsertionPointAfter(lastUse);
+        rewriter.create<PopOp>(loc, dstCb);
+      } else {
+        insertPopBeforeTerminator(rewriter, loc, dstCb, copyOp->getBlock());
+      }
+    }
+
+    toErase.insert(copyOp);
+  }
+  return success();
+}
+
 // ---------------------------------------------------------------------------
 // DMA thread: convert implicit-form ops to explicit CB form
 // ---------------------------------------------------------------------------
@@ -431,8 +518,18 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
 
   SmallVector<RemoteLoadOp> loads;
   SmallVector<RemoteStoreOp> stores;
+  SmallVector<LocalCopyOp> localCopies;
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
+  dmBlock->walk([&](LocalCopyOp op) {
+    if (op.isImplicitForm()) {
+      localCopies.push_back(op);
+    }
+  });
+
+  // Map local buffers to the CB assigned during remote_load conversion.
+  // Used to connect local_copy sources to the correct CB on the DMA thread.
+  DenseMap<Value, Value> localBufferToCB;
 
   // Helper: check if an op is part of an L1-to-L1 shared pair. These need real
   // DMA even though both operands are L1. Self-read/write pairs (same memref)
@@ -492,6 +589,13 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     if (auto semAttr = loadOp->getAttr("preallocated_semaphores")) {
       newLoad->setAttr("preallocated_semaphores", semAttr);
     }
+
+    // Record the buffer-to-CB mapping so local_copy ops can find
+    // the CB that holds their src data.
+    if (Value localBuffer = loadOp.getLocalBuffer()) {
+      localBufferToCB[localBuffer] = cb;
+    }
+
     toErase.insert(loadOp);
   }
 
@@ -537,6 +641,42 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
         storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
     toErase.insert(storeOp);
   }
+
+  // Convert implicit-form local_copy ops to explicit CB form.
+  for (LocalCopyOp copyOp : localCopies) {
+    Location loc = copyOp.getLoc();
+
+    // Find the source CB.  Check localBufferToCB first (populated during
+    // remote_load conversion for both streaming and aliased loads), then
+    // fall back to findAssociatedCB (traces to generic operand).
+    Value srcCb = localBufferToCB.lookup(copyOp.getSrc());
+    if (!srcCb) {
+      srcCb = findAssociatedCB(copyOp, copyOp.getSrc(), rewriter, cache,
+                               portCounters);
+    }
+    if (!srcCb) {
+      return copyOp.emitError("could not find source CB for DMA local_copy");
+    }
+
+    // Insert wait on the source CB to produce a readable memref.
+    rewriter.setInsertionPoint(copyOp);
+    auto srcWait = rewriter.create<WaitOp>(loc, srcCb);
+
+    // Find the destination CB.
+    Value dstCb = findAssociatedCB(copyOp, copyOp.getDst(), rewriter, cache,
+                                   portCounters);
+    if (!dstCb) {
+      return copyOp.emitError(
+          "could not find destination CB for DMA local_copy");
+    }
+
+    // Create explicit CB form: local_copy %src_memref into %dstCb.
+    rewriter.create<LocalCopyOp>(loc, TypeRange{}, srcWait.getResult(),
+                                 /*dst=*/Value{}, dstCb,
+                                 copyOp.getIndexingMaps());
+    toErase.insert(copyOp);
+  }
+
   return success();
 }
 
@@ -556,8 +696,7 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
       continue;
     }
 
-    bool isDMAOp =
-        isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
+    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
 
     if (isDatamovementThread && !isDMAOp && !isReplicated) {
@@ -688,6 +827,12 @@ public:
                                    portCounters, toErase)) ||
         failed(processComputeStores(computeBlock, rewriter, computeCache,
                                     portCounters, toErase))) {
+      return failure();
+    }
+
+    // Process implicit-form local_copy ops in the compute thread.
+    if (failed(processComputeLocalCopies(computeBlock, rewriter, computeCache,
+                                         portCounters, toErase))) {
       return failure();
     }
 

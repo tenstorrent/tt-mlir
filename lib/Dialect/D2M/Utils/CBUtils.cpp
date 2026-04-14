@@ -137,27 +137,4 @@ Value findAssociatedCB(Operation *op, Value memrefOperand,
                        portCounters);
 }
 
-memref::AllocOp findAllocOp(Value value) {
-  while (value) {
-    Operation *definingOp = value.getDefiningOp();
-    if (!definingOp) {
-      return nullptr;
-    }
-
-    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-      return allocOp;
-    }
-
-    // Only trace through view-like operations (e.g., memref.collapse_shape,
-    // memref.subview, memref.cast).
-    if (mlir::isa<mlir::ViewLikeOpInterface>(definingOp)) {
-      value = definingOp->getOperand(0);
-      continue;
-    }
-
-    return nullptr;
-  }
-  return nullptr;
-}
-
 } // namespace mlir::tt::d2m
