@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# End-to-end golden tests for ttir.constant through the TTMetal pipeline.
-# Each test compiles a TTIR module containing a constant op and runs it on
-# device, verifying the output matches a torch golden.
+# End-to-end golden tests for ttir.constant, ttir.ones, and ttir.zeros through
+# the TTMetal pipeline. Each test compiles a TTIR module and runs it on device,
+# verifying the output matches a torch golden.
 
 import pytest
 import torch
@@ -19,8 +19,10 @@ from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
+_CONSTANT_ONES_ZEROS_SHAPES = [(128, 128), (128,), (1, 128, 128)]
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+
+@pytest.mark.parametrize("shape", _CONSTANT_ONES_ZEROS_SHAPES, ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
     [
@@ -38,8 +40,6 @@ def test_constant(
     request,
     device,
 ):
-    """Standalone constant with no inputs: the constant tensor is the sole output."""
-
     def module(builder: TTIRBuilder):
         if dtype.is_floating_point:
             tensor = torch.full(shape, 1.25, dtype=dtype)
@@ -64,6 +64,78 @@ def test_constant(
     compile_and_execute_ttir(module, **kwargs)
 
 
+@pytest.mark.parametrize("shape", _CONSTANT_ONES_ZEROS_SHAPES, ids=shape_str)
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+    ],
+    ids=["f32", "bf16", "i32"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_ones(
+    shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def ones_fn(
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.ones(shape, dtype, unit_attrs=unit_attrs)
+
+    kwargs = {
+        "target": target,
+        **get_request_kwargs(request),
+        "device": device,
+        "atol": 0,
+        "check_atol": True,
+    }
+    compile_and_execute_ttir(module, **kwargs)
+
+
+@pytest.mark.parametrize("shape", _CONSTANT_ONES_ZEROS_SHAPES, ids=shape_str)
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+    ],
+    ids=["f32", "bf16", "i32"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_zeros(
+    shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def zeros_fn(
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
+
+    kwargs = {
+        "target": target,
+        **get_request_kwargs(request),
+        "device": device,
+        "atol": 0,
+        "check_atol": True,
+    }
+    compile_and_execute_ttir(module, **kwargs)
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
@@ -72,8 +144,6 @@ def test_constant(
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_constant_unary(shape, dtype: torch.dtype, target: str, request, device):
-    """Constant fed into a unary op: creates a constant tensor and applies abs."""
-
     if dtype.is_floating_point:
         bias = torch.full(shape, 1.25, dtype=dtype)
     else:
@@ -114,8 +184,6 @@ def test_constant_binary(
     request,
     device,
 ):
-    """Constant as one operand of a binary op: maximum(input, constant)."""
-
     if dtype.is_floating_point:
         low, high = -4.0, 4.0
         midpoint = (low + high) / 2
@@ -163,12 +231,6 @@ def test_constant_ternary(
     request,
     device,
 ):
-    """Constant as one operand of a ternary op: where(cond, x, constant).
-
-    Uses set_goldens to supply explicit cond and x input tensors so the
-    where condition and true-branch values are deterministic.
-    """
-
     if dtype.is_floating_point:
         value = torch.full(shape, -2.0, dtype=dtype)
     else:

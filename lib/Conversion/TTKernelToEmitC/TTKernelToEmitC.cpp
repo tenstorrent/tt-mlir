@@ -374,7 +374,8 @@ public:
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (
         std::is_same_v<SourceOp, ttkernel::ExperimentalWriteRowMaskTileOp> ||
-        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp>) {
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::ExperimentalFillArangeTileOp>) {
       auto cbType = mlir::cast<ttkernel::CBType>(op.getCb().getType());
       auto tileType = mlir::cast<ttcore::TileType>(cbType.getElementType());
       SmallVector<Attribute, 1> template_args;
