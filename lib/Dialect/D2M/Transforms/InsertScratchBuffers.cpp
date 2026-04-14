@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
@@ -74,9 +73,11 @@ static void addScratchToGeneric(GenericOp genericOp) {
     return;
   }
 
-  // Find a tiled input to get the tile type.
+  // Find a tiled input to derive the tile type.
   MemRefType refMemRefType = findTiledInputType(genericOp);
-  TT_assert(refMemRefType);
+  if (!refMemRefType) {
+    return;
+  }
 
   ttcore::TileType tileType = getTileType(refMemRefType);
 
