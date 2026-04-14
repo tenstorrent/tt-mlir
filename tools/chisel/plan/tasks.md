@@ -17,6 +17,10 @@
 - Update `unregister_hooks` to accept optional name argument.
 - Migrate callers: `tools/ttrt/common/run.py`, `tools/builder/base/builder_runtime.py`, `runtime/test/ttnn/python/n150/test_intermidate_tensor_manipulation.py`.
 
+> **Note:** PR 0a-1 and PR 0a-2a are prerequisites for **Chisel PR 2** (program-level
+> hooks, multi-client callbacks), not for PR 1. PR 1 uses the existing
+> `DebugHooks.get(pre, post)` API directly.
+
 ## PR 0a-2b: Program-Level Hooks ([detail](../docs/pr0a2b_program_level_hooks.md))
 
 - Add `ProgramCallbackFn = std::function<void(Binary, CallbackContext)>` type alias in `runtime/include/tt/runtime/debug.h`.
@@ -40,26 +44,41 @@
 - Change `getOpOutputRef()` to return `vector<TensorRef>` for multi-output ops (Sort, MaxPool2dWithIndices, etc.).
 
 
-## Unified Metrics
+## Chisel PR 1: Single Op Isolation + Builder Integration ([detail](../docs/pr1_single_op_isolation.md))
 
-- Create `tools/golden/metrics.py` with unified PCC/atol/rtol computation (pure torch, no numpy), consolidating duplicates from builder and ttrt.
-
-## Chisel PR 1: Minimal End-to-End ([detail](../docs/pr1_minimal_end_to_end.md))
-
-Full chisel package with all modules — runnable against a single-program binary,
-comparison results logged to stdout. No reporting, no disk caching, no
-cross-program tensor sharing, no skip mode.
+Op-level isolation testing — each op tested independently. preOp copies device
+inputs, postOp runs golden + compares. No cross-op tensor chaining.
+Includes builder integration (moved from PR 5).
 
 - Create `tools/chisel/CMakeLists.txt` with `declare_mlir_python_sources` packaging.
 - Create `tools/chisel/chisel/__init__.py` package init with exports.
-- Implement `TensorPool` (keyed by SSA name or globalId, stores `GoldenMapTensor` directly, no disk caching) in `chisel/tensors.py`.
 - Implement `IRModule` wrapper with MLIR traversal, `get_op_inputs()`, `get_op_outputs()` in `chisel/ops.py`.
-- Implement `execute_golden()` standalone function that replays TTNN ops via `GOLDEN_MAPPINGS` in `chisel/executor.py`.
-- Implement `ChiselContext` singleton, `BinaryState`, and `ProgramState` hierarchy in `chisel/context.py`. Callbacks log comparison metrics (PCC, abs error, rel error) to stdout/logger — no CSV report yet.
-- Implement the 4 callback functions (`pre_program`, `post_program`, `pre_op`, `post_op`) in `chisel/callbacks.py`.
-- Implement `chisel/utils.py` with location parsing, dtype maps, and runtime tensor conversion helpers.
+- Implement `execute_golden(op, ir_module, inputs: dict)` standalone function that replays a single TTNN op via `GOLDEN_MAPPINGS` in `chisel/executor.py`. Takes plain dict of inputs, returns result without storing.
+- Implement slim `ChiselContext` singleton in `chisel/context.py` — holds `ir_module`, `op_iter`, `_stashed_inputs`, `_current_op`. No `BinaryState`/`ProgramState` hierarchy.
+- Implement 2 callback functions (`pre_op`, `post_op`) in `chisel/callbacks.py`. preOp copies device inputs to host and stashes them; postOp runs golden with stashed inputs, compares, logs to stdout.
+- Implement `chisel/utils.py` with dtype maps and runtime tensor conversion helpers.
+- Implement `chisel/bind.py` with `bind()` (creates ChiselContext + registers DebugHooks) and `unbind()` (resets singleton).
+- Create `tools/golden/metrics.py` with unified PCC/atol/rtol computation (pure torch, no numpy), consolidating duplicates from builder and ttrt. (Previously PR 0c — now included directly.)
+- Add `enable_chisel: bool = False` parameter to `execute_fb()` in `builder_runtime.py`.
+- Add mutual exclusivity check with `enable_intermediate_verification` in `execute_fb()`.
+- Add `chisel.bind()` call in `execute_fb()` when `enable_chisel=True`.
+- Forward `enable_chisel` through `_compile_and_execute()` and `compile_and_execute_ttnn()` in `builder_apis.py`.
+- Add `--enable-chisel` pytest option in `test/python/golden/conftest.py`.
 
-## Chisel PR 2: Reporting + Cross-Program Sharing ([detail](../docs/pr2_reporting_and_sharing.md))
+## Chisel PR 2: Single Program Flow ([detail](../docs/pr2_single_program.md))
+
+Cross-op golden tensor chaining within a program. Golden outputs persist in
+TensorPool and feed subsequent ops. Full state hierarchy and program-level
+callbacks.
+
+- Implement `TensorPool(dict)` (keyed by SSA name or globalId, stores `GoldenMapTensor` directly, no disk caching) in `chisel/tensors.py`.
+- Expand `ChiselContext` in `chisel/context.py` to full `ChiselContext`/`BinaryState`/`ProgramState` hierarchy.
+- Add `execute_golden_from_pool()` pool-aware wrapper in `chisel/executor.py` — pulls inputs from pool, stores outputs.
+- Expand `chisel/callbacks.py` from 2 to 4 callbacks — add `pre_program`, `post_program`. Update `pre_op`/`post_op` to use ProgramState's golden pool instead of device-stashed inputs.
+- Update `chisel/__init__.py` exports (4 callbacks).
+- Add `chisel/tensors.py` to `CMakeLists.txt`.
+
+## Chisel PR 3: Reporting + Cross-Program Sharing ([detail](../docs/pr3_reporting_and_sharing.md))
 
 Add CSV reporting and cross-program/cross-binary tensor sharing via the global
 tensor pool. Enables multi-program binary support.
@@ -69,7 +88,7 @@ tensor pool. Enables multi-program binary support.
 - Add `global_tensor_pool` ↔ `program.golden_tensor_pool` copying in `preProgram`/`postProgram`.
 - Add disk caching support to `TensorPool`.
 
-## Chisel PR 3: Skip Mode ([detail](../docs/pr3_skip_mode.md))
+## Chisel PR 4: Skip Mode ([detail](../docs/pr4_skip_mode.md))
 
 Add skip mode: preOp stashes input tensors before device execution, postOp
 replaces device outputs with golden-computed results.
@@ -77,3 +96,7 @@ replaces device outputs with golden-computed results.
 - Add `_skip_stash` to `ProgramState` and skip-mode input stashing in `preOp`.
 - Add golden-replace logic in `postOp` — execute golden with stashed inputs, overwrite device tensors.
 - Add skip configuration (which ops to skip).
+
+## ~~Chisel PR 5: Builder Integration~~ — Superseded
+
+Merged into Chisel PR 1. See above.

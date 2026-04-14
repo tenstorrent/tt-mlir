@@ -1,4 +1,4 @@
-# PR 3: Skip Mode
+# PR 4: Skip Mode
 
 ## Goal
 
@@ -126,5 +126,5 @@ The new skip mode is simpler and more precise:
 
 ## Dependencies
 
-- **PR 2** — Reporting (skip mode rows are written to the CSV report)
-- **PR 1** — All core chisel modules
+- **PR 3** — Reporting (skip mode rows are written to the CSV report)
+- **PR 2** — Single Program Flow (all core chisel modules)

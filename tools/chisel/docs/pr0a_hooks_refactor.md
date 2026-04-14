@@ -177,7 +177,7 @@ For the non-debug path, we need a static empty optional:
 
 ## Dependencies
 
-None — standalone runtime fix. **Must land before Chisel PR 3**
-(orchestration), which registers Python callbacks via `DebugHooks.get()`.
-PRs 1-2 don't register callbacks and are unaffected, so PR 0a-1 can be
-developed in parallel with them.
+None — standalone runtime fix. **Must land before Chisel PR 2**
+(Single Program Flow), which requires program-level hooks and multi-client
+callbacks. Not a prerequisite for Chisel PR 1, which uses the existing
+`DebugHooks.get(pre, post)` API in single-client mode.

@@ -2,6 +2,20 @@
 
 ## Module Structure
 
+**PR 1 (Single Op Isolation):**
+```
+tools/chisel/
+├── CMakeLists.txt
+└── chisel/
+    ├── __init__.py        # Package init
+    ├── context.py         # Slim ChiselContext (ir_module, op_iter, stashed inputs)
+    ├── callbacks.py       # preOp/postOp only (2 callbacks)
+    ├── executor.py        # execute_golden(op, ir_module, inputs: dict)
+    ├── ops.py             # IRModule wrapper for TTNN module
+    └── utils.py           # Dtype maps, runtime tensor conversion
+```
+
+**PR 2+ (Full Architecture):**
 ```
 tools/chisel/
 ├── CMakeLists.txt
@@ -9,17 +23,40 @@ tools/chisel/
     ├── __init__.py        # Package init, exports ChiselContext accessors
     ├── context.py         # ChiselContext singleton, BinaryState, ProgramState
     ├── callbacks.py       # preProgram/postProgram/preOp/postOp callback functions
-    ├── executor.py        # Golden execution function (TTNN ops on CPU via PyTorch)
+    ├── executor.py        # Golden execution + pool-aware wrapper
     ├── tensors.py         # TensorPool (stores GoldenMapTensor directly)
     ├── ops.py             # IRModule wrapper for TTNN module
-    ├── report.py          # CSV report writer
-    └── utils.py           # Location parsing, dtype maps, debug utilities
+    ├── report.py          # CSV report writer (PR 3)
+    └── utils.py           # Dtype maps, runtime tensor conversion
 ```
 
-## Hierarchical State Model
+## Isolation Mode (PR 1)
 
-Chisel uses a three-level hierarchy to manage state across binaries, programs,
-and ops:
+PR 1 uses a slim `ChiselContext` with only what's needed for per-op testing:
+
+```
+ChiselContext (singleton)
+├── ir_module: IRModule              # parsed MLIR
+├── op_iter: Iterator                # advances with preOp
+├── _current_op: Operation | None    # set in preOp, used in postOp
+└── _stashed_inputs: dict | None     # device inputs copied in preOp, consumed in postOp
+```
+
+**Callback flow per op:**
+1. **preOp**: `_current_op = next(op_iter)`, copy device input tensors to host,
+   stash in `_stashed_inputs`
+2. **HW executes op**
+3. **postOp**: Run golden with stashed inputs, capture device output, compare
+   (PCC, atol, rtol), log to stdout, discard golden output
+
+Each op is self-contained — no dependency on previous ops' golden outputs.
+This mode validates that individual golden functions produce correct results
+against device outputs.
+
+## Hierarchical State Model (PR 2+)
+
+PR 2 expands to a three-level hierarchy to manage state across binaries,
+programs, and ops:
 
 ```
 ChiselContext (singleton)
@@ -211,14 +248,13 @@ def chisel_post_op_callback(binary, program_context, op_context):
 
 ### `executor.py` — Golden Execution
 
-Provides the standalone `execute_golden(op, ir_module, tensor_pool)` function
-that replays TTNN operations on CPU using `GOLDEN_MAPPINGS` from
-`tools/golden/mapping.py`. For each TTNN op encountered during device
-execution, the function:
-1. Retrieves input tensors from the per-program `golden_tensor_pool`
-2. Looks up the op type in `GOLDEN_MAPPINGS`
-3. Calls the golden function with PyTorch tensors
-4. Stores the result in the per-program `golden_tensor_pool`
+Provides golden execution functions:
+- **`execute_golden(op, ir_module, inputs: dict)`** (PR 1) — core function that
+  takes a plain dict of input tensors, looks up the op in `GOLDEN_MAPPINGS`,
+  calls the golden function, and returns the result.
+- **`execute_golden_from_pool(op, ir_module, tensor_pool)`** (PR 2) — pool-aware
+  wrapper that retrieves inputs from `TensorPool`, calls the core function,
+  and stores outputs back in the pool.
 
 ### `tensors.py` — Tensor Management
 
