@@ -275,6 +275,7 @@ void createTTIRToTTNNDevicePipeline(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
+  options.validateD2MElementwiseFusionOptions();
 
   // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
   // are resolved - tt-metal issue #31041.
@@ -385,7 +386,8 @@ void createTTIRToTTNNDevicePipeline(
 
     if (options.enableD2MFusing) {
       TTNNPipelineD2MOptions d2mOpts;
-      d2mOpts.enableElementwiseFusion = true;
+      d2mOpts.enableElementwiseFusion =
+          options.enableD2MElementwiseFusion.getValue();
       createTTNNPipelineD2MPass(devicePm, d2mOpts);
       devicePm.addPass(createTTNNCollaspeD2M());
       devicePm.addPass(createCanonicalizerPass());
@@ -605,7 +607,7 @@ void createTTNNPipelineD2MPass(OpPassManager &pm,
   // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
   // only works on top-level modules (doesn't run module has a parent op).
   ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
-  ttmetalOptions.ttnnMode = d2mOptions.ttnnMode;
+  ttmetalOptions.ttnnMode = true;
   ttmetalOptions.enableElementwiseFusion = d2mOptions.enableElementwiseFusion;
   ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
   ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);

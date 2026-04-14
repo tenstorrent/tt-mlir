@@ -286,6 +286,13 @@ struct TTIRToTTNNDevicePipelineOptions
                                llvm::cl::desc("Enable D2M fusing pass."),
                                llvm::cl::init(false)};
 
+  Option<bool> enableD2MElementwiseFusion{
+      *this, "enable-d2m-elementwise-fusion",
+      llvm::cl::desc(
+          "Enable D2M elementwise fusion when enable-d2m-fusing-pass is on "
+          "(default true). Ignored when D2M fusing is off."),
+      llvm::cl::init(true)};
+
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
@@ -486,6 +493,15 @@ struct TTIRToTTNNDevicePipelineOptions
       computeCfgFp32DestAccEn = false;
     }
   }
+
+  void validateD2MElementwiseFusionOptions() const {
+    if (!enableD2MFusing &&
+        enableD2MElementwiseFusion.getNumOccurrences() > 0 &&
+        enableD2MElementwiseFusion.getValue()) {
+      llvm::reportFatalUsageError("enable-d2m-elementwise-fusion=true requires "
+                                  "enable-d2m-fusing-pass to be enabled.");
+    }
+  }
 };
 
 // TTNN to EmitC Device pipeline options.
@@ -634,7 +650,7 @@ void createRecoverStructureXLATorchPipeline(
 // Options for createTTNNPipelineD2MPass.
 struct TTNNPipelineD2MOptions {
   bool ttnnMode = true;
-  bool enableElementwiseFusion = false;
+  bool enableElementwiseFusion = true;
 };
 
 void createTTNNPipelineD2MPass(OpPassManager &pm,
