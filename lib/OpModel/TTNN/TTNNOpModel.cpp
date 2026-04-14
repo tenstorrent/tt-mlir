@@ -2886,8 +2886,7 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        pagedSdpaProgramConfig,
+        detail::getNullableMemoryConfig(outputLayout), pagedSdpaProgramConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 

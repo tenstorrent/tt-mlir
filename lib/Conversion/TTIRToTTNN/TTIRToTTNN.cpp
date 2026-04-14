@@ -762,6 +762,22 @@ public:
     return success();
   }
 };
+
+class SamplingOpConversionPattern
+    : public OpConversionPattern<ttir::SamplingOp> {
+public:
+  using OpConversionPattern<ttir::SamplingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SamplingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::SamplingOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInputValues(), adaptor.getInputIndices(), adaptor.getK(),
+        adaptor.getP(), adaptor.getTemp(), adaptor.getSeedAttr());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -3733,6 +3749,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            UpdateCacheOpConversionPattern,
            PagedFillCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
+           SamplingOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
            GatherDimOpConversionPattern,
