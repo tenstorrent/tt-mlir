@@ -163,6 +163,13 @@ public:
     // under a sdy.manual_computation op. This is required to enable the
     // conversion from sdy into ttir.
     rootModule.walk([&](func::FuncOp funcOp) {
+      // Skip private functions (e.g., composite decompositions) — only wrap
+      // public entry points. Private FuncOps don't need ManualComputation
+      // wrappers and including them causes "Expected at most one
+      // ManualComputationOp" errors downstream.
+      if (funcOp.isPrivate()) {
+        return;
+      }
       if (failed(wrapFunctionBodyInManualComputationOp(context, builder,
                                                        globalMeshOp, funcOp))) {
         rootModule.emitError(
