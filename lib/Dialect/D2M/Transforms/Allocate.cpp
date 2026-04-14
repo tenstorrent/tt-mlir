@@ -1831,7 +1831,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     // in-generic allocs receive an L1 address. This runs before
     // reblockGenerics, so the view doesn't exist yet and
     // isOperandExemptFromStreaming would incorrectly skip the alloc.
-    if (allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
+    // Explicit DM generics have no indexing maps and are never reblocked.
+    if (!genericCtx.isExplicitDatamovement &&
+        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
                                      genericCtx.reblockedFactors)) {
       return true;
     }
