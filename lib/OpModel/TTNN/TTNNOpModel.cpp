@@ -19,6 +19,7 @@
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include <eltwise/binary/unifiedEltwiseBinaryCompositeOp.h>
 #include <eltwise/binary/unifiedEltwiseBinaryOp.h>
+#include <eltwise/ternary/unifiedEltwiseTernaryOp.h>
 #include <matmul/unifiedMatmulOp.h>
 #include <ttnn/graph/graph_query_op_runtime.hpp>
 
@@ -1497,6 +1498,15 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Ternary Eltwise Ops
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseTernaryWhereOpT
+buildEltwiseTernaryOpTFromMLIR() {
+  ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT;
+
+  return eltwiseTernaryWhereOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
@@ -1523,11 +1533,25 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT =
+      buildEltwiseTernaryOpTFromMLIR<OpTy>();
+
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
-                                               device, inputSpecA, inputSpecB,
-                                               inputSpecC, outputMemoryConfig);
+    unifiedOpLib::EltwiseTernaryOpResult result =
+        unifiedOpLib::callEltwiseTernary(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseTernaryWhereOpT, detail::getOpSymbol<OpTy>(), inputSpecA,
+            inputSpecB, inputSpecC, device, outputMemoryConfig);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EltwiseTernaryOp query");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
+    // return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
+    //                                            device, inputSpecA,
+    //                                            inputSpecB, inputSpecC,
+    //                                            outputMemoryConfig);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -1562,11 +1586,25 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT =
+      buildEltwiseTernaryOpTFromMLIR<OpTy>();
+
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
-                                           inputSpecA, inputSpecB, inputSpecC,
-                                           outputMemoryConfig);
+    unifiedOpLib::EltwiseTernaryOpResult result =
+        unifiedOpLib::callEltwiseTernary(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseTernaryWhereOpT,
+            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, inputSpecC,
+            device, outputMemoryConfig);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseTernaryOp query");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
+    // return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(),
+    // device,
+    //                                        inputSpecA, inputSpecB,
+    //                                        inputSpecC, outputMemoryConfig);
   };
 
   return operation::getOpRuntime(query);
@@ -1576,7 +1614,8 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
 }
 
 // Explicit template instantiation for TernaryEltwiseOpModel.
-template struct TernaryEltwiseOpModel<WhereOp>;
+template struct TernaryEltwiseOpModel<
+    WhereOp>; // , tt::target::ttnn::EltwiseTernaryWhereOpT
 
 //===----------------------------------------------------------------------===//
 // Reduction Ops
