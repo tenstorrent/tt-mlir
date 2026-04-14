@@ -556,7 +556,12 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     Value memref = loadOp.getMemref();
     bool l1Pair = isL1ToL1Pair(loadOp.getLocalBuffer());
     if (!needsDMA(memref, loadOp.getLocalBuffer()) && !l1Pair) {
-      // Aliased op do not need DMA; drop uses and mark for erasure.
+      // Aliased op does not need DMA; drop uses and mark for erasure.
+      // Still record the buffer-CB mapping
+      if (Value localBuffer = loadOp.getLocalBuffer()) {
+        localBufferToCB[localBuffer] =
+            findAssociatedCB(loadOp, memref, rewriter, cache, portCounters);
+      }
       if (loadOp.getResult()) {
         loadOp.getResult().dropAllUses();
       }
