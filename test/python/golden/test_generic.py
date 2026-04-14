@@ -435,6 +435,9 @@ def test_generic_eltwise_reblock(
                     out_dev.type,
                     out_dev,
                     [mbi, nbi],
+                    start_device=[],
+                    device_mcast_shape=[],
+                    semaphore_indices=[],
                     local_buffer=linalg_op.result,
                 )
                 d2m.yield_([res])
