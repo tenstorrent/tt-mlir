@@ -273,9 +273,41 @@ static RankedTensorType tensorWithOptimalGrid(RankedTensorType oldTensor,
   return RankedTensorType::get(deviceShape, newElementType, newLayout);
 }
 
+// Rebuild a ToLayoutOp and its associated EmptyOp at a new target type.
+// The EmptyOp builder handles VGM (virtual grid mapping) computation
+// automatically when the grid requires virtualization.
+// Returns the new ToLayoutOp, or nullptr if the old op has no EmptyOp output.
+static d2m::ToLayoutOp
+rebuildToLayoutWithType(d2m::ToLayoutOp toLayoutOp, RankedTensorType newType,
+                        const GridSelectionConfig &config, OpBuilder &builder) {
+  auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
+  if (!emptyOp) {
+    return nullptr;
+  }
+
+  builder.setInsertionPoint(emptyOp);
+  auto newEmptyOp = builder.create<d2m::EmptyOp>(
+      emptyOp.getLoc(), newType.getShape(), newType.getElementType(),
+      newType.getEncoding(), config.targetSquareGridShape);
+
+  builder.setInsertionPoint(toLayoutOp);
+  return builder.create<d2m::ToLayoutOp>(toLayoutOp.getLoc(),
+                                         toLayoutOp.getInput(), newEmptyOp);
+}
+
+// Erase a ToLayoutOp and its EmptyOp output (if no longer used).
+static void eraseToLayoutAndEmpty(d2m::ToLayoutOp toLayoutOp) {
+  auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
+  toLayoutOp.erase();
+  if (emptyOp && emptyOp.getResult().use_empty()) {
+    emptyOp.erase();
+  }
+}
+
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
 // recreating the MetalLayoutAttr with the given grid and proper dimension
-// alignments.
+// alignments, then inserting a reblock ViewLayoutOp to preserve IR correctness
+// for downstream consumers.
 static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
                                  const GridSelectionConfig &config,
                                  ArrayRef<int64_t> optimalGrid,
@@ -312,42 +344,12 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
 
   RankedTensorType newTensorType =
       tensorWithOptimalGrid(outputType, config, optimalGrid, builder);
-  builder.setInsertionPoint(emptyOp);
 
-  // Determine if the chosen grid is virtual (exceeds 2D device bounds or is
-  // ND). Note: VGM is NOT propagated from the to_layout's input here — the
-  // output EmptyOp has its own grid/shard strategy. VGM for DMA addresses
-  // is traced through the stream's input at DMA lowering time.
-  mlir::AffineMapAttr virtualGridInverseMapping;
-  mlir::AffineMapAttr virtualGridForwardMapping;
-  auto device = ttcore::lookupDevice(toLayoutOp);
-  auto workerGridShape = device.getWorkerGrid().getShape();
-  bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
-      optimalGrid, workerGridShape);
-  if (isVirtual) {
-    auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume<int64_t>(optimalGrid),
-        config.targetSquareGridShape);
-    TT_assertv(
-        !physicalGridShape.empty(),
-        "Unable to find 2D rect that can fit virtual grid {} within "
-        "device grid {}",
-        ttmlir::utils::formatIterable(optimalGrid, "x"),
-        ttmlir::utils::formatIterable(config.targetSquareGridShape, "x"));
-    auto [forwardMap, inverseMap] =
-        ttmlir::d2m::utils::grids::createCoreVirtMaps(
-            builder.getContext(), optimalGrid, physicalGridShape);
-    virtualGridInverseMapping = AffineMapAttr::get(inverseMap);
-    virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
+  auto newToLayoutOp =
+      rebuildToLayoutWithType(toLayoutOp, newTensorType, config, builder);
+  if (!newToLayoutOp) {
+    return;
   }
-
-  auto newEmptyOp = builder.create<d2m::EmptyOp>(
-      emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
-      virtualGridForwardMapping);
-
-  builder.setInsertionPoint(toLayoutOp);
-  auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-      toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
   // Reblock it back to original shape to preserve IR correctness.
   // The view chain that applyViews composes through depends on this
@@ -421,10 +423,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   }
   toLayoutOp.getResult(0).replaceAllUsesWith(view.getResult());
 
-  toLayoutOp.erase();
-  if (emptyOp.getResult().use_empty()) {
-    emptyOp.erase();
-  }
+  eraseToLayoutAndEmpty(toLayoutOp);
 }
 
 static bool isTTNNOperand(Value operand) {
@@ -885,24 +884,12 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
       // inputs must coexist in L1 on a single core.
       if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
           toLayoutOp && input.hasOneUse()) {
-        auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
-        if (emptyOp) {
-          builder.setInsertionPoint(emptyOp);
-          auto newEmptyOp = builder.create<d2m::EmptyOp>(
-              emptyOp.getLoc(), newInputType.getShape(),
-              newInputType.getElementType(), newInputType.getEncoding(),
-              config.targetSquareGridShape);
-
-          builder.setInsertionPoint(toLayoutOp);
-          auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-              toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
-
+        auto newToLayoutOp =
+            rebuildToLayoutWithType(toLayoutOp, newInputType, config, builder);
+        if (newToLayoutOp) {
           toLayoutOp.getResult(0).replaceAllUsesWith(
               newToLayoutOp.getResult(0));
-          toLayoutOp.erase();
-          if (emptyOp.getResult().use_empty()) {
-            emptyOp.erase();
-          }
+          eraseToLayoutAndEmpty(toLayoutOp);
 
           reblockedInputs.push_back(newToLayoutOp.getResult(0));
           continue;
