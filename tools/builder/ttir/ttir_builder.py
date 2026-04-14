@@ -10657,6 +10657,46 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    @parse(ttir.SliceDynamicOp)
+    def slice_dynamic_parser(
+        self,
+        old_op: ttir.SliceDynamicOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.slice_dynamic_parser)
+        in0 = global_dict[old_op.input]
+        begins = global_dict[old_op.begins]
+        ends = global_dict[old_op.ends]
+        result = old_op.result.type
+        step_attr = old_op.step
+
+        new_op = ttir_op(
+            result,
+            in0,
+            begins,
+            ends,
+            step=step_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input_begins = self._get_golden_tensor(begins)
+        input_ends = self._get_golden_tensor(ends)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            input_begins,
+            input_ends,
+            step=step_attr,
+            output_type_mlir=result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
     @split(ttir.SliceStaticOp)
     def slice_split(
         self,

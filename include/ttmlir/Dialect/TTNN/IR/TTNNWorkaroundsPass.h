@@ -280,6 +280,9 @@ public:
   static TTNNOperandsWorkarounds
   createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
 
+  static TTNNOperandsWorkarounds
+  createConcatOpOperandsWorkarounds(mlir::Operation *op);
+
   static TTNNOperandsWorkarounds createDropoutOpOperandsWorkarounds();
 
   static TTNNOperandsWorkarounds

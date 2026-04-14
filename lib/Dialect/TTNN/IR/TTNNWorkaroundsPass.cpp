@@ -307,7 +307,11 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
     ttnn::SliceDynamicOp op) {
+  // The tt-metal slice with tensor args (dynamic) requires ROW_MAJOR layout
+  // for the input tensor. The device-only TILE path needs slice_dim and
+  // num_devices which are not provided by the TTIR→TTNN lowering.
   TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   Type inputType = op.getInput().getType().getElementType();
   uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
   if (inputType.isUnsignedInteger() && bitWidth < 32) {
@@ -316,11 +320,17 @@ TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
   TTNNOperandWorkarounds uInt32Workaround;
   uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
 
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  if (inputType.isUnsignedInteger() && bitWidth < 32) {
+    outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+  }
+
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(inputWorkaround)
       .addInputOperandWorkaround(uInt32Workaround)
       .addInputOperandWorkaround(uInt32Workaround)
-      .addOutputOperandWorkaround(inputWorkaround);
+      .addOutputOperandWorkaround(outputWorkaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
@@ -365,13 +375,12 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   if (predicateElementType.isInteger() ||
       predicateElementType != inputElementType) {
     if (inputElementType.isInteger()) {
-      // In an unlikely scenario, we could potentially upcast to float32, if
-      // input is integer and predicate is for example bf16.
-      // More importantly, if both are integers, we force both to float32.
+      // Both are integers. Use INT32 to preserve integer precision.
+      // Float32 would lose lower bits for values > 2^24.
       predicateTypeWorkaround =
-          TTNNOperandWorkarounds(ttcore::DataType::Float32);
-      inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
-      outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
+          TTNNOperandWorkarounds(ttcore::DataType::Int32);
+      inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
+      outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
     } else {
       // Otherwise, we just force the predicate type to match the input type.
       predicateTypeWorkaround = TTNNOperandWorkarounds(
@@ -404,6 +413,29 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkarounds)
       .addOutputOperandWorkaround(typeWorkarounds);
+}
+
+// Factory method to create a set of workarounds for concat operation operands.
+// Tilize (used internally by concat) doesn't support ui8/i8 tensors.
+// Promote to Int32, same as the reshape workaround.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  TTNNOperandWorkarounds typeWorkarounds;
+  if (op->getNumOperands() > 0) {
+    auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+    mlir::Type elemType = inputType.getElementType();
+    mlir::tt::ttcore::DataType dataType =
+        mlir::tt::ttcore::elementTypeToDataType(elemType);
+    if (dataType == mlir::tt::ttcore::DataType::UInt8) {
+      typeWorkarounds.tensorDataTypeWorkaround =
+          mlir::tt::ttcore::DataType::Int32;
+    }
+  }
+  auto wa = TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  for (unsigned i = 0; i < op->getNumOperands(); ++i)
+    wa = wa.addInputOperandWorkaround(typeWorkarounds);
+  return wa.addOutputOperandWorkaround(typeWorkarounds);
 }
 
 // Factory method to create a set of workarounds for UpdateCache operation
