@@ -43,10 +43,12 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 ::tt::runtime::Tensor
-createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
-                      std::uint32_t itemsize, ::tt::target::DataType dataType,
-                      std::uint64_t logicalId);
+createCachedOwnedHostTensor(const void *data,
+                            const std::vector<std::uint32_t> &shape,
+                            const std::vector<std::uint32_t> &stride,
+                            std::uint32_t itemsize,
+                            ::tt::target::DataType dataType,
+                            std::uint64_t logicalId);
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,

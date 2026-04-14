@@ -411,7 +411,7 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   return outputTensorHandle;
 }
 
-::tt::runtime::Tensor Controller::createOwnedHostTensor(
+::tt::runtime::Tensor Controller::createCachedOwnedHostTensor(
     const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType, std::uint64_t logicalId) {
@@ -423,6 +423,10 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   uint64_t commandId = CommandFactory::buildCreateHostTensorCommand(
       *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
       dataType, logicalId);
+
+  LOG_INFO("Controller enqueuing CreateCachedOwnedHostTensor commandId=",
+           commandId, " outputGlobalId=", outputTensorHandle.getGlobalId(),
+           " logicalId=", logicalId);
 
   pushToCommandAndResponseQueues(commandId,
                                  fb::CommandType::CreateHostTensorCommand,

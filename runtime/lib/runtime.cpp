@@ -325,26 +325,26 @@ Tensor createOwnedHostTensor(const void *data,
       });
 }
 
-Tensor createOwnedHostTensor(const void *data,
-                             const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
-                             std::uint32_t itemsize,
-                             ::tt::target::DataType dataType,
-                             std::uint64_t logicalId) {
+Tensor createCachedOwnedHostTensor(const void *data,
+                                   const std::vector<std::uint32_t> &shape,
+                                   const std::vector<std::uint32_t> &stride,
+                                   std::uint32_t itemsize,
+                                   ::tt::target::DataType dataType,
+                                   std::uint64_t logicalId) {
   using RetType = Tensor;
   LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        detail::fatalNotImplemented("createOwnedHostTensor(logicalId)",
+        detail::fatalNotImplemented("createCachedOwnedHostTensor",
                                     DeviceRuntime::TTNN);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createOwnedHostTensor(logicalId)",
+        detail::fatalNotImplemented("createCachedOwnedHostTensor",
                                     DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        return ::tt::runtime::distributed::createOwnedHostTensor(
+        return ::tt::runtime::distributed::createCachedOwnedHostTensor(
             data, shape, stride, itemsize, dataType, logicalId);
       });
 }

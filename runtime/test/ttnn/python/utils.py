@@ -10,7 +10,7 @@ from ttrt.common.query import Query
 from ttrt.common.util import *
 from enum import Enum
 from dataclasses import dataclass
-from typing import Callable, List, Any, Optional
+from typing import Callable, List, Any
 
 TT_MLIR_HOME = os.environ.get("TT_MLIR_HOME", "")
 TT_METAL_RUNTIME_ROOT_EXTERNAL = os.environ.get("TT_METAL_RUNTIME_ROOT_EXTERNAL", "")
@@ -179,28 +179,19 @@ def subprocess_get_system_descriptor(request):
     return system_desc
 
 
-def get_runtime_tensor_from_torch(
-    torch_tensor, storage=Storage.Borrowed, logical_id: Optional[int] = None
-):
+def get_runtime_tensor_from_torch(torch_tensor, storage=Storage.Borrowed):
     if storage == Storage.Borrowed:
-        if logical_id is not None:
-            raise ValueError("logical_id is only supported for owned host tensors")
         creator_fn = ttrt.runtime.create_borrowed_host_tensor
     elif storage == Storage.Owned:
         creator_fn = ttrt.runtime.create_owned_host_tensor
 
     runtime_dtype = Binary.Program.to_data_type(torch_tensor.dtype)
-    creator_kwargs = {}
-    if logical_id is not None:
-        creator_kwargs["logical_id"] = logical_id
-
     runtime_tensor = creator_fn(
         torch_tensor.data_ptr(),
         list(torch_tensor.shape),
         list(torch_tensor.stride()),
         torch_tensor.element_size(),
         runtime_dtype,
-        **creator_kwargs,
     )
     return runtime_tensor
 

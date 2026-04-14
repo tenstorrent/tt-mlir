@@ -122,12 +122,14 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 }
 
 ::tt::runtime::Tensor
-createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
-                      std::uint32_t itemsize, ::tt::target::DataType dataType,
-                      std::uint64_t logicalId) {
+createCachedOwnedHostTensor(const void *data,
+                            const std::vector<std::uint32_t> &shape,
+                            const std::vector<std::uint32_t> &stride,
+                            std::uint32_t itemsize,
+                            ::tt::target::DataType dataType,
+                            std::uint64_t logicalId) {
   assertControllerLaunched();
-  return ControllerSingleton::get().createOwnedHostTensor(
+  return ControllerSingleton::get().createCachedOwnedHostTensor(
       data, shape, stride, itemsize, dataType, logicalId);
 }
 

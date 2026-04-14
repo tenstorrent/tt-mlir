@@ -67,14 +67,14 @@ Tensor createOwnedHostTensor(const void *data,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
-// Distributed-only overload that additionally threads a logical tensor ID
-// through the flatbuffer command for future caching support.
-Tensor createOwnedHostTensor(const void *data,
-                             const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
-                             std::uint32_t itemsize,
-                             ::tt::target::DataType dataType,
-                             std::uint64_t logicalId);
+// Creates an owned host tensor with a logical cache ID
+// (distributed runtime only).
+Tensor createCachedOwnedHostTensor(const void *data,
+                                   const std::vector<std::uint32_t> &shape,
+                                   const std::vector<std::uint32_t> &stride,
+                                   std::uint32_t itemsize,
+                                   ::tt::target::DataType dataType,
+                                   std::uint64_t logicalId);
 
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor

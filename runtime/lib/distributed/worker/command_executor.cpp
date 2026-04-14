@@ -340,6 +340,16 @@ void CommandExecutor::execute(uint64_t commandId,
                                command->stride()->end());
   uint32_t itemSize = command->item_size();
   ::tt::target::DataType dataType = command->data_type();
+  ::flatbuffers::Optional<uint64_t> logicalId = command->logical_id();
+
+  if (logicalId.has_value()) {
+    LOG_INFO("Worker executing CreateHostTensor commandId=", commandId,
+             " outputGlobalId=", tensorGlobalId, " logicalId=",
+             logicalId.value());
+  } else {
+    LOG_INFO("Worker executing CreateHostTensor commandId=", commandId,
+             " outputGlobalId=", tensorGlobalId, " logicalId=<unset>");
+  }
 
   ::tt::runtime::Tensor tensor = ::tt::runtime::createOwnedHostTensor(
       tensorData, shape, stride, itemSize, dataType);
