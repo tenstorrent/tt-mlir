@@ -2145,7 +2145,7 @@ def D2M_ScratchInitOp : D2M_Op<"scratch_init"> {
     inside a `d2m.generic` region. This op consumes the memref to prevent
     canonicalization from removing the otherwise-unused alloc.
 
-    Inserted by `AddScratchInputs` and erased by `LowerScratchAllocate`
+    Inserted by `InsertScratchBuffers` and erased by `LowerScratchAllocate`
     after `scratch_allocate` ops are replaced with subviews of this memref.
 
     Example:
