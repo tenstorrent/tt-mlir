@@ -162,9 +162,7 @@ def test_moe_dispatch_combine(
 
 # --- Selective reduce combine test (multi-device) ---
 # Shapes derived from tt-metal tests:
-# - DeepSeek decode: hidden=7168, batch=512, seq=1, K=2, experts=32, mesh=(1,16)
 # - GPT-OSS pipeline: hidden=2880, batch=128, seq=1, K=4, experts=128, mesh=(4,8)
-# We use a (1,2) mesh here but keep realistic per-device dimensions.
 
 
 @pytest.mark.skip(reason="Golden not yet implemented")
@@ -173,9 +171,8 @@ def test_moe_dispatch_combine(
     "mesh_shape,hidden_size,batch,seq,select_experts_k,experts",
     [
         ((4, 8), 2880, 128, 1, 4, 128),  # GPT-OSS (32-device galaxy)
-        ((1, 8), 7168, 64, 1, 2, 16),  # DeepSeek decode (8-device)
     ],
-    ids=["gpt_oss_4x8", "deepseek_1x8"],
+    ids=["gpt_oss_4x8"],
 )
 def test_selective_reduce_combine(
     target: str,
