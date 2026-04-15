@@ -1,0 +1,110 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "eltwise/quantization/unifiedEltwiseQuantizationOp.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/Target/TTNN/operations/matmul_generated.h"
+#include "ttnn/graph/graph_query_op_constraints.hpp"
+#include "utils/utils.h"
+#include <operations/eltwise/quantization/quantization.hpp>
+#include <operations/functions.hpp>
+#include <optional>
+#include <ttnn/graph/graph_query_op_runtime.hpp>
+#include <variant>
+
+namespace unifiedOpLib {
+
+EltwiseQuantizationResolvedParams resolveEltwiseQuantizationParams(
+    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT) {
+
+  EltwiseQuantizationResolvedParams params;
+
+  if (eltwiseQuantizationOpT.axis) {
+    params.axis = *(eltwiseQuantizationOpT.axis);
+  }
+
+  if (eltwiseQuantizationOpT.output_dtype.has_value()) {
+    params.outputDataType = operations::utils::toTTNNDataType(
+        eltwiseQuantizationOpT.output_dtype.value());
+  }
+
+  if (eltwiseQuantizationOpT.out) {
+    params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
+        operations::utils::getTensorRefMemoryConfig(
+            *eltwiseQuantizationOpT.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*eltwiseQuantizationOpT.out) ||
+                   params.outputMemoryConfig.has_value(),
+               "Memory config must exist for device tensors");
+  }
+
+  return params;
+}
+
+EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
+    CallType callType,
+    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
+    TensorArg inputParam, TensorVariantArg<float> scaleParam,
+    TensorVariantArg<int32_t> zeroPointParam, ::ttnn::MeshDevice *device,
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig,
+    std::optional<::tt::tt_metal::DataType> outputDType) {
+
+  EltwiseQuantizationResolvedParams params =
+      resolveEltwiseQuantizationParams(eltwiseQuantizationOpT);
+  if (outputMemoryConfig.has_value()) {
+    params.outputMemoryConfig = outputMemoryConfig;
+  }
+  if (outputDType.has_value()) {
+    params.outputDataType = outputDType;
+  }
+
+  std::function<::ttnn::Tensor(
+      const ::ttnn::Tensor &, const std::variant<::ttnn::Tensor, float> &,
+      const std::variant<::ttnn::Tensor, int32_t> &, std::optional<int32_t>,
+      std::optional<::ttnn::DataType>, std::optional<::ttnn::MemoryConfig>,
+      std::optional<::ttnn::Tensor>)>
+      func;
+
+  if (eltwiseQuantizationOpT.type ==
+      ::tt::target::ttnn::EltwiseQuantizationOpType::Quantize) {
+    func = ::ttnn::quantize;
+  } else if (eltwiseQuantizationOpT.type ==
+             ::tt::target::ttnn::EltwiseQuantizationOpType::Dequantize) {
+    func = ::ttnn::dequantize;
+  } else {
+    func = ::ttnn::dequantize;
+    LOG_ASSERT(false &&
+               "EltwiseQuantizationOpType must be Quantize or Dequantize");
+  }
+
+  switch (callType) {
+  case CallType::QUERY_OP_CONSTRAINTS:
+    return ::ttnn::graph::query_op_constraints(
+        func, device, std::get<::ttnn::TensorSpec>(inputParam),
+        std::get<::ttnn::TensorSpec>(scaleParam),
+        std::get<::ttnn::TensorSpec>(zeroPointParam), params.axis,
+        params.outputDataType, params.outputMemoryConfig,
+        /*optional_output_tensor=*/std::nullopt);
+  case CallType::QUERY_OP_RUNTIME:
+    return ::ttnn::graph::query_op_runtime(
+        func, device, std::get<::ttnn::TensorSpec>(inputParam),
+        std::get<::ttnn::TensorSpec>(scaleParam),
+        std::get<::ttnn::TensorSpec>(zeroPointParam), params.axis,
+        params.outputDataType, params.outputMemoryConfig,
+        /*optional_output_tensor=*/std::nullopt);
+  case CallType::EXECUTE: {
+    const auto &inputT = *std::get<const ::ttnn::Tensor *>(inputParam);
+    const auto &scale =
+        std::get<std::variant<::ttnn::Tensor, float>>(scaleParam);
+    const auto &zeroPoint =
+        std::get<std::variant<::ttnn::Tensor, int32_t>>(zeroPointParam);
+
+    return func(inputT, scale, zeroPoint, params.axis, params.outputDataType,
+                params.outputMemoryConfig, std::nullopt);
+  }
+  }
+}
+
+} // namespace unifiedOpLib
