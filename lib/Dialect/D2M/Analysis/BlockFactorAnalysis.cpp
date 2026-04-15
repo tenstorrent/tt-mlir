@@ -84,7 +84,7 @@ classifyAutoSearch(GenericOp genericOp,
                    ArrayRef<ttcore::IteratorType> iteratorTypes,
                    ArrayRef<int64_t> shardFactors) {
   if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
-      genericOp.getScratchInputsAttr() || genericOp.getOutputs().size() != 1) {
+      genericOp.getOutputs().size() != 1) {
     return std::nullopt;
   }
 
@@ -224,7 +224,7 @@ static std::optional<CandidateScore> evaluateCandidate(
   // dims.
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getInputsAndOutputs())) {
-        
+
     if (!isIndexingMapBlocked(indexingMaps[operandIndex], scaledDims)) {
       continue;
     }
