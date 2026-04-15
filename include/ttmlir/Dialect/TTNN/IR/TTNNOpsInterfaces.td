@@ -68,6 +68,43 @@ def TTNN_ElementwiseBinary : OpInterface<"ElementwiseBinary"> {
       /*args=*/(ins),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return $_op->getOperand(1);"
+    >
+  ];
+}
+
+def TTNN_ElementwiseBinaryActivations
+    : OpInterface<"ElementwiseBinaryActivations"> {
+  let cppNamespace = "::mlir::tt::ttnn";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the output activations for the binary operation.
+      }],
+      /*retTy=*/"::mlir::ArrayAttr",
+      /*methodName=*/"getActivations",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return $_op.getProperties().activations;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the input_tensor_a activations for the binary operation.
+      }],
+      /*retTy=*/"::mlir::ArrayAttr",
+      /*methodName=*/"getInputTensorAActivations",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return $_op.getProperties().input_tensor_a_activations;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the input_tensor_b activations for the binary operation.
+      }],
+      /*retTy=*/"::mlir::ArrayAttr",
+      /*methodName=*/"getInputTensorBActivations",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return $_op.getProperties().input_tensor_b_activations;"
     >,
     InterfaceMethod<
       /*desc=*/[{
