@@ -10,6 +10,7 @@
 #include "ttnn/types.hpp"
 #include "utils/utils.h"
 
+#include <cstdint>
 #include <optional>
 
 namespace unifiedOpLib {
@@ -38,6 +39,16 @@ EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
     const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
     TensorArg input, TensorVariantArg<float> scale,
     TensorVariantArg<int32_t> zeroPoint, ::ttnn::MeshDevice *device = nullptr,
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
+    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
+
+EltwiseQuantizationOpResult callEltwiseRequantize(
+    CallType callType,
+    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
+    TensorArg input, TensorVariantArg<float> in_scale,
+    TensorVariantArg<int32_t> in_zero_point, TensorVariantArg<float> out_scale,
+    TensorVariantArg<int32_t> out_zero_point,
+    ::ttnn::MeshDevice *device = nullptr,
     std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 

@@ -4371,6 +4371,11 @@ buildEltwiseQuantizationOpTFromMLIR(std::optional<int32_t> axis,
   } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
     eltwiseQuantizationOpT.type =
         ::tt::target::ttnn::EltwiseQuantizationOpType::Dequantize;
+  } else if constexpr (std::is_same_v<OpTy, RequantizeOp>) {
+    eltwiseQuantizationOpT.type =
+        ::tt::target::ttnn::EltwiseQuantizationOpType::Requantize;
+  } else {
+    static_assert(ttmlir::utils::always_false(), "Unsupported OpTy");
   }
 
   eltwiseQuantizationOpT.axis =
@@ -4447,7 +4452,7 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
         "Expected ConstraintQueryResponse from callEltwiseQuantizeDequantize");
 
     return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
-};
+  };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
                                      quantizationOpQuery);
@@ -4591,12 +4596,24 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Create query closure
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
+      buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
+                                                        outputLayout);
 
+  // Create query closure
   auto requantizeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::requantize, device, inputSpec, inScaleSpec, inZeroPointSpec,
-        outScaleSpec, outZeroPointSpec, axis, outputDType, outputMemoryConfig);
+    unifiedOpLib::EltwiseQuantizationOpResult result =
+        unifiedOpLib::callEltwiseRequantize(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseQuantizationOpT, inputSpec, inScaleSpec, inZeroPointSpec,
+            outScaleSpec, outZeroPointSpec, device, outputMemoryConfig,
+            outputDType);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from callEltwiseRequantize");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -4665,11 +4682,24 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
+      buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
+                                                outputLayout);
+
   // Create query closure
   auto requantizeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::requantize, device, inputSpec, inScaleSpec,
-                            inZeroPointSpec, outScaleSpec, outZeroPointSpec,
-                            axis, outputDType, outputMemoryConfig);
+    unifiedOpLib::EltwiseQuantizationOpResult result =
+        unifiedOpLib::callEltwiseRequantize(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME,
+            eltwiseQuantizationOpT, inputSpec, inScaleSpec, inZeroPointSpec,
+            outScaleSpec, outZeroPointSpec, device, outputMemoryConfig,
+            outputDType);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from callEltwiseRequantize");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(requantizeOpQuery);
