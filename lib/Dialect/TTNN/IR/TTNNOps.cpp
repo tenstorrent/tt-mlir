@@ -2678,30 +2678,30 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType indicesOutType = getIndices().getType();
   ::mlir::RankedTensorType scoresOutType = getScores().getType();
 
-  // All tensors must be 4D
+  // Input tensors must be 4D, mapping must be 2D, outputs must be 3D.
   if (inputType.getRank() != 4) {
-    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+    return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
   }
   if (indicesType.getRank() != 4) {
-    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+    return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
   }
   if (scoresType.getRank() != 4) {
-    return emitOpError("expert_scores must be a 4D tensor [B, S, 1, K]");
+    return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
   }
   if (mappingType.getRank() != 2) {
     return emitOpError("expert_mapping must be a 2D tensor [D, E]");
   }
   if (dispatchedType.getRank() != 3) {
     return emitOpError(
-        "dispatched output must be a 3D tensor [1, total_tokens, H]");
+        "dispatched output must be a 3D tensor [1, tokens_global, H]");
   }
   if (indicesOutType.getRank() != 3) {
     return emitOpError(
-        "indices output must be a 3D tensor [1, total_tokens, K]");
+        "indices output must be a 3D tensor [1, tokens_global, K]");
   }
   if (scoresOutType.getRank() != 3) {
     return emitOpError(
-        "scores output must be a 3D tensor [1, total_tokens, K]");
+        "scores output must be a 3D tensor [1, tokens_global, K]");
   }
 
   // Verify num_devices > 0
