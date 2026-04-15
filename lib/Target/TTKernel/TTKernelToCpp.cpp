@@ -107,6 +107,11 @@ public:
       // Issue: https://github.com/tenstorrent/tt-mlir/issues/772
       builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/exp.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "api/compute/eltwise_unary/log1p.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc, "api/compute/eltwise_unary/selu.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "api/compute/eltwise_unary/sfpu_split_includes.h",
           /*isStandard=*/false);

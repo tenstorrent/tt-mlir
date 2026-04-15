@@ -960,6 +960,9 @@ private:
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
       yield =
           bbBuilder.create<TileOp>(loc, resultTypes[0], operands[0], opAttrs);
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::SeluOp>) {
+      yield =
+          bbBuilder.create<TileOp>(loc, resultTypes[0], operands[0], opAttrs);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::LogicalAndOp>) {
       // LogicalAnd: NEZ(a) * NEZ(b) - both must be non-zero.
       auto nezA =
@@ -1068,6 +1071,10 @@ private:
         if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp>) {
           opAttrs.push_back(rewriter.getNamedAttr("min", op.getMinAttr()));
           opAttrs.push_back(rewriter.getNamedAttr("max", op.getMaxAttr()));
+        }
+        if constexpr (std::is_same_v<ConcreteOp, ttir::SeluOp>) {
+          opAttrs.push_back(rewriter.getNamedAttr("scale", op.getScaleAttr()));
+          opAttrs.push_back(rewriter.getNamedAttr("alpha", op.getAlphaAttr()));
         }
 
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
@@ -3516,10 +3523,14 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::ErfOp,             d2m::TileErfOp>,
     D2MNamedElementwiseRewriter<ttir::ErfcOp,            d2m::TileErfcOp>,
     D2MNamedElementwiseRewriter<ttir::ExpOp,             d2m::TileExpOp>,
+    D2MNamedElementwiseRewriter<ttir::Exp2Op,            d2m::TileExp2Op>,
+    D2MNamedElementwiseRewriter<ttir::Expm1Op,          d2m::TileExpm1Op>,
     D2MNamedElementwiseRewriter<ttir::FloorOp,           d2m::TileFloorOp>,
+    D2MNamedElementwiseRewriter<ttir::FracOp,           d2m::TileFracOp>,
     D2MNamedElementwiseRewriter<ttir::GeluOp,            d2m::TileGeluOp>,
     D2MNamedElementwiseRewriter<ttir::HardsigmoidOp,     d2m::TileHardsigmoidOp>,
     D2MNamedElementwiseRewriter<ttir::LogOp,             d2m::TileLogOp>,
+    D2MNamedElementwiseRewriter<ttir::Log1pOp,          d2m::TileLog1pOp>,
     D2MNamedElementwiseRewriter<ttir::LogicalAndOp,      d2m::TileMulOp>,
     D2MNamedElementwiseRewriter<ttir::LogicalNotOp,      d2m::TileLogicalNotOp>,
     D2MNamedElementwiseRewriter<ttir::LogicalOrOp,       d2m::TileAddOp>,
@@ -3534,12 +3545,17 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::RsqrtOp,           d2m::TileRsqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SigmoidOp,         d2m::TileSigmoidOp>,
     D2MNamedElementwiseRewriter<ttir::SignOp,            d2m::TileSignOp>,
+    D2MNamedElementwiseRewriter<ttir::SignbitOp,        d2m::TileSignbitOp>,
+    D2MNamedElementwiseRewriter<ttir::SeluOp,           d2m::TileSeluOp>,
     D2MNamedElementwiseRewriter<ttir::SiluOp,            d2m::TileSiluOp>,
+    D2MNamedElementwiseRewriter<ttir::SoftsignOp,       d2m::TileSoftsignOp>,
     D2MNamedElementwiseRewriter<ttir::SinOp,             d2m::TileSinOp>,
     D2MNamedElementwiseRewriter<ttir::SqrtOp,            d2m::TileSqrtOp>,
+    D2MNamedElementwiseRewriter<ttir::SquareOp,          d2m::TileSquareOp>,
     D2MNamedElementwiseRewriter<ttir::SubtractOp,        d2m::TileSubOp>,
     D2MNamedElementwiseRewriter<ttir::TanOp,             d2m::TileTanOp>,
     D2MNamedElementwiseRewriter<ttir::TanhOp,            d2m::TileTanhOp>,
+    D2MNamedElementwiseRewriter<ttir::TruncOp,          d2m::TileTruncOp>,
     D2MNamedElementwiseRewriter<ttir::WhereOp,           d2m::TileWhereOp>,
     // Comparison.
     D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqzOp>,

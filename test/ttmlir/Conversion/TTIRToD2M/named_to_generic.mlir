@@ -97,8 +97,13 @@ module {
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_square
+    %square15 = "ttir.square"(%15) : (!ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_recip
-    %16 = "ttir.reciprocal"(%15) : (!ttype) -> !ttype
+    %16 = "ttir.reciprocal"(%square15) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
@@ -216,6 +221,27 @@ module {
     // CHECK: d2m.tile_minimum
     %38 = "ttir.minimum"(%37, %36) : (!ttype, !ttype) -> !ttype
     return %38: !ttype
+  }
+
+  // CHECK-LABEL: func @named_elementwise_pr7914_unary
+  func.func @named_elementwise_pr7914_unary(%x: !ttype) -> !ttype {
+    // CHECK: d2m.tile_exp2
+    %e2 = "ttir.exp2"(%x) : (!ttype) -> !ttype
+    // CHECK: d2m.tile_expm1
+    %em = "ttir.expm1"(%e2) : (!ttype) -> !ttype
+    // CHECK: d2m.tile_log1p
+    %l1 = "ttir.log1p"(%em) : (!ttype) -> !ttype
+    // CHECK: d2m.tile_softsign
+    %ss = "ttir.softsign"(%l1) : (!ttype) -> !ttype
+    // CHECK: d2m.tile_signbit
+    %sb = "ttir.signbit"(%ss) : (!ttype) -> !ttype
+    // CHECK: d2m.tile_selu
+    %se = "ttir.selu"(%sb) : (!ttype) -> !ttype
+    // CHECK: d2m.tile_frac
+    %fr = "ttir.frac"(%se) : (!ttype) -> !ttype
+    // CHECK: d2m.tile_trunc
+    %tr = "ttir.trunc"(%fr) : (!ttype) -> !ttype
+    return %tr : !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

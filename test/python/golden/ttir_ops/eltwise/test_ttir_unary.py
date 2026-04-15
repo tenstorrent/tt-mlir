@@ -214,6 +214,36 @@ def sqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return sqrt_0
 
 
+def square(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.square(in0, unit_attrs=unit_attrs)
+
+
+def exp2(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.exp2(in0, unit_attrs=unit_attrs)
+
+
+def softsign(
+    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+):
+    return builder.softsign(in0, unit_attrs=unit_attrs)
+
+
+def signbit(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.signbit(in0, unit_attrs=unit_attrs)
+
+
+def selu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.selu(in0, unit_attrs=unit_attrs)
+
+
+def frac(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.frac(in0, unit_attrs=unit_attrs)
+
+
+def trunc(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.trunc(in0, unit_attrs=unit_attrs)
+
+
 def sin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.sin(in0, unit_attrs=unit_attrs)
 
@@ -252,12 +282,18 @@ unary_ops = [
     erf,
     erfc,
     exp,
-    expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    expm1,
+    exp2
+    | Marks(
+        pytest.mark.skip_config(["ttnn"]),
+        pytest.mark.skip_config(["emitc"]),
+        pytest.mark.skip_config(["emitpy"]),
+    ),
     floor,
     gelu,
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     log,
-    log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
+    log1p,
     logical_not,
     mish | Marks(pytest.mark.skip_config(["ttmetal"])),
     neg,
@@ -271,10 +307,45 @@ unary_ops = [
     silu,
     sin,
     sqrt,
+    square
+    | Marks(
+        pytest.mark.skip_config(["ttnn"]),
+        pytest.mark.skip_config(["emitc"]),
+        pytest.mark.skip_config(["emitpy"]),
+    ),
+    softsign
+    | Marks(
+        pytest.mark.skip_config(["ttnn"]),
+        pytest.mark.skip_config(["emitc"]),
+        pytest.mark.skip_config(["emitpy"]),
+    ),
+    signbit
+    | Marks(
+        pytest.mark.skip_config(["ttnn"]),
+        pytest.mark.skip_config(["emitc"]),
+        pytest.mark.skip_config(["emitpy"]),
+    ),
+    selu
+    | Marks(
+        pytest.mark.skip_config(["ttnn"]),
+        pytest.mark.skip_config(["emitc"]),
+        pytest.mark.skip_config(["emitpy"]),
+    ),
+    frac
+    | Marks(
+        pytest.mark.skip_config(["ttnn"]),
+        pytest.mark.skip_config(["emitc"]),
+        pytest.mark.skip_config(["emitpy"]),
+    ),
+    trunc
+    | Marks(
+        pytest.mark.skip_config(["ttnn"]),
+        pytest.mark.skip_config(["emitc"]),
+        pytest.mark.skip_config(["emitpy"]),
+    ),
     tan,
     tanh,
 ]
-
 
 unary_ops_dtypes = [
     torch.float32,
@@ -290,13 +361,16 @@ unary_ops_dtypes = [
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    if dtype == torch.int32 and test_fn not in [
-        abs,
-        neg,
-        relu,
-        logical_not,
-    ]:
-        pytest.skip("int32 unary op is not supported yet for this operation")
+    if dtype == torch.int32 and getattr(test_fn, "__name__", None) not in {
+        "abs",
+        "erf",
+        "is_finite",
+        "logical_not",
+        "neg",
+        "relu",
+        "sign",
+    }:
+        pytest.skip("int32 unary op is not in the allowlist for this test")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])

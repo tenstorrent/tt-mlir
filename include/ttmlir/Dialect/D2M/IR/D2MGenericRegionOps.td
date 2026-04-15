@@ -232,10 +232,40 @@ def D2M_TileExpOp : D2M_GenericRegionComputeUnaryDstOp<"tile_exp", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileExp2Op : D2M_GenericRegionComputeUnaryDstOp<"tile_exp2", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Exp2 Op";
+    let description = [{
+        The `tile_exp2` operation computes the base-2 exponential of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileExpm1Op : D2M_GenericRegionComputeUnaryDstOp<"tile_expm1", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Expm1 Op";
+    let description = [{
+        The `tile_expm1` operation computes exp(x)-1 of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogOp : D2M_GenericRegionComputeUnaryDstOp<"tile_log", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Log Op";
     let description = [{
         The `tile_log` operation computes the natural logarithm of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileLog1pOp : D2M_GenericRegionComputeUnaryDstOp<"tile_log1p", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Log1p Op";
+    let description = [{
+        The `tile_log1p` operation computes log(1+x) of each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -312,6 +342,16 @@ def D2M_TileSqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sqrt", D2M_TileCom
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileSquareOp : D2M_GenericRegionComputeUnaryDstOp<"tile_square", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Square Op";
+    let description = [{
+        The `tile_square` operation computes the square function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileRsqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_rsqrt", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Rsqrt Op";
     let description = [{
@@ -346,6 +386,16 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_T
     let summary = "D2M Tile Sigmoid Op";
     let description = [{
         The `tile_sigmoid` operation computes the sigmoid of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileSoftsignOp : D2M_GenericRegionComputeUnaryDstOp<"tile_softsign", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Softsign Op";
+    let description = [{
+        The `tile_softsign` operation computes x/(1+|x|) for each element in the input tile.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -423,6 +473,17 @@ def D2M_TileSignOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sign", D2M_TileCom
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileSignbitOp : D2M_GenericRegionComputeUnaryDstOp<"tile_signbit", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Signbit Op";
+    let description = [{
+        The `tile_signbit` operation extracts the IEEE-754 sign bit of each element,
+        producing 0.0 or 1.0 in the tile element type.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileCeilOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ceil", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Ceil Op";
     let description = [{
@@ -437,6 +498,26 @@ def D2M_TileFloorOp : D2M_GenericRegionComputeUnaryDstOp<"tile_floor", D2M_TileC
     let summary = "D2M Tile Floor Op";
     let description = [{
         The `tile_floor` operation computes the floor function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileFracOp : D2M_GenericRegionComputeUnaryDstOp<"tile_frac", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Frac Op";
+    let description = [{
+        The `tile_frac` operation computes the fractional part of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileTruncOp : D2M_GenericRegionComputeUnaryDstOp<"tile_trunc", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Trunc Op";
+    let description = [{
+        The `tile_trunc` operation truncates each element of the input tile toward zero.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -597,6 +678,17 @@ def D2M_TileClampScalarOp : D2M_GenericRegionComputeUnaryDstOp<"tile_clamp_scala
     let results = (outs TTCore_Tile:$result);
 
     let hasVerifier = 1;
+}
+
+def D2M_TileSeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_selu", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile SELU Op";
+    let description = [{
+        The `tile_selu` operation applies SELU activation with `scale` and `alpha` given as
+        f32 attributes (passed to the kernel as IEEE-754 bit patterns).
+    }];
+
+    let arguments = (ins TTCore_Tile:$input, F32Attr:$scale, F32Attr:$alpha);
+    let results = (outs TTCore_Tile:$result);
 }
 
 def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{
