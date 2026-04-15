@@ -5199,6 +5199,13 @@ public:
         getTypeConverter()->convertType(srcOp.getResult().getType()));
     auto outputShape = outputType.getShape();
 
+    // Output rank must match operand rank for gather_dim semantics.
+    if (static_cast<int64_t>(outputShape.size()) !=
+        static_cast<int64_t>(operandShape.size())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Output rank must match operand rank for gather_dim");
+    }
+
     // Build the gather_dim index tensor. We need it to have the same rank
     // and shape as the output (gather_dim / torch.gather semantics).
     //
@@ -5354,12 +5361,38 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    int64_t operandRank = static_cast<int64_t>(operandShape.size());
+
+    // Fast path: if start_indices is a compile-time constant, compute
+    // begins/ends in-memory and emit a single SliceStaticOp.
+    if (auto constIndices = srcOp.getStartIndices()
+                                .getDefiningOp<mlir::stablehlo::ConstantOp>()) {
+      auto constValues = constIndices.getValue().getValues<llvm::APInt>();
+
+      SmallVector<int32_t> begins(operandRank, 0);
+      SmallVector<int32_t> ends(sliceSizes.begin(), sliceSizes.end());
+      SmallVector<int32_t> step(operandRank, 1);
+
+      for (size_t i = 0; i < startIndexMap.size(); ++i) {
+        int64_t dim = startIndexMap[i];
+        int32_t startVal =
+            static_cast<int32_t>(constValues[i].getSExtValue());
+        begins[dim] = startVal;
+        ends[dim] = startVal + static_cast<int32_t>(sliceSizes[dim]);
+      }
+
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceStaticOp>(
+          srcOp, outputType, adaptor.getOperands()[0],
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(step));
+      return success();
+    }
+
     // Build start indices: a 1D tensor of size == operand rank, with zeros for
     // non-indexed dims and the corresponding start_indices element for indexed
     // dims.
     auto startIndices = adaptor.getOperands()[1];
     auto startIndexElementType = startIndicesType.getElementType();
-    int64_t operandRank = static_cast<int64_t>(operandShape.size());
 
     // If start_index_map is a simple identity [0, 1, ..., rank-1] and covers
     // all dims, we can use start_indices directly (padded with zeros for
