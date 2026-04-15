@@ -77,6 +77,11 @@ struct ConvertD2MToTTMetal
   }
 
   void runOnOperation() final {
+    // Lower D2M in two greedy full-conversion passes. SpatialOp must stay legal
+    // in the first pass so nested D2M can become ttmetal (including one
+    // enqueue_program per spatial region); SpatialOpRewriter in the second pass
+    // merges those enqueue_program ops and then erases the spatial wrapper.
+
     ConversionTarget target(getContext());
     addD2MToTTMetalConversionTargetBase(target);
     target.addLegalOp<d2m::SpatialOp>();
@@ -93,6 +98,11 @@ struct ConvertD2MToTTMetal
       signalPassFailure();
       return;
     }
+
+    // Second pass: only SpatialOp is rewritten here
+    // (populateSpatialOpPatterns). Other D2M uses were eliminated in the first
+    // pass; this target still treats the dialect as illegal so any leftover
+    // non-spatial D2M would fail the pass.
 
     ConversionTarget targetForSpatial(getContext());
     addD2MToTTMetalConversionTargetBase(targetForSpatial);
