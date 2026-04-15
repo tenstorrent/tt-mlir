@@ -25,7 +25,6 @@ void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
 
   // Note: copy_to_device replaced write_tensor and does not have a blocking
   // parameter. The operation is always blocking.
-  ::tt::tt_metal::tensor_impl::copy_to_device(hostTensor, deviceTensor,
-                                              ttnnCqId);
+  ::tt::tt_metal::copy_to_device(hostTensor, deviceTensor, ttnnCqId);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
