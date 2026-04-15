@@ -979,8 +979,7 @@ updateCompositeViewOps(ArrayRef<CompositeViewUpdateInfo> compositeViewsToUpdate,
     auto outType =
         mlir::cast<RankedTensorType>(compositeView.getResult().getType());
     RankedTensorType newOutType =
-        tensorWithOptimalGrid(outType, config, info.grid, builder,
-                             info.alignmentGrid);
+        tensorWithOptimalGrid(outType, config, info.grid, builder);
     auto outLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
 
