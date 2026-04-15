@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -297,6 +298,7 @@ public:
 
     RankNormalizationTypeConverter typeConverter;
     ConversionTarget target(*ctx);
+    target.addLegalDialect<ttnn::TTNNDialect>();
 
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
       if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
