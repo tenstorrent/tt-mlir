@@ -771,6 +771,12 @@ void updateTensorInPool(CallbackContext programContextHandle,
   LOG_FATAL("Updating tensor from device for metal runtime is not implemented");
 }
 
+size_t getProgramIndex(CallbackContext programContextHandle) {
+  LOG_FATAL(
+      "Obtaining program index for metal runtime is not implemented");
+  return 0;
+}
+
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
   return std::visit(
       utils::overloaded{

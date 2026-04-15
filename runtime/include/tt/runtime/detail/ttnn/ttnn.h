@@ -39,7 +39,6 @@
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
-#include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
@@ -274,6 +273,8 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
 // deallocation
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
+
+size_t getProgramIndex(CallbackContext programContextHandle);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,

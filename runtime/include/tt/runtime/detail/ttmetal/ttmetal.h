@@ -172,6 +172,8 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
 
+size_t getProgramIndex(CallbackContext programContextHandle);
+
 } // namespace tt::runtime::ttmetal
 
 #endif
