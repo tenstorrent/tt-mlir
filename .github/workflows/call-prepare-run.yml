@@ -93,14 +93,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Send Notification
-        uses: slackapi/slack-github-action@v3.0.1
-        with:
-          webhook: ${{ secrets.SLACK_CHANNEL_WEBHOOK_URL }}
-          webhook-type: webhook-trigger
-          payload: |
-            text: "TEST"
-            channel: "C07R5GYEW8J"
       - name: Decide on build runner
         id: decide-runner
         run: |
