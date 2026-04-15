@@ -196,6 +196,9 @@ void ProgramExecutor::execute() {
                 op, context.get());
     dumpPerfCountersIfNeeded();
   }
+  // Trace-execute ops surface as a single flatbuffer op but produce many
+  // on-device profiler samples; force a drain at program end to catch them.
+  dumpPerfCountersIfNeeded(/*force=*/true);
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }
@@ -619,16 +622,25 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
             "statement");
 }
 
-void ProgramExecutor::dumpPerfCountersIfNeeded() {
+void ProgramExecutor::dumpPerfCountersIfNeeded(bool force) {
 #if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
   static uint32_t counter = 0;
-  if (++counter >= perf::Env::get().dumpDeviceRate) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
-                                           std::to_string(counter) +
-                                           " operations");
-    ::tt::tt_metal::ReadMeshDeviceProfilerResults(context->getMeshDevice());
-    counter = 0;
+  if (!force && ++counter < perf::Env::get().dumpDeviceRate) {
+    return;
   }
+  // finish() inside ReadMeshDeviceProfilerResults TT_FATALs during trace
+  // capture; defer the drain until the capture window closes.
+  auto &meshDevice = context->getMeshDevice();
+  for (uint8_t cqId = 0; cqId < meshDevice.num_hw_cqs(); ++cqId) {
+    if (meshDevice.mesh_command_queue(cqId).trace_id().has_value()) {
+      return;
+    }
+  }
+  LOG_DEBUG(LogType::LogRuntimeTTNN, "Dumping device profile results after " +
+                                         std::to_string(counter) +
+                                         " operations");
+  ::tt::tt_metal::ReadMeshDeviceProfilerResults(meshDevice);
+  counter = 0;
 #endif
 }
 

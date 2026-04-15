@@ -64,7 +64,7 @@ private:
   /**
    * Dumps device profile counters if needed
    */
-  void dumpPerfCountersIfNeeded();
+  void dumpPerfCountersIfNeeded(bool force = false);
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   /**
