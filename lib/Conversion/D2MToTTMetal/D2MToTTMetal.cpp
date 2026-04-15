@@ -196,51 +196,39 @@ public:
   };
 
 private:
-  /// From the op's grid: virt_to_physical over the virtual grid bbox when
-  /// present (2D); else offset (0,0) with extent from getPhysicalGridShape().
   static CoreRangeAttr coreRangeAttrFromOp(Builder &builder, d2m::GenericOp op);
 
   ttmetal::MathFidelity mathFidelity_;
 };
 
+// CoreRange from d2m.generic grid: project the full virtual bbox through
+// virt_to_physical when the grid map is usable; otherwise
+// getPhysicalCoreRange(getPhysicalGridShape()).
 CoreRangeAttr D2MGenericRewriter::coreRangeAttrFromOp(Builder &builder,
                                                       d2m::GenericOp op) {
   MLIRContext *ctx = builder.getContext();
-  SmallVector<int64_t> physicalGridShape = op.getPhysicalGridShape();
   ttcore::GridAttr grid = op.getGrid();
   AffineMap v2p = grid.getVirtToPhysicalMap();
-  if (v2p.isEmpty() || grid.getShape().size() != 2 || v2p.getNumDims() != 2) {
-    return CoreRangeAttr::getPhysicalCoreRange(ctx, physicalGridShape);
+  ArrayRef<int64_t> vshape = grid.getShape();
+  const unsigned n = v2p.getNumResults();
+  if (v2p.isEmpty() || vshape.size() != 2 || v2p.getNumDims() != 2 ||
+      (n != 2 && n != 3)) {
+    return CoreRangeAttr::getPhysicalCoreRange(ctx, op.getPhysicalGridShape());
   }
 
-  unsigned numRes = v2p.getNumResults();
-  unsigned yIdx;
-  unsigned xIdx;
-  if (numRes == 3) {
-    yIdx = 1;
-    xIdx = 2;
-  } else if (numRes == 2) {
-    yIdx = 0;
-    xIdx = 1;
-  } else {
-    return CoreRangeAttr::getPhysicalCoreRange(ctx, physicalGridShape);
+  if (n == 3) {
+    v2p = v2p.getSubMap({1, 2});
   }
 
-  d2m::utils::BoundingBox virtBox;
-  virtBox.start = {0, 0};
-  virtBox.end = {grid.getShape()[0] - 1, grid.getShape()[1] - 1};
-  d2m::utils::BoundingBox physBox =
-      d2m::utils::getProjectedBoundingBox(virtBox, v2p);
-  if (physBox.start.size() <= xIdx) {
-    return CoreRangeAttr::getPhysicalCoreRange(ctx, physicalGridShape);
-  }
+  d2m::utils::BoundingBox physBox = d2m::utils::getProjectedBoundingBox(
+      d2m::utils::BoundingBox{{0, 0}, {vshape[0] - 1, vshape[1] - 1}}, v2p);
 
-  int64_t y0 = physBox.start[yIdx];
-  int64_t x0 = physBox.start[xIdx];
-  int64_t y1 = physBox.end[yIdx];
-  int64_t x1 = physBox.end[xIdx];
-  SmallVector<int64_t> offset = {y0, x0};
-  SmallVector<int64_t> size = {y1 - y0 + 1, x1 - x0 + 1};
+  const int64_t y0 = physBox.start[0];
+  const int64_t x0 = physBox.start[1];
+  const int64_t y1 = physBox.end[0];
+  const int64_t x1 = physBox.end[1];
+  int64_t offset[] = {y0, x0};
+  int64_t size[] = {y1 - y0 + 1, x1 - x0 + 1};
   return CoreRangeAttr::get(ctx, offset, size);
 }
 
