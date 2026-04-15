@@ -4,10 +4,12 @@
 
 #include "operations/eltwise/quantization/quantization.h"
 
+#include "eltwise/quantization/unifiedEltwiseQuantizationOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 
 #include <optional>
 #include <variant>
@@ -97,14 +99,24 @@ static void runQuantizeDequantize(
   const auto *const params = op->params_as_QuantizeDequantizeOpParams();
   auto scale = getScaleValueFromQuantizationParams(params, context);
   auto zeroPoint = getZeroPointValueFromQuantizationParams(params, context);
-  runQuantizationOp(op, context,
-                    [&](const ::ttnn::Tensor &input,
-                        std::optional<int32_t> axis,
-                        std::optional<::ttnn::DataType> outputDataType,
-                        std::optional<::ttnn::MemoryConfig> memoryConfig) {
-                      return func(input, scale, zeroPoint, axis, outputDataType,
-                                  memoryConfig, std::nullopt);
-                    });
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
+
+  target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT;
+  op->UnPackTo(&eltwiseQuantizationOpT);
+
+  unifiedOpLib::EltwiseQuantizationOpResult result =
+      unifiedOpLib::callEltwiseQuantizeDequantize(
+          unifiedOpLib::CallType::EXECUTE, eltwiseQuantizationOpT, &input,
+          scale, zeroPoint);
+
+  LOG_ASSERT(
+      std::holds_alternative<::ttnn::Tensor>(result),
+      "Expected output Tensor from callEltwiseQuantizeDequantize execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 // Helper to unify Requantize

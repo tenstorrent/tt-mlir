@@ -19,6 +19,7 @@
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include <eltwise/binary/unifiedEltwiseBinaryCompositeOp.h>
 #include <eltwise/binary/unifiedEltwiseBinaryOp.h>
+#include <eltwise/quantization/unifiedEltwiseQuantizationOp.h>
 #include <eltwise/ternary/unifiedEltwiseTernaryOp.h>
 #include <matmul/unifiedMatmulOp.h>
 #include <ttnn/graph/graph_query_op_runtime.hpp>
@@ -527,7 +528,6 @@ auto getOpSymbol() {
                   "add mapping from TTNN dialect to TTNN lib op");
   }
 }
-
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -4331,6 +4331,34 @@ llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // Quantization Ops
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseQuantizationOpT
+buildEltwiseQuantizationOpTFromMLIR(std::optional<int32_t> axis,
+                                    std::optional<ttcore::DataType> outputDtype,
+                                    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT;
+
+  if constexpr (std::is_same_v<OpTy, QuantizeOp>) {
+    eltwiseQuantizationOpT.type =
+        ::tt::target::ttnn::EltwiseQuantizationOpType::Quantize;
+  } else if constexpr (std::is_same_v<OpTy, DequantizeOp>) {
+    eltwiseQuantizationOpT.type =
+        ::tt::target::ttnn::EltwiseQuantizationOpType::Dequantize;
+  }
+
+  eltwiseQuantizationOpT.axis =
+      axis.has_value() ? ::flatbuffers::Optional<int32_t>(axis.value())
+                       : ::flatbuffers::nullopt;
+
+  eltwiseQuantizationOpT.output_dtype =
+      outputLayout ? ::flatbuffers::Optional<::tt::target::DataType>(
+                         toNative(outputLayout.getDataType()))
+                   : ::flatbuffers::nullopt;
+
+  return eltwiseQuantizationOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
@@ -4375,12 +4403,25 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
+      buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
+                                                outputLayout);
+
   // Create query closure
   auto quantizationOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        detail::getOpSymbol<OpTy>(), device, inputSpec, scaleSpec,
-        zeroPointSpec, axis, outputDType, outputMemoryConfig);
-  };
+    unifiedOpLib::EltwiseQuantizationOpResult result =
+        unifiedOpLib::callEltwiseQuantizeDequantize(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseQuantizationOpT, inputSpec, scaleSpec, zeroPointSpec, device,
+            outputMemoryConfig, outputDType);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+            result) &&
+        "Expected ConstraintQueryResponse from callEltwiseQuantizeDequantize");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
+};
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
                                      quantizationOpQuery);
@@ -4433,11 +4474,23 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
+      buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
+                                                outputLayout);
+
   // Create query closure
   auto quantizationOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        detail::getOpSymbol<OpTy>(), device, inputSpec, scaleSpec,
-        zeroPointSpec, axis, outputDType, outputMemoryConfig);
+    unifiedOpLib::EltwiseQuantizationOpResult result =
+        unifiedOpLib::callEltwiseQuantizeDequantize(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseQuantizationOpT,
+            inputSpec, scaleSpec, zeroPointSpec, device, outputMemoryConfig,
+            outputDType);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from callEltwiseQuantizeDequantize");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(quantizationOpQuery);
