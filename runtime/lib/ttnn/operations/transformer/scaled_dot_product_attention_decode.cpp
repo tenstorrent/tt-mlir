@@ -50,6 +50,12 @@ static void runScaledDotProductAttentionDecodeOp(
     programConfig = utils::createSDPAProgramConfig(op->program_config());
   }
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   // The current position information is required for this op. It can either be
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
@@ -57,8 +63,7 @@ static void runScaledDotProductAttentionDecodeOp(
   ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention_decode(
       query, key, value, isCausal, attentionMask, curPosEmpty, curPosTensor,
       attentionSink, scale, slidingWindowSize, outputMemoryConfig,
-      programConfig,
-      /*compute_kernel_config=*/std::nullopt);
+      programConfig, computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

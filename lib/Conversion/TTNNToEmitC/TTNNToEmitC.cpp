@@ -3405,6 +3405,8 @@ public:
         emitter.emit(srcOp.getScale()),
         emitter.emit(/*slidingWindowSize=*/std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*program_config=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 

@@ -3278,7 +3278,8 @@ public:
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
         adaptor.getScaleAttr(),
-        /*memory_config=*/nullptr, /*program_config=*/nullptr);
+        /*memory_config=*/nullptr, /*program_config=*/nullptr,
+        /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -3407,7 +3408,7 @@ private:
         adaptor.getValue(), op.getIsCausal(), attentionMask,
         /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
         adaptor.getScaleAttr(), /*memory_config=*/nullptr,
-        /*program_config=*/nullptr);
+        /*program_config=*/nullptr, /*compute_config=*/nullptr);
 
     // Permute result back: [1, B, H, D] -> [B, H, 1, D].
     rewriter.replaceOp(

@@ -65,6 +65,7 @@ table ScaledDotProductAttentionDecodeOp {
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table ScaledDotProductAttentionOp {

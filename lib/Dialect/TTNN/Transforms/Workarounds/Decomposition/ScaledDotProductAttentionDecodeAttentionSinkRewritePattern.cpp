@@ -85,7 +85,8 @@ ScaledDotProductAttentionDecodeAttentionSinkRewritePattern::matchAndRewrite(
       srcOp, srcOp.getResult().getType(), srcOp.getQuery(), srcOp.getKey(),
       srcOp.getValue(), srcOp.getIsCausal(), srcOp.getAttentionMask(),
       srcOp.getCurPosTensor(), paddedSink, srcOp.getScaleAttr(),
-      srcOp.getMemoryConfigAttr(), srcOp.getProgramConfigAttr());
+      srcOp.getMemoryConfigAttr(), srcOp.getProgramConfigAttr(),
+      srcOp.getComputeConfigAttr());
 
   return success();
 }
