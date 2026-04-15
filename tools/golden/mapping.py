@@ -1348,7 +1348,7 @@ def all_to_all_dispatch_metadata_golden(
     Mirrors tt-metal's gen_tensors_for_metadata_op / get_output_tensor:
     - Dispatched: sparse routing — for each token and each of its K selected
       experts, the token is placed on the device that owns that expert.
-      Non-routed slots are filled with random data (matching tt-metal).
+      Non-routed slots are filled with zeros.
     - Indices (metadata): all-gathered — every ring device gets the full set
       of expert indices from all ring devices.
     - Scores: all-gathered — same as indices.
@@ -1415,7 +1415,9 @@ def all_to_all_dispatch_metadata_golden(
         scr_out = full_scr.reshape(1, total_tokens, K)
 
         for dev_id in ring_device_ids:
-            out_dispatched[dev_id] = disp_per_dev[dev_id]  # already [1, total_tokens, H]
+            out_dispatched[dev_id] = disp_per_dev[
+                dev_id
+            ]  # already [1, total_tokens, H]
             out_indices[dev_id] = idx_out.clone()
             out_scores[dev_id] = scr_out.clone()
 

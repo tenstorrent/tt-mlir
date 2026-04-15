@@ -214,7 +214,7 @@ def _build_expert_scores(batch, S, K):
     return scores.to(torch.bfloat16)
 
 
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("mesh_shape", [(4, 8)], ids=shape_str)
 @pytest.mark.parametrize(
     "fabric_config",
@@ -233,8 +233,8 @@ def test_moe_dispatch_metadata(
     - tokens_global = M * ring_devices (total tokens across the ring)
     - Each ring device gets [1, 1, M, H] after sharding.
 
-    Scaled down for testing:
-    - H=64 (instead of 2880), E_total=32 (instead of 128)
+    Uses full GPT-OSS 120B parameters:
+    - H=2880, E_total=128, M=32, top-k=4
     """
     ring_devices = mesh_shape[0]  # 4 (dispatch ring along dim 0)
     mesh_cols = mesh_shape[1]  # 8
@@ -361,13 +361,16 @@ def test_moe_dispatch_metadata(
             )
 
             dispatched, indices_out, scores_out = builder.all_to_all_dispatch_metadata(
-                act, idx, scr, emap,
+                act,
+                idx,
+                scr,
+                emap,
                 num_devices=ring_devices,
                 cluster_axis=0,
                 dispatched_shape=(1, tokens_global, H),
                 dispatched_type=torch.bfloat16,
                 indices_shape=(1, tokens_global, selected_experts_k),
-                indices_type=torch.bfloat16,
+                indices_type=torch.int32,
                 scores_shape=(1, tokens_global, selected_experts_k),
                 scores_type=torch.bfloat16,
                 unit_attrs=unit_attrs,

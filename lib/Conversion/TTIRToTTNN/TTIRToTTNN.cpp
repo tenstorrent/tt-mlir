@@ -1741,7 +1741,7 @@ public:
           {static_cast<int32_t>(D), static_cast<int32_t>(E)});
       expertMapping = rewriter.create<ttnn::ReshapeOp>(
           op.getLoc(), reshapedType, expertMapping, shapeAttr,
-          /*memory_config=*/ttnn::MemoryConfigAttr());
+          /*memory_config=*/nullptr);
     }
 
     rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
