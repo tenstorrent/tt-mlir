@@ -95,14 +95,76 @@ EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
         params.outputDataType, params.outputMemoryConfig,
         /*optional_output_tensor=*/std::nullopt);
   case CallType::EXECUTE: {
-    const auto &inputT = *std::get<const ::ttnn::Tensor *>(inputParam);
+    const auto &input = *std::get<const ::ttnn::Tensor *>(inputParam);
     const auto &scale =
         std::get<std::variant<::ttnn::Tensor, float>>(scaleParam);
     const auto &zeroPoint =
         std::get<std::variant<::ttnn::Tensor, int32_t>>(zeroPointParam);
 
-    return func(inputT, scale, zeroPoint, params.axis, params.outputDataType,
-                params.outputMemoryConfig, std::nullopt);
+    return func(input, scale, zeroPoint, params.axis, params.outputDataType,
+                params.outputMemoryConfig,
+                /*optional_output_tensor=*/std::nullopt);
+  }
+  }
+}
+
+EltwiseQuantizationOpResult callEltwiseRequantize(
+    CallType callType,
+    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
+    TensorArg input_param, TensorVariantArg<float> in_scale_param,
+    TensorVariantArg<int32_t> in_zero_point_param,
+    TensorVariantArg<float> out_scale_param,
+    TensorVariantArg<int32_t> out_zero_point_param, ::ttnn::MeshDevice *device,
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig,
+    std::optional<::tt::tt_metal::DataType> outputDType) {
+
+  EltwiseQuantizationResolvedParams params =
+      resolveEltwiseQuantizationParams(eltwiseQuantizationOpT);
+  if (outputMemoryConfig.has_value()) {
+    params.outputMemoryConfig = outputMemoryConfig;
+  }
+  if (outputDType.has_value()) {
+    params.outputDataType = outputDType;
+  }
+
+  LOG_ASSERT(eltwiseQuantizationOpT.type ==
+                 ::tt::target::ttnn::EltwiseQuantizationOpType::Requantize &&
+             "EltwiseQuantizationOpType must be Requantize");
+
+  switch (callType) {
+  case CallType::QUERY_OP_CONSTRAINTS:
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::requantize, device, std::get<::ttnn::TensorSpec>(input_param),
+        std::get<::ttnn::TensorSpec>(in_scale_param),
+        std::get<::ttnn::TensorSpec>(in_zero_point_param),
+        std::get<::ttnn::TensorSpec>(out_scale_param),
+        std::get<::ttnn::TensorSpec>(out_zero_point_param), params.axis,
+        params.outputDataType, params.outputMemoryConfig,
+        /*optional_output_tensor=*/std::nullopt);
+  case CallType::QUERY_OP_RUNTIME:
+    return QUERY_OP_RUNTIME(
+        ::ttnn::requantize, device, std::get<::ttnn::TensorSpec>(input_param),
+        std::get<::ttnn::TensorSpec>(in_scale_param),
+        std::get<::ttnn::TensorSpec>(in_zero_point_param),
+        std::get<::ttnn::TensorSpec>(out_scale_param),
+        std::get<::ttnn::TensorSpec>(out_zero_point_param), params.axis,
+        params.outputDataType, params.outputMemoryConfig,
+        /*optional_output_tensor=*/std::nullopt);
+  case CallType::EXECUTE: {
+    const auto &input = *std::get<const ::ttnn::Tensor *>(input_param);
+    const auto &in_scale =
+        std::get<std::variant<::ttnn::Tensor, float>>(in_scale_param);
+    const auto &in_zero_point =
+        std::get<std::variant<::ttnn::Tensor, int32_t>>(in_zero_point_param);
+    const auto &out_scale =
+        std::get<std::variant<::ttnn::Tensor, float>>(out_scale_param);
+    const auto &out_zero_point =
+        std::get<std::variant<::ttnn::Tensor, int32_t>>(out_zero_point_param);
+
+    return ::ttnn::requantize(input, in_scale, in_zero_point, out_scale,
+                              out_zero_point, params.axis,
+                              params.outputDataType, params.outputMemoryConfig,
+                              /*optional_output_tensor=*/std::nullopt);
   }
   }
 }
