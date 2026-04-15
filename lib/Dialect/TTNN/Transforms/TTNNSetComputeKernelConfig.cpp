@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -80,6 +81,29 @@ public:
 
       if (!config.getDstFullSyncEn() && dstFullSyncEn) {
         config = config.withDstFullSyncEn(dstFullSyncEn);
+      }
+
+      // HACK: For SDPA decode ops, when math fidelity is HiFi4, force
+      // math_approx_mode=false and exp_approx_mode=false to maximize accuracy.
+      if (mathFidelityOverride.has_value() &&
+          *mathFidelityOverride == MathFidelity::HiFi4) {
+        if (auto sdpaDecodeOp =
+                dyn_cast<ScaledDotProductAttentionDecodeOp>(op)) {
+          config = config.withMathApproxMode(false);
+
+          // Also set exp_approx_mode=false on SDPAProgramConfig.
+          SDPAProgramConfigAttr programConfig =
+              sdpaDecodeOp.getProgramConfigAttr();
+          if (programConfig) {
+            auto newProgramConfig = SDPAProgramConfigAttr::get(
+                context, programConfig.getComputeWithStorageGridSize(),
+                programConfig.getSubCoreGrids(),
+                programConfig.getQChunkSize(), programConfig.getKChunkSize(),
+                /*exp_approx_mode=*/BoolAttr::get(context, false),
+                programConfig.getMaxCoresPerHeadBatch());
+            sdpaDecodeOp.setProgramConfigAttr(newProgramConfig);
+          }
+        }
       }
 
       // Log config after applying overrides
