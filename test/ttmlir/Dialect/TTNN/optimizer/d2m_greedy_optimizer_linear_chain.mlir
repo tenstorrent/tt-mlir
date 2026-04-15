@@ -7,7 +7,8 @@
 // of matmul, add, and multiply operations.
 // D2M fusing should fuse the eltwise ops (add + multiply) into a D2M subgraph
 // and the greedy optimizer should assign L1-sharded layouts where possible.
-// The D2M subgraph is then compiled through TTMetal and inlined back.
+// The D2M subgraph is then compiled through TTMetal and inlined back as
+// ttnn.generic ops.
 module {
   func.func @simple_64x64(
       %arg0: tensor<64x64xbf16>,
@@ -24,11 +25,29 @@ module {
   }
 }
 
-// The D2M subgraph ops should be collapsed (inlined as ttnn.generic ops) and
-// sharded layouts should be present. Verify key structural properties:
+// Verify structure after full pipeline: matmul -> matmul -> generic(add) ->
+// generic(multiply) -> generic(to_layout) -> matmul.
+// D2M subgraph ops should be compiled into ttnn.generic ops.
+// Matmuls should get L1-sharded layouts from the greedy optimizer.
+
 // CHECK: func.func @simple_64x64
-// CHECK: "ttnn.matmul"
-// CHECK: "ttnn.matmul"
+
+// First matmul: output in L1.
+// CHECK: %[[MATMUL_0:.*]] = "ttnn.matmul"
+// CHECK-SAME: #ttnn.buffer_type<l1>
+
+// Second matmul: output in L1.
+// CHECK: %[[MATMUL_1:.*]] = "ttnn.matmul"
+// CHECK-SAME: #ttnn.buffer_type<l1>
+
+// D2M subgraph compiled into generic ops (add + multiply + to_layout).
 // CHECK: "ttnn.generic"
 // CHECK: "ttnn.generic"
-// CHECK: "ttnn.matmul"
+// CHECK: "ttnn.generic"
+
+// Third matmul: output in L1.
+// CHECK: %[[MATMUL_2:.*]] = "ttnn.matmul"
+// CHECK-SAME: #ttnn.buffer_type<l1>
+
+// No D2M subgraph ops should remain after compilation.
+// CHECK-NOT: ttnn.d2m_subgraph

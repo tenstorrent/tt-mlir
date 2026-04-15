@@ -1254,17 +1254,8 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
   // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
   // and D2M subgraph function body.
   if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
-    auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
-    Type originalElementType = tensorType.getElementType();
-    Type newElementType = originalElementType;
-    if (!mlir::isa<mlir::quant::QuantizedType>(originalElementType)) {
-      newElementType = chosenLayout.getScalarElementType();
-    }
-    RankedTensorType newTensorType =
-        RankedTensorType::get(tensorShape, newElementType, chosenLayout);
     d2m_optimizer_utils::applyChosenLayoutToD2MSubgraphOp(
-        dispatchOp, newTensorType, chosenLayout, deviceGrid);
+        dispatchOp, chosenLayout, deviceGrid);
 
     // Attach L1 usage annotation for spill management.
     if (chosenLayout.hasL1BufferType() &&

@@ -454,7 +454,7 @@ public:
           // and D2M subgraph.
           if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
             d2m_optimizer_utils::applyChosenLayoutToD2MSubgraphOp(
-                dispatchOp, newTensorType, layoutAttr, deviceGrid);
+                dispatchOp, chosenLayout, deviceGrid);
             return;
           }
 

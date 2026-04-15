@@ -28,6 +28,13 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
                                       TTNNLayoutAttr layoutAttr,
                                       ttcore::GridAttr deviceGrid);
 
+/// Convenience wrapper: computes newTensorType from the dispatch op's current
+/// result type and the chosen layout, then delegates to the overload above.
+/// Handles quantized element type preservation.
+void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
+                                      TTNNLayoutAttr chosenLayout,
+                                      ttcore::GridAttr deviceGrid);
+
 /// Sync the D2M subgraph function's argument and function types to the
 /// dispatch op's current input types (e.g. after spill/reshard, operand
 /// types may have changed to DRAM or different sharding).

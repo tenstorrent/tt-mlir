@@ -96,6 +96,22 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
   }
 }
 
+void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
+                                      TTNNLayoutAttr chosenLayout,
+                                      ttcore::GridAttr deviceGrid) {
+  auto tensorType =
+      mlir::cast<RankedTensorType>(dispatchOp->getResult(0).getType());
+  llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+  Type elementType = tensorType.getElementType();
+  if (!mlir::isa<mlir::quant::QuantizedType>(elementType)) {
+    elementType = chosenLayout.getScalarElementType();
+  }
+  RankedTensorType newTensorType =
+      RankedTensorType::get(tensorShape, elementType, chosenLayout);
+  applyChosenLayoutToD2MSubgraphOp(dispatchOp, newTensorType, chosenLayout,
+                                   deviceGrid);
+}
+
 void syncD2MFuncTypesToDispatchInputs(D2MSubgraphOp dispatchOp) {
   func::FuncOp mainFunc = dispatchOp.getD2MMainFunc();
   if (!mainFunc) {
