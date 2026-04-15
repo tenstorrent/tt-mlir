@@ -944,6 +944,28 @@ def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
     }];
 }
 
+def TTIR_AsinhOp: TTIR_ElementwiseUnaryOp<"asinh"> {
+    let summary = "Eltwise inverse hyperbolic sine op.";
+    let description = [{
+      The `asinh` operation computes the inverse hyperbolic sine of each element in the input tensor.
+
+      For each element, it returns the value whose hyperbolic sine is the input value. Unlike `asin`,
+      this function accepts all real numbers as input.
+
+      Example:
+      ```mlir
+      // Compute inverse hyperbolic sine of all elements in %input
+      %result = ttir.asinh(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [0.0, 1.0, -1.0, 10.0]
+      // Output tensor:
+      // [0.0, 0.8814, -0.8814, 2.9982]
+      ```
+
+      Mathematical definition: asinh(x) = ln(x + √(x² + 1))
+    }];
+}
+
 
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";

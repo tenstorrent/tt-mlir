@@ -75,6 +75,8 @@ struct OpModel<SinOp> : UnaryEltwiseOpModel<SinOp> {};
 
 template <>
 struct OpModel<AsinOp> : UnaryEltwiseOpModel<AsinOp> {};
+template <>
+struct OpModel<AsinhOp> : UnaryEltwiseOpModel<AsinhOp> {};
 
 template <>
 struct OpModel<AbsOp> : UnaryEltwiseOpModel<AbsOp> {};

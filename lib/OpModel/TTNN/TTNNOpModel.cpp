@@ -415,6 +415,8 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::sin);
   } else if constexpr (std::is_same_v<OpTy, AsinOp>) {
     return WRAP_OP(::ttnn::asin);
+  } else if constexpr (std::is_same_v<OpTy, AsinhOp>) {
+    return WRAP_OP(::ttnn::asinh);
   } else if constexpr (std::is_same_v<OpTy, AbsOp>) {
     return WRAP_OP(::ttnn::abs);
   } else if constexpr (std::is_same_v<OpTy, CeilOp>) {
@@ -967,6 +969,7 @@ template struct UnaryEltwiseOpModel<NegOp>;
 template struct UnaryEltwiseOpModel<TanOp>;
 template struct UnaryEltwiseOpModel<AtanOp>;
 template struct UnaryEltwiseOpModel<AsinOp>;
+template struct UnaryEltwiseOpModel<AsinhOp>;
 template struct UnaryEltwiseOpModel<AcosOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
 template struct UnaryEltwiseOpModel<CbrtOp>;

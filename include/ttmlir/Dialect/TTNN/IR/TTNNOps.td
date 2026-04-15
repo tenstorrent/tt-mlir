@@ -486,6 +486,14 @@ def TTNN_AsinOp: TTNN_ElementwiseUnaryOp<"asin"> {
     }];
 }
 
+def TTNN_AsinhOp: TTNN_ElementwiseUnaryOp<"asinh"> {
+    let summary = "Eltwise inverse hyperbolic sine op.";
+    let description = [{
+      Performs an elementwise inverse hyperbolic sine (`asinh`) on the input
+      tensor. Accepts all real-valued inputs. Floating-point tensors.
+    }];
+}
+
 def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{
