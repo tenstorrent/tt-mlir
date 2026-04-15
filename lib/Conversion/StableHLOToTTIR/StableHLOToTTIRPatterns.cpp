@@ -5375,8 +5375,7 @@ public:
 
       for (size_t i = 0; i < startIndexMap.size(); ++i) {
         int64_t dim = startIndexMap[i];
-        int32_t startVal =
-            static_cast<int32_t>(constValues[i].getSExtValue());
+        int32_t startVal = static_cast<int32_t>(constValues[i].getSExtValue());
         begins[dim] = startVal;
         ends[dim] = startVal + static_cast<int32_t>(sliceSizes[dim]);
       }
