@@ -302,11 +302,9 @@ static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
   llvm_unreachable("Expected a FloatType or IntegerType");
 }
 
-// Extract constant fill value by looking through layout ops (broadcast,
-// reshape, typecast, repeat_interleave) to find a FullOp, ZerosOp, or OnesOp.
+// Extract constant fill value FullOp, ZerosOp, or OnesOp.
 static mlir::Attribute getConstantValue(mlir::Value value) {
-  mlir::Operation *op =
-      mlir::tt::ttir::utils::lookThroughLayoutOps(value).getDefiningOp();
+  mlir::Operation *op = value.getDefiningOp();
 
   if (auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op)) {
     return fullOp.getFillValueAttr();
@@ -376,8 +374,8 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
 //===----------------------------------------------------------------------===//
 
 // Check if a value is known to be boolean-valued (exactly 0 or 1).
-// True for: i1 types, constants that are exactly 0 or 1 (looks through
-// layout ops), and results of comparison/logical ops.
+// True for: i1 types, constants that are exactly 0 or 1 and results of
+// comparison/logical ops.
 static bool isBooleanValued(mlir::Value value) {
   auto type = mlir::cast<mlir::RankedTensorType>(value.getType());
   if (type.getElementType().isInteger(1)) {
