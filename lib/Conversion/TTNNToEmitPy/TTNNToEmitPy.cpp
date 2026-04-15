@@ -3696,6 +3696,58 @@ public:
 };
 } // namespace
 
+// AllToAllDispatchMetadataOp conversion pattern
+//
+namespace {
+class AllToAllDispatchMetadataOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchMetadataOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_to_all_dispatch_metadata";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.all_to_all_dispatch_metadata";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchMetadataOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchMetadataOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::AllToAllDispatchMetadataOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor(), "input_tensor"),
+        emitter.emit(srcOp.getExpertIndices(), "expert_indices_tensor"),
+        emitter.emit(srcOp.getExpertScores(), "expert_scores_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+    };
+
+    // Emit drain_sync_tilizer_core as a Python tuple if present.
+    if (auto drainCore = srcOp.getDrainCore()) {
+      std::string buf;
+      llvm::raw_string_ostream rso(buf);
+      rso << "(" << drainCore->getX() << ", " << drainCore->getY() << ")";
+      args.push_back(
+          emitter.emitExpression(rso.str(), "drain_sync_tilizer_core"));
+    }
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // AllToAllCombineOp conversion pattern
 //
 namespace {
@@ -4790,6 +4842,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                AggregateTensorOpConversionPattern,
                TopKOpConversionPattern,
                AllToAllDispatchOpConversionPattern,
+               AllToAllDispatchMetadataOpConversionPattern,
                AllToAllCombineOpConversionPattern,
                MoeExpertTokenRemapOpConversionPattern
               >(typeConverter, ctx);

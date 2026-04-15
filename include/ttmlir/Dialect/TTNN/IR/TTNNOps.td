@@ -1649,6 +1649,53 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
+    let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens along with expert scores to devices holding their selected
+      experts via all-to-all communication within a ring (cluster_axis).
+      Returns dispatched tokens (sparse — only routed token slots are filled),
+      all-gathered expert indices, and all-gathered expert scores.
+
+      Dimensions:
+        M = tokens per ring device
+        K = selected experts per token
+        D = total devices, E = total experts
+
+      Input shapes (per device, after mesh sharding):
+        - input_tensor:   [1, 1, M, H]
+        - expert_indices: [1, 1, M, K]
+        - expert_scores:  [1, 1, M, K]
+        - expert_mapping: [D, E]  entry [d, e] = device ID owning expert e
+
+      Output shapes (per device, num_devices * M = tokens_global):
+        - dispatched: [1, tokens_global, H]
+        - indices:    [1, tokens_global, K]  (all-gathered across ring)
+        - scores:     [1, tokens_global, K]  (all-gathered across ring)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_CoreCoordAttr>:$drain_core);
+
+    let results = (outs AnyRankedTensor:$dispatched,
+                       AnyRankedTensor:$indices,
+                       AnyRankedTensor:$scores);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllToAllDispatchMetadataOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
