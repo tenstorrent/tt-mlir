@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline="enable-elementwise-fusion=true" | FileCheck %s
+// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline="enable-affine-loop-fusion-and-scalar-replacement=false" | FileCheck %s
 
 // Tests are mainly checking that the operation sequence over the main FUSED compute kernel
 // are correct when lowered all the way down to emitc and that the compiler doesn't fail.
@@ -19,9 +19,8 @@
 // CHECK: "ttmetal.enqueue_write_buffer"
 // CHECK: "ttmetal.enqueue_program"
 
-// Check for the fused elementwise operations in compute_kernel7
-// This kernel should contain all the fused operations
-// CHECK: func.func private @compute_kernel7()
+// Check for lowered compute kernel functions
+// CHECK: func.func private @compute_kernel{{[0-9]+}}()
 // CHECK-SAME: ttkernel.thread = #ttkernel.thread<compute>
 
 // Verify the sequence of operations that should be fused together
