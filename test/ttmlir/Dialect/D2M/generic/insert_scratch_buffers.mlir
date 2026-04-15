@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-add-scratch-inputs %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-scratch-buffers %s | FileCheck %s
 
 #l1 = #ttcore.memory_space<l1>
 #parallel = #ttcore.iterator_type<parallel>
@@ -9,15 +9,14 @@
 
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
-// Two tile_add ops in a fused generic → scratch should be added at input index 2.
-// Verify: scratch memref.alloc (1x1x1x32 for f32 @ 128KB) and scratch_inputs attr.
+// Two tile_add ops in a fused generic → scratch_init should be inserted.
+// Verify: memref.alloc + scratch_init inside region.
 
 // CHECK-LABEL: func.func @two_adds_gets_scratch
-// CHECK: memref.alloc() : memref<1x1x1x32x!ttcore.tile<32x32, f32>
 // CHECK: d2m.generic
-// CHECK-SAME: scratch_inputs = array<i64: 2>
-// CHECK: ins(%{{.*}}, %{{.*}}, %{{.*}} :
-// CHECK-SAME: memref<1x1x1x32x!ttcore.tile<32x32, f32>
+// CHECK: ins(%{{.*}}, %{{.*}} :
+// CHECK: memref.alloc() : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
+// CHECK-NEXT: d2m.scratch_init
 func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {
@@ -63,11 +62,9 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
 // Mixed binary FPU ops (tile_add + tile_mul) → scratch should be added.
 
 // CHECK-LABEL: func.func @add_and_mul_gets_scratch
-// CHECK: memref.alloc() : memref<1x1x1x32x!ttcore.tile<32x32, f32>
 // CHECK: d2m.generic
-// CHECK-SAME: scratch_inputs = array<i64: 2>
-// CHECK: ins(%{{.*}}, %{{.*}}, %{{.*}} :
-// CHECK-SAME: memref<1x1x1x32x!ttcore.tile<32x32, f32>
+// CHECK: memref.alloc() : memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<131072x4096, 1>, #l1>
+// CHECK-NEXT: d2m.scratch_init
 func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {
@@ -110,10 +107,10 @@ func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) 
   return
 }
 
-// Single tile_add → no scratch (needsScratch requires > 1 binary FPU op).
+// Single tile_add → no scratch (needsScratch requires > 1 op).
 
 // CHECK-LABEL: func.func @single_add_no_scratch
-// CHECK-NOT: scratch_inputs
+// CHECK-NOT: scratch_init
 // CHECK: return
 func.func @single_add_no_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled

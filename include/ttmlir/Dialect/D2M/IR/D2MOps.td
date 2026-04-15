@@ -235,7 +235,6 @@ def D2M_GenericOp
       I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
       TTCore_IteratorTypeArrayAttr:$iterator_types,
       D2M_ThreadArrayAttr:$threads,
-      OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs,
       OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
@@ -388,11 +387,6 @@ def D2M_GenericOp
       /// positional counting.  Returns null if not found.
       static Value getOperandAlloc(Region &region, unsigned operandIndex);
 
-      bool isScratchInput(int64_t inputIndex) {
-        auto scratchAttr = getScratchInputsAttr();
-        if (!scratchAttr) return false;
-        return llvm::is_contained(scratchAttr.asArrayRef(), inputIndex);
-      }
       // Declare methods here - they go in the .h.inc file
       ::mlir::Operation::operand_range getInputsAndOutputs();
       MutableArrayRef<OpOperand> getInputsAndOutputsMutable();

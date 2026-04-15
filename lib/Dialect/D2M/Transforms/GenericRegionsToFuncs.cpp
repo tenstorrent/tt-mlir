@@ -132,7 +132,6 @@ public:
           generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
           generic.getBlockFactors(), generic.getIndexingMaps(),
           generic.getIteratorTypes(), builder.getArrayAttr(threads),
-          generic.getScratchInputsAttr(),
           generic.getFabricConnectionConfigAttr(),
           /*numRegions*/ 0);
 

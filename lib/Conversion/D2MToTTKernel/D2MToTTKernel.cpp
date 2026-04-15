@@ -2156,16 +2156,32 @@ public:
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr arg;
     size_t argIndex;
-    Type arg_result_type;
+    Type argResultType;
 
-    if (mlir::isa<MemRefType>(op.getResult().getType())) {
+    if (auto memrefType =
+            mlir::dyn_cast<MemRefType>(op.getResult().getType())) {
+      Type convertedType = getTypeConverter()->convertType(memrefType);
+      if (mlir::isa<ttkernel::CBType>(convertedType)) {
+        // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
+        // Handle identically to D2MGetCBRewriter: CBPort compile-time arg.
+        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+        argResultType = convertedType;
+
+        rewriter.modifyOpInPlace(entry, [&]() {
+          argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
+        });
+        rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+            op, argResultType, static_cast<int32_t>(argIndex));
+        return success();
+      }
+
       arg = rewriter.getAttr<ArgAttr>(ArgType::BufferAddress,
                                       op.getOperandIndex());
-      arg_result_type = rewriter.getI32Type();
+      argResultType = rewriter.getI32Type();
     } else if (mlir::isa<d2m::GlobalSemaphoreType>(op.getResult().getType())) {
       arg = rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
                                       op.getOperandIndex());
-      arg_result_type = ttkernel::L1AddrType::get(rewriter.getContext());
+      argResultType = ttkernel::L1AddrType::get(rewriter.getContext());
     } else {
       llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
     }
@@ -2175,14 +2191,14 @@ public:
         argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
-          op, arg_result_type, index(rewriter, op->getLoc(), argIndex));
+          op, argResultType, index(rewriter, op->getLoc(), argIndex));
 
     } else {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-          op, arg_result_type, argIndex);
+          op, argResultType, argIndex);
     }
     return success();
   }
