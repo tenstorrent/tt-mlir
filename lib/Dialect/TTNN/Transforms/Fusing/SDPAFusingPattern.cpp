@@ -710,7 +710,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
             /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*memory_config=*/MemoryConfigAttr(),
-            /*program_config=*/SDPAProgramConfigAttr());
+            /*program_config=*/SDPAProgramConfigAttr(),
+            /*compute_config=*/DeviceComputeKernelConfigAttr());
 
     if (!validationResult.isSuccess()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
@@ -725,7 +726,8 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
-        /*program_config=*/SDPAProgramConfigAttr());
+        /*program_config=*/SDPAProgramConfigAttr(),
+        /*compute_config=*/DeviceComputeKernelConfigAttr());
 
     Value finalResult = ttir_to_ttnn::utils::generatePermute(
         decodeOp.getResult(),

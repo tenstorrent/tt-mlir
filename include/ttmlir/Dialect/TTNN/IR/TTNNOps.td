@@ -3646,7 +3646,7 @@ def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
 }
 
 
-def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, AttrSizedOperandSegments]> {
+def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attention_decode", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface, AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
       A version of scaled dot product attention specifically for decode.
@@ -3676,7 +3676,8 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
+                         OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
 

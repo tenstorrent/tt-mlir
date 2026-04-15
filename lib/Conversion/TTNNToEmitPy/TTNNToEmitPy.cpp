@@ -4383,6 +4383,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
     // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
