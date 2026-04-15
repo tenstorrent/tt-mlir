@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_D2MOPTIMIZERUTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_D2MOPTIMIZERUTILS_H
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"

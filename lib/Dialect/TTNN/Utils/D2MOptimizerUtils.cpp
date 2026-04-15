@@ -41,7 +41,7 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
           BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
           utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
     } else {
-      llvm::report_fatal_error(
+      dispatchOp.emitOpError(
           "Expected EmptyOp for D2MSubgraphOp output buffer");
     }
   }
@@ -99,6 +99,8 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
 void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
                                       TTNNLayoutAttr chosenLayout,
                                       ttcore::GridAttr deviceGrid) {
+  assert(dispatchOp.getNumResults() == 1 &&
+         "D2MSubgraphOp with one result is supported");
   auto tensorType =
       mlir::cast<RankedTensorType>(dispatchOp->getResult(0).getType());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
