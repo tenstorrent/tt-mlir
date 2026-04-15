@@ -1,13 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
-// TTMetal spatial smoke: two regions, tanh then exp (mirrors
-// Silicon/TTNN/n150/spatial/spatial_multi_tanh_exp.mlir).
-// 32x32 bf16, 1x1x1x1 tiles; core ranges (0,0)-(0,0) and (1,1)-(1,1).
-// Input/output tiling matches spatial_metal_multi_matmul.mlir: per-region
-// d2m.empty with VGM plus d2m.to_layout for shared %arg0.
-
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=false" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir

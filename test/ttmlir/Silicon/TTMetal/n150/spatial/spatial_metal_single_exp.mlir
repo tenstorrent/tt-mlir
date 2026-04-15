@@ -1,11 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
-// TTMetal spatial smoke: single region elementwise exp (mirrors
-// Silicon/TTNN/n150/spatial/spatial_single_exp.mlir structure).
-// Uses 32x32 bf16 and a 1x1x1x1 tile grid (TTMetal path); TTNN uses 64x128 dram tiles.
-
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=false" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
