@@ -1,12 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
-// TTMetal spatial smoke: single region matmul (same operand shapes as
-// Silicon/TTNN/n150/spatial/spatial_single_matmul_offset.mlir).
-// Uses core_range<(0,0),(0,0)> so the lowered generic grid fits the region;
-// TTNN pins a different worker core via mesh layout on tensors.
-
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=false" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
