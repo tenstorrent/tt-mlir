@@ -3729,52 +3729,6 @@ public:
 };
 } // namespace
 
-// SelectiveReduceCombineOp conversion pattern
-//
-namespace {
-class SelectiveReduceCombineOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<
-          mlir::tt::ttnn::SelectiveReduceCombineOp> {
-public:
-  using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::SelectiveReduceCombineOp>::
-      TTNNToEmitPyBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::SelectiveReduceCombineOp srcOp,
-                  OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SelectiveReduceCombineOp>
-        emitter(srcOp, adaptor, rewriter);
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getDenseInputTensor()),
-        emitter.emit(srcOp.getDenseActivationsTensor()),
-        emitter.emit(srcOp.getDenseTokenMapsTensor()),
-        emitter.emit(srcOp.getDenseTokenCountsTensor()),
-        emitter.emit(srcOp.getHiddenSize(), "hidden_size"),
-        emitter.emit(srcOp.getBatchSize(), "batch_size"),
-        emitter.emit(srcOp.getSeqSize(), "seq_size"),
-        emitter.emit(srcOp.getSelectExpertsK(), "select_experts_k"),
-        emitter.emit(srcOp.getExperts(), "experts"),
-        emitter.emit(srcOp.getAxis(), "axis"),
-        emitter.emit(srcOp.getTopology(), "topology"),
-        emitter.emit(srcOp.getNumLinks(), "num_links"),
-        emitter.emit(srcOp.getNumTokenParallelCores(),
-                     "num_token_parallel_cores"),
-        emitter.emit(srcOp.getNumDataParallelCores(),
-                     "num_data_parallel_cores"),
-        emitter.emit(srcOp.getMemoryConfig(), "output_memory_config"),
-    };
-
-    emitter.replaceOp(*this, args);
-
-    return success();
-  }
-};
-} // namespace
-
 // MoeExpertTokenRemapOp conversion pattern
 //
 namespace {
@@ -4795,7 +4749,6 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                TopKOpConversionPattern,
                AllToAllDispatchOpConversionPattern,
                AllToAllCombineOpConversionPattern,
-               SelectiveReduceCombineOpConversionPattern,
                MoeExpertTokenRemapOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on

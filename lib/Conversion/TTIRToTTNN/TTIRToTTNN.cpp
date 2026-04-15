@@ -1748,14 +1748,7 @@ public:
         adaptor.getDenseInputTensor(), adaptor.getDenseActivationsTensor(),
         adaptor.getDenseTokenMapsTensor(), adaptor.getDenseTokenCountsTensor(),
         op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
-        op.getSelectExpertsKAttr(), op.getExpertsAttr(), op.getAxisAttr(),
-        /*topology=*/
-        rewriter.getAttr<mlir::tt::ttcore::TopologyAttr>(
-            mlir::tt::ttcore::Topology::Ring),
-        /*num_links=*/rewriter.getUI32IntegerAttr(1),
-        /*num_token_parallel_cores=*/rewriter.getUI32IntegerAttr(1),
-        /*num_data_parallel_cores=*/rewriter.getUI32IntegerAttr(1),
-        /*memory_config=*/nullptr);
+        op.getSelectExpertsKAttr(), op.getExpertsAttr());
     return success();
   }
 };

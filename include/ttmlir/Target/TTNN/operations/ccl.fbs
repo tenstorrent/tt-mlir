@@ -125,12 +125,6 @@ table SelectiveReduceCombineOp {
   seq_size: uint32;
   select_experts_k: uint32;
   experts: uint32;
-  axis: uint32;
-  topology: tt.target.Topology;
-  num_links: uint32;
-  num_token_parallel_cores: uint32;
-  num_data_parallel_cores: uint32;
-  memory_config: tt.target.ttnn.MemoryConfig;
 }
 
 table MoeExpertTokenRemapOp {

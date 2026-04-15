@@ -6157,8 +6157,7 @@ def TTIR_SelectiveReduceCombineOp : TTIR_NamedOp<"selective_reduce_combine",
                          UI32Attr:$batch_size,
                          UI32Attr:$seq_size,
                          UI32Attr:$select_experts_k,
-                         UI32Attr:$experts,
-                         OptionalAttr<UI32Attr>:$axis);
+                         UI32Attr:$experts);
 
     let results = (outs AnyRankedTensor:$result);
 

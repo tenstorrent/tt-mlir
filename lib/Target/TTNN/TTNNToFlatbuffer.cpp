@@ -1262,20 +1262,11 @@ createOp(FlatbufferObjectCache &cache, SelectiveReduceCombineOp op) {
   auto output = cache.getOrCreateNoSharding(
       op.getResult(), tensorValueToFlatbuffer, std::nullopt);
 
-  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
-  if (auto memConfig = op.getMemoryConfig()) {
-    memoryConfig = toFlatbuffer(cache, memConfig.value());
-  }
-
-  auto topology = toFlatbuffer(cache, op.getTopology());
-
   return ::tt::target::ttnn::CreateSelectiveReduceCombineOp(
       *cache.fbb, denseInputTensor, denseActivationsTensor,
       denseTokenMapsTensor, denseTokenCountsTensor, output, op.getHiddenSize(),
       op.getBatchSize(), op.getSeqSize(), op.getSelectExpertsK(),
-      op.getExperts(), op.getAxis().value_or(0), topology, op.getNumLinks(),
-      op.getNumTokenParallelCores(), op.getNumDataParallelCores(),
-      memoryConfig);
+      op.getExperts());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>
