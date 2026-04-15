@@ -62,7 +62,7 @@ module {
   // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"()
   // CHECK: %[[FULL_INNER:.*]] = "ttnn.full"(%[[DEVICE]])
   // CHECK-SAME: fill_value = 5.000000e+00 : f32
-  // CHECK: %[[SUB:.*]] = "ttnn.subtract"(%arg0, %[[FULL_INNER]]) <{dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}>
+  // CHECK: %[[SUB:.*]] = "ttnn.subtract"(%arg0, %[[FULL_INNER]]) <{activations = [], dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], input_tensor_b_activations = []}>
   // CHECK: return %[[SUB]]
 
   // CHECK-LABEL: func.func @merged_with_const_eval(
