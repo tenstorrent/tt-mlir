@@ -21,4 +21,8 @@ target_include_directories(TTRuntimeDistributed SYSTEM PRIVATE "$<BUILD_INTERFAC
 
 target_link_libraries(TTRuntimeDistributed PRIVATE TTRuntimeDistributedController TTRuntimeDistributedUtils)
 
+if (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN)
+  target_link_libraries(TTRuntimeDistributed PRIVATE TTRuntimeTTNN)
+endif()
+
 add_dependencies(TTRuntimeDistributed RUNTIME_FBS_GENERATION)

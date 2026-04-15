@@ -302,6 +302,28 @@ Tensor createBorrowedHostTensor(void *data,
       });
 }
 
+Tensor createBorrowedHostTensorOnController(
+    void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType) {
+  using RetType = Tensor;
+  LOG_ASSERT(itemsize > 0);
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createBorrowedHostTensorOnController",
+                                    DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createBorrowedHostTensorOnController",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::createBorrowedHostTensorOnController(
+            data, shape, stride, itemsize, dataType);
+      });
+}
+
 Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &shape,
                              const std::vector<std::uint32_t> &stride,
