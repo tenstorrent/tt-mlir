@@ -474,7 +474,9 @@ public:
 
 /// Second-phase lowering for d2m.spatial:
 /// - Merge all nested ttmetal.enqueue_program ops into one enqueue_program.
-/// - Keep cb_ports unchanged.
+/// - Keep cb_ports unchanged (concatenated per region). CB hardware ids are
+/// per-core; spatial regions use disjoint core ranges, so CBPort kernel-arg
+/// indices are not shifted across regions.
 /// - Remap enqueue args indices in kernel args when args lists are
 /// concatenated.
 class SpatialOpRewriter : public OpConversionPattern<d2m::SpatialOp> {
