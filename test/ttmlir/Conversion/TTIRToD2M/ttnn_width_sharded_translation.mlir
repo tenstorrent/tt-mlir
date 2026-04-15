@@ -44,16 +44,15 @@ func.func @test_lower_width_sharded_l1(
   %arg0: tensor<32x384xbf16, #ttnn_layout>) -> tensor<32x384xbf16, #ttnn_layout> {
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[EMPTY0:.*]] = d2m.empty() {virtualGridForwardMapping = {{.*}}, virtualGridInverseMapping = {{.*}}} : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x6>
-  // CHECK: ins(%[[VIEW0]] : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
-  // CHECK: outs(%[[EMPTY0]] : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK-SAME: grid = #ttcore.grid<1x12, virt_to_physical_map = (d0, d1) ->
+  // CHECK: ins(%[[CAST0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK: outs(%[[EMPTY0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
   // CHECK-DAG: d2m.tile_abs
   // CHECK: %[[EMPTY1:.*]] = d2m.empty() : tensor<32x384xbf16, #ttnn_layout>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY1]]{{.*}}: tensor<32x384xbf16, #ttnn_layout> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[LAYOUT]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<32x384xbf16, #ttnn_layout>
   %1 = "ttir.abs"(%arg0)  : (tensor<32x384xbf16, #ttnn_layout>) -> (tensor<32x384xbf16>)
   %2 = ttir.empty() : tensor<32x384xbf16, #ttnn_layout>
@@ -68,16 +67,15 @@ func.func @test_lower_width_sharded_l1_1(
   %arg0: tensor<32x384xbf16, #ttnn_layout1>) -> tensor<32x384xbf16, #ttnn_layout1> {
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[EMPTY0:.*]] = d2m.empty() {virtualGridForwardMapping = {{.*}}, virtualGridInverseMapping = {{.*}}} : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x6>
-  // CHECK: ins(%[[VIEW0]] : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
-  // CHECK: outs(%[[EMPTY0]] : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK-SAME: grid = #ttcore.grid<1x12, virt_to_physical_map = (d0, d1) ->
+  // CHECK: ins(%[[CAST0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK: outs(%[[EMPTY0]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
   // CHECK-DAG: d2m.tile_abs
   // CHECK: %[[EMPTY1:.*]] = d2m.empty() : tensor<32x384xbf16, #ttnn_layout1>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY1]]{{.*}}: tensor<32x384xbf16, #ttnn_layout1> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<1x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[LAYOUT]] : tensor<1x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<32x384xbf16, #ttnn_layout1>
   %1 = "ttir.abs"(%arg0)  : (tensor<32x384xbf16, #ttnn_layout1>) -> (tensor<32x384xbf16>)
   %2 = ttir.empty() : tensor<32x384xbf16, #ttnn_layout1>
@@ -91,16 +89,16 @@ func.func @test_lower_width_sharded_l1_2(
   %arg0: tensor<64x384xbf16, #ttnn_layout2>) -> tensor<64x384xbf16, #ttnn_layout2> {
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[EMPTY0:.*]] = d2m.empty() {virtualGridForwardMapping = {{.*}}, virtualGridInverseMapping = {{.*}}} : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<2x6>
-  // CHECK: ins(%[[VIEW0]] : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
-  // CHECK: outs(%[[EMPTY0]] : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK-SAME: grid = #ttcore.grid<2x12, virt_to_physical_map = (d0, d1) ->
+  // CHECK: ins(%[[VIEW0]] : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK: outs(%[[EMPTY0]] : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
   // CHECK-DAG: d2m.tile_abs
   // CHECK: %[[EMPTY1:.*]] = d2m.empty() : tensor<64x384xbf16, #ttnn_layout2>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY1]]{{.*}}: tensor<64x384xbf16, #ttnn_layout2> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[LAYOUT]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<64x384xbf16, #ttnn_layout2>
   %1 = "ttir.abs"(%arg0)  : (tensor<64x384xbf16, #ttnn_layout2>) -> (tensor<64x384xbf16>)
   %2 = ttir.empty() : tensor<64x384xbf16, #ttnn_layout2>
@@ -115,16 +113,16 @@ func.func @test_lower_width_sharded_l1_3(
 ) -> tensor<64x384xbf16, #ttnn_layout3> {
 
   // CHECK: %[[CAST0:.*]] = ttir.ttnn_metal_layout_cast %arg0{{.*}}: tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[EMPTY0:.*]] = d2m.empty() : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[EMPTY0:.*]] = d2m.empty() {virtualGridForwardMapping = {{.*}}, virtualGridInverseMapping = {{.*}}} : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[VIEW0:.*]] = d2m.view_layout %[[CAST0]]{{.*}}: tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<2x6>
-  // CHECK: ins(%[[VIEW0]] : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
-  // CHECK: outs(%[[EMPTY0]] : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK-SAME: grid = #ttcore.grid<2x12, virt_to_physical_map = (d0, d1) ->
+  // CHECK: ins(%[[VIEW0]] : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
+  // CHECK: outs(%[[EMPTY0]] : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>)
   // CHECK-DAG: d2m.tile_abs
   // CHECK: %[[EMPTY1:.*]] = d2m.empty() : tensor<64x384xbf16, #ttnn_layout3>
   // CHECK: %[[CAST1:.*]] = ttir.ttnn_metal_layout_cast %[[EMPTY1]]{{.*}}: tensor<64x384xbf16, #ttnn_layout3> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
-  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<2x6x1x2x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
+  // CHECK: %[[LAYOUT:.*]] = d2m.to_layout %[[RESULT]], %[[CAST1]] : tensor<2x12x1x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> into tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}>
   // CHECK: %[[CAST2:.*]] = ttir.ttnn_metal_layout_cast %[[LAYOUT]] : tensor<1x12x2x1x!ttcore.tile<32x32, bf16>, #layout{{.*}}> -> tensor<64x384xbf16, #ttnn_layout3>
   %1 = "ttir.abs"(%arg0)  : (tensor<64x384xbf16, #ttnn_layout3>) -> (tensor<64x384xbf16>)
   %2 = ttir.empty() : tensor<64x384xbf16, #ttnn_layout3>
