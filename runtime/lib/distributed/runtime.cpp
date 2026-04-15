@@ -6,6 +6,10 @@
 #include "tt/runtime/detail/distributed/controller/controller.h"
 #include "tt/runtime/detail/distributed/distributed.h"
 
+#if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
+#include "tt/runtime/detail/ttnn/ttnn.h"
+#endif
+
 namespace tt::runtime::distributed {
 
 using Controller = tt::runtime::distributed::controller::Controller;
@@ -119,6 +123,19 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
   assertControllerLaunched();
   return ControllerSingleton::get().createOwnedHostTensor(data, shape, stride,
                                                           itemsize, dataType);
+}
+
+::tt::runtime::Tensor createBorrowedHostTensorOnController(
+    void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType) {
+  assertControllerLaunched();
+#if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
+  return ::tt::runtime::ttnn::createBorrowedHostTensor(data, shape, stride,
+                                                       itemsize, dataType);
+#else
+  LOG_FATAL("createBorrowedHostTensorOnController requires TTNN runtime");
+#endif
 }
 
 ::tt::runtime::Tensor createMultiDeviceHostTensor(

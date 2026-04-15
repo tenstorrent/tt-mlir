@@ -58,6 +58,14 @@ Tensor createBorrowedHostTensor(void *data,
                                 std::uint32_t itemsize,
                                 ::tt::target::DataType dataType);
 
+// When using HostRuntime::Distributed, creates a borrowed TTNN host tensor on
+// the controller process only (no commands are sent to workers). Requires
+// launchDistributedRuntime. For Local host runtime, use createBorrowedHostTensor.
+Tensor createBorrowedHostTensorOnController(
+    void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType);
+
 // Creates host tensor with a owned copy of the data (the buffer of the tensor
 // is on the host and its allocation/deallocation is owned by this tensor
 // instance).
@@ -104,6 +112,12 @@ Tensor createEmptyTensor(Device device, Layout layout,
 inline Tensor createBorrowedHostTensor(void *data, const TensorDesc &desc) {
   return ::tt::runtime::createBorrowedHostTensor(data, desc.shape, desc.stride,
                                                  desc.itemsize, desc.dataType);
+}
+
+inline Tensor createBorrowedHostTensorOnController(void *data,
+                                                   const TensorDesc &desc) {
+  return ::tt::runtime::createBorrowedHostTensorOnController(
+      data, desc.shape, desc.stride, desc.itemsize, desc.dataType);
 }
 
 inline Tensor createOwnedHostTensor(const void *data, const TensorDesc &desc) {

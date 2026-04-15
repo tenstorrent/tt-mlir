@@ -360,6 +360,16 @@ void registerRuntimeBindings(nb::module_ &m) {
       },
       "Create a host tensor with borrowed memory");
   m.def(
+      "create_borrowed_host_tensor_on_controller",
+      [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
+         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         ::tt::target::DataType dataType) {
+        return tt::runtime::createBorrowedHostTensorOnController(
+            reinterpret_cast<void *>(ptr), shape, stride, itemsize, dataType);
+      },
+      "Create a borrowed TTNN host tensor on the distributed controller only "
+      "(no worker RPC)");
+  m.def(
       "create_owned_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
          const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
