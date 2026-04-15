@@ -7611,7 +7611,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.IndexOp: index_golden,
     ttir.SliceStaticOp: ttir_slice_golden,
     ttir.SliceDynamicOp: ttir_slice_dynamic_golden,
-    ttir.GatherOp: ttir_gather_golden,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: ttir_matmul_golden,
