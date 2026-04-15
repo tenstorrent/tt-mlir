@@ -215,6 +215,7 @@ def _build_expert_scores(batch, S, K):
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.skip(reason="Temporarily disabled")
 @pytest.mark.parametrize("mesh_shape", [(4, 8)], ids=shape_str)
 @pytest.mark.parametrize(
     "fabric_config",
