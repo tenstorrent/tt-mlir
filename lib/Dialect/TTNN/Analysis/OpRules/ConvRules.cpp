@@ -60,6 +60,30 @@ static uint32_t getActBlockHOverride(const BeamCandidate &c) {
   return UINT32_MAX;
 }
 
+static std::optional<TensorMemoryLayout>
+getTensorMemoryLayout(const BeamCandidate &c) {
+  // First try conv2dConfig's shard_layout if explicitly set
+  if (auto *conv2d =
+          std::get_if<Conv2dAttrs>(&c.configHint.opSpecificAttrs)) {
+    if (conv2d->conv2dConfig.has_value() && conv2d->conv2dConfig.value()) {
+      auto shardLayout = conv2d->conv2dConfig.value().getShardLayout();
+      if (shardLayout.has_value()) {
+        return shardLayout;
+      }
+    }
+  }
+
+  // Fall back to the actual validated output layout
+  if (!c.outputLayouts.empty()) {
+    auto memLayout = c.outputLayouts[0].getMemLayout();
+    if (memLayout) {
+      return memLayout.getValue();
+    }
+  }
+
+  return std::nullopt;
+}
+
 bool Conv2dRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
                                      const BeamCandidate &b) const {
   // Prefer act_block_h_override=0 (auto, best), then higher over lower.
@@ -74,6 +98,19 @@ bool Conv2dRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
       return false;
     }
     return abhA > abhB;
+  }
+
+  // Tie breaker: Prefer HeightSharded over all other layouts (e.g.
+  // BlockSharded). When LayoutScores are equal, HS consistently produces
+  // better runtime kernel configs (ABH=8 vs ABH=64 for BS).
+  auto layoutA = getTensorMemoryLayout(a);
+  auto layoutB = getTensorMemoryLayout(b);
+  if (layoutA.has_value() && layoutB.has_value()) {
+    bool aIsHS = layoutA.value() == TensorMemoryLayout::HeightSharded;
+    bool bIsHS = layoutB.value() == TensorMemoryLayout::HeightSharded;
+    if (aIsHS != bIsHS) {
+      return aIsHS;
+    }
   }
   return false;
 }
