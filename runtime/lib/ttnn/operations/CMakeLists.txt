@@ -15,6 +15,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce_async.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_combine.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch_metadata.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_expert_token_remap.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
@@ -79,6 +80,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/distributed_rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/group_norm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/normalization/rms_norm_pre_all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm_pre_all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/layer_norm_post_all_gather.cpp

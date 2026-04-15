@@ -3293,6 +3293,23 @@ AllToAllDispatchOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AllToAllDispatchMetadataOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t> AllToAllDispatchMetadataOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // AllToAllCombineOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -4258,6 +4275,69 @@ DistributedRMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct RMSNormPreAllGatherOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> residualInputShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
+};
+
+static RMSNormPreAllGatherOptionalArgs
+unpackRMSNormPreAllGatherOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                                      RMSNormPreAllGatherOp op) {
+  RMSNormPreAllGatherOptionalArgs ret;
+  // inputs[0] = input layout; optional operands follow in operand order.
+  size_t idx = 1;
+  if (op.getResidual()) {
+    ret.residualInputShape = op.getResidual().getType().getShape();
+    if (idx < inputs.size()) {
+      ret.residualInputLayout = inputs[idx++];
+    }
+  }
+
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+
+  if (!check) {
+    return check.takeError();
+  }
+
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  RMSNormPreAllGatherOptionalArgs optionalArgs =
+      unpackRMSNormPreAllGatherOptionalArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout, getDtype(), getUse_2dCoreGrid(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+
+  RMSNormPreAllGatherOptionalArgs optionalArgs =
+      unpackRMSNormPreAllGatherOptionalArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime, *this, inputShape,
+      inputs[0], optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout, getDtype(), getUse_2dCoreGrid(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

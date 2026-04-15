@@ -2121,7 +2121,7 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
     within the enclosing scope, used for tracking and debugging.
 
     This op is lowered by `LowerScratchAllocate` to a `memref.subview` into
-    the scratch CB buffer.
+    the scratch memref anchored by `d2m.scratch_init`.
 
     Example:
     ```mlir
@@ -2138,58 +2138,29 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
   }];
 }
 
-def D2M_GetScratchFromCBOp : D2M_GenericRegionOp<"get_scratch_from_cb",
-  [MemoryEffects<[MemRead]>]> {
-  let summary = "Unwrap scratch circular buffer into a memref.";
+def D2M_ScratchInitOp : D2M_Op<"scratch_init"> {
+  let summary = "Anchor op for scratch buffer memref.";
   let description = [{
-    The `get_scratch_from_cb` operation extracts the underlying memref from
-    a scratch circular buffer (CB) obtained via `d2m.get_cb`. This op is
-    inserted by the LowerScratchAllocate pass at the beginning of the
-    `d2m.generic` region to make the scratch buffer available as a plain memref
-    for use by downstream
-    scratch allocation ops (e.g. `d2m.scratch_allocate` lowered to
-    `memref.subview`).
+    Marks a `memref.alloc` as the scratch buffer for intermediate spilling
+    inside a `d2m.generic` region. This op consumes the memref to prevent
+    canonicalization from removing the otherwise-unused alloc.
 
-    The result type matches the CB's underlying memref type.
+    Inserted by `InsertScratchBuffers` and erased by `LowerScratchAllocate`
+    after `scratch_allocate` ops are replaced with subviews of this memref.
 
     Example:
     ```mlir
-    %scratch = d2m.get_scratch_from_cb %cb_scratch
-        : !d2m.cb<memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
-        -> memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    %scratch = memref.alloc() : memref<1x32x!ttcore.tile<32x32, f32>,
+                                       #ttcore.memory_space<l1>>
+    d2m.scratch_init %scratch : memref<1x32x!ttcore.tile<32x32, f32>,
+                                       #ttcore.memory_space<l1>>
     ```
   }];
 
-  let arguments = (ins D2M_CB:$cb);
-  let results = (outs DeviceL1MemRef:$result);
+  let arguments = (ins AnyMemRef:$scratch);
+  let results = (outs);
 
-  let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
-
-  let builders = [
-    OpBuilder<(ins "Value":$cb), [{
-      auto cbType = mlir::cast<CBType>(cb.getType());
-      build($_builder, $_state, cbType.getUnderlying(), cb);
-    }]>
-  ];
-
-  let extraClassDeclaration = [{
-    CBType getCbType() {
-      return mlir::cast<CBType>(getCb().getType());
-    }
-  }];
-
-  let extraClassDefinition = [{
-    mlir::LogicalResult $cppClass::verify() {
-      auto cbType = mlir::cast<CBType>(getCb().getType());
-      if (cbType.getUnderlying() != getResult().getType()) {
-        return emitOpError() << "result type does not match circular buffer's "
-                                "underlying memref type";
-      }
-      return ::mlir::success();
-    }
-  }];
-
-  let hasVerifier = 1;
+  let assemblyFormat = [{ $scratch attr-dict `:` type($scratch) }];
 }
 
 def D2M_StoreOp : D2M_GenericRegionOp<"store",

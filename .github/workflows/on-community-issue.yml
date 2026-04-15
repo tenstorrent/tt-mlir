@@ -61,3 +61,4 @@ jobs:
           webhook-type: webhook-trigger
           payload: |
             text: "A new ${{ steps.set-variables.outputs.EVENT_TYPE }} has been created by a non-org member `${{ steps.set-variables.outputs.USERNAME }}`: ${{ steps.set-variables.outputs.EVENT_URL }}"
+            channel: "C07R5GYEW8J"
