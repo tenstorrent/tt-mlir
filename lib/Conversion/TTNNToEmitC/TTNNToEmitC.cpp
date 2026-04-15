@@ -4577,13 +4577,12 @@ public:
       if (is_first_call) {
         is_first_call = false;
         [trace_id,
-         actual_output_0,..., actual_output_m,
          global_input_0,..., global_input_n,
          global_output_0,..., global_output_m]
             = capture_calle(input_0,..., input_n);
-        return actual_output_0,..., actual_output_m;
+        return global_output_0,..., global_output_m;
       } else {
-        return execute_calle(trace_id);
+        execute_calle(trace_id);
         return global_output_0,..., global_output_m;
       }
     }
@@ -4699,22 +4698,8 @@ public:
           loc, getGlobalVariable(rewriter, loc, traceId),
           getTraceId.getResult(0));
 
-      // local_output_0 = std::get<outputBaseIndex + i>(v);
-      // ...
-      // local_output_n = std::get<outputBaseIndex + n>(v);
-      const size_t outputBaseIndex = 1;
-      for (size_t i = 0; i < returnVariable.size(); ++i) {
-        std::string getName =
-            "::std::get<" + std::to_string(outputBaseIndex + i) + ">";
-        auto getResult = rewriter.create<emitc::CallOpaqueOp>(
-            loc, ttnnTensorType, getName, nullptr, nullptr,
-            captureTuple.getResult(0));
-        rewriter.create<emitc::AssignOp>(loc, returnVariable[i].getResult(),
-                                         getResult.getResult(0));
-      }
-
       // input_i = std::get<inputBaseIndex + i>(v)
-      const size_t inputBaseIndex = 1 + returnVariable.size();
+      const size_t inputBaseIndex = 1;
       for (size_t i = 0; i < traceInputVariable.size(); ++i) {
         std::string getName =
             "::std::get<" + std::to_string(inputBaseIndex + i) + ">";
@@ -4726,6 +4711,8 @@ public:
             getResult.getResult(0));
       }
 
+      // output_i = std::get<traceOutputBaseIndex + i>(v)
+      // Output slots also serve as the actual outputs for the first invocation.
       const size_t traceOutputBaseIndex =
           inputBaseIndex + traceInputVariable.size();
       for (size_t i = 0; i < traceOutputVariable.size(); ++i) {
@@ -4737,6 +4724,13 @@ public:
         rewriter.create<emitc::AssignOp>(
             loc, getGlobalVariable(rewriter, loc, traceOutputVariable[i]),
             getResult.getResult(0));
+      }
+
+      // Return the output slots as the actual outputs for the first call.
+      for (size_t i = 0; i < returnVariable.size(); ++i) {
+        rewriter.create<emitc::AssignOp>(
+            loc, returnVariable[i].getResult(),
+            loadGlobalVariable(rewriter, loc, traceOutputVariable[i]));
       }
 
       rewriter.create<emitc::YieldOp>(loc);
