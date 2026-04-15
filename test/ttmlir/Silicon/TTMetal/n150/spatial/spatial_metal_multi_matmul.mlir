@@ -1,10 +1,3 @@
-// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
-//
-// SPDX-License-Identifier: Apache-2.0
-
-// TTMetal spatial smoke: two regions, two matmuls (mirrors Silicon/TTNN/n150/spatial/spatial_multi_matmul.mlir).
-// IR derived from builder-generated D2M (d2m.to_layout / d2m.spatial); see builder_generated_irs/two_matmuls_basic_multi.mlir.
-
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=false" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttmetal-to-flatbuffer -o %t.ttm %t.mlir
