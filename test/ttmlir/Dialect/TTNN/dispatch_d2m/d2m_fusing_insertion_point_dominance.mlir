@@ -28,5 +28,5 @@ module {
 // CHECK: func.func private @d2m_subgraph_0
 // CHECK: %[[ADD_0:.*]] = "ttnn.add"
 // CHECK: %[[ADD_1:.*]] = "ttnn.add"
-// CHECK: %[[MULTIPLY:.*]] = "ttnn.multiply"(%[[ADD_0]], %[[ADD_1]]) <{dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}>
+// CHECK: %[[MULTIPLY:.*]] = "ttnn.multiply"(%[[ADD_0]], %[[ADD_1]]) <{activations = [], dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], input_tensor_b_activations = []}>
 // CHECK: return %[[MULTIPLY]]

@@ -170,7 +170,7 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface, TTNN_ElementwiseBinary] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface, TTNN_ElementwiseBinary, TTNN_ElementwiseBinaryActivations] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
       Eltwise binary op.
@@ -222,7 +222,7 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
 }
 
 class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_ElementwiseBinary] # traits> {
+    TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_ElementwiseBinary, TTNN_ElementwiseBinaryActivations] # traits> {
     let summary = "Eltwise binary composite op.";
     let description = [{
       Eltwise binary composite op.
@@ -249,6 +249,46 @@ class TTNN_ElementwiseBinaryCompositeOp<string mnemonic, list<Trait> traits = []
       [{
         auto *ctx = resultType.getContext();
         build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr, /*activations=*/mlir::ArrayAttr::get(ctx, {}), /*input_tensor_a_activations=*/mlir::ArrayAttr::get(ctx, {}), /*input_tensor_b_activations=*/mlir::ArrayAttr::get(ctx, {}));
+      }]>
+    ];
+}
+
+class TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<string mnemonic, list<Trait> traits = []> :
+    TTNN_Op<mnemonic,  [TTNN_MemoryConfigOpInterface, TTNN_ElementwiseBinary] # traits> {
+    let summary = "Eltwise binary composite op.";
+    let description = [{
+      Eltwise binary composite op.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+      }
+
+      ::mlir::ArrayAttr getActivations() {
+        return ::mlir::ArrayAttr::get(getContext(), {});
+      }
+
+      ::mlir::ArrayAttr getInputTensorAActivations() {
+        return ::mlir::ArrayAttr::get(getContext(), {});
+      }
+
+      ::mlir::ArrayAttr getInputTensorBActivations() {
+        return ::mlir::ArrayAttr::get(getContext(), {});
+      }
+    }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs, /*memory_config=*/nullptr);
       }]>
     ];
 }
@@ -875,7 +915,7 @@ def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
   let hasVerifier = 1;
 }
 
-def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
+def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeWithoutFusedActivationOp<"atan2"> {
     let summary = "Eltwise atan2 OP.";
     let description = [{
       Performs element-wise atan2 operation on lhs and rhs tensor and produces a result
@@ -891,7 +931,10 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
-def TTNN_GeluBackwardOp : TTNN_Op<"gelu_bw", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_GeluBackwardOp
+    : TTNN_Op<"gelu_bw", [TTNN_MemoryConfigOpInterface,
+                         TTNN_DtypeOpInterface,
+                         TTNN_ElementwiseBinary]> {
   let summary = "Backward pass operation for the GELU activation function.";
   let description = [{
     Computes the gradient of the GELU (Gaussian Error Linear Unit) activation
@@ -907,6 +950,13 @@ def TTNN_GeluBackwardOp : TTNN_Op<"gelu_bw", [TTNN_MemoryConfigOpInterface]> {
                        DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+    }
+  }];
 
   let hasVerifier = 1;
 }

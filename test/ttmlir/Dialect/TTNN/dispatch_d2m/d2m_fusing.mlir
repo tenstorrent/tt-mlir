@@ -178,7 +178,7 @@ module {
   // CHECK: "ttnn.sigmoid"
 
   // CHECK: func.func private @d2m_subgraph_1(%[[A0:.*]]: tensor<64x256xbf16{{.*}}>, %[[A1:.*]]: tensor<64x256xbf16
-  // CHECK: "ttnn.add"(%[[A0]], %[[A1]]) <{dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}>
+  // CHECK: "ttnn.add"(%[[A0]], %[[A1]]) <{activations = [], dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], input_tensor_b_activations = []}>
   // CHECK: "ttnn.exp"
   // CHECK: "ttnn.log"
 
@@ -190,7 +190,7 @@ module {
   // CHECK: func.func private @d2m_subgraph_3(%[[A0:.*]]: {{.*}}, %[[A1:.*]]:
   // CHECK: "ttnn.exp"(%[[A0]])
   // CHECK: "ttnn.neg"
-  // CHECK: "ttnn.add"({{.*}}, %[[A1]]) <{dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}>
+  // CHECK: "ttnn.add"({{.*}}, %[[A1]]) <{activations = [], dtype = #ttcore.supportedDataTypes<bf16>, input_tensor_a_activations = [], input_tensor_b_activations = []}>
   // CHECK: "ttnn.log"
 
   // CHECK: func.func private @d2m_subgraph_4(%[[A0:.*]]: {{.*}}, %[[A1:.*]]:

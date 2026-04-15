@@ -86,6 +86,7 @@ struct LayerNormShardedMultiCoreProgramConfig;
 
 namespace operations {
 namespace unary {
+struct EltwiseUnaryWithParam;
 struct UnaryWithParam;
 
 // Mock definition of VecMode enum from tt-metal
@@ -261,6 +262,12 @@ struct TypeName<::ttnn::prim::LayerNormShardedMultiCoreProgramConfig> {
 // sparse_matmul). The actual C++ type is not included here; this is only used
 // for EmitC code-generation purposes.
 struct SparseMatmulProgramConfig {};
+
+template <>
+struct TypeName<::ttnn::operations::unary::EltwiseUnaryWithParam> {
+  inline static const std::string value =
+      "::ttnn::operations::unary::EltwiseUnaryWithParam";
+};
 
 template <>
 struct TypeName<::ttnn::operations::unary::UnaryWithParam> {
@@ -1602,6 +1609,32 @@ inline std::string convert(ttnn::UnaryOpType opType) {
 
   return opTypeMap.at(opType);
 }
+
+template <>
+struct EmitCTypeConverter<::ttnn::operations::unary::EltwiseUnaryWithParam> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto unaryWithParamAttr =
+            mlir::dyn_cast_if_present<ttnn::UnaryWithParamAttr>(attr)) {
+      return convert(unaryWithParamAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(ttnn::UnaryWithParamAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::ttnn::operations::unary::EltwiseUnaryWithParam> << "(";
+    rso << ttnn_to_emitc::convert(attr.getOpType());
+    if (!attr.getParams().empty()) {
+      rso << ", ";
+      rso << EmitCTypeConverter<std::vector<float>>::convert(attr.getParams());
+    }
+    rso << ")";
+
+    return buf;
+  }
+};
 
 template <>
 struct EmitCTypeConverter<::ttnn::operations::unary::UnaryWithParam> {

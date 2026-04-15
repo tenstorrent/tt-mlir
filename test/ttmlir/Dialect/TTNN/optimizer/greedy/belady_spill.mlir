@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-greedy-optimizer=true tensor-l1-usage-cap=0.01" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-greedy-optimizer=true tensor-l1-usage-cap=0.01 enable-fusing-pass=false" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
 // Test: With an extremely low L1 usage cap (1%), Belady's algorithm should
