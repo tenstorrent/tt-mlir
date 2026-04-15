@@ -26,9 +26,8 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid);
 
 // Compute optimal virtual grid shape for a given physical shape and target
-// grid. For ND tensors, explores Cartesian product of dimension factors.
-// For 2D tensors, finds the largest factor of the sharded dimension. Returns
-// empty vector if utilization is too low (signals fallback to block sharding).
+// grid by exploring Cartesian products of dimension factors. Returns empty
+// vector if utilization is too low and block sharding would do better.
 llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetGrid);
