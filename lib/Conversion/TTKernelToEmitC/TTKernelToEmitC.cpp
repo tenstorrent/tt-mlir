@@ -999,6 +999,9 @@ public:
 // We bounce the scalar through a volatile variable to prevent this:
 //   volatile int32_t __scalar = param;
 //   mul_unary_tile(idx, __scalar);
+//
+// The TTKernelToCpp pass then checks the VerbatimOps for inserting kernel API
+// headers, on top of the CallOpaqueOps.
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelScalarUnaryTileOpRewriter : public OpConversionPattern<SourceOp> {
 public:
