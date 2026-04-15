@@ -214,6 +214,10 @@ llvm::SmallVector<mlir::FloatAttr> LeakyReluOp::getParams() {
   return {getParameterAttr()};
 }
 
+UnaryOpType AsinhOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+
+llvm::SmallVector<mlir::FloatAttr> AsinhOp::getParams() { return {}; }
+
 //===----------------------------------------------------------------------===//
 // RandOp
 //===----------------------------------------------------------------------===//

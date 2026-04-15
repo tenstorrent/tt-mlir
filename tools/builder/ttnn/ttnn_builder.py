@@ -276,6 +276,33 @@ class TTNNBuilder(Builder):
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
 
+    def _get_empty_activation_array(self):
+        return ArrayAttr.get([])
+
+    def _get_default_binary_activation_attrs(self):
+        empty_activations = self._get_empty_activation_array()
+        return {
+            "memory_config": None,
+            "activations": empty_activations,
+            "input_tensor_a_activations": empty_activations,
+            "input_tensor_b_activations": empty_activations,
+        }
+
+    def _get_binary_activation_attrs_from_op(self, old_op):
+        empty_activations = self._get_empty_activation_array()
+        return {
+            "memory_config": getattr(old_op, "memory_config", None),
+            "activations": getattr(old_op, "activations", None) or empty_activations,
+            "input_tensor_a_activations": getattr(
+                old_op, "input_tensor_a_activations", None
+            )
+            or empty_activations,
+            "input_tensor_b_activations": getattr(
+                old_op, "input_tensor_b_activations", None
+            )
+            or empty_activations,
+        }
+
     # ----- Public TTNN Op Generators ----
 
     ############### ttnn.AddOp ###############
@@ -314,6 +341,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -336,7 +364,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -377,7 +412,12 @@ class TTNNBuilder(Builder):
                     result = old_op.result.type
 
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -3961,6 +4001,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -3983,7 +4024,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4022,7 +4070,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -4083,6 +4136,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4105,7 +4159,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4144,7 +4205,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -4205,6 +4271,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4227,7 +4294,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4266,7 +4340,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -4327,6 +4406,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4349,7 +4429,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4388,7 +4475,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -4449,6 +4541,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4471,7 +4564,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4510,7 +4610,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -4571,6 +4676,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4593,7 +4699,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4632,7 +4745,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -4693,6 +4811,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4715,7 +4834,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4754,7 +4880,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -4815,6 +4946,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4837,7 +4969,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -4875,7 +5013,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -4939,6 +5083,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -4961,7 +5106,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5000,7 +5152,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -5063,6 +5220,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5085,7 +5243,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5124,7 +5289,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -5189,6 +5359,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5211,7 +5382,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5250,7 +5428,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -5312,6 +5495,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5334,7 +5518,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5372,7 +5562,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -5433,6 +5629,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5455,7 +5652,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5493,7 +5696,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -5554,6 +5763,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5576,7 +5786,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5614,7 +5830,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -5674,6 +5896,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5696,7 +5919,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5734,7 +5963,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -5794,6 +6029,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5816,7 +6052,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5856,7 +6098,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -5918,6 +6166,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -5940,7 +6189,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -5979,7 +6235,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -6040,6 +6301,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -6062,7 +6324,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -6100,7 +6368,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -6160,6 +6434,7 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -6182,7 +6457,13 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -6220,7 +6501,13 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        **self._get_binary_activation_attrs_from_op(old_op),
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -6302,7 +6589,12 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -6340,7 +6632,12 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     in1 = inputs[1]
                     result = old_op.result.type
-                    new_op = ttnn_op(result, in0, in1, loc=old_op.location)
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                    )
                     new_op_result = new_op.result
 
                     old_op_result = self._get_golden_tensor(old_op.result)
@@ -6402,6 +6699,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -6424,7 +6722,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -6463,7 +6768,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 
@@ -6526,6 +6836,7 @@ class TTNNBuilder(Builder):
             in1,
             loc=loc,
             dtype=dtype,
+            **self._get_default_binary_activation_attrs(),
         )
         op_result = op.result
 
@@ -6548,7 +6859,14 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(
+            result,
+            lhs,
+            rhs,
+            loc=old_op.location,
+            dtype=old_op.dtype,
+            **self._get_binary_activation_attrs_from_op(old_op),
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(lhs)
@@ -6587,7 +6905,12 @@ class TTNNBuilder(Builder):
                     in1 = inputs[1]
                     result = old_op.result.type
                     new_op = ttnn_op(
-                        result, in0, in1, loc=old_op.location, dtype=old_op.dtype
+                        result,
+                        in0,
+                        in1,
+                        loc=old_op.location,
+                        dtype=old_op.dtype,
+                        **self._get_binary_activation_attrs_from_op(old_op),
                     )
                     new_op_result = new_op.result
 

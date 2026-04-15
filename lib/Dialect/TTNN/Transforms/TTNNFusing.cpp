@@ -178,23 +178,27 @@ private:
 
 namespace {
 class TTNNBinaryOpInputsActivation
-    : public mlir::OpInterfaceRewritePattern<ElementwiseBinary> {
+    : public mlir::OpInterfaceRewritePattern<ElementwiseBinaryActivations> {
   using TTNNBinaryOpInputsActivation::OpInterfaceRewritePattern<
-      ElementwiseBinary>::OpInterfaceRewritePattern;
+      ElementwiseBinaryActivations>::OpInterfaceRewritePattern;
 
 public:
   mlir::LogicalResult
-  matchAndRewrite(ElementwiseBinary binaryOp,
+  matchAndRewrite(ElementwiseBinaryActivations binaryOpWithActivations,
                   mlir::PatternRewriter &rewriter) const final {
+    auto binaryOp =
+        mlir::cast<ElementwiseBinary>(binaryOpWithActivations.getOperation());
     bool isFused = false;
 
     if (auto lhsUnaryOp = getFusableUnaryOp(binaryOp.getLhs())) {
-      fuseInputActivation(lhsUnaryOp, binaryOp, rewriter, /*isLhs=*/true);
+      fuseInputActivation(lhsUnaryOp, binaryOpWithActivations, rewriter,
+                          /*isLhs=*/true);
       isFused = true;
     }
 
     if (auto rhsUnaryOp = getFusableUnaryOp(binaryOp.getRhs())) {
-      fuseInputActivation(rhsUnaryOp, binaryOp, rewriter, /*isLhs=*/false);
+      fuseInputActivation(rhsUnaryOp, binaryOpWithActivations, rewriter,
+                          /*isLhs=*/false);
       isFused = true;
     }
 
@@ -215,9 +219,10 @@ private:
     return {};
   }
 
-  void fuseInputActivation(ElementwiseUnary unaryOp, ElementwiseBinary binaryOp,
+  void fuseInputActivation(ElementwiseUnary unaryOp,
+                           ElementwiseBinaryActivations binaryOp,
                            mlir::PatternRewriter &rewriter, bool isLhs) const {
-    rewriter.modifyOpInPlace(binaryOp, [&]() {
+    rewriter.modifyOpInPlace(binaryOp.getOperation(), [&]() {
       if (isLhs) {
         binaryOp.addInputTensorAActivation(unaryOp.getUnaryOpType(),
                                            unaryOp.getParams());
@@ -264,12 +269,12 @@ private:
     return unaryOp.getUnaryOpType() != UnaryOpType::Unknown;
   }
 
-  ElementwiseBinary getFusableBinaryOp(Value operand) const {
+  ElementwiseBinaryActivations getFusableBinaryOp(Value operand) const {
     if (!operand.hasOneUse()) {
       return {};
     }
 
-    return operand.getDefiningOp<ElementwiseBinary>();
+    return operand.getDefiningOp<ElementwiseBinaryActivations>();
   }
 };
 } // namespace
@@ -417,10 +422,10 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(
-        &getContext());
-    laterPatterns.add<TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
-        &getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+    laterPatterns
+        .add<TTNNBinaryOpInputsActivation, TTNNBinaryOpOutputActivation>(
+            &getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {

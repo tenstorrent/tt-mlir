@@ -120,11 +120,9 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
-    runEltwiseBinaryCompositeOp(
-        op, tensorPool,
-        [](const ::ttnn::Tensor &lhs, const ::ttnn::Tensor &rhs,
-           const std::optional<::ttnn::MemoryConfig> &memCfg) {
-          return ::ttnn::remainder(lhs, rhs, std::nullopt, memCfg);
+    runEltwiseBinaryCompositeOpWithActivations(
+        op, tensorPool, [](auto &&...args) {
+          return ::ttnn::remainder(std::forward<decltype(args)>(args)...);
         });
     break;
   }
@@ -133,12 +131,6 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
         op, tensorPool, [](auto &&...args) {
           return ::ttnn::pow(std::forward<decltype(args)>(args)...);
         });
-    break;
-  }
-  case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2: {
-    runEltwiseBinaryCompositeOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::atan2(std::forward<decltype(args)>(args)...);
-    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseAnd: {
@@ -157,6 +149,32 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     runEltwiseBinaryCompositeOp(op, tensorPool, [](auto &&...args) {
       return ::ttnn::bitwise_xor(std::forward<decltype(args)>(args)...);
     });
+    break;
+  }
+  }
+}
+
+void run(
+    const ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOp
+        *op,
+    ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  switch (op->type()) {
+  case ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOpType::
+      Atan2: {
+    ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+    ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
+
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+        ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+            op->memory_config());
+    LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                   outputMemoryConfig.has_value(),
+               "Memory config must exist for device tensors");
+
+    ::ttnn::Tensor out = ::ttnn::atan2(*lhs, *rhs, outputMemoryConfig);
+
+    tensorPool.insertTTNNTensorAndValidate(op->out(), out);
     break;
   }
   }

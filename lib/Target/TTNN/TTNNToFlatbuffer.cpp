@@ -2061,8 +2061,6 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, PowTensorOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Pow;
-  } else if (std::is_same_v<EltwiseBinaryCompositeOp, Atan2Op>) {
-    type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Atan2;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseAndOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeOpType::BitwiseAnd;
   } else if (std::is_same_v<EltwiseBinaryCompositeOp, BitwiseOrOp>) {
@@ -2097,6 +2095,38 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeOp(
       *cache.fbb, type, lhs, rhs, memoryConfig, activations,
       inputTensorAActivations, inputTensorBActivations, out);
+}
+
+template <typename OpTy>
+::flatbuffers::Offset<
+    ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOp>
+createEltwiseBinaryCompositeWithoutFusedActivationOp(
+    FlatbufferObjectCache &cache, OpTy op) {
+
+  ::tt::target::ttnn::EltwiseBinaryCompositeWithoutFusedActivationOpType type;
+  if (std::is_same_v<OpTy, Atan2Op>) {
+    type = ::tt::target::ttnn::
+        EltwiseBinaryCompositeWithoutFusedActivationOpType::Atan2;
+  } else {
+    llvm_unreachable("unhandled EltwiseBinaryCompositeOp");
+  }
+  auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+
+  auto rhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto result = op.getResult();
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreateNoSharding(result, tensorValueToFlatbuffer,
+
+                                         /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::
+      CreateEltwiseBinaryCompositeWithoutFusedActivationOp(
+          *cache.fbb, type, lhs, rhs, memoryConfig, out);
 }
 
 template <typename EltwiseBinaryCompositeScalarOp>
@@ -4171,9 +4201,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString, locInfo);
   }
   if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
-    return createOperation(cache,
-                           createEltwiseBinaryCompositeOp(cache, atan2Op),
-                           debugString, locInfo);
+    return createOperation(
+        cache,
+        createEltwiseBinaryCompositeWithoutFusedActivationOp(cache, atan2Op),
+        debugString, locInfo);
   }
   if (auto powScalarOp = dyn_cast<PowScalarOp>(op); powScalarOp) {
     return createOperation(

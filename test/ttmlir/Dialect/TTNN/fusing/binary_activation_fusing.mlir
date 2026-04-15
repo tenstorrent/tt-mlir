@@ -19,8 +19,8 @@ module {
     // CHECK-NOT: "ttnn.sigmoid"
     // CHECK-NOT: "ttnn.tanh"
     // CHECK: "ttnn.add"(%arg0, %arg1)
-    // CHECK-SAME: input_tensor_a_activations = [#ttnn.unary_with_param<op_type = relu>]
     // CHECK-SAME: activations = [#ttnn.unary_with_param<op_type = tanh>]
+    // CHECK-SAME: input_tensor_a_activations = [#ttnn.unary_with_param<op_type = relu>]
     // CHECK-SAME: input_tensor_b_activations = [#ttnn.unary_with_param<op_type = sigmoid>]
 
     return %3 : tensor<64x128xf32>
@@ -48,8 +48,8 @@ module {
     // CHECK-NOT: "ttnn.leaky_relu"
     // CHECK-NOT: "ttnn.gelu"
     // CHECK: "ttnn.multiply"(%arg0, %arg1)
-    // CHECK-SAME: input_tensor_a_activations = [#ttnn.unary_with_param<op_type = sigmoid>, #ttnn.unary_with_param<op_type = relu>]
     // CHECK-SAME: activations = [#ttnn.unary_with_param<op_type = gelu>, #ttnn.unary_with_param<op_type = leaky_relu, params = [2.000000e-01 : f32]>]
+    // CHECK-SAME: input_tensor_a_activations = [#ttnn.unary_with_param<op_type = relu>, #ttnn.unary_with_param<op_type = sigmoid>]
     // CHECK-SAME: input_tensor_b_activations = [#ttnn.unary_with_param<op_type = leaky_relu, params = [1.000000e-01 : f32]>]
 
     return %5 : tensor<64x128xf32>
@@ -90,8 +90,8 @@ module {
 
     // CHECK: "ttnn.cbrt"
     // CHECK: "ttnn.add"
-    // CHECK-SAME: input_tensor_a_activations = []
     // CHECK-SAME: activations = []
+    // CHECK-SAME: input_tensor_a_activations = []
     // CHECK: "ttnn.cbrt"
 
     return %2 : tensor<64x128xf32>
