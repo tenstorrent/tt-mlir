@@ -7441,6 +7441,42 @@ public:
 } // namespace
 
 namespace {
+class StableHLOAsinhOpMHLOConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "mhlo.asinh") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 1 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Asinh op must have exactly one operand and one result. Got " +
+              std::to_string(adaptor.getOperands().size()) +
+              " operands "
+              "and " +
+              std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::AsinhOp>(
+        srcOp,
+        cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType())),
+        adaptor.getOperands()[0]);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -8238,6 +8274,12 @@ static void addErfOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOErfOpMHLOConversionPattern>(typeConverter, ctx);
 }
 
+static void addAsinhOpConversionPattern(MLIRContext *ctx,
+                                        RewritePatternSet &patterns,
+                                        TypeConverter &typeConverter) {
+  patterns.add<StableHLOAsinhOpMHLOConversionPattern>(typeConverter, ctx);
+}
+
 static void addSortOpConversionPattern(MLIRContext *ctx,
                                        RewritePatternSet &patterns,
                                        TypeConverter &typeConverter) {
@@ -8764,6 +8806,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addRngOpConversionPattern(ctx, patterns, typeConverter);
   addRngBitGeneratorOpConversionPattern(ctx, patterns, typeConverter);
   addErfOpConversionPattern(ctx, patterns, typeConverter);
+  addAsinhOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);

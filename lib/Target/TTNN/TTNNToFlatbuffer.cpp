@@ -2409,6 +2409,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, AsinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Asin;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AsinhOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Asinh;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SignOp>) {
@@ -4277,6 +4279,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto asinOp = dyn_cast<AsinOp>(op); asinOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, asinOp),
+                           debugString, locInfo);
+  }
+  if (auto asinhOp = dyn_cast<AsinhOp>(op); asinhOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, asinhOp),
                            debugString, locInfo);
   }
   if (auto acosOp = dyn_cast<AcosOp>(op); acosOp) {
