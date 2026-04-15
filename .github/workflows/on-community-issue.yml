@@ -8,7 +8,6 @@ on:
 
 jobs:
   gh-slack-bridge:
-    if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
     runs-on: ubuntu-latest
     permissions:
       issues: write
