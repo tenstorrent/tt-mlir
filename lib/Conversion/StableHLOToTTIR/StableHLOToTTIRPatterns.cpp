@@ -7457,12 +7457,11 @@ public:
 
     if (adaptor.getOperands().size() != 1 || srcOp.getResults().size() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "Asinh op must have exactly one operand and one result. Got " +
-              std::to_string(adaptor.getOperands().size()) +
-              " operands "
-              "and " +
-              std::to_string(srcOp.getResults().size()) + " results.");
+          srcOp, "Asinh op must have exactly one operand and one result. Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands "
+                     "and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
     }
 
     rewriter.replaceOpWithNewOp<ttir::AsinhOp>(
