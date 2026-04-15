@@ -497,14 +497,10 @@ void createTTNNCommonToEmitCPipeline(
 
   devicePm.addPass(createConvertTTNNToEmitCPass());
 
-  // ==============================================================
-  // Root-module passes.
-  // ==============================================================
-
   // Unwrap the Device module into the top-level module, effectively dropping
   // the CPU module.
   //
-  // TODO(dmilinkovic): Should be removed after support for generating
+  // TODO(dmilinkovic): Should be removed after support for
   // CPU-hoisting on EmitC is implemented - issue #6100.
   //
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
