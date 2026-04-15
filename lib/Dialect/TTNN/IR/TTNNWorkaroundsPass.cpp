@@ -1150,24 +1150,22 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 
   TTNNOperandWorkarounds l1ShardedUint16Workaround;
   l1ShardedUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
-  l1ShardedUint16Workaround.tensorDataTypeWorkaround =
-      ttcore::DataType::UInt16;
+  l1ShardedUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
   l1ShardedUint16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
   l1ShardedUint16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
 
   TTNNOperandWorkarounds l1ShardedBf16Workaround;
   l1ShardedBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
-  l1ShardedBf16Workaround.tensorDataTypeWorkaround =
-      ttcore::DataType::BFloat16;
+  l1ShardedBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
   l1ShardedBf16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
   l1ShardedBf16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorBf16Workaround)    // input_tensor
-      .addInputOperandWorkaround(rowMajorUint16Workaround)  // expert_indices
-      .addInputOperandWorkaround(rowMajorBf16Workaround)    // expert_scores
-      .addInputOperandWorkaround(rowMajorUint16Workaround)  // expert_mapping
-      .addOutputOperandWorkaround(rowMajorBf16Workaround)   // dispatched
+      .addInputOperandWorkaround(rowMajorBf16Workaround)     // input_tensor
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_indices
+      .addInputOperandWorkaround(rowMajorBf16Workaround)     // expert_scores
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_mapping
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // dispatched
       .addOutputOperandWorkaround(l1ShardedUint16Workaround) // indices
       .addOutputOperandWorkaround(l1ShardedBf16Workaround);  // scores
 }

@@ -612,8 +612,7 @@ public:
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
           workarounds::decomposition::
-              AllToAllDispatchMetadataDrainCoreRewritePattern>(
-          &getContext());
+              AllToAllDispatchMetadataDrainCoreRewritePattern>(&getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
       patterns

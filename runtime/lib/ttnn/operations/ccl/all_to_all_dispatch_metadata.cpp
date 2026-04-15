@@ -29,8 +29,8 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
   // when persistent output tensors are not supplied. Read from flatbuffer.
   std::optional<tt::tt_metal::CoreCoord> drainCore;
   if (op->drain_core()) {
-    drainCore = tt::tt_metal::CoreCoord(op->drain_core()->x(),
-                                        op->drain_core()->y());
+    drainCore =
+        tt::tt_metal::CoreCoord(op->drain_core()->x(), op->drain_core()->y());
   }
 
   auto [dispatched, indices, scores] =

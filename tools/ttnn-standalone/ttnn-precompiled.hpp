@@ -8,7 +8,6 @@
 // ANCHOR: standalone_includes
 #include "operations/ccl/all_to_all_combine/all_to_all_combine.hpp"
 #include "operations/ccl/all_to_all_dispatch/all_to_all_dispatch.hpp"
-#include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
@@ -32,6 +31,7 @@
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
+#include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
