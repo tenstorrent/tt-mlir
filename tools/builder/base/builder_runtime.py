@@ -643,6 +643,7 @@ def execute_fb(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
     dump_memory: bool = False,
+    enable_chisel: bool = False,
 ):
     """
     Execute a flatbuffer binary on device and compare device outputs against goldens.
@@ -687,6 +688,12 @@ def execute_fb(
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
+    if enable_chisel and enable_intermediate_verification:
+        raise ValueError(
+            "enable_chisel and enable_intermediate_verification are mutually "
+            "exclusive. Use one or the other."
+        )
+
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
@@ -719,7 +726,11 @@ def execute_fb(
         save_memory=dump_memory,
     )
 
-    if verify_intermediates or dump_memory:
+    if enable_chisel:
+        import chisel
+
+        chisel.bind()
+    elif verify_intermediates or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
             post_op_get_callback_fn(callback_runtime_config),
@@ -985,7 +996,7 @@ def execute_py(
                 and node.name[0:18] != "create_inputs_for_"
                 and not node.name.__contains__("_const_eval_")
                 # TODO(dmilinkovic): this is getting out of hand, issue #6386.
-                and not node.name.startswith("cpu_hoisted_")
+                and not node.name.__contains__("hoisted_")
                 and not node.name.startswith("consteval_")
             ):
                 program_names.append(node.name)
@@ -1073,8 +1084,6 @@ def execute_py(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
-    except TTBuilderGoldenException:
-        raise
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
     finally:
@@ -1174,8 +1183,6 @@ def execute_cpp(
     output_tensors = {}
     golden_report = {}
 
-    emitc_dylib_handle = None
-    exc_in_flight = False
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
         program_names = tt_runtime.runtime.test.get_so_programs(
@@ -1276,19 +1283,7 @@ def execute_cpp(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
-    except TTBuilderGoldenException:
-        exc_in_flight = True
-        raise
     except Exception as e:
-        exc_in_flight = True
         raise TTBuilderRuntimeException(e) from e
-    finally:
-        if emitc_dylib_handle is not None:
-            try:
-                tt_runtime.runtime.test.close_so(emitc_dylib_handle)
-            except Exception as close_exc:
-                if not exc_in_flight:
-                    raise TTBuilderRuntimeException(close_exc) from close_exc
-                print(f"close_so() failed during cleanup: {close_exc}")
 
     return golden_report, output_tensors
