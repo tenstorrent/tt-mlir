@@ -1621,7 +1621,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 }
 
 // GenericOp verification
-// TODO: check all top level ops are syncrhonized
+// TODO: check all top level ops touching tensors/memrefs are synchronized
 ::mlir::LogicalResult d2m::GenericOp::verify() {
   if (hasPureTensorSemantics()) {
     if (this->getNumRegions() != 1 && !isExplicitDatamovementForm()) {
@@ -2310,7 +2310,8 @@ static Value findAssocOperandForGetCB(d2m::GetCBOp getCbOp) {
     return Value();
   }
 
-  if (std::optional<int64_t> operandIndex = getCbOp.getOperandIndex()) {
+  // TODO: this is wrong: what's wanted here is the cb corresponding to the operand load/store
+  if (std::optional<int64_t> operandIndex = getCbOp.getCbOperandIdx()) {
     if (*operandIndex >= 0 && static_cast<size_t>(*operandIndex) <
                                   genericOp.getInputsAndOutputs().size()) {
       return genericOp.getInputsAndOutputs()[*operandIndex];
@@ -3122,8 +3123,9 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         return;
       }
       if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
+        // TODO: this is wrong: what's wanted here is the cb corresponding to the operand load/store
         if (std::optional<int64_t> assocOperandIndex =
-                getCbOp.getOperandIndex()) {
+                getCbOp.getCbOperandIdx()) {
           if (*assocOperandIndex >= 0 &&
               static_cast<unsigned>(*assocOperandIndex) == operandIndex) {
             result = getCbOp.getResult();

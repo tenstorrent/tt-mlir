@@ -5,7 +5,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
-#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -86,20 +85,15 @@ public:
     return success();
   }
 
-  LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter, d2m::GenericOp genericOp) {
+  LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter, d2m::GenericOp genericOp) {   
+    // print IR at this point
+    llvm::errs() << "IR at this point: " << "\n";
+    genericOp->print(llvm::errs());
+    llvm::errs() << "\n";
 
-    struct CBInfo {
-      SmallVector<Operation*> producers;
-      SmallVector<Operation*> consumers;
-    };
 
-    // loop over memrefs in generic, separate out to separate pass or rewriter?
-    // go through ops with synchronizable interface being used as input and attach CB layout aatribute on their 
-    // operands using interface to tell which are Synchronized inputs and which are Synchronized outputs
-    // separate out handling for allocs inside generic and outside
-    llvm::DenseMap<Value, CBInfo> cb_info;
+    // hack adjust linalg and tile ops to be synchronized region ops
     genericOp->getRegions().front().walk([&](Operation *op) {
-      
       if (auto linalgGenericOp = dyn_cast<mlir::linalg::GenericOp>(op)) {
         // wrap in synchronized region op
         rewriter.setInsertionPoint(op);
@@ -149,53 +143,24 @@ public:
       return WalkResult::advance();
     });
 
-    // print IR at this point
-    llvm::errs() << "IR at this point: " << "\n";
-    genericOp->print(llvm::errs());
-    llvm::errs() << "\n";
-
-    genericOp->getRegions().front().walk([&](Operation *op) {
-      // go thorugh all ops in generic region and check if they implement D2M_SynchronizableOpInterface
-      // go through it's operands
-      // if operand is a pipeline producer, get the defining op for this alloc:
-      // add this to our list of allocs that need to become CBs, and increment it's producer count
-      // if operand is a pipeline consumer, get the alloc
-      // add this to our list of allocs that need to become CBs, and increment it's consumer count
-
-      // now go through all these CB allocs and add cb layout attribute, and check exactly one producer and one consumer
-
-      // and assert only one use as producer and one use as consumer
-      // add this alloc to list of allocs that need to become a cb
-      // and assert only one use as producer and one use as consumer
-      // add this alloc to list of allocs that need to become a cb 
-      if (SynchronizableOpInterface synchronized_op = dyn_cast<SynchronizableOpInterface>(op)) {
-        for (auto& operand : op->getOpOperands()) {
-          if (synchronized_op.isProducer(operand) && synchronized_op.isConsumer(operand)) {
-            llvm_unreachable("A single op operand cannot be both a producer and consumer");
-          }
-          else if (synchronized_op.isProducer(operand)) {
-            llvm::errs() << "operand x in op y is producer" << "\n";
-            cb_info[operand.get()].producers.push_back(op);
-          } 
-          else if (synchronized_op.isConsumer(operand)) {
-            llvm::errs() << "operand x in op y is consumer" << "\n";
-            cb_info[operand.get()].consumers.push_back(op);
-          } 
-        }
-      }
+    auto cbUsageInfo = getCBUsageInfo(genericOp.getRegion(0));
     
-      return WalkResult::advance();
-    });
 
-    for (auto& [cb, CBInfo]: cb_info) {
+    // loop over memrefs in generic, separate out to separate pass or rewriter?
+    // go through ops with synchronizable interface being used as input and attach CB layout aatribute on their 
+    // operands using interface to tell which are Synchronized inputs and which are Synchronized outputs
+    // separate out handling for allocs inside generic and outside
+    for (auto& [cb, usageInfo]: cbUsageInfo) {
       // TODO: add check on num consumers and producers
       llvm::errs() << "allocating CB for op x: true" << "\n";
       //TODO: this is is an inconsistency, most remote load/store will have to correctly be bufferized to not return a result 
-      bool adjustResult = !mlir::isa<mlir::linalg::GenericOp>(CBInfo.producers[0]);
-      if (failed(insertCBLayoutAttr(rewriter, mlir::cast<memref::AllocOp>(cb.getDefiningOp()), cb_info[cb].producers, adjustResult))) {
+      bool adjustResult = !mlir::isa<mlir::linalg::GenericOp>(usageInfo.producers[0]);
+      if (failed(insertCBLayoutAttr(rewriter, mlir::cast<memref::AllocOp>(cb.getDefiningOp()), usageInfo.producers, adjustResult))) {
         return failure();
       }
     }
+
+    
 
     return success();
   }

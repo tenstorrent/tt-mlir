@@ -2198,19 +2198,12 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
-
-    assert(op.getOperandIndex() &&
-           "d2m.get_cb must have an operand_index by the time it reaches "
-           "D2MToTTKernel lowering");
-    int64_t operandIndex = *op.getOperandIndex();
-
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
     // kernel descriptor's ct_args.  The operand index tells the runtime
     // which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
+    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CB, op.getCbOperandIdx());
     size_t ctArgIndex;
     rewriter.modifyOpInPlace(entry, [&]() {
       ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
@@ -2219,6 +2212,7 @@ public:
     // Emit a get_compile_time_arg_val that reads the port from ct_args at
     // runtime. This allows the spatial op to remap CB ports per grid range
     // by overriding compile-time arguments.
+    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
         op, cbType, static_cast<int32_t>(ctArgIndex));
     return success();

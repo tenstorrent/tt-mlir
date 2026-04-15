@@ -61,88 +61,88 @@ static bool needsDMA(Value memref, Value localBuffer) {
 // in nested regions. Tracks indirect uses through view-like operations (e.g.,
 // memref.collapse_shape). Returns the top-level operation after which to
 // insert cleanup ops, or null if no uses found.
-static Operation *findLastUseOfAliasedValue(Value value, Block *block) {
-  Operation *lastUse = nullptr;
-
-  // Build alias set: the value itself + any view-like derivations.
-  llvm::SmallPtrSet<Value, 8> aliasedValues;
-  aliasedValues.insert(value);
-
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (Operation &op : *block) {
-      bool takesAliasedInput = false;
-      for (OpOperand &operand : op.getOpOperands()) {
-        if (aliasedValues.contains(operand.get())) {
-          takesAliasedInput = true;
-          break;
-        }
-      }
-      if (takesAliasedInput && mlir::isa<mlir::ViewLikeOpInterface>(op)) {
-        for (Value result : op.getResults()) {
-          if (aliasedValues.insert(result).second) {
-            changed = true;
-          }
-        }
-      }
-    }
-  }
-
-  // Recursive check for uses in nested regions.
-  std::function<bool(Region &)> isUsedInRegion = [&](Region &region) -> bool {
-    for (Block &regionBlock : region) {
-      for (Operation &op : regionBlock) {
-        for (OpOperand &operand : op.getOpOperands()) {
-          if (aliasedValues.contains(operand.get())) {
-            return true;
-          }
-        }
-        for (Region &nestedRegion : op.getRegions()) {
-          if (isUsedInRegion(nestedRegion)) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  };
-
-  // Walk top-level ops to find the last one that uses any alias.
-  for (Operation &op : *block) {
-    bool opUsesValue = false;
-    for (OpOperand &operand : op.getOpOperands()) {
-      if (aliasedValues.contains(operand.get())) {
-        opUsesValue = true;
-        break;
-      }
-    }
-    if (!opUsesValue) {
-      for (Region &region : op.getRegions()) {
-        if (isUsedInRegion(region)) {
-          opUsesValue = true;
-          break;
-        }
-      }
-    }
-    if (opUsesValue) {
-      lastUse = &op;
-    }
-  }
-
-  return lastUse;
-}
+//static Operation *findLastUseOfAliasedValue(Value value, Block *block) {
+//  Operation *lastUse = nullptr;
+//
+//  // Build alias set: the value itself + any view-like derivations.
+//  llvm::SmallPtrSet<Value, 8> aliasedValues;
+//  aliasedValues.insert(value);
+//
+//  bool changed = true;
+//  while (changed) {
+//    changed = false;
+//    for (Operation &op : *block) {
+//      bool takesAliasedInput = false;
+//      for (OpOperand &operand : op.getOpOperands()) {
+//        if (aliasedValues.contains(operand.get())) {
+//          takesAliasedInput = true;
+//          break;
+//        }
+//      }
+//      if (takesAliasedInput && mlir::isa<mlir::ViewLikeOpInterface>(op)) {
+//        for (Value result : op.getResults()) {
+//          if (aliasedValues.insert(result).second) {
+//            changed = true;
+//          }
+//        }
+//      }
+//    }
+//  }
+//
+//  // Recursive check for uses in nested regions.
+//  std::function<bool(Region &)> isUsedInRegion = [&](Region &region) -> bool {
+//    for (Block &regionBlock : region) {
+//      for (Operation &op : regionBlock) {
+//        for (OpOperand &operand : op.getOpOperands()) {
+//          if (aliasedValues.contains(operand.get())) {
+//            return true;
+//          }
+//        }
+//        for (Region &nestedRegion : op.getRegions()) {
+//          if (isUsedInRegion(nestedRegion)) {
+//            return true;
+//          }
+//        }
+//      }
+//    }
+//    return false;
+//  };
+//
+//  // Walk top-level ops to find the last one that uses any alias.
+//  for (Operation &op : *block) {
+//    bool opUsesValue = false;
+//    for (OpOperand &operand : op.getOpOperands()) {
+//      if (aliasedValues.contains(operand.get())) {
+//        opUsesValue = true;
+//        break;
+//      }
+//    }
+//    if (!opUsesValue) {
+//      for (Region &region : op.getRegions()) {
+//        if (isUsedInRegion(region)) {
+//          opUsesValue = true;
+//          break;
+//        }
+//      }
+//    }
+//    if (opUsesValue) {
+//      lastUse = &op;
+//    }
+//  }
+//
+//  return lastUse;
+//}
 
 // Insert a pop before the block terminator.
-static void insertPopBeforeTerminator(PatternRewriter &rewriter, Location loc,
-                                      Value cb, Block *block) {
-  if (block->mightHaveTerminator()) {
-    rewriter.setInsertionPoint(block->getTerminator());
-  } else {
-    rewriter.setInsertionPointToEnd(block);
-  }
-  rewriter.create<PopOp>(loc, cb);
-}
+//static void insertPopBeforeTerminator(PatternRewriter &rewriter, Location loc,
+//                                      Value cb, Block *block) {
+//  if (block->mightHaveTerminator()) {
+//    rewriter.setInsertionPoint(block->getTerminator());
+//  } else {
+//    rewriter.setInsertionPointToEnd(block);
+//  }
+//  rewriter.create<PopOp>(loc, cb);
+//}
 
 // Find load-store pairs that share the same localBuffer in a block.
 static SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>>
@@ -183,9 +183,9 @@ findSharedBufferPairs(Block *block) {
 
 // External allocs (e.g., hoisted CB allocs passed as additionalArgs)
 // must not be erased or replaced by the splitter.
-static bool isLocalAlloc(memref::AllocOp allocOp, Block *block) {
-  return block->getParent()->isAncestor(allocOp->getParentRegion());
-}
+//static bool isLocalAlloc(memref::AllocOp allocOp, Block *block) {
+//  return block->getParent()->isAncestor(allocOp->getParentRegion());
+//}
 
 // ---------------------------------------------------------------------------
 // Compute thread: insert CB sync ops for implicit-form remote_load/store
@@ -196,8 +196,6 @@ static bool isLocalAlloc(memref::AllocOp allocOp, Block *block) {
 // buffer means one CB serves both ops.
 static LogicalResult processSharedBufferPairs(Block *computeBlock,
                                               PatternRewriter &rewriter,
-                                              CBCache &cache,
-                                              PortCounter &portCounters,
                                               DenseSet<Operation *> &toErase) {
   auto pairs = findSharedBufferPairs(computeBlock);
 
@@ -219,8 +217,7 @@ static LogicalResult processSharedBufferPairs(Block *computeBlock,
     // The streaming half stays as a remote_load/store for DMA.
     Location loc = loadOp.getLoc();
     if (loadNeedsDMA && !storeNeedsDMA) {
-      Value cb = findAssociatedCB(storeOp, storeOp.getMemref(), rewriter, cache,
-                                  portCounters);
+      Value cb = getCB(storeOp, storeOp.getLocalBuffer(), rewriter);
       if (!cb) {
         return storeOp.emitError(
             "could not find associated CB for shared pair");
@@ -229,8 +226,7 @@ static LogicalResult processSharedBufferPairs(Block *computeBlock,
       rewriter.create<WaitOp>(loc, cb);
       rewriter.create<PopOp>(loc, cb);
     } else if (!loadNeedsDMA && storeNeedsDMA) {
-      Value cb = findAssociatedCB(loadOp, loadOp.getMemref(), rewriter, cache,
-                                  portCounters);
+      Value cb = getCB(loadOp, loadOp.getLocalBuffer(), rewriter);
       if (!cb) {
         return loadOp.emitError("could not find associated CB for shared pair");
       }
@@ -247,166 +243,153 @@ static LogicalResult processSharedBufferPairs(Block *computeBlock,
   return success();
 }
 
+// local buffer; cb ops may already have been inserted so need to handle that case
+// TODO: cleanup
+Value getCBGenericOperand(GenericOp genericOp, Value cbGenericOperand) {
+  if (auto reserveOp = cbGenericOperand.getDefiningOp<ReserveOp>()) {
+    return genericOp.getOperands()[reserveOp.getCb().getDefiningOp<GetCBOp>().getCbOperandIdx()];
+  }
+  else if (auto waitOp = cbGenericOperand.getDefiningOp<WaitOp>()) {
+    return genericOp.getOperands()[waitOp.getCb().getDefiningOp<GetCBOp>().getCbOperandIdx()];
+  }
+  return cbGenericOperand;
+}
+
 // Process implicit-form remote_load ops in the compute thread.
 static LogicalResult processComputeLoads(Block *computeBlock,
                                          PatternRewriter &rewriter,
-                                         CBCache &cache,
-                                         PortCounter &portCounters,
-                                         DenseSet<Operation *> &toErase) {
+                                         DenseSet<Operation *> &toErase,
+                                         llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
   SmallVector<RemoteLoadOp> loads;
-  computeBlock->walk([&](RemoteLoadOp op) {
-    if (!op.isExplicitCBForm() && !toErase.contains(op)) {
-      loads.push_back(op);
-    }
-  });
 
-  for (RemoteLoadOp loadOp : loads) {
+  computeBlock->walk([&](AliasedLoadOp loadOp) {
+    if (toErase.contains(loadOp)) {
+      return WalkResult::advance();
+    }
+
+    llvm::errs() << "aliased load op: " << loadOp.getAliasedBuffer() << "\n";
+
     Location loc = loadOp.getLoc();
-    Value memref = loadOp.getMemref();
-    Value localBuffer = loadOp.getLocalBuffer();
-    Value cb = findAssociatedCB(loadOp, memref, rewriter, cache, portCounters);
-    if (!cb) {
-      return loadOp.emitError("could not find associated CB for load");
+    Value localBuffer = getCBGenericOperand(loadOp->getParentOfType<GenericOp>(), loadOp.getAliasedBuffer());
+    Value cb = getCB(loadOp, localBuffer, rewriter);
+    assert(cb && "could not find associated CB for load");
+
+    // Assumes only one consumer for this local buffer
+    auto consumer = cbUsageInfo[localBuffer].consumers.front();
+
+    llvm::errs() << "consumer with aliased load op: " << *consumer << "\n";
+
+    rewriter.setInsertionPoint(consumer);
+    rewriter.create<ReserveOp>(loc, cb);
+    rewriter.create<PushOp>(loc, cb);
+    auto waitOp = rewriter.create<WaitOp>(loc, cb);
+    rewriter.setInsertionPointAfter(consumer);
+    rewriter.create<PopOp>(loc, cb);
+
+    // Replace uses of the local buffer in compute consumer
+    localBuffer.replaceUsesWithIf(waitOp.getResult(), [&](OpOperand &use) {
+      return use.getOwner() == consumer;
+    });
+
+    llvm::errs() << "inserting reserve/push/wait/pop before consumer: " << consumer->getResults().front() << "\n";
+
+    toErase.insert(loadOp);
+    return WalkResult::advance();
+  });
+    
+  // Handle remote load
+  computeBlock->walk([&](RemoteLoadOp loadOp) {
+    if (loadOp.isExplicitCBForm() || toErase.contains(loadOp)) {
+      return WalkResult::advance();
     }
 
-    if (!needsDMA(memref, localBuffer)) {
-      // Aliased loads should not have multicast parameters.
-      if (loadOp.isMcast()) {
-        return loadOp.emitError(
-            "remote_load with local operand has multicast parameters");
-      }
-      // For aliased loads, insert reserve->push->wait at the alloc site and
-      // pop after the last use of the buffer.
-      memref::AllocOp allocOp = findAllocOp(localBuffer);
-      if (!allocOp || !isLocalAlloc(allocOp, computeBlock)) {
-        return loadOp.emitError("could not find local memref.alloc for buffer");
-      }
+    // Needs datamovement: wait before load, pop before terminator.
+    Location loc = loadOp.getLoc();
+    Value localBuffer = getCBGenericOperand(loadOp->getParentOfType<GenericOp>(), loadOp.getLocalBuffer());
+    Value cb = getCB(loadOp, localBuffer, rewriter);
+    assert(cb && "could not find associated CB for load");
 
-      Block *block = allocOp->getBlock();
-      rewriter.setInsertionPoint(allocOp);
-      rewriter.create<ReserveOp>(loc, cb);
-      rewriter.create<PushOp>(loc, cb);
-      auto waitOp = rewriter.create<WaitOp>(loc, cb);
+    auto consumer = cbUsageInfo[localBuffer].consumers.front();
+    rewriter.setInsertionPoint(consumer);
+    auto waitOp = rewriter.create<WaitOp>(loadOp.getLoc(), cb);
+    rewriter.setInsertionPointAfter(consumer);
+    rewriter.create<PopOp>(loc, cb);
 
-      // Replace all uses of the alloc, not just the load's operand as
-      // downstream compute ops reference the alloc result directly and
-      // must read from the CB. Assumes 1:1 alloc-to-load relationship.
-      rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
-      if (loadOp.getResult()) {
-        rewriter.replaceAllUsesWith(loadOp.getResult(), waitOp.getResult());
-      }
-
-      // Insert pop after the last use of the waited value, or before
-      // the block terminator if no uses found.
-      Operation *lastUse = findLastUseOfAliasedValue(waitOp.getResult(), block);
-      if (lastUse && lastUse != loadOp.getOperation()) {
-        rewriter.setInsertionPointAfter(lastUse);
-        rewriter.create<PopOp>(loc, cb);
-      } else {
-        insertPopBeforeTerminator(rewriter, loc, cb, block);
-      }
-      toErase.insert(loadOp);
-    } else {
-      // Needs datamovement: wait before load, pop before terminator.
-      rewriter.setInsertionPoint(loadOp);
-      auto waitOp = rewriter.create<WaitOp>(loc, cb);
-
-      Region *computeRegion = loadOp->getParentRegion();
-      rewriter.replaceUsesWithIf(
-          localBuffer, waitOp.getResult(), [&](OpOperand &use) {
-            return computeRegion->isAncestor(use.getOwner()->getParentRegion());
-          });
-      if (loadOp.getResult()) {
-        rewriter.replaceAllUsesWith(loadOp.getResult(), waitOp.getResult());
-      }
-
-      insertPopBeforeTerminator(rewriter, loc, cb, loadOp->getBlock());
-      toErase.insert(loadOp);
-    }
-  }
+    rewriter.replaceUsesWithIf(
+      localBuffer, waitOp.getResult(), [&](OpOperand &use) {
+        return consumer == use.getOwner();
+      });
+    
+    toErase.insert(loadOp);
+    return WalkResult::advance();
+  });
+  
   return success();
 }
 
-// Process implicit-form remote_store ops in the compute thread.
 static LogicalResult processComputeStores(Block *computeBlock,
-                                          PatternRewriter &rewriter,
-                                          CBCache &cache,
-                                          PortCounter &portCounters,
-                                          DenseSet<Operation *> &toErase) {
-  SmallVector<RemoteStoreOp> stores;
-  computeBlock->walk([&](RemoteStoreOp op) {
-    if (!op.isExplicitCBForm() && !toErase.contains(op)) {
-      stores.push_back(op);
-    }
-  });
+                                         PatternRewriter &rewriter,
+                                         DenseSet<Operation *> &toErase,
+                                         llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
+  SmallVector<RemoteLoadOp> loads;
 
-  for (RemoteStoreOp storeOp : stores) {
+  computeBlock->walk([&](AliasedStoreOp storeOp) {
+    if (toErase.contains(storeOp)) {
+      WalkResult::advance();
+    }
+
     Location loc = storeOp.getLoc();
-    Value memref = storeOp.getMemref();
-    Value localBuffer = storeOp.getLocalBuffer();
-    if (!localBuffer) {
-      return storeOp.emitError(
-          "remote_store does not have a local buffer operand");
+    Value localBuffer = getCBGenericOperand(storeOp->getParentOfType<GenericOp>(), storeOp.getAliasedBuffer());
+    Value cb = getCB(storeOp, localBuffer, rewriter);
+    assert(cb && "could not find associated CB for load");
+
+    // Assumes only one consumer for this local buffer
+    auto producer = cbUsageInfo[localBuffer].producers.front();
+    rewriter.setInsertionPoint(producer);
+    auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+    rewriter.setInsertionPointAfter(producer);
+    rewriter.create<PushOp>(loc, cb);
+    rewriter.create<WaitOp>(loc, cb);
+    rewriter.create<PopOp>(loc, cb);
+
+    // Replace uses of the local buffer in compute consumer
+    localBuffer.replaceUsesWithIf(reserveOp.getResult(), [&](OpOperand &use) {
+      return use.getOwner() == producer;
+    });
+
+    toErase.insert(storeOp);
+    return WalkResult::advance();
+  });
+    
+  // Handle remote store
+  computeBlock->walk([&](RemoteStoreOp storeOp) {
+    if (storeOp.isExplicitCBForm() || toErase.contains(storeOp)) {
+      WalkResult::advance();
     }
 
-    Value cb = findAssociatedCB(storeOp, memref, rewriter, cache, portCounters);
-    if (!cb) {
-      return storeOp.emitError("could not find associated CB for store");
-    }
+    // Needs datamovement: wait before store, pop before terminator.
+    Location loc = storeOp.getLoc();
+    
+    Value localBuffer = getCBGenericOperand(storeOp->getParentOfType<GenericOp>(), storeOp.getLocalBuffer());
+    llvm::errs() << "local buffer: " << localBuffer << "\n";
+    Value cb = getCB(storeOp, localBuffer, rewriter);
+    assert(cb && "could not find associated CB for store");
 
-    if (!needsDMA(memref, localBuffer)) {
-      // For aliased stores, replace the alloc with a reserve and insert
-      // push+wait+pop at the store position.
-      memref::AllocOp allocOp = findAllocOp(localBuffer);
-      if (allocOp && isLocalAlloc(allocOp, computeBlock)) {
-        rewriter.setInsertionPoint(allocOp);
-        auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-        // Replace all uses as compute ops reference the alloc directly and
-        // must write into the CB. Assumes 1:1 alloc-to-store relationship.
-        rewriter.replaceAllUsesWith(allocOp.getResult(), reserveOp.getResult());
-      } else if (auto waitOp = localBuffer.getDefiningOp<WaitOp>()) {
-        // The alloc was already replaced by a WaitOp from an earlier load
-        // (read-modify-write on same buffer). If it's the same CB,
-        // the buffer already aliases shard memory so just erase the redundant
-        // store without inserting extra sync ops.
-        if (waitOp.getCb() == cb) {
-          toErase.insert(storeOp);
-          continue;
-        }
-      } else {
-        return storeOp.emitError(
-            "could not find memref.alloc for local buffer");
-      }
+    auto producer = cbUsageInfo[localBuffer].producers.front();
+    rewriter.setInsertionPoint(producer);
+    auto reserveOp = rewriter.create<ReserveOp>(storeOp.getLoc(), cb);
+    rewriter.setInsertionPointAfter(producer);
+    rewriter.create<PushOp>(loc, cb);
 
-      rewriter.setInsertionPoint(storeOp);
-      rewriter.create<PushOp>(loc, cb);
-      rewriter.create<WaitOp>(loc, cb);
-      rewriter.create<PopOp>(loc, cb);
-      toErase.insert(storeOp);
-    } else {
-      // Needs datamovement: insert reserve + push, replace in-region buffer
-      // uses. Reserve must dominate all uses of localBuffer in its block. If
-      // the CB def is in the same block as the store, insert after it.
-      // Otherwise (eg: inside a loop), insert at the start of the store's
-      // block.
-      Operation *cbDefOp = cb.getDefiningOp();
-      if (cbDefOp && cbDefOp->getBlock() == storeOp->getBlock()) {
-        rewriter.setInsertionPointAfter(cbDefOp);
-      } else {
-        rewriter.setInsertionPointToStart(storeOp->getBlock());
-      }
-      auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-      Region *computeRegion = storeOp->getParentRegion();
-      rewriter.replaceUsesWithIf(
-          localBuffer, reserveOp.getResult(), [&](OpOperand &use) {
-            return computeRegion->isAncestor(use.getOwner()->getParentRegion());
-          });
-      // Push goes at the store position (after compute fills the buffer).
-      rewriter.setInsertionPoint(storeOp);
-      rewriter.create<PushOp>(loc, cb);
-      toErase.insert(storeOp);
-    }
-  }
+    rewriter.replaceUsesWithIf(
+      localBuffer, reserveOp.getResult(), [&](OpOperand &use) {
+        return producer == use.getOwner();
+      });
+
+    toErase.insert(storeOp);
+    return WalkResult::advance();
+  });
+  
   return success();
 }
 
@@ -433,73 +416,30 @@ static void processGetScratchOps(Block *computeBlock, PatternRewriter &rewriter,
 // buffer pairs use the output operand's CB for both ops.
 static LogicalResult
 convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
-                           CBCache &cache, PortCounter &portCounters,
                            DenseSet<Operation *> &toErase) {
-  // Map shared localBuffer -> (load, store) pair. Both ops must use the same
-  // CB: the aliased side's CB, or the output CB when both are streaming.
-  using SharedPair = std::pair<RemoteLoadOp, RemoteStoreOp>;
-  DenseMap<Value, SharedPair> sharedPairs;
-  for (auto [loadOp, storeOp] : findSharedBufferPairs(dmBlock)) {
-    sharedPairs[loadOp.getLocalBuffer()] = {loadOp, storeOp};
-  }
-
   SmallVector<RemoteLoadOp> loads;
   SmallVector<RemoteStoreOp> stores;
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
-
-  // Helper: check if an op is part of an L1-to-L1 shared pair. These need real
-  // DMA even though both operands are L1. Self-read/write pairs (same memref)
-  // are excluded because they are aliased ops handled entirely in compute via
-  // CB sync.
-  auto isL1ToL1Pair = [&](Value localBuffer) -> bool {
-    auto it = sharedPairs.find(localBuffer);
-    if (it == sharedPairs.end()) {
-      return false;
-    }
-    auto &[ld, st] = it->second;
-    if (ld.getMemref() == st.getMemref()) {
-      return false;
-    }
-    return !needsDMA(ld.getMemref(), ld.getLocalBuffer()) &&
-           !needsDMA(st.getMemref(), st.getLocalBuffer());
-  };
 
   for (RemoteLoadOp loadOp : loads) {
     if (loadOp.isExplicitCBForm()) {
       continue;
     }
 
-    Value memref = loadOp.getMemref();
-    bool l1Pair = isL1ToL1Pair(loadOp.getLocalBuffer());
-    if (!needsDMA(memref, loadOp.getLocalBuffer()) && !l1Pair) {
-      // Aliased op do not need DMA; drop uses and mark for erasure.
-      if (loadOp.getResult()) {
-        loadOp.getResult().dropAllUses();
-      }
-      toErase.insert(loadOp);
-      continue;
-    }
+    // removed  needsDMA and isL1ToL1Pair checks tocheck for aliased load/store with just checking aliased load/store
+    // TODO: l1-to-l1 pair is equivalent to checking aliased load + aliased store, whcih we need to add a case for in allocate
+    // where we are currently converting remote loads and stores to aliased load and store
 
-    // If this load shares a buffer with a store (shared pair), use the
-    // store's (output) memref for CB lookup so both ops share the same port.
-    // L1-to-L1 pairs use the load's own (input) memref since the store side
-    // also redirects to the input memref for aliased loads.
-    Value cbMemref = memref;
-    auto pairIt = sharedPairs.find(loadOp.getLocalBuffer());
-    if (pairIt != sharedPairs.end() && !l1Pair) {
-      cbMemref = pairIt->second.second.getMemref();
-    }
-
-    Value cb =
-        findAssociatedCB(loadOp, cbMemref, rewriter, cache, portCounters);
-    if (!cb) {
-      return loadOp.emitError("could not find associated CB for DMA load");
-    }
+    
+    Value localBuffer = getCBGenericOperand(loadOp->getParentOfType<GenericOp>(), loadOp.getLocalBuffer());
+    llvm::errs() << "cbMemref: " << localBuffer << "\n";
+    Value cb = getCB(loadOp, localBuffer, rewriter);
+    assert(cb && "could not find associated CB for load");
 
     rewriter.setInsertionPoint(loadOp);
     auto newLoad = rewriter.create<RemoteLoadOp>(
-        loadOp.getLoc(), memref, loadOp.getIndices(), cb,
+        loadOp.getLoc(), loadOp.getMemref(), loadOp.getIndices(), cb,
         loadOp.getMcastStartIndex(), loadOp.getMcastShape());
     // Preserve preallocated semaphore indices set by
     // D2MPreallocateMcastSemaphores (needed by LowerLoadStoreOpsToDMA).
@@ -514,39 +454,15 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
       continue;
     }
 
-    Value memref = storeOp.getMemref();
-    if (!needsDMA(memref, storeOp.getLocalBuffer()) &&
-        !isL1ToL1Pair(storeOp.getLocalBuffer())) {
-      // Aliased op does not need DMA; drop uses and mark for erasure.
-      if (storeOp.getResult()) {
-        storeOp.getResult().dropAllUses();
-      }
-      toErase.insert(storeOp);
-      continue;
-    }
-
-    // If this store shares a buffer with a load (shared pair), use the
-    // load's (input) CB when the load is aliased, to match compute.
-    // If not, use store op's own output CB (default case).
-    Value cbMemref = memref;
-    auto storePairIt = sharedPairs.find(storeOp.getLocalBuffer());
-    if (storePairIt != sharedPairs.end()) {
-      RemoteLoadOp pairedLoad = storePairIt->second.first;
-      if (!needsDMA(pairedLoad.getMemref(), pairedLoad.getLocalBuffer())) {
-        // Load is aliased so use its (input) CB.
-        cbMemref = pairedLoad.getMemref();
-      }
-    }
-
-    Value cb =
-        findAssociatedCB(storeOp, cbMemref, rewriter, cache, portCounters);
-    if (!cb) {
-      return storeOp.emitError("could not find associated CB for DMA store");
-    }
+    // TODO:similar comment as for loadOp (see above)
+    Value localBuffer = getCBGenericOperand(storeOp->getParentOfType<GenericOp>(), storeOp.getLocalBuffer());
+    assert(localBuffer && "could not find associated local buffer for store");
+    Value cb = getCB(storeOp, localBuffer, rewriter);
+    assert(cb && "could not find associated CB for store");
 
     rewriter.setInsertionPoint(storeOp);
     rewriter.create<RemoteStoreOp>(
-        storeOp.getLoc(), memref, storeOp.getIndices(), cb,
+        storeOp.getLoc(), storeOp.getMemref(), storeOp.getIndices(), cb,
         storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
         storeOp.getSemaphore(), storeOp.getSemaphoreIndices());
     toErase.insert(storeOp);
@@ -686,28 +602,23 @@ public:
       rewriter.clone(*term, computeMapping);
     }
 
-    // Shared port counter ensures matching CB ports across threads.
-    // Separate caches since SSA Values can't cross regions.
-    PortCounter portCounters;
-    CBCache computeCache, dmaCache;
-
     // Collect ops for deferred erasure instead of erasing inline.
     DenseSet<Operation *> toErase;
 
     // Compute thread: insert CB sync ops for implicit-form remote ops.
-    if (failed(processSharedBufferPairs(computeBlock, rewriter, computeCache,
-                                        portCounters, toErase)) ||
-        failed(processComputeLoads(computeBlock, rewriter, computeCache,
-                                   portCounters, toErase)) ||
-        failed(processComputeStores(computeBlock, rewriter, computeCache,
-                                    portCounters, toErase))) {
+    auto cbUsageInfoCompute = getCBUsageInfo(newGeneric.getRegion(1));
+    // processSharedBufferPairs no longer needed since we have explicit alias ops
+    // TODO: remove processSharedBufferPairs
+    if (
+        failed(processSharedBufferPairs(computeBlock, rewriter, toErase)) ||
+        failed(processComputeLoads(computeBlock, rewriter, toErase, cbUsageInfoCompute)) ||
+        failed(processComputeStores(computeBlock, rewriter, toErase, cbUsageInfoCompute))) {
       return failure();
     }
     processGetScratchOps(computeBlock, rewriter, toErase);
 
     // DMA thread: convert datamovement ops to explicit CB form.
-    if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter, dmaCache,
-                                          portCounters, toErase))) {
+    if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter, toErase))) {
       return failure();
     }
 
