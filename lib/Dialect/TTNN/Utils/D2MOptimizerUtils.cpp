@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::ttnn::d2m_optimizer_utils {
@@ -57,17 +58,31 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
         ++argIdx;
       }
     }
-    // Update the return value's type directly rather than inserting a
-    // to_layout op. The D2M compilation pipeline will re-derive all internal
-    // layouts; inserting to_layout would block the TTNN→TTIR conversion step
-    // since there is no conversion pattern for it.
+    // Insert a trailing to_layout to convert the last op's output to the
+    // chosen layout. The TTNN→TTIR conversion pattern will lower this to
+    // ttir.to_layout, which TTMetal's D2MToLayoutOpRewriter then handles.
     Block &block = mainFunc.getBody().front();
     Operation *terminator = block.getTerminator();
     if (func::ReturnOp returnOp = dyn_cast<func::ReturnOp>(terminator)) {
       if (returnOp.getNumOperands() > 0) {
         Value currentResultValue = returnOp.getOperand(0);
         if (currentResultValue.getType() != newTensorType) {
-          currentResultValue.setType(newTensorType);
+          OpBuilder builder(dispatchOp.getContext());
+          builder.setInsertionPoint(returnOp);
+          ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
+              dispatchOp.getContext(), layoutAttr.getDataType());
+          LayoutAttr newLayout =
+              LayoutAttr::get(dispatchOp.getContext(), layoutAttr.getLayout());
+          MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+              dispatchOp.getContext(), layoutAttr.getMemLayout(),
+              BufferTypeAttr::get(dispatchOp.getContext(),
+                                  layoutAttr.getBufferType()),
+              utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
+          Location loc = mainFunc.getLoc();
+          ToLayoutOp toLayoutOp =
+              builder.create<ToLayoutOp>(loc, newTensorType, currentResultValue,
+                                         newLayout, dataType, memConfigAttr);
+          returnOp.setOperand(0, toLayoutOp.getResult());
         }
       }
     }
