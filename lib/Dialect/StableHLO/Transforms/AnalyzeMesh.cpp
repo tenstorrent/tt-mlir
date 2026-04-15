@@ -255,66 +255,37 @@ public:
     MLIRContext *context = rootModule.getContext();
     mlir::OpBuilder builder(context);
 
+    // Normalize any existing mesh (0D or 1D) to 2D.
+    if (mlir::failed(shardy_utils::normalizeMeshTo2D(rootModule))) {
+      signalPassFailure();
+      return;
+    }
+
+    // Convert stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
+    // @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
+    if (mlir::failed(shardy_utils::convertCustomCallToShardingConstraint(
+            rootModule, context, builder))) {
+      signalPassFailure();
+      return;
+    }
+
     bool gspmdAnnotationsExist = gspmd_utils::gspmdAnnotationsExist(rootModule);
     bool sdyAnnotationsExist = shardy_utils::sdyAnnotationsExist(rootModule);
 
-    // If shardy annotations exist, check for validity of the mesh. Shardy will
-    // already populate a sdy.meshOp.
+    // If shardy annotations exist, validate the mesh (already normalized to 2D
+    // above) and check if the graph is solved.
     if (sdyAnnotationsExist) {
-      // Get the shardy mesh op in the root module.
       llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
           shardy_utils::getMeshOps(rootModule);
 
-      if (parsedMeshOps.size() > 1) {
-        rootModule.emitError("TTMLIR compiler only supports single mesh");
-        signalPassFailure();
-        return;
-      }
-
-      llvm::SmallVector<int64_t> originalMeshShape =
+      llvm::SmallVector<int64_t> meshShape =
           shardy_utils::getMeshShapeFromMeshAttr(
               parsedMeshOps[0].getMeshAttr());
 
-      if (originalMeshShape.size() > 2) {
-        rootModule.emitError("Currently, only 1D and 2D meshes are supported");
-        signalPassFailure();
-        return;
-      }
-
-      // If the mesh is not 2D (or if the mesh is empty), we need to update the
-      // mesh to either insert a 1x1 mesh (if the mesh is empty), or bump up a
-      // 1D mesh to 1xn.
-      llvm::SmallVector<int64_t> newMeshShape = originalMeshShape;
-      if (newMeshShape.size() == 0) {
-        newMeshShape = {1, 1};
-      } else if (newMeshShape.size() == 1) {
-        newMeshShape = {1, newMeshShape[0]};
-      }
-
-      // Check for validity of the mesh.
-      if (failed(sharding_utils::checkValidMesh(newMeshShape))) {
+      if (failed(sharding_utils::checkValidMesh(meshShape))) {
         rootModule.emitError("Mesh is not valid");
         signalPassFailure();
         return;
-      }
-
-      // If mesh shape was changed, insert the new mesh shape.
-      if (originalMeshShape != newMeshShape) {
-        // Get the old mesh axis name. We will make the new dim0 "1" axis name
-        // from the old mesh axis name. This is to ensure that we don't have
-        // duplicate axis names in the mesh.
-        std::string existingAxisName = "default";
-        for (auto meshAxisAttr : parsedMeshOps[0].getMeshAttr().getAxes()) {
-          existingAxisName = meshAxisAttr.getName().str();
-        }
-        std::string newAxisName = existingAxisName + "_updated";
-
-        // Create the new mesh.
-        std::string meshOpName = parsedMeshOps[0].getSymName().str();
-        shardy_utils::removeMeshOps(rootModule);
-        shardy_utils::addMeshToModule(rootModule, meshOpName, newAxisName,
-                                      existingAxisName, newMeshShape[0],
-                                      newMeshShape[1]);
       }
 
       // Check if the graph is already solved by shardy. If so, we will remove
