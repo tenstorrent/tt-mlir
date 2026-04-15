@@ -1225,6 +1225,41 @@ createOp(FlatbufferObjectCache &cache, AllToAllDispatchOp op) {
       static_cast<uint32_t>(op.getClusterAxis()), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllDispatchMetadataOp>
+createOp(FlatbufferObjectCache &cache, AllToAllDispatchMetadataOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertScores = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertScores()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto dispatched = cache.getOrCreateNoSharding(
+      op.getDispatched(), tensorValueToFlatbuffer, std::nullopt);
+  auto indices = cache.getOrCreateNoSharding(
+      op.getIndices(), tensorValueToFlatbuffer, std::nullopt);
+  auto scores = cache.getOrCreateNoSharding(
+      op.getScores(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  const ::tt::target::ttnn::CoreCoord *drainCorePtr = nullptr;
+  ::tt::target::ttnn::CoreCoord drainCoreVal;
+  if (auto drainCoreAttr = op.getDrainCore()) {
+    drainCoreVal = toFlatbuffer(cache, *drainCoreAttr);
+    drainCorePtr = &drainCoreVal;
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllDispatchMetadataOp(
+      *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
+      dispatched, indices, scores, static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig, drainCorePtr);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>
 createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
   auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4352,6 +4387,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto allToAllDispatchOp = dyn_cast<AllToAllDispatchOp>(op);
       allToAllDispatchOp) {
     return createOperation(cache, createOp(cache, allToAllDispatchOp),
+                           debugString, locInfo);
+  }
+  if (auto allToAllDispatchMetadataOp =
+          dyn_cast<AllToAllDispatchMetadataOp>(op);
+      allToAllDispatchMetadataOp) {
+    return createOperation(cache, createOp(cache, allToAllDispatchMetadataOp),
                            debugString, locInfo);
   }
   if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);

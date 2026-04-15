@@ -17,6 +17,7 @@
 #include "operations/ccl/all_reduce_async.h"
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
+#include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
@@ -477,6 +478,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
     return operations::ccl::run(op->type_as_AllToAllDispatchOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp: {
+    return operations::ccl::run(op->type_as_AllToAllDispatchMetadataOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     return operations::ccl::run(op->type_as_AllToAllCombineOp(), getContext());

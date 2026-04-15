@@ -3892,6 +3892,86 @@ public:
 };
 } // namespace
 
+// AllToAllDispatchMetadataOp conversion pattern (multi-result: dispatched +
+// indices + scores)
+//
+namespace {
+class AllToAllDispatchMetadataOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchMetadataOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_to_all_dispatch_metadata";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::all_to_all_dispatch_metadata";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchMetadataOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchMetadataOp srcOp,
+                  mlir::tt::ttnn::AllToAllDispatchMetadataOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchMetadataOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Emit drain_sync_tilizer_core as tt::tt_metal::CoreCoord if present.
+    mlir::Attribute drainCoreArg;
+    if (auto drainCore = srcOp.getDrainCore()) {
+      std::string buf;
+      llvm::raw_string_ostream rso(buf);
+      rso << "std::make_optional<tt::tt_metal::CoreCoord>("
+          << "tt::tt_metal::CoreCoord(" << drainCore->getX() << ", "
+          << drainCore->getY() << "))";
+      drainCoreArg = rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
+    } else {
+      drainCoreArg = emitter.emit(std::nullopt);
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertIndices()),
+        emitter.emit(srcOp.getExpertScores()),
+        emitter.emit(srcOp.getExpertMapping()),
+        /*axis=*/emitter.emit(srcOp.getClusterAxis()),
+        /*optional_output_tensors=*/emitter.emit(std::nullopt),
+        /*num_links=*/emitter.emit(std::nullopt),
+        /*drain_sync_tilizer_core=*/drainCoreArg,
+    };
+
+    // Multi-result: returns std::array<ttnn::Tensor, 3>.
+    static constexpr llvm::StringLiteral kReturnTypeName =
+        "::std::array<::ttnn::Tensor, 3>";
+    static constexpr llvm::StringLiteral kElemTypeName = "::ttnn::Tensor";
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), rewriter.getType<emitc::OpaqueType>(kReturnTypeName),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
 // AllToAllCombineOp conversion pattern
 //
 namespace {
@@ -5203,6 +5283,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<AggregateTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllToAllDispatchOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllToAllDispatchMetadataOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllToAllCombineOpConversionPattern>(typeConverter, ctx);
   patterns.add<MoeExpertTokenRemapOpConversionPattern>(typeConverter, ctx);
 

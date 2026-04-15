@@ -6103,6 +6103,47 @@ def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch", [TTIR_CCL]> {
     let hasVerifier = 1;
 }
 
+def TTIR_AllToAllDispatchMetadataOp : TTIR_NamedOp<"all_to_all_dispatch_metadata", [TTIR_CCL]> {
+    let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens along with expert scores to devices holding their selected
+      experts via all-to-all communication within a ring (cluster_axis).
+      Returns dispatched tokens (sparse — only routed token slots are filled),
+      all-gathered expert indices, and all-gathered expert scores.
+
+      Dimensions:
+        M = tokens per ring device
+        K = selected experts per token
+        D = total devices
+        E = total experts
+
+      Input shapes (per device, after mesh sharding):
+      - input_tensor: [1, 1, M, H]
+      - expert_indices: [1, 1, M, K]
+      - expert_scores: [1, 1, M, K]
+      - expert_mapping: [1, 1, D, E]
+        Each entry [d, e] is the device ID that owns expert e.
+
+      Output shapes (3D, per device, num_devices * M = tokens_global):
+      - dispatched: [1, tokens_global, H]
+      - indices: [1, tokens_global, K] (all-gathered across ring)
+      - scores: [1, tokens_global, K] (all-gathered across ring)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$dispatched,
+                       AnyRankedTensor:$indices,
+                       AnyRankedTensor:$scores);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine", [TTIR_CCL]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
