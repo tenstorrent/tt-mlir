@@ -370,20 +370,6 @@ static bool isFullOpWithValue(Value value, float expectedValue,
     return false;
   }
 
-  // Look through ReshapeOps from scalar (rank 0) inputs. Aggressive
-  // simplification keeps scalar constants and the TTIR conversion wraps them
-  // in reshapes (e.g. full(scalar) -> reshape -> implicit broadcast).
-  while (isa<ReshapeOp>(op)) {
-    auto input = op->getOperand(0);
-    if (mlir::cast<RankedTensorType>(input.getType()).getRank() != 0) {
-      break;
-    }
-    op = input.getDefiningOp();
-    if (!op) {
-      return false;
-    }
-  }
-
   // Check if it's a ZerosOp and expected value is 0
   if (expectedValue == 0.0f && isa<ZerosOp>(op)) {
     return true;
@@ -1888,16 +1874,7 @@ public:
     auto reduceDims = *sumOp.getDimArg();
     auto inputShape = sumOp.getInput().getType().getShape();
 
-    // Look through ReshapeOps from scalar (rank 0) inputs. Aggressive
-    // simplification keeps scalar constants wrapped in reshapes.
-    mlir::Value scaleValue = multiplyOp.getRhs();
-    while (auto reshapeOp = scaleValue.getDefiningOp<ReshapeOp>()) {
-      if (reshapeOp.getInput().getType().getRank() != 0) {
-        break;
-      }
-      scaleValue = reshapeOp.getInput();
-    }
-    FullOp fullOp = scaleValue.getDefiningOp<FullOp>();
+    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
     if (!isValidScale(fullOp, inputShape, reduceDims)) {
       return mlir::failure();
     }
@@ -2376,9 +2353,9 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    Operation *one = getScalarThroughTMChain(gaussianCDFAdd.getLhs());
+    Operation *one = getSplatCreationOp(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = getScalarThroughTMChain(gaussianCDFAdd.getRhs());
+      one = getSplatCreationOp(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
@@ -2497,20 +2474,10 @@ private:
   // it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
-      ttir::FullOp power = dyn_cast_or_null<ttir::FullOp>(
-          getScalarThroughTMChain(xCubed.getRhs()));
-      if (!power) {
+      mlir::Value power = xCubed.getRhs();
+      if (!isScalarValue(power, THREE)) {
         return nullptr;
       }
-      if (!isa<FloatAttr>(power.getFillValue())) {
-        return nullptr;
-      }
-
-      APFloat powerValue = dyn_cast<FloatAttr>(power.getFillValue()).getValue();
-      if (!checkFloatIsNear(powerValue.convertToFloat(), THREE)) {
-        return nullptr;
-      }
-
       return xCubed.getLhs();
     }
     if (ttir::MultiplyOp xCubed =
@@ -2551,20 +2518,16 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op.
     bool isArgLhs = false;
-    ttir::FullOp one = gaussianCDFAdd.getLhs().getDefiningOp<ttir::FullOp>();
+    Operation *one = getSplatCreationOp(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = gaussianCDFAdd.getRhs().getDefiningOp<ttir::FullOp>();
+      one = getSplatCreationOp(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
       return nullptr;
     }
 
-    if (!isa<FloatAttr>(one.getFillValue())) {
-      return nullptr;
-    }
-    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
+    if (!isScalarValue(one->getResult(0), ONE)) {
       return nullptr;
     }
 
@@ -2606,12 +2569,11 @@ private:
            value / trueValue - 1.0 >= -1.5e-3;
   }
 
-  // This function will return true if the Value 'val' is a scalar constant
-  // creation op (or the result of tensor-manipulation ops (Reshape, Permute,
-  // Broadcast) beginning with a scalar constant creation op), with the
-  // fill_value near 'scalar'. It allows for an error of 1.5%
+  // This function will return true if the Value 'val' is a splat constant
+  // creation op, with the fill_value near 'scalar'. It allows for an error
+  // of 1.5%
   bool isScalarValue(Value val, double scalar) const {
-    Operation *scalarOp = getScalarThroughTMChain(val);
+    Operation *scalarOp = val.getDefiningOp();
     if (!scalarOp) {
       return false;
     }
@@ -2634,14 +2596,9 @@ private:
     return false;
   }
 
-  Operation *getScalarThroughTMChain(Value value) const {
+  Operation *getSplatCreationOp(Value value) const {
     Operation *currentOp = value.getDefiningOp();
-
-    while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
-        currentOp)) {
-      currentOp = currentOp->getOperand(0).getDefiningOp();
-    }
-    if (isa_and_nonnull<ttir::FullOp, ttir::OnesOp, ttir::ZerosOp>(currentOp)) {
+    if (isa_and_present<ttir::FullOp, ttir::OnesOp, ttir::ZerosOp>(currentOp)) {
       return currentOp;
     }
     return nullptr;
@@ -2760,8 +2717,7 @@ public:
       return mlir::failure();
     }
 
-    // Look through layout ops to find the epsilon FullOp
-    auto epsFull = lookThroughSafeOps(epsilon).getDefiningOp<FullOp>();
+    auto epsFull = epsilon.getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
     }
