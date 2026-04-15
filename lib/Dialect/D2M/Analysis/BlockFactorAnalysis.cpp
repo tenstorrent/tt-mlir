@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+
 #include <functional>
 
 namespace mlir::tt::d2m {
@@ -87,6 +89,15 @@ classifyAutoSearch(GenericOp genericOp,
                    ArrayRef<int64_t> shardFactors) {
   if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
       genericOp.getOutputs().size() != 1) {
+    return std::nullopt;
+  }
+
+  // Skip fused generics until repairParallelizedRegionTypes can retype
+  // intermediate allocs nested inside affine.for loops.
+  // TODO(anuragsingh): https://github.com/tenstorrent/tt-mlir/issues/7984
+  unsigned linalgCount = 0;
+  genericOp->walk([&](linalg::GenericOp) { ++linalgCount; });
+  if (linalgCount > 1) {
     return std::nullopt;
   }
 
