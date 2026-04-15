@@ -424,13 +424,13 @@ public:
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(/*output=*/std::nullopt),
         emitter.template emit<
-            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>>(
             srcOp.getActivations()),
         emitter.template emit<
-            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>>(
             srcOp.getInputTensorAActivations()),
         emitter.template emit<
-            std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>>(
             srcOp.getInputTensorBActivations()),
     };
 
@@ -510,6 +510,22 @@ public:
             std::vector<::ttnn::operations::unary::UnaryWithParam>>(
             srcOp.getInputTensorBActivations()),
     };
+
+    if constexpr (!std::is_same_v<SourceOp, ::mlir::tt::ttnn::Atan2Op>) {
+      args.push_back(emitter.emit(/*output=*/std::nullopt));
+      args.push_back(
+          emitter.template emit<
+              std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>>(
+              srcOp.getActivations()));
+      args.push_back(
+          emitter.template emit<
+              std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>>(
+              srcOp.getInputTensorAActivations()));
+      args.push_back(
+          emitter.template emit<
+              std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>>(
+              srcOp.getInputTensorBActivations()));
+    }
 
     emitter.replaceOp(*this, args);
 
