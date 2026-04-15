@@ -23,6 +23,7 @@
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <array>
 #include <optional>
 #include <tuple>
 #include <type_traits>
@@ -410,9 +411,6 @@ inline bool hasNonTrivialView(Value value) {
     return llvm::any_of(compositeViewOp.getCompositeInputs(),
                         hasNonTrivialView);
   }
-  if (auto semOp = mlir::dyn_cast<d2m::CreateGlobalSemaphoreOp>(definingOp)) {
-    return hasNonTrivialView(semOp.getInput());
-  }
   if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
     return hasNonTrivialView(castOp.getInput());
   }
@@ -420,18 +418,19 @@ inline bool hasNonTrivialView(Value value) {
 }
 
 /// @return tile shape of `elementType` or `{1, 1}` if it isn't a TileType.
-inline SmallVector<int64_t> getEffectiveTileShape(Type elementType) {
+inline std::array<int64_t, 2> getEffectiveTileShape(Type elementType) {
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
     TT_debug(tileType.getRank() == 2);
-    return SmallVector<int64_t>(tileType.getShape());
+    ArrayRef<int64_t> shape = tileType.getShape();
+    return {shape[0], shape[1]};
   }
   return {1, 1};
 }
 
-/// @return the effective input/output tile shapes for `genericOp`.
-inline std::tuple</* input */ SmallVector<int64_t>,
-                  /* output */ SmallVector<int64_t>>
-getOperandTileShapes(d2m::GenericOp genericOp) {
+/// @return the effective input/output tile shapes for the single-output
+/// `genericOp`.
+inline std::pair<std::array<int64_t, 2>, std::array<int64_t, 2>>
+getGenericInputAndOutputTileShapes(d2m::GenericOp genericOp) {
   const Type inputElementType =
       mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().front().getType())
           .getElementType();
@@ -493,7 +492,7 @@ getOperandGridAndShardExtents(d2m::GenericOp genericOp, uint32_t operandIndex,
 
   if (genericOp.isOutputOperandIdx(operandIndex) && shardShape.size() >= 2) {
     auto [inputTileFactors, outputTileFactors] =
-        getOperandTileShapes(genericOp);
+        getGenericInputAndOutputTileShapes(genericOp);
     for (std::size_t t = 0; t < 2; ++t) {
       const std::size_t d = shardShape.size() - 2 + t;
       shardShape[d] =

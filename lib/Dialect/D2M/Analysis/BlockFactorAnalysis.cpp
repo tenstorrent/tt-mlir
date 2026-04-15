@@ -20,6 +20,8 @@ namespace {
 // Block factor analysis logic
 //===----------------------------------------------------------------------===//
 
+// Shape classes used by the allocator's Automatic reblocking policy, as
+// distinct from the explicit MIN and MAX policies.
 enum class AutoShapeClass { SingleReduction, AllParallelEltwise };
 
 struct AutoSearchConfig {
@@ -148,7 +150,12 @@ static bool isLexicographicallyLarger(ArrayRef<int64_t> lhs,
   return false;
 }
 
-// Comparing two candidates for a given shape class.
+// Compare two automatic-reblocking candidates for the same generic op.
+//
+// Each candidate represents a legal choice of reblocked factors (derived from
+// per-dimension scales) together with its estimated impact on CB allocation
+// pressure and parallelism. It is used to rank alternative block-factor choices
+// for the allocator's Automatic policy.
 static bool isBetterCandidate(AutoShapeClass shapeClass,
                               const CandidateScore &lhs,
                               const CandidateScore &rhs) {
@@ -234,7 +241,6 @@ static std::optional<CandidateScore> evaluateCandidate(
         genericOp, operandIndex, candidateGridExtents, candidateShardExtents);
 
     // Reject candidates that would result in a too small operand shard shape.
-    // May eliminate this.
     if (ttmlir::utils::volume<int64_t>(operandShardShape) < 4) {
       return std::nullopt;
     }
