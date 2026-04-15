@@ -40,7 +40,9 @@ struct OpRuleBook {
   /// because resharding wouldn't improve the output — e.g., SDPA ops
   /// accept any input layout but always output DRAM-interleaved, so
   /// resharding inputs to sharded is wasted compile time with no benefit.
-  virtual LayoutFilterFn getInputLayoutFilter() const { return nullptr; }
+  virtual LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const {
+    return nullptr;
+  }
 
   /// Whether to generate reshard candidates for this op's inputs.
   /// This is a compile-time optimization: returning false skips

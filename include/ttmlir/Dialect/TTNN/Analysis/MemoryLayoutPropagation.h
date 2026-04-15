@@ -168,12 +168,14 @@ private:
   /// Apply per-op input layout filters, removing candidates that the op
   /// cannot consume efficiently.
   void applyInputLayoutFilter(std::vector<InputCandidate> &candidates,
-                              Operation *op, TTNNLayoutAttr currentLayout);
+                              Operation *op, unsigned operandIdx,
+                              TTNNLayoutAttr currentLayout);
 
   /// Generate and add reshard candidates for one operand.
   void addReshardCandidates(
-      std::vector<InputCandidate> &candidates, Operation *op, Value operand,
-      TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
+      std::vector<InputCandidate> &candidates, Operation *op,
+      unsigned operandIdx, Value operand, TTNNLayoutAttr currentLayout,
+      RankedTensorType tensorType,
       const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
       Operation *producerOp, size_t resultIdx, size_t maxCandidates);
 
