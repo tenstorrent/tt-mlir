@@ -14,6 +14,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 
+#define DEBUG_TYPE "d2m-lower-scratch-allocate"
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -30,13 +32,28 @@ static int64_t getNumElements(MemRefType memrefType) {
   return numElements;
 }
 
-// Information about a single scratch allocation.
+// Information about a single scratch allocation, including its liveness range.
 struct ScratchAllocationInfo {
   ScratchAllocateOp op;
   int64_t slotId;
   int64_t numElements;   // Number of elements (tiles) requested.
   int64_t elementOffset; // Starting element offset in scratch buffer.
+
+  // Liveness range: positions of the definition and last use within the
+  // top-level operation ordering of the entry block.
+  int64_t startPosition = -1;
+  int64_t endPosition = -1;
+
+  // Whether this allocation was packed inside a larger, non-conflicting
+  // allocation's footprint by the offset assignment heuristic.
+  bool packed = false;
 };
+
+// Returns true if two live ranges overlap.
+static bool livesOverlap(const ScratchAllocationInfo &a,
+                         const ScratchAllocationInfo &b) {
+  return a.startPosition <= b.endPosition && b.startPosition <= a.endPosition;
+}
 
 class D2MLowerScratchAllocatePass
     : public impl::D2MLowerScratchAllocateBase<D2MLowerScratchAllocatePass> {
@@ -96,26 +113,21 @@ private:
     region.walk([&](ScratchAllocateOp allocOp) {
       auto memrefType = mlir::cast<MemRefType>(allocOp.getResult().getType());
       allocations.push_back({allocOp, static_cast<int64_t>(allocOp.getSlot()),
-                             getNumElements(memrefType),
-                             /*elementOffset=*/0});
+                             getNumElements(memrefType), /*elementOffset=*/0});
     });
 
     if (allocations.empty()) {
       return success();
     }
 
-    // Sort by slot ID for deterministic layout.
+    // Sort descending by size so larger allocations are placed first, giving
+    // the best chance for smaller ones to be packed inside them.
     llvm::sort(allocations, [](const auto &a, const auto &b) {
-      return a.slotId < b.slotId;
+      return a.numElements > b.numElements;
     });
 
-    // Compute sequential element offsets.
-    int64_t currentOffset = 0;
-    for (auto &info : allocations) {
-      assert(info.numElements > 0 && "scratch allocation must be non-empty");
-      info.elementOffset = currentOffset;
-      currentOffset += info.numElements;
-    }
+    computeLiveness(allocations, block, region);
+    int64_t peakUsage = assignOffsets(allocations);
 
     OpBuilder builder(&block, block.begin());
     builder.setInsertionPointAfterValue(scratchCB);
@@ -126,9 +138,9 @@ private:
 
     // Verify allocations fit in the scratch buffer.
     int64_t scratchCapacity = getNumElements(scratchMemRefType);
-    if (currentOffset > scratchCapacity) {
+    if (peakUsage > scratchCapacity) {
       return genericOp.emitOpError()
-             << "total scratch allocations (" << currentOffset
+             << "total scratch allocations (" << peakUsage
              << " elements) exceed scratch buffer capacity (" << scratchCapacity
              << " elements)";
     }
@@ -139,6 +151,81 @@ private:
     }
 
     return success();
+  }
+
+  // Compute liveness ranges for scratch allocations.
+  //
+  // Each allocation's live range spans from its definition to its last use.
+  void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
+                       Block &block, Region &region) {
+    // Assign sequential position indices to top-level operations in the block.
+    DenseMap<Operation *, int64_t> opPositions;
+    int64_t pos = 0;
+    for (Operation &op : block) {
+      opPositions[&op] = pos++;
+    }
+
+    // Helper: walk up to find the enclosing operation that lives directly in
+    // the region's entry block.
+    auto getTopLevelOp = [&](Operation *op) -> Operation * {
+      while (op->getParentRegion() != &region) {
+        op = op->getParentOp();
+      }
+      return op;
+    };
+
+    for (auto &info : allocations) {
+      Operation *topLevelDef = getTopLevelOp(info.op.getOperation());
+      info.startPosition = opPositions[topLevelDef];
+      info.endPosition = info.startPosition;
+
+      for (OpOperand &use : info.op.getResult().getUses()) {
+        Operation *topLevelUser = getTopLevelOp(use.getOwner());
+        int64_t userPos = opPositions[topLevelUser];
+        info.endPosition = std::max(info.endPosition, userPos);
+      }
+    }
+  }
+
+  // Assign element offsets using a first-fit-decreasing heuristic.
+  //
+  // Allocations are already sorted descending by size. Each "outer" allocation
+  // reserves a region of scratch memory. Smaller allocations whose live ranges
+  // do not overlap with the outer allocation are packed inside its footprint,
+  // reusing the same memory at different sub-offsets.
+  //
+  // Returns the peak scratch usage (total elements required).
+  int64_t assignOffsets(SmallVectorImpl<ScratchAllocationInfo> &allocations) {
+    int64_t currentOffset = 0;
+    for (size_t i = 0; i < allocations.size(); ++i) {
+      auto &outer = allocations[i];
+      assert(outer.numElements > 0 && "scratch allocation must be non-empty");
+      if (outer.packed) {
+        continue;
+      }
+
+      outer.elementOffset = currentOffset;
+      int64_t innerOffset = currentOffset;
+
+      // Try to pack smaller, non-conflicting allocations inside this one.
+      for (size_t j = i + 1; j < allocations.size(); ++j) {
+        auto &inner = allocations[j];
+        if (inner.packed) {
+          continue;
+        }
+
+        bool fits = (innerOffset + inner.numElements) <=
+                    (currentOffset + outer.numElements);
+        if (!livesOverlap(outer, inner) && fits) {
+          inner.packed = true;
+          inner.elementOffset = innerOffset;
+          innerOffset += inner.numElements;
+        }
+      }
+
+      currentOffset += outer.numElements;
+    }
+    return currentOffset;
   }
 
   /// Replace a scratch_allocate with a rank-reducing subview of the scratch CB,

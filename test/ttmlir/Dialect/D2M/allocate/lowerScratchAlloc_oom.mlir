@@ -26,8 +26,13 @@ func.func @scratch_overflow() {
     %alloc_cb0 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
     %alloc_cb1 = memref.alloc() : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
     %alloc_cb2 = memref.alloc() : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    %c0 = arith.constant 0 : index
     %s0 = d2m.scratch_allocate {slot = 0 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
     %s1 = d2m.scratch_allocate {slot = 1 : i64} : memref<5x!ttcore.tile<32x32, f32>, #l1>
+    // Both slots are used after both are defined, so their live ranges overlap
+    // and they cannot be packed together. Total = 10 > capacity 8.
+    %t0 = memref.load %s0[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
+    memref.store %t0, %s1[%c0] : memref<5x!ttcore.tile<32x32, f32>, #l1>
   }
   return
 }
