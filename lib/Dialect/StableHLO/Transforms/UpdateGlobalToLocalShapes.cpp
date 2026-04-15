@@ -402,6 +402,55 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
   return mlir::success();
 }
 
+// Fix feature_group_count in depthwise/grouped convolution ops after shape
+// update. Shardy propagates the feature-dim sharding to the convolution's
+// operands but does not scale feature_group_count accordingly, causing
+// StableHLO verification to fail because the local input feature dimension
+// (already reduced by the shard factor) must be divisible by
+// feature_group_count (which still holds the global value). We recompute it
+// here from the already-localized LHS and kernel types.
+//
+// For a grouped convolution, in_channels_per_group is invariant under sharding:
+//   in_channels_per_group = lhs_input_feature_dim / feature_group_count
+//
+// After sharding lhs_input_feature_dim by n:
+//   new_feature_group_count = local_lhs_input_feature_dim / in_channels_per_group
+//
+// For depthwise conv (in_channels_per_group == 1) this simplifies to:
+//   new_feature_group_count = local_lhs_input_feature_dim
+static void fixConvolutionFeatureGroupCount(MLIRContext *context,
+                                            mlir::ModuleOp &rootModule) {
+  rootModule.walk([&](mlir::stablehlo::ConvolutionOp convOp) {
+    uint64_t currentFGC = convOp.getFeatureGroupCount();
+    // Only grouped/depthwise convolutions need fixing.
+    if (currentFGC <= 1) {
+      return;
+    }
+
+    auto lhsType =
+        mlir::cast<mlir::RankedTensorType>(convOp.getLhs().getType());
+    auto rhsType =
+        mlir::cast<mlir::RankedTensorType>(convOp.getRhs().getType());
+
+    int64_t inputFeatureDim =
+        convOp.getDimensionNumbers().getInputFeatureDimension();
+    int64_t kernelInputFeatureDim =
+        convOp.getDimensionNumbers().getKernelInputFeatureDimension();
+
+    int64_t localInputChannels = lhsType.getDimSize(inputFeatureDim);
+    int64_t inChannelsPerGroup = rhsType.getDimSize(kernelInputFeatureDim);
+
+    if (inChannelsPerGroup <= 0 || localInputChannels % inChannelsPerGroup != 0) {
+      return;
+    }
+
+    int64_t newFGC = localInputChannels / inChannelsPerGroup;
+    if (static_cast<int64_t>(currentFGC) != newFGC) {
+      convOp.setFeatureGroupCount(static_cast<uint64_t>(newFGC));
+    }
+  });
+}
+
 // Convert all sdy ccl ops into stablehlo ccl ops.
 static mlir::LogicalResult
 convertShardyCCLToStableHLOCCL(MLIRContext *context,
@@ -523,6 +572,11 @@ public:
         return;
       }
     });
+
+    // Recompute feature_group_count for depthwise/grouped convolutions whose
+    // feature dimension was sharded. Shardy updates the operand shapes but not
+    // the feature_group_count attribute, so we fix it here from the local types.
+    fixConvolutionFeatureGroupCount(context, rootModule);
 
     // Run conversion pattern to convert all sdy ccl operations into stablehlo
     // ccl operations
