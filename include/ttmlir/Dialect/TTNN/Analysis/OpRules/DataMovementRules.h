@@ -56,8 +56,9 @@ struct SliceRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// ReshapeOp, PermuteOp: reject width-sharded inputs, non-sharded output,
-/// no reshards.
+/// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
+/// View-eligible reshapes use NULL hint only (inherit input memory config).
+/// Non-view reshapes use non-sharded output hints.
 struct ReshapeRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;

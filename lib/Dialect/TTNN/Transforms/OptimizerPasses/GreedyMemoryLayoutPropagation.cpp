@@ -186,7 +186,8 @@ public:
           func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
-          static_cast<size_t>(maxReshardCandidatesPerType), std::move(observer));
+          static_cast<size_t>(maxReshardCandidatesPerType),
+          std::move(observer));
       propagation.run();
 
       // Write decision trace JSON if enabled.

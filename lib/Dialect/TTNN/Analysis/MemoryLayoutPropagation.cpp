@@ -79,8 +79,7 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// for a given op.  When the filter returns false, the candidate is removed.
 /// Returns nullptr when no filtering is needed (all layouts accepted).
 /// Delegates to per-op rule files via OpRuleBook.
-static LayoutFilterFn getInputLayoutFilter(Operation *op,
-                                           unsigned operandIdx) {
+static LayoutFilterFn getInputLayoutFilter(Operation *op, unsigned operandIdx) {
   return getRuleBook(op).getInputLayoutFilter(operandIdx);
 }
 
@@ -657,8 +656,8 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
 }
 
 void MemoryLayoutPropagation::applyInputLayoutFilter(
-    std::vector<InputCandidate> &candidates, Operation *op,
-    unsigned operandIdx, TTNNLayoutAttr currentLayout) {
+    std::vector<InputCandidate> &candidates, Operation *op, unsigned operandIdx,
+    TTNNLayoutAttr currentLayout) {
   // Per-op, per-operand input layout filtering: remove candidates that the op
   // cannot consume efficiently (e.g. any sharded RHS for matmul, all sharded
   // for concatenate_heads).
@@ -681,9 +680,8 @@ void MemoryLayoutPropagation::applyInputLayoutFilter(
 }
 
 void MemoryLayoutPropagation::addReshardCandidates(
-    std::vector<InputCandidate> &candidates, Operation *op,
-    unsigned operandIdx, Value operand, TTNNLayoutAttr currentLayout,
-    RankedTensorType tensorType,
+    std::vector<InputCandidate> &candidates, Operation *op, unsigned operandIdx,
+    Value operand, TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
     Operation *producerOp, size_t resultIdx, size_t maxCandidates) {
   // Skip reshards for operands derived from constant/parameter arguments.
@@ -777,13 +775,12 @@ void MemoryLayoutPropagation::addReshardCandidates(
   // fan-out. This prevents doomed layouts (e.g., width_sharded for matmul)
   // from consuming maxCandidates budget slots that height_sharded needs.
   if (inputFilter) {
-    uniqueReshardLayouts.erase(
-        std::remove_if(uniqueReshardLayouts.begin(),
-                        uniqueReshardLayouts.end(),
-                        [&](TTNNLayoutAttr layout) {
-                          return !inputFilter(layout);
-                        }),
-        uniqueReshardLayouts.end());
+    uniqueReshardLayouts.erase(std::remove_if(uniqueReshardLayouts.begin(),
+                                              uniqueReshardLayouts.end(),
+                                              [&](TTNNLayoutAttr layout) {
+                                                return !inputFilter(layout);
+                                              }),
+                               uniqueReshardLayouts.end());
   }
 
   // Fan out: for each unique reshard layout, create one candidate per
@@ -891,8 +888,7 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
     // matmul) while preserving producer beam entries as reshard sources
     // during addReshardCandidates — a sharded producer can still serve as
     // the source for a valid reshard to an accepted layout.
-    applyInputLayoutFilter(candidatesForOperand, op, operandIdx,
-                           currentLayout);
+    applyInputLayoutFilter(candidatesForOperand, op, operandIdx, currentLayout);
 
     // Cap per-operand candidate count to prevent cross-product explosion.
     // Non-reshard candidates (from producer beam) come first and are preserved;

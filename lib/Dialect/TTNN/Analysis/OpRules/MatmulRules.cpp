@@ -13,15 +13,15 @@
 namespace mlir::tt::ttnn {
 
 LayoutFilterFn MatmulRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
-  // Operand 0 (LHS/activation): all sharding types supported by tt-metal
-  // (width → 1D mcast in0 bcast, height → 1D mcast in1 bcast, block → 2D mcast).
-  if (operandIdx == 0) {
-    return nullptr;
-  }
   // Operand 1 (RHS/weights): reject all sharded layouts.
   // DRAM width-sharded RHS is a special case in tt-metal but not yet
   // supported by our program config generation.
-  return layout_filter_utils::rejectAllSharded;
+  if (operandIdx == 1) {
+    return layout_filter_utils::rejectAllSharded;
+  }
+
+  // Sharding activation/bias operands is supported.
+  return nullptr;
 }
 
 static bool isL1Interleaved(const OpConfig &config) {
