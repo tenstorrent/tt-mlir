@@ -462,12 +462,18 @@ void createTTNNCommonToRuntimePipeline(
 //
 void createTTNNCommonToEmitCPipeline(
     OpPassManager &pm, const TTNNCommonToEmitCPipelineOptions &options) {
-  auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+  // Unwrap the Device module into the top-level module, effectively dropping
+  // the CPU module.
+  //
+  // TODO(dmilinkovic): Should be removed after support for
+  // CPU-hoisting on EmitC is implemented - issue #6100.
+  //
+  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
-  devicePm.addPass(createTTNNAdjustDeallocs());
+  pm.addPass(createTTNNAdjustDeallocs());
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
-        devicePm, RecoverStructureXLATorchPipelineOptions());
+        pm, RecoverStructureXLATorchPipelineOptions());
   }
 
   if (options.targetDylib) {
@@ -477,33 +483,25 @@ void createTTNNCommonToEmitCPipeline(
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
-    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   } else {
     // In canonical path, run tuplification + input generation/loading.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
-    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;
       loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
       loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-      devicePm.addPass(createTTNNLoadInputTensors(loadOptions));
+      pm.addPass(createTTNNLoadInputTensors(loadOptions));
     } else {
-      devicePm.addPass(createTTNNCreateInputGenerators());
+      pm.addPass(createTTNNCreateInputGenerators());
     }
   }
 
-  devicePm.addPass(createConvertTTNNToEmitCPass());
-
-  // Unwrap the Device module into the top-level module, effectively dropping
-  // the CPU module.
-  //
-  // TODO(dmilinkovic): Should be removed after support for
-  // CPU-hoisting on EmitC is implemented - issue #6100.
-  //
-  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+  pm.addPass(createConvertTTNNToEmitCPass());
 }
 
 // Pipeline which lowers the results of TTIRToTTNNCommon pipeline to EmitPy
