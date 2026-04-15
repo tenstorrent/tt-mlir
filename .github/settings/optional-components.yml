@@ -1,8 +1,6 @@
 workflow:
   - .github/settings/**
   - .github/workflows/**
-chisel:
-  - runtime/tools/chisel/**
 emitc:
   - test/ttmlir/EmitC/**
   - tools/ttnn-standalone/ci_compile_dylib.py
