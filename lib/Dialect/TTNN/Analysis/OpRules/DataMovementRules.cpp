@@ -12,7 +12,7 @@ namespace mlir::tt::ttnn {
 // ConcatRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn ConcatRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn ConcatRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Concat sharded inputs: re-enabled after tt-metal hang fix landed.
   // https://github.com/tenstorrent/tt-metal/issues/39419
   // Fix: https://github.com/tenstorrent/tt-metal/pull/39882
@@ -135,7 +135,7 @@ OutputHints ConcatRuleBook::getOutputHints(
 // SliceRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn SliceRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn SliceRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Slice: sharded inputs produce incorrect results in tt-metal.
   // https://github.com/tenstorrent/tt-metal/issues/39074
   return layout_filter_utils::rejectAllSharded;
@@ -156,7 +156,7 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 // ReshapeRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn ReshapeRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Reshape/Permute: width-sharded inputs round-trip through interleaved
   // internally in tt-metal; height/block sharding is handled natively.
   // https://github.com/tenstorrent/tt-mlir/issues/7681

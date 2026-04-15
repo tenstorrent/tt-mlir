@@ -79,8 +79,9 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// for a given op.  When the filter returns false, the candidate is removed.
 /// Returns nullptr when no filtering is needed (all layouts accepted).
 /// Delegates to per-op rule files via OpRuleBook.
-static LayoutFilterFn getInputLayoutFilter(Operation *op) {
-  return getRuleBook(op).getInputLayoutFilter();
+static LayoutFilterFn getInputLayoutFilter(Operation *op,
+                                           unsigned operandIdx) {
+  return getRuleBook(op).getInputLayoutFilter(operandIdx);
 }
 
 /// Check if a layout is sharded.
@@ -657,11 +658,11 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
 
 void MemoryLayoutPropagation::applyInputLayoutFilter(
     std::vector<InputCandidate> &candidates, Operation *op,
-    TTNNLayoutAttr currentLayout) {
-  // Per-op input layout filtering: remove candidates that the op cannot
-  // consume efficiently (e.g. width-sharded for reshape/permute, any
-  // sharded for concatenate_heads).
-  if (auto inputFilter = getInputLayoutFilter(op)) {
+    unsigned operandIdx, TTNNLayoutAttr currentLayout) {
+  // Per-op, per-operand input layout filtering: remove candidates that the op
+  // cannot consume efficiently (e.g. any sharded RHS for matmul, all sharded
+  // for concatenate_heads).
+  if (auto inputFilter = getInputLayoutFilter(op, operandIdx)) {
     candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
                                     [&](const InputCandidate &ic) {
                                       return !inputFilter(ic.layout);
@@ -680,8 +681,9 @@ void MemoryLayoutPropagation::applyInputLayoutFilter(
 }
 
 void MemoryLayoutPropagation::addReshardCandidates(
-    std::vector<InputCandidate> &candidates, Operation *op, Value operand,
-    TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
+    std::vector<InputCandidate> &candidates, Operation *op,
+    unsigned operandIdx, Value operand, TTNNLayoutAttr currentLayout,
+    RankedTensorType tensorType,
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
     Operation *producerOp, size_t resultIdx, size_t maxCandidates) {
   // Skip reshards for operands derived from constant/parameter arguments.
@@ -714,7 +716,7 @@ void MemoryLayoutPropagation::addReshardCandidates(
   // filter check, candidates that will be rejected later (e.g., width_sharded
   // inputs for matmul) would suppress interleaved-to-sharded exploration,
   // preventing valid reshard paths like interleaved → height_sharded.
-  auto inputFilter = getInputLayoutFilter(op);
+  auto inputFilter = getInputLayoutFilter(op, operandIdx);
   bool hasAnyShardedCandidate = false;
   for (const auto &ic : candidates) {
     auto ml = ic.layout.getMemLayout();
@@ -824,7 +826,7 @@ std::vector<std::vector<InputCandidate>>
 MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
   std::vector<std::vector<InputCandidate>> result;
 
-  for (auto operand : op->getOperands()) {
+  for (auto [operandIdx, operand] : llvm::enumerate(op->getOperands())) {
     auto tensorType = mlir::dyn_cast<RankedTensorType>(operand.getType());
     if (!tensorType) {
       continue;
@@ -880,16 +882,17 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
                                 maxInputCandidatesPerOperand);
     }
 
-    addReshardCandidates(candidatesForOperand, op, operand, currentLayout,
-                         tensorType, producerBeam, producerOp, resultIdx,
-                         maxInputCandidatesPerOperand);
+    addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
+                         currentLayout, tensorType, producerBeam, producerOp,
+                         resultIdx, maxInputCandidatesPerOperand);
 
     // Filter after all candidates (producer beam + reshards) are collected.
-    // This rejects layouts the op cannot consume (e.g., width_sharded for
+    // This rejects layouts the op cannot consume (e.g., any sharded RHS for
     // matmul) while preserving producer beam entries as reshard sources
-    // during addReshardCandidates — a width_sharded producer can still
-    // serve as the source for a valid reshard to height_sharded.
-    applyInputLayoutFilter(candidatesForOperand, op, currentLayout);
+    // during addReshardCandidates — a sharded producer can still serve as
+    // the source for a valid reshard to an accepted layout.
+    applyInputLayoutFilter(candidatesForOperand, op, operandIdx,
+                           currentLayout);
 
     // Cap per-operand candidate count to prevent cross-product explosion.
     // Non-reshard candidates (from producer beam) come first and are preserved;
