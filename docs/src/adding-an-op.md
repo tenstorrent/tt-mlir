@@ -510,11 +510,9 @@ Hoisted ops are lowered through two independent paths:
 
 ### 11a. TTIR to Linalg/TOSA conversion pattern
 
-Add a conversion pattern in `lib/Conversion/TTIRToLinalg/` (use the appropriate category file —
-`EltwiseUnary.cpp`, `EltwiseBinary.cpp`, `Pooling.cpp`, or the general `TTIRToLinalg.cpp`) and
-register it in `populateTTIRToLinalgPatterns` or `populateTTIRToTosaPatterns`. Elementwise ops
-typically lower to `linalg.generic` or a TOSA equivalent; see existing patterns in the same files
-for reference.
+Add a conversion pattern in `lib/Conversion/TTIRToLinalg/` and register it in the appropriate
+populate function. Elementwise ops typically lower to `linalg.generic` or a TOSA equivalent; see
+existing patterns in the same directory for reference.
 
 ### 11b. TTIR to Linalg/TOSA lit test
 
@@ -527,20 +525,17 @@ If the op has no natural Linalg/TOSA equivalent but decomposes cleanly into ops 
 Linalg support (e.g., `DotGeneralOp` → `MatmulOp`), steps 11a–11b can be skipped. Add the op as
 illegal under `DecompMode::CPUFallback` in
 `lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecompositionPass.cpp` and add the decomposition
-pattern under `lib/Conversion/TTIRToTTIRDecomposition/`. The runtime pipeline
-(`createTTIRToLLVMCPUPipeline`) runs this decomposition before `TTIRToLinalg`, and the hoisting
-validation uses the same check.
+pattern under `lib/Conversion/TTIRToTTIRDecomposition/`. The runtime CPU pipeline runs this
+decomposition before the Linalg lowering, and the hoisting validation uses the same check.
 
-**Note:** decomposition does **not** help the EmitPy path — `createTTIRToEmitPyCPUPipeline` runs
-`ConvertTTIRCPUToEmitPy` with no prior decomposition, so steps 11d–11e are still required.
+**Note:** decomposition does **not** help the EmitPy path — the EmitPy CPU pipeline has no prior
+decomposition step, so steps 11d–11e are still required.
 
 ### 11d. TTIR to EmitPy CPU conversion pattern
 
-Add a pattern in `lib/Conversion/TTIRToEmitPy/TTIRCPUToEmitPyPass.cpp` and register it in
-`ConvertTTIRToEmitPyCPUPass::runOnOperation`. For elementwise ops use the existing generic
-templates (`TTIRUnaryToEmitPy`, `TTIRBinaryToEmitPy`, `TTIRReductionToEmitPy`); for ops with
-non-trivial attributes write a custom pattern using `EmitPyCallBuilder`. See existing patterns in
-the same file for reference.
+Add a pattern in `lib/Conversion/TTIRToEmitPy/TTIRCPUToEmitPyPass.cpp`. For elementwise ops,
+use the existing generic templates; for ops with non-trivial attributes write a custom pattern
+using `EmitPyCallBuilder`. See existing patterns in the same file for reference.
 
 ### 11e. Torch implementation in `ttir_cpu`
 
