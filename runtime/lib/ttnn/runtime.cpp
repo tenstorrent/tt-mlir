@@ -1214,6 +1214,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RMSNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormPostAllGatherOp: {
+    tensorRef = opContext.type_as_RMSNormPostAllGatherOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     tensorRef = opContext.type_as_DistributedRMSNormOp()->out();
     break;
@@ -1674,6 +1678,18 @@ getOpInputRefs(OpContext opContextHandle,
     }
     if (opContext.type_as_RMSNormOp()->bias()) {
       tensorRefs.push_back(opContext.type_as_RMSNormOp()->bias());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::RMSNormPostAllGatherOp: {
+    tensorRefs = {opContext.type_as_RMSNormPostAllGatherOp()->input(),
+                  opContext.type_as_RMSNormPostAllGatherOp()->stats()};
+    if (opContext.type_as_RMSNormPostAllGatherOp()->weight()) {
+      tensorRefs.push_back(
+          opContext.type_as_RMSNormPostAllGatherOp()->weight());
+    }
+    if (opContext.type_as_RMSNormPostAllGatherOp()->bias()) {
+      tensorRefs.push_back(opContext.type_as_RMSNormPostAllGatherOp()->bias());
     }
     break;
   }

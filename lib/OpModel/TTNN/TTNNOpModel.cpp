@@ -6672,6 +6672,115 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormPostAllGatherOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<RMSNormPostAllGatherOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> statsShape,
+    TTNNLayoutAttr statsLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto statsSpecExp =
+      detail::convertToTensorSpec(device, statsShape, statsLayout);
+  if (!statsSpecExp) {
+    return statsSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec statsSpec = statsSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::rms_norm_post_all_gather, device, inputSpec, statsSpec,
+        epsilon.convertToFloat(), weightSpec, biasSpec,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*compute_kernel_config=*/std::nullopt,
+        /*program_config=*/std::nullopt,
+        /*dtype=*/metalDtype, /*use_2d_core_grid=*/use2DCoreGrid);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<RMSNormPostAllGatherOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> statsShape, TTNNLayoutAttr statsLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  auto statsSpecExp =
+      detail::convertToTensorSpec(device, statsShape, statsLayout);
+  if (!statsSpecExp) {
+    return statsSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec statsSpec = statsSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
+  if (dtype.has_value()) {
+    metalDtype = conversion::getDataType(dtype.value());
+  }
+
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::rms_norm_post_all_gather, device, inputSpec, statsSpec,
+        epsilon.convertToFloat(), weightSpec, biasSpec,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*compute_kernel_config=*/std::nullopt,
+        /*program_config=*/std::nullopt,
+        /*dtype=*/metalDtype, /*use_2d_core_grid=*/use2DCoreGrid);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODE
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 

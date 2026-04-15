@@ -3044,6 +3044,52 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// RMSNormPostAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormPostAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType statsType = getStats().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input must have rank >= 2.
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank >= 2");
+  }
+
+  // Stats must have rank >= 2.
+  if (statsType.getRank() < 2) {
+    return emitOpError("stats must have rank >= 2");
+  }
+
+  // Output shape must match input shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t inputLastDim = inputType.getShape().back();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != inputLastDim) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor shape matches input if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    int64_t inputLastDim = inputType.getShape().back();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != inputLastDim) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::LayerNormOp::verify() {

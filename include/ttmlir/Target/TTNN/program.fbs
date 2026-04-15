@@ -118,6 +118,7 @@ union OpType {
   RepeatInterleaveOp,
   RepeatOp,
   RMSNormOp,
+  RMSNormPostAllGatherOp,
   ReshapeOp,
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,

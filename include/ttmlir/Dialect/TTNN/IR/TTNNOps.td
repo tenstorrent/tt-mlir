@@ -2375,6 +2375,47 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     let hasVerifier = 1;
 }
 
+def TTNN_RMSNormPostAllGatherOp : TTNN_Op<"rms_norm_post_all_gather",
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "RMS normalization post-all-gather op.";
+    let description = [{
+      Applies RMS normalization using gathered statistics from a distributed
+      RMS normalization pipeline. Takes the original input tensor and
+      the all-gathered statistics, computes the final normalized output, and
+      optionally scales by weight and shifts by bias.
+
+      Inputs:
+        - input: Original input tensor.
+        - stats: All-gathered statistics tensor from pre-all-gather phase.
+        - weight: Optional scale (gamma) tensor.
+        - bias: Optional shift (beta) tensor.
+
+      Attributes:
+        - epsilon: Small constant for numerical stability (default 1e-12).
+        - memory_config: Optional output memory configuration.
+        - compute_kernel_config: Optional device compute kernel configuration.
+        - program_config: LayerNormShardedMultiCoreProgramConfig derived from
+            the input's shard spec (core grid, block_h, block_w).
+        - dtype: Optional output data type.
+        - use_2d_core_grid: Optional flag controlling 2D core-grid execution.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$stats,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<BoolAttr>:$use_2d_core_grid);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{

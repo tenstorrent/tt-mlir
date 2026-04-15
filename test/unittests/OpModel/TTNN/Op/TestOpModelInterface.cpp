@@ -4387,6 +4387,133 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
   }
 }
 
+TEST_F(OpModelBase, rmsNormPostAllGatherOp) {
+  // Test case 1: Basic RMSNormPostAllGather with weight and bias
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> statsShape = {1, 1, 32, 64};
+  llvm::SmallVector<int64_t> weightShape = {128};
+  llvm::SmallVector<int64_t> biasShape = {128};
+
+  auto input = createEmptyTensor(inputShape);
+  auto stats = createEmptyTensor(statsShape);
+  auto weight = createEmptyTensor(weightShape);
+  auto bias = createEmptyTensor(biasShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormPostAllGatherOp op = builder.create<RMSNormPostAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input, stats, weight, bias, epsilon,
+      nullptr, nullptr, nullptr, nullptr, nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormPostAllGatherOpMinimal) {
+  // Test case 2: RMSNormPostAllGather without optional tensors
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> statsShape = {1, 1, 32, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  auto stats = createEmptyTensor(statsShape);
+  auto outputType = createRankedTensorType(inputShape);
+
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormPostAllGatherOp op = builder.create<RMSNormPostAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input, stats, nullptr, nullptr,
+      epsilon, nullptr, nullptr, nullptr, nullptr, nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormPostAllGatherOpL1Memory) {
+  // Test case 3: RMSNormPostAllGather with L1 memory buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> statsShape = {1, 1, 32, 64};
+  llvm::SmallVector<int64_t> weightShape = {128};
+  llvm::SmallVector<int64_t> biasShape = {128};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr statsLayout_L1 = CreateTiledLayout(
+      statsShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr tensorLayout_L1 = CreateTiledLayout(
+      weightShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto stats =
+      createEmptyTensor(statsShape, builder.getBF16Type(), statsLayout_L1);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), tensorLayout_L1);
+  auto bias =
+      createEmptyTensor(biasShape, builder.getBF16Type(), tensorLayout_L1);
+  auto outputType = createRankedTensorType(inputShape, builder.getBF16Type());
+
+  llvm::APFloat epsilon(1e-12f);
+
+  RMSNormPostAllGatherOp op = builder.create<RMSNormPostAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input, stats, weight, bias, epsilon,
+      nullptr, nullptr, nullptr, nullptr, nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, layerNormOp) {
   // Test case 1: Basic LayerNorm with all optional tensors (weight and bias)
   llvm::SmallVector<int64_t> inputShape = {1, 32, 128, 128};
