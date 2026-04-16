@@ -209,6 +209,29 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
 }
 
 ::tt::runtime::Tensor
+createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor) {
+  const ::ttnn::Tensor &ttnnTensor =
+      utils::getTTNNTensorFromRuntimeTensor(ownedHostTensor);
+  LOG_ASSERT(utils::isOnHost(ttnnTensor.storage_type()),
+             "createUnsafeBorrowedHostTensor requires a host tensor");
+
+  std::vector<::ttnn::Tensor> hostShards =
+      ::ttnn::distributed::get_device_tensors(ttnnTensor);
+  LOG_ASSERT(hostShards.size() == 1,
+             "createUnsafeBorrowedHostTensor only supports tensors backed by a "
+             "single host buffer");
+
+  const ::ttnn::Tensor &hostShard = hostShards.front();
+  LOG_ASSERT(hostShard.layout() == ::ttnn::Layout::ROW_MAJOR,
+             "createUnsafeBorrowedHostTensor requires ROW_MAJOR layout");
+
+  void *data = utils::getRawHostDataPtr(hostShard);
+  TensorDesc desc = getTensorDesc(ownedHostTensor);
+  return createBorrowedHostTensor(data, desc.shape, desc.stride, desc.itemsize,
+                                  desc.dataType);
+}
+
+::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
