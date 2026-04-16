@@ -36,7 +36,6 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
   auto [dispatched, indices, scores] =
       ::ttnn::experimental::all_to_all_dispatch_metadata(
           input, expertIndices, expertScores, expertMapping,
-          /*shared_expert_ids=*/std::nullopt,
           /*axis=*/axis,
           /*optional_output_tensors=*/std::nullopt,
           /*num_links=*/std::nullopt,
