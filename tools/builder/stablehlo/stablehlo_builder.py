@@ -8272,6 +8272,124 @@ class StableHLOBuilder(Builder):
 
         return reduce_window_module, reduce_window_builder
 
+    def conv2d(
+        self,
+        in0: Operand,
+        weight: Operand,
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        groups: int,
+        batch_group_count: int = 1,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Convenience wrapper over ``stablehlo.convolution`` for 2D convolution in
+        NCHW/OIHW layout.
+
+        Input is assumed NCHW ``[batch=0, feature=1, spatial=[2,3]]``; weight
+        OIHW ``[output_feature=0, input_feature=1, spatial=[2,3]]``; output NCHW.
+        For any other layout, call ``builder.convolution(...)`` directly and
+        supply the dimension-number fields explicitly.
+
+        ``stablehlo.convolution`` has no bias operand. To add bias, compose
+        ``stablehlo.broadcast_in_dim`` + ``stablehlo.add`` after this call;
+        the TTIR ``ConvAddBias`` fuser in ``lib/Dialect/TTIR/Transforms/TTIRFusing.cpp``
+        will rewrite the trio into ``ttir.conv2d(..., bias=b)`` downstream.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor in NCHW format ``(N, C_in, H_in, W_in)``.
+        weight : Operand
+            Weight tensor in OIHW format ``(C_out, C_in/groups, K_H, K_W)``.
+        stride : *Union[int, List[int]]*
+            Convolution stride. Accepts ``int v`` (→ ``[v, v]``), ``[v]``
+            (→ ``[v, v]``), or ``[h, w]`` (pass-through).
+        padding : *Union[int, List[int]]*
+            Spatial padding. Accepts:
+              - ``int v`` → symmetric padding ``v`` on every side.
+              - ``[h, w]`` → symmetric per-axis (PyTorch-style): ``h`` on top/bottom, ``w`` on left/right.
+              - ``[low_h, high_h, low_w, high_w]`` → full asymmetric form.
+        dilation : *Union[int, List[int]]*
+            Kernel (``rhs``) dilation. Same normalization rule as ``stride``.
+        groups : int
+            Number of blocked connections from input to output channels
+            (``feature_group_count``).
+        batch_group_count : int, optional
+            StableHLO ``batch_group_count`` attribute (default ``1``).
+        output_type : *Optional[torch.dtype]*, optional
+            Optional output dtype (default: input dtype).
+        loc : *Optional[str]*, optional
+            Optional source-location name for debugging.
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attribute names to set on the op.
+
+        Returns
+        -------
+        OpResult
+            Result tensor of the convolution in NCHW format.
+
+        Raises
+        ------
+        ValueError
+            If ``stride``, ``padding``, or ``dilation`` has an unsupported
+            shape — see the Parameters entries for accepted forms.
+        """
+
+        def _normalize_2d(value, name):
+            if isinstance(value, int):
+                return [value, value]
+            if isinstance(value, (list, tuple)):
+                if len(value) == 1:
+                    return [value[0], value[0]]
+                if len(value) == 2:
+                    return [value[0], value[1]]
+            raise ValueError(
+                f"conv2d: {name} must be an int, a 1-element list, or a 2-element "
+                f"[h, w] list; got {value!r}"
+            )
+
+        def _normalize_padding(value):
+            if isinstance(value, int):
+                return [value, value]
+            if isinstance(value, (list, tuple)):
+                if len(value) in (2, 4):
+                    return list(value)
+            raise ValueError(
+                f"conv2d: padding must be an int, a 2-element [h, w] list, or a "
+                f"4-element [low_h, high_h, low_w, high_w] list; got {value!r}"
+            )
+
+        stride_2d = _normalize_2d(stride, "stride")
+        dilation_2d = _normalize_2d(dilation, "dilation")
+        padding_norm = _normalize_padding(padding)
+
+        return self.convolution(
+            in0,
+            weight,
+            window_strides=stride_2d,
+            padding=padding_norm,
+            lhs_dilation=[1, 1],
+            rhs_dilation=dilation_2d,
+            input_batch_dimension=0,
+            input_feature_dimension=1,
+            input_spatial_dimensions=[2, 3],
+            kernel_output_feature_dimension=0,
+            kernel_input_feature_dimension=1,
+            kernel_spatial_dimensions=[2, 3],
+            output_batch_dimension=0,
+            output_feature_dimension=1,
+            output_spatial_dimensions=[2, 3],
+            feature_group_count=groups,
+            batch_group_count=batch_group_count,
+            output_type=output_type,
+            loc=loc,
+            unit_attrs=unit_attrs,
+        )
+
     ############### stablehlo.ConvolutionOp ###############
 
     @tag(stablehlo.ConvolutionOp)
