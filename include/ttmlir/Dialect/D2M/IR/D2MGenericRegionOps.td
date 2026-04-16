@@ -10,6 +10,7 @@ include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.td"
 include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
+include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.td"
 
 include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
@@ -1215,6 +1216,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       "hasTensorSemantics",
       "isNotConflicting"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Remote/Aliased Load Op";
     let description = [{
@@ -1410,15 +1412,6 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return mlir::cast<CBType>(cb.getType());
       }
 
-      /// Return the CB port number from this op's CB operand.
-      /// The op must be in explicit CB form with a GetCBOp-defined CB.
-      unsigned getCBPort() {
-        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
-        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
-        assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
-      }
-
       /// Returns true if the circular buffer operand is present (explicit CB form).
       bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
 
@@ -1471,6 +1464,16 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return {StringAttr::get(getContext(), getMapAttrStrName()),
                 getAffineMapAttr()};
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getLocalBuffer();
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return false;
+      }
+
+
     }];
 }
 
@@ -1483,11 +1486,13 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
+      "isNotConflicting",
       "bufferize",
       "getAliasingValues",
       "getBufferType",
       "hasTensorSemantics"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Remote/Aliased Store Op";
     let description = [{
@@ -1617,16 +1622,6 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         return mlir::cast<CBType>(cb.getType());
       }
 
-      /// Return the CB port number from this op's CB operand, or UINT_MAX if
-      /// Return the CB port number from this op's CB operand.
-      /// The op must be in explicit CB form with a GetCBOp-defined CB.
-      unsigned getCBPort() {
-        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
-        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
-        assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
-      }
-
       /// Returns true if the circular buffer operand is present (explicit CB form).
       bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
 
@@ -1679,7 +1674,112 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         return {StringAttr::get(getContext(), getMapAttrStrName()),
                 getAffineMapAttr()};
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return false;
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getLocalBuffer();
+      }
     }];
+
+    let extraClassDefinition = [{
+      bool $cppClass::isNotConflicting(mlir::OpOperand *, mlir::OpOperand *operand,
+                                 const mlir::bufferization::AnalysisState &) {
+        // Always return true for output tensor/memref to avoid forcing out of place bufferization.
+        return *operand == getMemrefMutable();
+      }
+    }];
+}
+
+// TODO: NoTerminator is a hack, we actually need a proper, syncrhonized yield op which is a terminator
+def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AttrSizedOperandSegments,
+  DestinationStyleOpInterface,
+  NoTerminator,
+  //DeclareOpInterfaceMethods<BufferizableOpInterface, [
+  //  "bufferizesToMemoryRead",
+  //  "bufferizesToMemoryWrite",
+  //  "bufferize",
+  //  "getAliasingValues",
+  //  "getBufferType",
+  //  "hasTensorSemantics",
+  //]>,
+  D2M_SynchronizableOpInterface
+  ]> {
+
+  let summary = "D2M Synchronized Region Op";
+  let description = [{
+    This is a generic op to wrap a region of non synchronized ops to be synchronizeable.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$consumers, Variadic<AnyRankedTensorOrMemRef>:$producers);
+  let results = (outs Variadic<AnyRankedTensorOrMemRef>:$producer_results);
+  let regions = (region AnyRegion:$region);
+  // TODO:add or cb as additional type like some of the other ops, or remove from them and they should jsut take CBMEMreg
+  // which should be a defined type with a check oon cb_layout attribute; so we will have AnyRankedTensorOrCBLayoutMemRef instead
+
+  //let assemblyFormat = [{ $consumers `->` $producers attr-dict }];
+  //let hasVerifier = 1;
+
+  let builders = [
+    OpBuilder<(ins "TypeRange":$resultTypes, "ValueRange":$consumers, "ValueRange":$producers,
+      "function_ref<void(OpBuilder &, Location, ValueRange)>":$regionBuilder),
+    [{
+      build($_builder, $_state, resultTypes, consumers, producers);
+      Region &region = *$_state.regions.front().get();
+      {
+        OpBuilder::InsertionGuard guard($_builder);
+        Block *block = $_builder.createBlock(&region, region.end());
+        for (Value consumer : consumers)
+          block->addArgument(consumer.getType(), consumer.getLoc());
+        for (Value producer : producers)
+          block->addArgument(producer.getType(), producer.getLoc());
+        $_builder.setInsertionPointToStart(block);
+        regionBuilder($_builder, $_state.location, block->getArguments());
+      }
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    //bool bufferizesToMemoryRead(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
+    //  return false;
+    //}
+    //bool bufferizesToMemoryWrite(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
+    //  return false;
+    //}
+//
+    //bool bufferize(mlir::RewriterBase &rewriter, const mlir::bufferization::BufferizationOptions &options, mlir::bufferization::BufferizationState &state) {
+    //  return false;
+    //}
+//
+    //mlir::bufferization::AliasingValueList getAliasingValues(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
+    //  return mlir::bufferization::AliasingValueList();
+    //}
+//
+    //mlir::FailureOr<mlir::bufferization::BufferLikeType> getBufferType(mlir::Value value, const mlir::bufferization::BufferizationOptions &options, const mlir::bufferization::BufferizationState &state, ::llvm::SmallVector<mlir::Value> &bufferizedValues) {
+    //  return mlir::failure();
+    //}
+//
+    //bool hasTensorSemantics() {
+    //  return false;
+    //}
+
+    MutableOperandRange getDpsInitsMutable() { return getProducersMutable(); }
+
+    bool isProducer(mlir::OpOperand &operand) {
+      return llvm::find(getProducers(), operand.get()) != getProducers().end();
+    }
+
+    bool isConsumer(mlir::OpOperand &operand) {
+      return llvm::find(getConsumers(), operand.get()) != getConsumers().end();
+    }
+
+
+  }];
+
 }
 
 //===----------------------------------------------------------------------===//
@@ -1782,7 +1882,7 @@ def D2M_YieldOp : D2M_GenericRegionOp<"yield", [
       D2M yield equivalent, required for enforcing pure tensor semantics on the tensor form of the GenericOp.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$values);
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
@@ -1837,7 +1937,7 @@ def D2M_SpatialYieldOp : D2M_GenericRegionOp<"spatial_yield", [
       Yield operation for spatial op.
     }];
 
-    let arguments = (ins Variadic<AnyRankedTensor>:$values);
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$values);
 
     let assemblyFormat = [{ $values attr-dict `:` `(` type($values) `)` }];
 
@@ -2377,14 +2477,11 @@ def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
 //===----------------------------------------------------------------------===//
 
 def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
-    let summary = "Get a circular buffer for the given port.";
+    let summary = "Get a circular buffer for the given cb operand index.";
     let description = [{
-      Obtain a CB handle for the specified port number.  Each unique port maps
-      to exactly one physical circular buffer.
+      Obtain a CB handle for the specified cb operand in the generic.
 
-      The port number is a local identifier — it does not correspond to the
-      parent generic op's operand index.  The binding between a CB port and a
-      generic operand is established by `remote_load`/`remote_store` ops.
+      The cb_operand_idx corresponds to the parent generic op's operand index.
 
       ```mlir
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
@@ -2392,11 +2489,10 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
       ```
     }];
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port,
-                         OptionalAttr<I64Attr>:$operand_index);
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$cb_operand_idx);
     let results = (outs D2M_CB:$result);
 
-    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `(` $cb_operand_idx `)` attr-dict `:` type($result) }];
 }
 
 def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
@@ -2607,6 +2703,131 @@ def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
     I32Attr:$numReceivers,
     Variadic<Index>:$coreIndices
   );
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Aliased Load/Store Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_OperandAliasOp : D2M_GenericRegionOp<"operand_alias", [
+    MemoryEffects<[MemRead, MemWrite]>
+  ]> {
+  let summary = "Alias a shard of an input buffer without allocation.";
+  let description = [{
+    The `alias_buffer` operation declares that a local buffer within a generic
+    region directly aliases (shares storage with) a shard of an input operand
+    rather than requiring a separate allocation. It takes a full sharded memref
+    (with grid dimensions) and returns a memref containing only the shard
+    portion (grid dimensions stripped).
+
+    This op is introduced by the allocator pass for operands that do not
+    require streaming. It encodes in the IR that no separate buffer
+    allocation is needed; the compute kernel operates directly on the
+    input data in place. Downstream passes convert this op into circular
+    buffer operations (reserve/push/wait/pop).
+
+    ```mlir
+    d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
+      %shard = d2m.alias_buffer %input :
+          memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
+    }
+    ```
+  }];
+
+  let arguments = (ins AnyNon0RankedMemRef:$memref);
+  let results = (outs AnyNon0RankedMemRef:$aliasedBuffer);
+
+  let assemblyFormat = [{
+    $memref attr-dict `:` type($memref) `->` type($aliasedBuffer)
+  }];
+}
+
+def D2M_AliasedLoadOp : D2M_GenericRegionOp<"aliased_load", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    D2M_SynchronizableOpInterface
+  ]> {
+  let summary = "Alias a shard of an input buffer without allocation.";
+  let description = [{
+    The `alias_buffer` operation declares that a local buffer within a generic
+    region directly aliases (shares storage with) a shard of an input operand
+    rather than requiring a separate allocation. It takes a full sharded memref
+    (with grid dimensions) and returns a memref containing only the shard
+    portion (grid dimensions stripped).
+
+    This op is introduced by the allocator pass for operands that do not
+    require streaming. It encodes in the IR that no separate buffer
+    allocation is needed; the compute kernel operates directly on the
+    input data in place. Downstream passes convert this op into circular
+    buffer operations (reserve/push/wait/pop).
+
+    ```mlir
+    d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
+      %shard = d2m.alias_buffer %input :
+          memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
+    }
+    ```
+  }];
+
+  let arguments = (ins AnyNon0RankedMemRef:$aliasedBuffer);
+
+  let assemblyFormat = [{
+    $aliasedBuffer attr-dict `:` type($aliasedBuffer)
+  }];
+
+  let extraClassDeclaration = [{
+    bool isProducer(mlir::OpOperand &operand) {
+      return true;
+    }
+
+    bool isConsumer(mlir::OpOperand &operand) {
+      return false;
+    }
+  }];
+}
+
+def D2M_AliasedStoreOp : D2M_GenericRegionOp<"aliased_store", [
+    MemoryEffects<[MemRead, MemWrite]>,
+    D2M_SynchronizableOpInterface
+  ]> {
+  let summary = "Alias a shard of an input buffer without allocation.";
+  let description = [{
+    The `alias_buffer` operation declares that a local buffer within a generic
+    region directly aliases (shares storage with) a shard of an input operand
+    rather than requiring a separate allocation. It takes a full sharded memref
+    (with grid dimensions) and returns a memref containing only the shard
+    portion (grid dimensions stripped).
+
+    This op is introduced by the allocator pass for operands that do not
+    require streaming. It encodes in the IR that no separate buffer
+    allocation is needed; the compute kernel operates directly on the
+    input data in place. Downstream passes convert this op into circular
+    buffer operations (reserve/push/wait/pop).
+
+    ```mlir
+    d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
+      %shard = d2m.alias_buffer %input :
+          memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
+    }
+    ```
+  }];
+
+  let arguments = (ins AnyNon0RankedMemRef:$aliasedBuffer);
+
+  let assemblyFormat = [{
+    $aliasedBuffer attr-dict `:` type($aliasedBuffer)
+  }];
+
+  let extraClassDeclaration = [{
+    bool isProducer(mlir::OpOperand &operand) {
+      return false;
+    }
+
+    bool isConsumer(mlir::OpOperand &operand) {
+      return true;
+    }
+  }];
+
+  //let hasVerifier = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

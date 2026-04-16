@@ -86,10 +86,8 @@ private:
     Block &block = region.front();
 
     IRRewriter rewriter(genericOp->getContext());
-    CBCache cbCache;
-    PortCounter portCounters;
-    Value scratchCB = getOrCreateCB(genericOp, region, scratchInputIdx,
-                                    rewriter, cbCache, portCounters);
+    Value scratchCB = getCB(&region.front().front(),
+                            genericOp.getOperand(scratchInputIdx), rewriter);
 
     // Collect all scratch_allocate ops in this region.
     SmallVector<ScratchAllocationInfo> allocations;

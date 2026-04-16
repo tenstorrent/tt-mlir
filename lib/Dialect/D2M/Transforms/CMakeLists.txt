@@ -8,6 +8,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp
         HoistCBAllocs.cpp
+        MarkSynchronizedOpBuffers.cpp
+        InsertCBOps.cpp
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
         GridSelection.cpp

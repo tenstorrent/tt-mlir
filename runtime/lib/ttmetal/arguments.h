@@ -30,8 +30,6 @@ std::vector<std::uint32_t> processKernelArgs(
         std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
         &global_semaphores_cache,
-    const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
-        *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn) {
   std::vector<std::uint32_t> argsVec;
@@ -41,11 +39,18 @@ std::vector<std::uint32_t> processKernelArgs(
   argsVec.reserve(args->size());
   for (const auto *kernelArg : *args) {
     switch (kernelArg->arg_type()) {
-    case target::metal::KernelArgType::KernelArgCBPort: {
-      const auto *arg = kernelArg->arg_as_KernelArgCBPort();
-      LOG_ASSERT(arg->operand_idx() < cbs->size(), "invalid operand ",
-                 arg->operand_idx());
-      argsVec.push_back(cbs->Get(arg->operand_idx())->port());
+    case target::metal::KernelArgType::KernelArgCB: {
+      // Get the cb port from the cb ref in argRefs.
+      const auto *arg = kernelArg->arg_as_KernelArgCB();
+      LOG_ASSERT(arg->operand_idx() < argRefs->size(), "invalid operand idx",
+                 arg->operand_idx(), " for cb arg");
+      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
+                     target::metal::ArgRef::CBRef,
+                 "expected cb ref for cb arg");
+      const tt::target::metal::CBRef *cb_ref =
+          reinterpret_cast<const target::metal::CBRef *>(
+              argRefs->Get(arg->operand_idx()));
+      argsVec.push_back(cb_ref->port());
       break;
     }
     case target::metal::KernelArgType::KernelArgBufferAddress: {
