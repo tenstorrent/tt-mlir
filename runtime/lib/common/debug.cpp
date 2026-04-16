@@ -25,9 +25,8 @@ const Hooks &Hooks::get(
     const std::optional<debug::Hooks::OperationCallbackFn> &preOperatorCallback,
     const std::optional<debug::Hooks::OperationCallbackFn>
         &postOperatorCallback,
-    const std::optional<debug::Hooks::ExecutionCallbackFn>
-        &preExecutionCallback,
-    const std::optional<debug::Hooks::ExecutionCallbackFn>
+    const std::optional<debug::Hooks::ProgramCallbackFn> &preExecutionCallback,
+    const std::optional<debug::Hooks::ProgramCallbackFn>
         &postExecutionCallback) {
   static Hooks config(std::nullopt, std::nullopt, std::nullopt, std::nullopt);
   if (preOperatorCallback.has_value()) {

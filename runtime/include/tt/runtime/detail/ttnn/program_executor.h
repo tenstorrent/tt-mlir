@@ -29,7 +29,7 @@ public:
   /**
    * Executes pre and post operation callbacks if registered
    */
-  void runCallback(
+  void runOpCallback(
       const std::optional<::tt::runtime::debug::Hooks::OperationCallbackFn>
           &callback,
       Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
@@ -38,8 +38,8 @@ public:
   /**
    * Executes pre execution callback if registered
    */
-  void runExecutionCallback(
-      const std::optional<::tt::runtime::debug::Hooks::ExecutionCallbackFn>
+  void runProgramCallback(
+      const std::optional<::tt::runtime::debug::Hooks::ProgramCallbackFn>
           &callback,
       Binary &executableHandle, ProgramContext *programContext);
 

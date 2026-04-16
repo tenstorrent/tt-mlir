@@ -115,8 +115,8 @@ const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
 const Hooks &Hooks::get(
     const std::optional<Hooks::OperationCallbackFn> &preOperatorCallback,
     const std::optional<Hooks::OperationCallbackFn> &postOperatorCallback,
-    const std::optional<Hooks::ExecutionCallbackFn> &preExecutionCallback,
-    const std::optional<Hooks::ExecutionCallbackFn> &postExecutionCallback) {
+    const std::optional<Hooks::ProgramCallbackFn> &preExecutionCallback,
+    const std::optional<Hooks::ProgramCallbackFn> &postExecutionCallback) {
   __builtin_trap();
 }
 

@@ -155,7 +155,7 @@ ProgramExecutor::ProgramExecutor(
       std::move(deviceHandle), executableHandle, programIndex);
 }
 
-void ProgramExecutor::runCallback(
+void ProgramExecutor::runOpCallback(
     const std::optional<debug::Hooks::OperationCallbackFn> &callback,
     Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
@@ -171,8 +171,8 @@ void ProgramExecutor::runCallback(
   }
 }
 
-void ProgramExecutor::runExecutionCallback(
-    const std::optional<debug::Hooks::ExecutionCallbackFn> &callback,
+void ProgramExecutor::runProgramCallback(
+    const std::optional<debug::Hooks::ProgramCallbackFn> &callback,
     Binary &executableHandle, ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
@@ -187,8 +187,8 @@ void ProgramExecutor::execute() {
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
-  runExecutionCallback(debug::Hooks::get().getPreExecutionCallback(),
-                       executableHandle, context.get());
+  runProgramCallback(debug::Hooks::get().getPreExecutionCallback(),
+                     executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -198,18 +198,18 @@ void ProgramExecutor::execute() {
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
+    runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
+                  executableHandle, op, context.get());
     runOperation(op);
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
-    runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
-                op, context.get());
+    runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
+                  executableHandle, op, context.get());
     dumpPerfCountersIfNeeded();
   }
-  runExecutionCallback(debug::Hooks::get().getPostExecutionCallback(),
-                       executableHandle, context.get());
+  runProgramCallback(debug::Hooks::get().getPostExecutionCallback(),
+                     executableHandle, context.get());
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }
