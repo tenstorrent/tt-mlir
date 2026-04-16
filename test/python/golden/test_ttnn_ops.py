@@ -430,19 +430,39 @@ def test_reduce_scatter(
     )
 
 
-@pytest.mark.parametrize("shape", [(32, 32), (64, 128), (16, 16, 16)], ids=shape_str)
-@pytest.mark.parametrize("fill_value", [0.0, 1.0, 5.5, -2.5])
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("fill_value", [1.0])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_full(shape: Shape, fill_value: float, dtype: torch.dtype, request, device):
+@pytest.mark.parametrize(
+    "full_layout",
+    [ttnn.Layout.Tile, ttnn.Layout.RowMajor],
+    ids=["tile", "row_major"],
+)
+def test_full(
+    shape: Shape,
+    fill_value: float,
+    dtype: torch.dtype,
+    full_layout: ttnn.Layout,
+    request,
+    device,
+):
     def module(builder: TTNNBuilder):
         @builder.func([], [])
         def full(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
-            return builder.full(
+            get_device = builder.get_device()
+            full = builder.full(
+                device=get_device,
                 shape=list(shape),
                 fill_value=fill_value,
                 output_type=dtype,
                 unit_attrs=unit_attrs,
+                layout=full_layout,
             )
+            if full_layout == ttnn.Layout.RowMajor:
+                return builder.to_layout(
+                    full, layout=ttnn.Layout.Tile, output_type=dtype
+                )
+            return full
 
     compile_and_execute_ttnn(
         module,

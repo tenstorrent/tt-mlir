@@ -7650,7 +7650,6 @@ class TTNNBuilder(Builder):
         device: Optional[Operand] = None,
         output_type: Optional[torch.dtype] = None,
         layout: Optional[ttnn.ir.LayoutAttr] = None,
-        memory_config: Optional[ttnn.ir.MemoryConfigAttr] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
@@ -7667,22 +7666,21 @@ class TTNNBuilder(Builder):
             fill_value_attr = IntegerAttr.get(IntegerType.get_signless(32), fill_value)
         else:
             fill_value_attr = FloatAttr.get_f32(fill_value)
-        if layout is None:
-            layout = ttnn.Layout.Tile
-        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile)
-        if memory_config is None:
-            memory_config = self._create_dram_memory_config()
 
+        if layout is None or layout == ttnn.Layout.Tile:
+            layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile)
+            memory_config = self._create_dram_memory_config()
+            result = self._create_dram_tiled_ttnn_tensor(shape, mlir_output_type)
+        elif layout == ttnn.Layout.RowMajor:
+            layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.RowMajor)
+            memory_config = self._create_system_memory_memory_config()
+            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
+
+        dtype = self._get_data_type_attribute(result)
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(
             shape_attr, fill_value_attr, mlir_output_type
         )
-        if layout == ttnn.Layout.Tile:
-            result = self._create_host_ttnn_tensor(shape, mlir_output_type)
-        else:
-            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
-        result = self._create_dram_tiled_ttnn_tensor(shape, mlir_output_type)  # ******
-        dtype = self._get_data_type_attribute(result)
 
         if loc is None:
             loc = self._get_location()
@@ -7722,6 +7720,10 @@ class TTNNBuilder(Builder):
             result,
             shape=old_op.shape,
             fill_value=old_op.fill_value,
+            device=old_op.device,
+            dtype=old_op.dtype,
+            layout=old_op.layout_attr,
+            memory_config=old_op.memory_config,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -7764,6 +7766,10 @@ class TTNNBuilder(Builder):
                         result,
                         shape=old_op.shape,
                         fill_value=old_op.fill_value,
+                        device=old_op.device,
+                        dtype=old_op.dtype,
+                        layout=old_op.layout_attr,
+                        memory_config=old_op.memory_config,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -8537,21 +8543,34 @@ class TTNNBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input_golden = self._get_golden_tensor(input)
-        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
+        shape = input.type.shape
+
+        if layout is None or layout == ttnn.Layout.Tile:
+            layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile)
+            memory_config = self._create_dram_memory_config()
+            result = self._create_dram_tiled_ttnn_tensor(shape, mlir_output_type)
+        elif layout == ttnn.Layout.RowMajor:
+            layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.RowMajor)
+            memory_config = self._create_system_memory_memory_config()
+            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
+
+        dtype = self._get_data_type_attribute(result)
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input_golden, layout_attr, mlir_output_type)
-        shape = input.type.shape
-        if layout == ttnn.Layout.Tile:
-            result = self._create_host_ttnn_tensor(shape, mlir_output_type)
-        else:
-            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
         else:
             loc = Location.name(loc)
 
-        op = ttnn_op(result, input, layout=layout_attr, loc=loc)
+        op = ttnn_op(
+            result,
+            input,
+            layout=layout_attr,
+            dtype=dtype,
+            memory_config=memory_config,
+            loc=loc,
+        )
         op_result = op.result
 
         self._set_golden_tensor(op_result, golden_output)
@@ -8569,7 +8588,14 @@ class TTNNBuilder(Builder):
         result = old_op.result.type
         layout_attr = old_op.layout
 
-        new_op = ttnn_op(result, in0, layout=layout_attr, loc=old_op.location)
+        new_op = ttnn_op(
+            result,
+            in0,
+            layout=layout_attr,
+            dtype=old_op.dtype,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(in0)
@@ -8607,7 +8633,12 @@ class TTNNBuilder(Builder):
                     layout_attr = old_op.layout
 
                     new_op = ttnn_op(
-                        result, in0, layout=layout_attr, loc=old_op.location
+                        result,
+                        in0,
+                        layout=layout_attr,
+                        dtype=old_op.dtype,
+                        memory_config=old_op.memory_config,
+                        loc=old_op.location,
                     )
                     new_op_result = new_op.result
 
@@ -8941,6 +8972,11 @@ class TTNNBuilder(Builder):
         return ttnn.ir.MemoryConfigAttr.get(
             self._ctx, tensor_memory_layout_attr, buffer_type_attr
         )
+
+    def _create_system_memory_memory_config(self):
+        # The pybound MemoryConfigAttr.get() requires a TensorMemoryLayoutAttr, but system_memory requires no TensorMemoryLayoutAttr
+        memory_config_str = "#ttnn.memory_config<#ttnn.buffer_type<system_memory>>"
+        return Attribute.parse(memory_config_str)
 
     ############### ttnn.DistributeTensorOp ###############
 
