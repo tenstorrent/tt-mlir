@@ -2976,10 +2976,10 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 }
 
 TEST_F(OpModelBase, Conv3dInterface) {
-  llvm::SmallVector<int64_t> inputShape = {1, 5, 10, 10, 3}; // [N, D, H, W, C]
+  llvm::SmallVector<int64_t> inputShape = {1, 5, 10, 10, 32}; // [N, D, H, W, C]
   // Weight must be 2D: [kD*kH*kW*C_in/groups, C_out]
-  // patch_size = 3*3*3*3 = 81, out_channels = 64 (multiple of 32)
-  llvm::SmallVector<int64_t> weightShape = {81, 64};
+  // patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of 32)
+  llvm::SmallVector<int64_t> weightShape = {864, 64};
   // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8, W_out=(10-3)/1+1=8
   llvm::SmallVector<int64_t> outputShape = {
       1, 3, 8, 8, 64}; // [N, D_out, H_out, W_out, C_out]
@@ -3008,7 +3008,7 @@ TEST_F(OpModelBase, Conv3dInterface) {
       weight,                  // Weight tensor
       nullptr,                 // Bias tensor (optional)
       deviceOp,                // Device operation
-      3,                       // Input channels
+      32,                      // Input channels
       64,                      // Output channels (must be multiple of 32)
       1,                       // Batch size
       5,                       // Input depth

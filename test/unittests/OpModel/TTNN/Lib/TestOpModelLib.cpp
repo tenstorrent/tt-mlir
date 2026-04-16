@@ -3119,20 +3119,20 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(std::make_tuple(
         // tt-metal Conv3d expects input in [N, D, H, W, C] format (channels
         // LAST)
-        detail::TestTensor{{1, 5, 10, 10, 3}, // [N, D, H, W, C]
+        detail::TestTensor{{1, 5, 10, 10, 32}, // [N, D, H, W, C]
                            TensorMemoryLayout::Interleaved,
                            BufferType::DRAM},
         // Weight must be 2D: [kD*kH*kW*C_in, C_out] where C_in is input
-        // channels patch_size = 3*3*3*3 = 81, out_channels = 64 (multiple of
+        // channels patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of
         // 32)
         detail::TestTensor{
-            {81, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            {864, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8,
         // W_out=(10-3)/1+1=8
         detail::TestTensor{{1, 3, 8, 8, 64}, // [N, D_out, H_out, W_out, C_out]
                            TensorMemoryLayout::Interleaved,
                            BufferType::DRAM},
-        3, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
+        32, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
         llvm::SmallVector<int32_t>{1, 1, 1},
         llvm::SmallVector<int32_t>{0, 0, 0}, 1, "zeros",
         detail::ExpectedResult{true})));

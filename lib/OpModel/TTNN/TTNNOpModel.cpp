@@ -5325,7 +5325,7 @@ struct Conv3dSpecs {
   ::ttnn::TensorSpec inputSpec;
   ::ttnn::TensorSpec weightSpec;
   std::optional<::ttnn::TensorSpec> biasSpec;
-  ::ttnn::experimental::prim::Conv3dConfig config;
+  std::optional<::ttnn::experimental::prim::Conv3dConfig> config;
   ::tt::tt_metal::DataType dtype;
   uint32_t outputChannels;
   std::array<uint32_t, 3> kernelSize;
@@ -5376,30 +5376,32 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
     biasSpec = biasSpecExp.get();
   }
 
-  // Initialize Conv3dConfig with base values
-  ::ttnn::experimental::prim::Conv3dConfig config;
+  std::optional<::ttnn::experimental::prim::Conv3dConfig> config;
 
   // Apply Conv3dConfig overrides if provided
   if (conv3dConfig.has_value()) {
+    config.emplace();
     if (conv3dConfig->getWeightsDtype()) {
-      config.weights_dtype =
+      config->weights_dtype =
           conversion::getDataType(*conv3dConfig->getWeightsDtype());
     }
     if (conv3dConfig->getTOutBlock()) {
-      config.T_out_block = *conv3dConfig->getTOutBlock();
+      config->T_out_block = *conv3dConfig->getTOutBlock();
     }
     if (conv3dConfig->getWOutBlock()) {
-      config.W_out_block = *conv3dConfig->getWOutBlock();
+      config->W_out_block = *conv3dConfig->getWOutBlock();
     }
     if (conv3dConfig->getHOutBlock()) {
-      config.H_out_block = *conv3dConfig->getHOutBlock();
+      config->H_out_block = *conv3dConfig->getHOutBlock();
     }
     if (conv3dConfig->getCOutBlock()) {
-      config.C_out_block = *conv3dConfig->getCOutBlock();
+      config->C_out_block = *conv3dConfig->getCOutBlock();
     }
     if (conv3dConfig->getCInBlock()) {
-      config.C_in_block = *conv3dConfig->getCInBlock();
+      config->C_in_block = *conv3dConfig->getCInBlock();
     }
+    config->compute_with_storage_grid_size =
+        device->compute_with_storage_grid_size();
   }
 
   // Get output dtype in this order: explicit outputDtype → outputLayout →
@@ -5411,9 +5413,6 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
   if (!dtype) {
     dtype = detail::getNullableDataType(outputLayout);
   }
-
-  config.compute_with_storage_grid_size =
-      device->compute_with_storage_grid_size();
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       deviceComputeKernelConfigConverted =
