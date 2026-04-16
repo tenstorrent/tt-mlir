@@ -833,7 +833,9 @@ unaligned_shapes = [
     (9, 43, 7),
     (5, 61, 49),
     (51, 19, 23),
-    pytest.param((677, 1, 1), marks=pytest.mark.skip_config(["n150"])),
+    pytest.param(
+        (677, 1, 1), marks=pytest.mark.skip_config(["n150"])
+    ),  # TODO (anuragsingh): Fix nondeterministic issue with Allocator for this test.
     (2, 3, 5, 7),
     (3, 37, 5, 53),
     (37, 3, 5, 53),
