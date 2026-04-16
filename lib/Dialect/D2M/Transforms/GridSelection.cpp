@@ -378,12 +378,6 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
     return;
   }
 
-  // Check if we're already at the target grid.
-  auto emptyType = mlir::cast<mlir::RankedTensorType>(emptyOp.getType());
-  if (emptyType.getShape().take_front(2) == llvm::ArrayRef(optimalGrid)) {
-    return;
-  }
-
   auto outputType = mlir::cast<mlir::RankedTensorType>(toLayoutOp.getType(0));
   auto oldLayout =
       mlir::dyn_cast<ttcore::MetalLayoutAttr>(outputType.getEncoding());
@@ -405,6 +399,9 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
 
   RankedTensorType newTensorType = tensorWithOptimalGrid(
       outputType, config, optimalGrid, builder, alignmentGrid);
+  if (newTensorType == outputType) {
+    return;
+  }
   builder.setInsertionPoint(emptyOp);
 
   auto newToLayoutOp =
