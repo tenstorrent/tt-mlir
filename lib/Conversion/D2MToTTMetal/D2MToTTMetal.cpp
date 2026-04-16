@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/D2MToTTMetal/D2MToTTMetal.h"
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -201,21 +202,27 @@ private:
   ttmetal::MathFidelity mathFidelity_;
 };
 
-// CoreRange from d2m.generic grid: project the full virtual bbox through
-// virt_to_physical when the grid map is usable; otherwise
-// getPhysicalCoreRange(getPhysicalGridShape()).
+// CoreRange from d2m.generic grid: when virt_to_physical is present, project
+// the virtual bounding box through it (rank must match map dims; 2 or 3
+// results). When the map is empty, skip that projection and return the core
+// range implied by the op's physical grid alone.
 CoreRangeAttr D2MGenericRewriter::coreRangeAttrFromOp(Builder &builder,
                                                       d2m::GenericOp op) {
   MLIRContext *ctx = builder.getContext();
   ttcore::GridAttr grid = op.getGrid();
   AffineMap virtToPhysMap = grid.getVirtToPhysicalMap();
   ArrayRef<int64_t> gridShape = grid.getShape();
-  if (virtToPhysMap.isEmpty() || gridShape.size() != 2 ||
-      virtToPhysMap.getNumDims() != 2 ||
-      (virtToPhysMap.getNumResults() != 2 &&
-       virtToPhysMap.getNumResults() != 3)) {
+  if (virtToPhysMap.isEmpty()) {
     return CoreRangeAttr::getPhysicalCoreRange(ctx, op.getPhysicalGridShape());
   }
+
+  TT_assertv(gridShape.size() == virtToPhysMap.getNumDims(),
+             "virt_to_physical num dims {} must match grid rank {}",
+             virtToPhysMap.getNumDims(), gridShape.size());
+  TT_assertv((virtToPhysMap.getNumResults() == 2u ||
+              virtToPhysMap.getNumResults() == 3u),
+             "virt_to_physical must have 2 or 3 results (got {})",
+             virtToPhysMap.getNumResults());
 
   if (virtToPhysMap.getNumResults() == 3) {
     virtToPhysMap = virtToPhysMap.getSubMap({1, 2});
