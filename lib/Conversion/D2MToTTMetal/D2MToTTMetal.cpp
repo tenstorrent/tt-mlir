@@ -208,20 +208,22 @@ CoreRangeAttr D2MGenericRewriter::coreRangeAttrFromOp(Builder &builder,
                                                       d2m::GenericOp op) {
   MLIRContext *ctx = builder.getContext();
   ttcore::GridAttr grid = op.getGrid();
-  AffineMap v2p = grid.getVirtToPhysicalMap();
-  ArrayRef<int64_t> vshape = grid.getShape();
-  const unsigned n = v2p.getNumResults();
-  if (v2p.isEmpty() || vshape.size() != 2 || v2p.getNumDims() != 2 ||
-      (n != 2 && n != 3)) {
+  AffineMap virtToPhysMap = grid.getVirtToPhysicalMap();
+  ArrayRef<int64_t> gridShape = grid.getShape();
+  if (virtToPhysMap.isEmpty() || gridShape.size() != 2 ||
+      virtToPhysMap.getNumDims() != 2 ||
+      (virtToPhysMap.getNumResults() != 2 &&
+       virtToPhysMap.getNumResults() != 3)) {
     return CoreRangeAttr::getPhysicalCoreRange(ctx, op.getPhysicalGridShape());
   }
 
-  if (n == 3) {
-    v2p = v2p.getSubMap({1, 2});
+  if (virtToPhysMap.getNumResults() == 3) {
+    virtToPhysMap = virtToPhysMap.getSubMap({1, 2});
   }
 
   d2m::utils::BoundingBox physBox = d2m::utils::getProjectedBoundingBox(
-      d2m::utils::BoundingBox{{0, 0}, {vshape[0] - 1, vshape[1] - 1}}, v2p);
+      d2m::utils::BoundingBox{{0, 0}, {gridShape[0] - 1, gridShape[1] - 1}},
+      virtToPhysMap);
 
   const int64_t y0 = physBox.start[0];
   const int64_t x0 = physBox.start[1];
