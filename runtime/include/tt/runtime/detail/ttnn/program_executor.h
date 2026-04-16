@@ -27,7 +27,7 @@ public:
                   bool constEvalProgram = false);
 
   /**
-   * Executes pre and post operation callbacks if registered
+   * Executes pre/post operation callbacks if registered
    */
   void runOpCallback(
       const std::optional<::tt::runtime::debug::Hooks::OperationCallbackFn>
