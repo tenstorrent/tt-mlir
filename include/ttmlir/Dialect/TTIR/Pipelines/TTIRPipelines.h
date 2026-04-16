@@ -32,7 +32,7 @@ struct StableHLOToTTIRPipelineOptions
       *this, "enable-aggressive-simplification",
       llvm::cl::desc("Enable aggressive simplification of StableHLO operations "
                      "before conversion."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
   //
   Option<bool> enableCPUFallback{
       *this, "enable-cpu-fallback",

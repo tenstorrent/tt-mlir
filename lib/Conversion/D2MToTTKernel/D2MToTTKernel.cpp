@@ -1132,14 +1132,27 @@ public:
         };
 
         // Create the appropriate unary scalar op based on the D2M op type
+        const bool isIntTile = llvm::isa<IntegerType>(
+            mlir::cast<ttcore::TileType>(op.getLhs().getType())
+                .getElementType());
         if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+          if (isIntTile) {
+            rewriter.create<ttkernel::AddUnaryTileInt32Op>(loc, dstIdx,
+                                                           scalarParam);
+          } else {
+            rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+          }
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
-          rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+          if (isIntTile) {
+            rewriter.create<ttkernel::SubUnaryTileInt32Op>(loc, dstIdx,
+                                                           scalarParam);
+          } else {
+            rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+          }
         } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
           rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
           auto scalarParam = scalarToI32Param(adaptor.getRhs());
@@ -1843,10 +1856,8 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
 class D2MDMAReadRewriter : public OpConversionPattern<d2m::DMAReadOp> {
 public:
   D2MDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                     const d2m::AssociatedDMAWaits *associatedDMAWaits,
                      const d2m::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<d2m::DMAReadOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits),
         cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
@@ -1873,34 +1884,20 @@ public:
     rewriter.create<ttkernel::NocAsyncReadOp>(op.getLoc(), srcNocAddr,
                                               dstL1Addr, size);
 
-    // Add attribute marking whether the DMA wait is for a read or write
-    // operation This will be used when loweing the wait ops because the current
-    // DMA op will be replaced with a NullTx.
-    auto dmaWaitOps = associatedDMAWaits->get(op);
-    for (auto dmaWaitOp : dmaWaitOps) {
-      rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        dmaWaitOp->setDiscardableAttr("ttkernel.lowering.associated_noc_read",
-                                      rewriter.getUnitAttr());
-      });
-    }
-
-    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op);
+    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
 
     return success();
   }
 
 private:
-  const d2m::AssociatedDMAWaits *associatedDMAWaits;
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                      const d2m::AssociatedDMAWaits *associatedDMAWaits,
                       const d2m::CBProducerConsumer *cbProducerConsumer)
       : OpConversionPattern<d2m::DMAWriteOp>(typeConverter, context),
-        associatedDMAWaits(associatedDMAWaits),
         cbProducerConsumer(cbProducerConsumer) {}
 
   LogicalResult
@@ -2043,26 +2040,11 @@ public:
                                                  dstNocAddr, size);
     }
 
-    // Add attribute marking whether the DMA wait is for a read or write
-    // operation This will be used when loweing the wait ops because the current
-    // DMA op will be replaced with a NullTx.
-    // Mcast writes do not require a write barrier.
-    auto dmaWaitOps = associatedDMAWaits->get(op);
-    StringRef waitAttr = op.isMcast()
-                             ? "ttkernel.lowering.associated_noc_mcast_write"
-                             : "ttkernel.lowering.associated_noc_write";
-    for (auto dmaWaitOp : dmaWaitOps) {
-      rewriter.modifyOpInPlace(dmaWaitOp, [&]() {
-        dmaWaitOp->setDiscardableAttr(waitAttr, rewriter.getUnitAttr());
-      });
-    }
-
-    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op);
+    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
     return success();
   }
 
 private:
-  const d2m::AssociatedDMAWaits *associatedDMAWaits;
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 } // namespace
@@ -2138,20 +2120,18 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAWaitOp op, d2m::DMAWaitOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto isRead =
-        op->getDiscardableAttr("ttkernel.lowering.associated_noc_read");
-    auto isWrite =
-        op->getDiscardableAttr("ttkernel.lowering.associated_noc_write");
-    auto isMcastWrite =
-        op->getDiscardableAttr("ttkernel.lowering.associated_noc_mcast_write");
-    assert(isRead || isWrite || isMcastWrite);
+    auto txKind =
+        mlir::cast<d2m::MemTxType>(op.getMemTx().getType()).getDmaType();
 
-    if (isRead) {
+    switch (txKind) {
+    case d2m::DMAType::Read:
       rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
-    }
-
-    if (isWrite) {
+      break;
+    case d2m::DMAType::Write:
       rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+      break;
+    case d2m::DMAType::McastWrite:
+      break;
     }
 
     rewriter.eraseOp(op);
@@ -2176,16 +2156,32 @@ public:
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr arg;
     size_t argIndex;
-    Type arg_result_type;
+    Type argResultType;
 
-    if (mlir::isa<MemRefType>(op.getResult().getType())) {
+    if (auto memrefType =
+            mlir::dyn_cast<MemRefType>(op.getResult().getType())) {
+      Type convertedType = getTypeConverter()->convertType(memrefType);
+      if (mlir::isa<ttkernel::CBType>(convertedType)) {
+        // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
+        // Handle identically to D2MGetCBRewriter: CBPort compile-time arg.
+        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+        argResultType = convertedType;
+
+        rewriter.modifyOpInPlace(entry, [&]() {
+          argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
+        });
+        rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+            op, argResultType, static_cast<int32_t>(argIndex));
+        return success();
+      }
+
       arg = rewriter.getAttr<ArgAttr>(ArgType::BufferAddress,
                                       op.getOperandIndex());
-      arg_result_type = rewriter.getI32Type();
+      argResultType = rewriter.getI32Type();
     } else if (mlir::isa<d2m::GlobalSemaphoreType>(op.getResult().getType())) {
       arg = rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
                                       op.getOperandIndex());
-      arg_result_type = ttkernel::L1AddrType::get(rewriter.getContext());
+      argResultType = ttkernel::L1AddrType::get(rewriter.getContext());
     } else {
       llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
     }
@@ -2195,14 +2191,14 @@ public:
         argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
-          op, arg_result_type, index(rewriter, op->getLoc(), argIndex));
+          op, argResultType, index(rewriter, op->getLoc(), argIndex));
 
     } else {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
       });
       rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
-          op, arg_result_type, argIndex);
+          op, argResultType, argIndex);
     }
     return success();
   }
@@ -2592,7 +2588,6 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::AssociatedDMAWaits &associatedDMAWaits,
     const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
@@ -2693,8 +2688,8 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
                                                       ttnnMode);
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
-  patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
-  patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+  patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
+  patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 
   // This is needed to lower affine apply ops that may be generated when
   // `d2m.core_index` is used with a `phys_to_virt_map`.

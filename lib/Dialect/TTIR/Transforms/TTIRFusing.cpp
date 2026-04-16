@@ -370,6 +370,20 @@ static bool isFullOpWithValue(Value value, float expectedValue,
     return false;
   }
 
+  // Look through ReshapeOps from scalar (rank 0) inputs. Aggressive
+  // simplification keeps scalar constants and the TTIR conversion wraps them
+  // in reshapes (e.g. full(scalar) -> reshape -> implicit broadcast).
+  while (isa<ReshapeOp>(op)) {
+    auto input = op->getOperand(0);
+    if (mlir::cast<RankedTensorType>(input.getType()).getRank() != 0) {
+      break;
+    }
+    op = input.getDefiningOp();
+    if (!op) {
+      return false;
+    }
+  }
+
   // Check if it's a ZerosOp and expected value is 0
   if (expectedValue == 0.0f && isa<ZerosOp>(op)) {
     return true;
@@ -1874,7 +1888,16 @@ public:
     auto reduceDims = *sumOp.getDimArg();
     auto inputShape = sumOp.getInput().getType().getShape();
 
-    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    // Look through ReshapeOps from scalar (rank 0) inputs. Aggressive
+    // simplification keeps scalar constants wrapped in reshapes.
+    mlir::Value scaleValue = multiplyOp.getRhs();
+    while (auto reshapeOp = scaleValue.getDefiningOp<ReshapeOp>()) {
+      if (reshapeOp.getInput().getType().getRank() != 0) {
+        break;
+      }
+      scaleValue = reshapeOp.getInput();
+    }
+    FullOp fullOp = scaleValue.getDefiningOp<FullOp>();
     if (!isValidScale(fullOp, inputShape, reduceDims)) {
       return mlir::failure();
     }
@@ -2353,20 +2376,16 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    ttir::FullOp one = getFullOpThroughTMChain(gaussianCDFAdd.getLhs());
+    Operation *one = getScalarThroughTMChain(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = getFullOpThroughTMChain(gaussianCDFAdd.getRhs());
+      one = getScalarThroughTMChain(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
       return nullptr;
     }
 
-    if (!isa<FloatAttr>(one.getFillValue())) {
-      return nullptr;
-    }
-    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
+    if (!isScalarValue(one->getResult(0), ONE)) {
       return nullptr;
     }
 
@@ -2478,7 +2497,8 @@ private:
   // it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
-      ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
+      ttir::FullOp power = dyn_cast_or_null<ttir::FullOp>(
+          getScalarThroughTMChain(xCubed.getRhs()));
       if (!power) {
         return nullptr;
       }
@@ -2586,31 +2606,45 @@ private:
            value / trueValue - 1.0 >= -1.5e-3;
   }
 
-  // This function will return true if the Value 'val' is a FullOp (or the
-  // result of tensor-manipulation ops (Reshape, Permute, Broadcast) beginning
-  // with a FullOp), with the fill_value near 'scalar'. It allows for an error
-  // of 1.5%
+  // This function will return true if the Value 'val' is a scalar constant
+  // creation op (or the result of tensor-manipulation ops (Reshape, Permute,
+  // Broadcast) beginning with a scalar constant creation op), with the
+  // fill_value near 'scalar'. It allows for an error of 1.5%
   bool isScalarValue(Value val, double scalar) const {
-    if (ttir::FullOp fullOp = getFullOpThroughTMChain(val)) {
+    Operation *scalarOp = getScalarThroughTMChain(val);
+    if (!scalarOp) {
+      return false;
+    }
+
+    if (auto fullOp = dyn_cast<ttir::FullOp>(scalarOp)) {
       if (isa<FloatAttr>(fullOp.getFillValue())) {
         APFloat value = dyn_cast<FloatAttr>(fullOp.getFillValue()).getValue();
-        if (checkFloatIsNear(value.convertToFloat(), scalar)) {
-          return true;
-        }
+        return checkFloatIsNear(value.convertToFloat(), scalar);
       }
+      return false;
+    }
+
+    if (auto onesOp = dyn_cast<ttir::OnesOp>(scalarOp)) {
+      return checkFloatIsNear(1.0, scalar);
+    }
+    if (auto zerosOp = dyn_cast<ttir::ZerosOp>(scalarOp)) {
+      return checkFloatIsNear(0.0, scalar);
     }
 
     return false;
   }
 
-  FullOp getFullOpThroughTMChain(Value value) const {
+  Operation *getScalarThroughTMChain(Value value) const {
     Operation *currentOp = value.getDefiningOp();
 
     while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
         currentOp)) {
       currentOp = currentOp->getOperand(0).getDefiningOp();
     }
-    return mlir::dyn_cast_if_present<ttir::FullOp>(currentOp);
+    if (isa_and_nonnull<ttir::FullOp, ttir::OnesOp, ttir::ZerosOp>(currentOp)) {
+      return currentOp;
+    }
+    return nullptr;
   }
 };
 } // namespace
@@ -2645,6 +2679,13 @@ public:
             if (auto broadcast = mlir::dyn_cast<BroadcastOp>(op)) {
               auto outType = mlir::cast<RankedTensorType>(broadcast.getType());
               return outType.getShape().back() == normalizedDimSize;
+            }
+            // Allow reshapes from scalar (rank 0) to higher rank. Aggressive
+            // simplification keeps constants as scalars wrapped in reshapes.
+            if (auto reshape = mlir::dyn_cast<ReshapeOp>(op)) {
+              auto inputType =
+                  mlir::cast<RankedTensorType>(reshape.getInput().getType());
+              return inputType.getRank() == 0;
             }
             return false;
           });
@@ -2761,8 +2802,16 @@ public:
     // the indication that the matching is not correct.
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
     if (inputType.getElementType() != gammaType.getElementType()) {
-      return mlir::failure();
+      if (mlir::Operation *xOp = x.getDefiningOp()) {
+        x = utils::revertTypecastFolding(rewriter, xOp, x);
+        inputType = mlir::cast<RankedTensorType>(x.getType());
+      }
+      if (inputType.getElementType() != gammaType.getElementType()) {
+        return mlir::failure();
+      }
     }
+
+    rewriter.setInsertionPoint(outerMul);
 
     // Create RMSNormOp with output shape and dtype matching input.
     auto rmsNormOutputType =

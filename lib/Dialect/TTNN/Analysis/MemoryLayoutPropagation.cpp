@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
@@ -149,17 +150,15 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     candidate.reshardLayouts = reshardLayouts;
     candidate.outputLayouts = result.actualOutputLayouts;
 
-    TTMLIR_TRACE(
-        ttmlir::LogComponent::GreedyOptimizer,
-        "    VALID candidate for {0}: hint[{1}] outBuf={2} "
-        "outMem={3} score(L1={4},sharded={5},dramIn={6},"
-        "reshard={7},cores={8},l1use={9}) outputLayout={10}",
-        op->getName(), hintIdx,
-        candidate.configHint.outputLayout.getBufferType(),
-        candidate.configHint.outputLayout.getMemLayout(), candidate.score.isL1,
-        candidate.score.isSharded, candidate.score.inputDramBytes,
-        candidate.score.requiresReshard, candidate.score.coreCount,
-        candidate.score.outputL1Usage, result.getFirstActualOutputLayout());
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                 "    VALID candidate for {0}: hint[{1}]={2} "
+                 "score(L1={3},sharded={4},dramIn={5},"
+                 "reshard={6},cores={7},l1use={8})",
+                 op->getName(), hintIdx, candidate.configHint.toCompactString(),
+                 candidate.score.isL1, candidate.score.isSharded,
+                 candidate.score.inputDramBytes,
+                 candidate.score.requiresReshard, candidate.score.coreCount,
+                 candidate.score.outputL1Usage);
 
     observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
                            &candidate, /*failureReason=*/"");
@@ -168,22 +167,12 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
   }
 
   // Log validation failures.
-  llvm::StringRef hintBuf = "null";
-  llvm::StringRef hintMem = "null";
-  std::string hintBufStr, hintMemStr;
-  if (hint.outputLayout) {
-    llvm::raw_string_ostream bufOS(hintBufStr);
-    bufOS << hint.outputLayout.getBufferType();
-    hintBuf = hintBufStr;
-    llvm::raw_string_ostream memOS(hintMemStr);
-    memOS << hint.outputLayout.getMemLayout();
-    hintMem = hintMemStr;
-  }
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "    FAILED validation for {0}: hint[{1}] "
-               "outBuf={2} outMem={3} inputs=[{4}] reshard={5}",
-               op->getName(), hintIdx, hintBuf, hintMem,
-               formatInputLayouts(inputLayouts), anyReshard);
+               "    FAILED validation for {0}: hint[{1}]={2} error={3} "
+               "inputs=[{4}] reshard={5}",
+               op->getName(), hintIdx, hint.toCompactString(),
+               result.errorMessage, formatInputLayouts(inputLayouts),
+               anyReshard);
 
   observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
                          /*candidate=*/nullptr, result.errorMessage);
@@ -422,18 +411,8 @@ MemoryLayoutPropagation::processOp(Operation *op) {
 
   // Log output hints detail.
   for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
-    const auto &h = outputHints.hints[hi];
-    if (h.outputLayout) {
-      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "    hint[{0}]: buf={1} mem={2} attemptL1Shard={3}", hi,
-                   h.outputLayout.getBufferType(),
-                   h.outputLayout.getMemLayout(),
-                   outputHints.attemptL1Sharding);
-    } else {
-      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "    hint[{0}]: NULL (backend decides) attemptL1Shard={1}",
-                   hi, outputHints.attemptL1Sharding);
-    }
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "    hint[{0}]: {1}",
+                 hi, outputHints.hints[hi].toCompactString());
   }
 
   // Step 3: Cross-product evaluation.
@@ -465,6 +444,22 @@ MemoryLayoutPropagation::processOp(Operation *op) {
   llvm::SmallVector<size_t> indices(numOperandSets, 0);
   bool done = false;
 
+  const auto &ruleBook = getRuleBook(op);
+
+  // Advance the index vector (odometer-style).
+  auto advanceIndices = [&]() {
+    for (int i = static_cast<int>(numOperandSets) - 1; i >= 0; --i) {
+      ++indices[i];
+      if (indices[i] < inputCandidateSets[i].size()) {
+        return;
+      }
+      indices[i] = 0;
+      if (i == 0) {
+        done = true;
+      }
+    }
+  };
+
   while (!done) {
     // Build the current input combination.
     std::vector<TTNNLayoutAttr> inputLayouts;
@@ -485,9 +480,19 @@ MemoryLayoutPropagation::processOp(Operation *op) {
       }
     }
 
+    // Op-specific pruning: skip invalid input combinations early.
+    if (!ruleBook.isValidInputCombination(inputLayouts)) {
+      advanceIndices();
+      continue;
+    }
+
     // Try primary output hints with this input combination.
     bool gotSharded = false;
     for (size_t hi = 0; hi < outputHints.hints.size(); ++hi) {
+      if (!ruleBook.isValidOutputHintForInputs(outputHints.hints[hi],
+                                               inputLayouts)) {
+        continue;
+      }
       if (tryHint(outputHints.hints[hi], hi, inputLayouts, anyReshard,
                   producerCandidateIndices, reshardLayouts)) {
         gotSharded = true;
@@ -501,23 +506,17 @@ MemoryLayoutPropagation::processOp(Operation *op) {
                    "hints",
                    op->getName(), outputHints.fallbackHints.size());
       for (size_t fi = 0; fi < outputHints.fallbackHints.size(); ++fi) {
+        if (!ruleBook.isValidOutputHintForInputs(outputHints.fallbackHints[fi],
+                                                 inputLayouts)) {
+          continue;
+        }
         tryHint(outputHints.fallbackHints[fi], outputHints.hints.size() + fi,
                 inputLayouts, anyReshard, producerCandidateIndices,
                 reshardLayouts);
       }
     }
 
-    // Advance the index vector (odometer-style).
-    for (int i = static_cast<int>(numOperandSets) - 1; i >= 0; --i) {
-      ++indices[i];
-      if (indices[i] < inputCandidateSets[i].size()) {
-        break;
-      }
-      indices[i] = 0;
-      if (i == 0) {
-        done = true;
-      }
-    }
+    advanceIndices();
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
@@ -578,12 +577,13 @@ MemoryLayoutPropagation::processOp(Operation *op) {
 }
 
 bool MemoryLayoutPropagation::validateReshard(
-    Operation *consumerOp, Operation *producerOp,
-    TTNNLayoutAttr producerOutputLayout, TTNNLayoutAttr reshardLayout,
-    size_t producerResultIdx) {
-  auto inputShape = mlir::cast<RankedTensorType>(
-                        producerOp->getResult(producerResultIdx).getType())
-                        .getShape();
+    Operation *consumerOp, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr producerOutputLayout, TTNNLayoutAttr reshardLayout) {
+  if (producerOutputLayout.isTiled() != reshardLayout.isTiled()) {
+    // Reject reshards that change tiling.
+    return false;
+  }
+
   MemoryConfigAttr memConfig = MemoryConfigAttr::get(reshardLayout, deviceGrid);
 
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
@@ -593,9 +593,8 @@ bool MemoryLayoutPropagation::validateReshard(
   bool valid = result.isSuccess();
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "  validateReshard: {0} -> {1}: {2}",
-               producerOutputLayout.getBufferType(),
-               reshardLayout.getBufferType(), valid ? "OK" : "FAILED");
+               "  validateReshard: {0} -> {1}: {2}", producerOutputLayout,
+               reshardLayout, valid ? "OK" : "FAILED");
   return valid;
 }
 
@@ -638,7 +637,10 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
     if (!ml || !isShardedMemoryLayout(ml.getValue())) {
       continue;
     }
-    if (!validateReshard(op, producerOp, prodOut, l1Interleaved, resultIdx)) {
+    auto inputShape =
+        mlir::cast<RankedTensorType>(producerOp->getResult(resultIdx).getType())
+            .getShape();
+    if (!validateReshard(op, inputShape, prodOut, l1Interleaved)) {
       continue;
     }
     InputCandidate ic;
@@ -707,11 +709,42 @@ void MemoryLayoutPropagation::addReshardCandidates(
     }
   }
 
+  // Enable interleaved-to-sharded reshards when no existing candidate offers
+  // a sharded layout. This targets ops whose producers are stuck at
+  // DRAM/interleaved (e.g., all_gather -> silu) where resharding the input
+  // to L1/sharded enables dramatically faster execution.
+  bool hasAnyShardedCandidate = false;
+  for (const auto &ic : candidates) {
+    auto ml = ic.layout.getMemLayout();
+    if (ml && isShardedMemoryLayout(ml.getValue())) {
+      hasAnyShardedCandidate = true;
+      break;
+    }
+  }
+  bool exploreInterleavedToSharded = !hasAnyShardedCandidate;
+
+  // Compute max grid volume from output tensor tile count. For tiled outputs,
+  // reshard grids larger than the output tile count are wasteful — the op can't
+  // produce a sharded output on more cores than it has tiles.
+  int64_t maxGridVolume = std::numeric_limits<int64_t>::max();
+  auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+  auto outputLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
+  if (outputLayout &&
+      mlir::isa<ttcore::TileType>(outputLayout.getElementType())) {
+    auto shape = outputType.getShape();
+    int64_t cols = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
+    int64_t rows =
+        (outputType.getNumElements() / shape.back() + TILE_HEIGHT - 1) /
+        TILE_HEIGHT;
+    maxGridVolume = rows * cols;
+  }
+
   // Collect unique reshard layouts across all base layouts.
   llvm::SmallVector<TTNNLayoutAttr> uniqueReshardLayouts;
   for (const auto &baseLayout : layoutsToExplore) {
-    std::vector<TTNNLayoutAttr> reshardCandidates =
-        generateReshardCandidates(tensorType, baseLayout);
+    std::vector<TTNNLayoutAttr> reshardCandidates = generateReshardCandidates(
+        tensorType, baseLayout, exploreInterleavedToSharded, maxGridVolume);
     for (const auto &reshardLayout : reshardCandidates) {
       // Dedup: skip if already in uniqueReshardLayouts or existing candidates.
       bool alreadyPresent = false;
@@ -758,8 +791,8 @@ void MemoryLayoutPropagation::addReshardCandidates(
       if (!producerOutput) {
         continue;
       }
-      if (!validateReshard(op, producerOp, producerOutput, reshardLayout,
-                           resultIdx)) {
+      if (!validateReshard(op, tensorType.getShape(), producerOutput,
+                           reshardLayout)) {
         continue;
       }
       InputCandidate ic;
@@ -865,16 +898,21 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
 }
 
 std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
-    RankedTensorType tensorType, TTNNLayoutAttr currentLayout) {
-  // Only generate sharded-to-sharded reshard candidates. Resharding from
-  // sharded to interleaved (DRAM or L1) almost always hurts performance.
+    RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
+    bool exploreInterleavedToSharded, int64_t maxGridVolume) {
+  // Generate reshard candidates targeting sharded layouts.
+  // getShardedLayoutsForTensorTypeAndScalarType only returns sharded layouts,
+  // so the output is always sharded regardless of the source layout.
   if (!tensorTypePossibleLayouts) {
     return {};
   }
 
-  // Only explore reshards from sharded source layouts.
-  if (!currentLayout.getMemLayout() ||
-      !isShardedMemoryLayout(currentLayout.getMemLayout().getValue())) {
+  // For sharded source layouts: generate sharded-to-sharded reshards (always).
+  // For interleaved source layouts: generate interleaved-to-sharded reshards
+  // only when exploreInterleavedToSharded is true (caller decides).
+  if (!exploreInterleavedToSharded &&
+      (!currentLayout.getMemLayout() ||
+       !isShardedMemoryLayout(currentLayout.getMemLayout().getValue()))) {
     return {};
   }
 
@@ -904,6 +942,10 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
         !isShardedMemoryLayout(layout.getMemLayout().getValue())) {
       continue;
     }
+    if (static_cast<int64_t>(layout.getGrid().getGridVolume()) >
+        maxGridVolume) {
+      continue;
+    }
     filtered.push_back(layout);
   }
 
@@ -930,19 +972,10 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
     }
   }
 
-  // Sort by grid volume (product of grid dims) descending -- more cores first.
+  // Sort by grid volume descending -- more cores first.
   std::sort(deduped.begin(), deduped.end(),
             [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
-              auto aShape = a.getGrid().getShape();
-              auto bShape = b.getGrid().getShape();
-              int64_t aVol = 1, bVol = 1;
-              for (int64_t d : aShape) {
-                aVol *= d;
-              }
-              for (int64_t d : bShape) {
-                bVol *= d;
-              }
-              return aVol > bVol;
+              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
             });
 
   if (deduped.size() > maxReshardCandidates) {
@@ -950,9 +983,11 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "generateReshardCandidates: {0} sharded-to-sharded candidates "
-               "for tensor type with shape [{1}]",
-               deduped.size(), tensorType.getShape().size());
+               "  generated {0} reshard candidates for {1}", deduped.size(),
+               currentLayout);
+  for ([[maybe_unused]] auto &layout : deduped) {
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "\t\t{}", layout);
+  }
 
   return deduped;
 }
@@ -1147,10 +1182,23 @@ void MemoryLayoutPropagation::insertReturnDramSpills() {
         continue;
       }
 
+      Operation *definingOp = operand.getDefiningOp();
+      if (!definingOp) {
+        continue;
+      }
+
       TTNNLayoutAttr dramLayout =
           layout.withBufferType(BufferType::DRAM)
               .withMemoryLayout(TensorMemoryLayout::Interleaved);
       insertReshardOp(returnOp, i, dramLayout);
+
+      // insertReshardOp places the new op right before returnOp. Move it to
+      // right after the defining op so it doesn't end up after non-hoistable
+      // ops (e.g. mesh_shard) which would break trace hoisting.
+      Operation *spillOp = returnOp.getOperand(i).getDefiningOp();
+      if (spillOp && spillOp != definingOp) {
+        spillOp->moveAfter(definingOp);
+      }
 
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "Inserted to_memory_config to DRAM for func.return "

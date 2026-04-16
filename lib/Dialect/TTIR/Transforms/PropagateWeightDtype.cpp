@@ -71,6 +71,8 @@ public:
         resolveAndSetWeightDtype(matmulOp.getB(), op);
       } else if (auto linearOp = mlir::dyn_cast<LinearOp>(op)) {
         resolveAndSetWeightDtype(linearOp.getB(), op);
+      } else if (auto sparseMatmulOp = mlir::dyn_cast<SparseMatmulOp>(op)) {
+        resolveAndSetWeightDtype(sparseMatmulOp.getB(), op);
       }
     });
   }

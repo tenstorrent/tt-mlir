@@ -374,7 +374,8 @@ public:
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (
         std::is_same_v<SourceOp, ttkernel::ExperimentalWriteRowMaskTileOp> ||
-        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp>) {
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::ExperimentalFillArangeTileOp>) {
       auto cbType = mlir::cast<ttkernel::CBType>(op.getCb().getType());
       auto tileType = mlir::cast<ttcore::TileType>(cbType.getElementType());
       SmallVector<Attribute, 1> template_args;
@@ -998,6 +999,9 @@ public:
 // We bounce the scalar through a volatile variable to prevent this:
 //   volatile int32_t __scalar = param;
 //   mul_unary_tile(idx, __scalar);
+//
+// The TTKernelToCpp pass then checks the VerbatimOps for inserting kernel API
+// headers, on top of the CallOpaqueOps.
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelScalarUnaryTileOpRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -1279,6 +1283,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::DivUnaryTileOp>,
@@ -1288,16 +1293,23 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfcTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Exp2TileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Exp2TileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Expm1TileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Expm1TileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileIntOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::FracTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::HardsigmoidTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::HardsigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Log1pTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::Log1pTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LogicalNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::EqzTileInitOp>,
@@ -1328,6 +1340,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubIntTileOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxInt32TileInitOp>,
@@ -1352,20 +1365,29 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SignbitTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SignbitTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SigmoidTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SiluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SiluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SinTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SoftsignTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SoftsignTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SquareTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SquareTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanhTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanhTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TruncTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalWriteRowMaskTileOp>,

@@ -1109,19 +1109,10 @@ struct ConvertTTIRCPUToEmitPyPass
     target.addDynamicallyLegalOp<ModuleOp>(
         [](ModuleOp op) { return op->getAttrs().empty(); });
 
-    OpBuilder builder(module);
     if (module.getBodyRegion().empty()) {
       signalPassFailure();
       return;
     }
-
-    builder.setInsertionPointToStart(module.getBody(0));
-    builder.create<emitpy::ImportOp>(module->getLoc(), "torch", nullptr,
-                                     nullptr, nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttnn", nullptr, nullptr,
-                                     nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttir_cpu", nullptr,
-                                     nullptr, nullptr, nullptr);
 
     EmitPyTypeConverter typeConverter(&getContext());
     RewritePatternSet patterns(&getContext());
@@ -1147,13 +1138,13 @@ struct ConvertTTIRCPUToEmitPyPass
     // Elementwise unary.
     patterns.add<
         TTIRUnaryToEmitPy<ttir::AbsOp>, TTIRUnaryToEmitPy<ttir::AcosOp>,
-        TTIRUnaryToEmitPy<ttir::AsinOp>, TTIRUnaryToEmitPy<ttir::AtanOp>,
-        TTIRUnaryToEmitPy<ttir::BitwiseNotOp>, TTIRUnaryToEmitPy<ttir::CbrtOp>,
-        TTIRUnaryToEmitPy<ttir::CeilOp>, TTIRUnaryToEmitPy<ttir::CosOp>,
-        TTIRUnaryToEmitPy<ttir::ExpOp>, TTIRUnaryToEmitPy<ttir::Expm1Op>,
-        TTIRUnaryToEmitPy<ttir::ErfOp>, TTIRUnaryToEmitPy<ttir::ErfcOp>,
-        TTIRUnaryToEmitPy<ttir::FloorOp>, TTIRUnaryToEmitPy<ttir::GeluOp>,
-        TTIRUnaryToEmitPy<ttir::HardsigmoidOp>,
+        TTIRUnaryToEmitPy<ttir::AsinOp>, TTIRUnaryToEmitPy<ttir::AsinhOp>,
+        TTIRUnaryToEmitPy<ttir::AtanOp>, TTIRUnaryToEmitPy<ttir::BitwiseNotOp>,
+        TTIRUnaryToEmitPy<ttir::CbrtOp>, TTIRUnaryToEmitPy<ttir::CeilOp>,
+        TTIRUnaryToEmitPy<ttir::CosOp>, TTIRUnaryToEmitPy<ttir::ExpOp>,
+        TTIRUnaryToEmitPy<ttir::Expm1Op>, TTIRUnaryToEmitPy<ttir::ErfOp>,
+        TTIRUnaryToEmitPy<ttir::ErfcOp>, TTIRUnaryToEmitPy<ttir::FloorOp>,
+        TTIRUnaryToEmitPy<ttir::GeluOp>, TTIRUnaryToEmitPy<ttir::HardsigmoidOp>,
         TTIRUnaryToEmitPy<ttir::IsFiniteOp>, TTIRUnaryToEmitPy<ttir::LogOp>,
         TTIRUnaryToEmitPy<ttir::Log1pOp>, TTIRUnaryToEmitPy<ttir::LogicalNotOp>,
         TTIRUnaryToEmitPy<ttir::MishOp>, TTIRUnaryToEmitPy<ttir::NegOp>,

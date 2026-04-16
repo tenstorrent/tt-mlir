@@ -46,7 +46,8 @@ const ::tt::target::ttnn::Program *getProgram(const Binary &executableHandle,
 
 ::tt::target::DataType fromTTNNDataType(::ttnn::DataType dataType);
 
-MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity);
+::tt::tt_metal::MathFidelity
+toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity);
 
 ::ttnn::Layout toTTNNLayout(::tt::target::TensorLayout layout);
 

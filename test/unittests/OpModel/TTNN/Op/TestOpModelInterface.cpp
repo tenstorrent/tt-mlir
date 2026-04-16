@@ -227,6 +227,10 @@ const auto createAsin = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<AsinOp>(loc, type, ops).getOperation();
 };
+const auto createAsinh = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<AsinhOp>(loc, type, ops).getOperation();
+};
 const auto createCos = [](OpBuilder &b, Location loc, Type type,
                           ValueRange ops) {
   return b.create<CosOp>(loc, type, ops).getOperation();
@@ -325,6 +329,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Silu", createSilu, expected},
     {"Sin", createSin, expected},
     {"Asin", createAsin, expected},
+    {"Asinh", createAsinh, expected},
     {"Cos", createCos, expected},
     {"Acos", createAcos, expected},
     {"Exp", createExp, expected},
@@ -2582,6 +2587,46 @@ TEST_F(OpModelBase, typecastOp) {
   }
 }
 
+TEST_F(OpModelBase, bitcastConvertOp) {
+  // create BitcastConvertOp
+  llvm::SmallVector<int64_t> tensorShape = {64, 1024};
+
+  RankedTensorType rankedTensorTypeBF16 =
+      RankedTensorType::get(tensorShape, builder.getBF16Type());
+
+  auto input = builder.create<OnesOp>(
+      builder.getUnknownLoc(), rankedTensorTypeBF16, nullptr,
+      ShapeAttr::get(&context, tensorShape),
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16), nullptr,
+      nullptr);
+  RankedTensorType rankedTensorTypeU16 =
+      RankedTensorType::get(tensorShape, builder.getIntegerType(16, false));
+
+  auto bitcastConvert = builder.create<BitcastConvertOp>(
+      builder.getUnknownLoc(), rankedTensorTypeU16, input,
+      ttcore::DataTypeAttr::get(&context, ttcore::DataType::UInt16));
+
+  auto constraintsExp = getOpConstraints(bitcastConvert.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(bitcastConvert.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, Conv2dInterface) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};
@@ -2936,10 +2981,10 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 }
 
 TEST_F(OpModelBase, Conv3dInterface) {
-  llvm::SmallVector<int64_t> inputShape = {1, 5, 10, 10, 3}; // [N, D, H, W, C]
+  llvm::SmallVector<int64_t> inputShape = {1, 5, 10, 10, 32}; // [N, D, H, W, C]
   // Weight must be 2D: [kD*kH*kW*C_in/groups, C_out]
-  // patch_size = 3*3*3*3 = 81, out_channels = 64 (multiple of 32)
-  llvm::SmallVector<int64_t> weightShape = {81, 64};
+  // patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of 32)
+  llvm::SmallVector<int64_t> weightShape = {864, 64};
   // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8, W_out=(10-3)/1+1=8
   llvm::SmallVector<int64_t> outputShape = {
       1, 3, 8, 8, 64}; // [N, D_out, H_out, W_out, C_out]
@@ -2968,7 +3013,7 @@ TEST_F(OpModelBase, Conv3dInterface) {
       weight,                  // Weight tensor
       nullptr,                 // Bias tensor (optional)
       deviceOp,                // Device operation
-      3,                       // Input channels
+      32,                      // Input channels
       64,                      // Output channels (must be multiple of 32)
       1,                       // Batch size
       5,                       // Input depth
@@ -4340,6 +4385,125 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
   EXPECT_GT(outputSize, 0);
 
   auto runtimeExp = getOpRuntime(rmsNormOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormPreAllGatherOp) {
+  // Basic RMSNormPreAllGather with input only
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 32};
+
+  auto input = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  RMSNormPreAllGatherOp op = builder.create<RMSNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/nullptr,
+      /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr,
+      /*program_config=*/nullptr,
+      /*dtype=*/nullptr,
+      /*use_2d_core_grid*/ nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormPreAllGatherOpWithResidual) {
+  // RMSNormPreAllGather with residual_input
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 32};
+
+  auto input = createEmptyTensor(inputShape);
+  auto residualInput = createEmptyTensor(inputShape);
+  auto outputType = createRankedTensorType(outputShape);
+
+  RMSNormPreAllGatherOp op = builder.create<RMSNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/residualInput,
+      /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr,
+      /*program_config=*/nullptr,
+      /*dtype=*/nullptr,
+      /*use_2d_core_grid*/ nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, rmsNormPreAllGatherOpWithL1Memory) {
+  // RMSNormPreAllGather with L1 Memory Buffers
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 32, 128};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 32, 32};
+
+  const TTNNLayoutAttr inputLayout_L1 = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout_L1);
+  auto outputType = createRankedTensorType(outputShape, builder.getBF16Type());
+
+  RMSNormPreAllGatherOp op = builder.create<RMSNormPreAllGatherOp>(
+      builder.getUnknownLoc(), outputType, input,
+      /*residual_input=*/nullptr,
+      /*memory_config=*/nullptr,
+      /*compute_config=*/nullptr,
+      /*program_config=*/nullptr,
+      /*dtype=*/nullptr,
+      /*use_2d_core_grid*/ nullptr);
+  op->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(op.getOperation());
+  if (!constraintsExp) {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+              outputLayoutReadBack] = constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(op.getOperation());
   if (runtimeExp) {
     EXPECT_TRUE(runtimeExp.get() > 0);
   } else {

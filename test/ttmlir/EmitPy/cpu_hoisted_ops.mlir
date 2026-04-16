@@ -10,8 +10,12 @@
 // Validation functions
 // ============================================================================
 
-// CHECK-LABEL : # File: "main"
+// Verify CPU-hoisted functions call ttir_cpu.<op> directly and are placed
+// right before their first caller.
 
+// Binary arithmetic
+// CHECK-LABEL: def cpu_hoisted_ttir_add_{{.*}}
+// CHECK: ttir_cpu.add(
 // CHECK-LABEL: def add_validation
 // CHECK: cpu_hoisted_ttir_add_{{.*}}
 // CHECK: ttnn.add(
@@ -23,6 +27,9 @@ func.func @add_validation(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) ->
   return %diff : tensor<32x32xf32>
 }
 
+// Binary division
+// CHECK-LABEL: def cpu_hoisted_ttir_div_{{.*}}
+// CHECK: ttir_cpu.div(
 // CHECK-LABEL: def div_validation
 // CHECK: cpu_hoisted_ttir_div_{{.*}}
 // CHECK: ttnn.divide(
@@ -34,6 +41,9 @@ func.func @div_validation(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) ->
   return %diff : tensor<32x32xf32>
 }
 
+// Binary comparison
+// CHECK-LABEL: def cpu_hoisted_ttir_eq_{{.*}}
+// CHECK: ttir_cpu.eq(
 // CHECK-LABEL: def eq_validation
 // CHECK: cpu_hoisted_ttir_eq_{{.*}}
 // CHECK: ttnn.eq(
@@ -44,6 +54,9 @@ func.func @eq_validation(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>) -> 
   return %diff : tensor<32x32xbf16>
 }
 
+// Binary logical
+// CHECK-LABEL: def cpu_hoisted_ttir_logical_{{.*}}
+// CHECK: ttir_cpu.logical_and(
 // CHECK-LABEL: def logical_and_validation
 // CHECK: cpu_hoisted_ttir_logical_{{.*}}
 // CHECK: ttnn.logical_and(
@@ -54,6 +67,9 @@ func.func @logical_and_validation(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32x
   return %diff : tensor<32x32xf32>
 }
 
+// Binary min/max
+// CHECK-LABEL: def cpu_hoisted_ttir_maximum_{{.*}}
+// CHECK: ttir_cpu.maximum(
 // CHECK-LABEL: def maximum_validation
 // CHECK: cpu_hoisted_ttir_maximum_{{.*}}
 // CHECK: ttnn.maximum(
@@ -65,6 +81,9 @@ func.func @maximum_validation(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>
   return %diff : tensor<32x32xf32>
 }
 
+// Matrix multiplication
+// CHECK-LABEL: def cpu_hoisted_ttir_matmul_{{.*}}
+// CHECK: ttir_cpu.matmul(
 // CHECK-LABEL: def matmul_validation
 // CHECK: cpu_hoisted_ttir_matmul_{{.*}}
 // CHECK: ttnn.matmul(
@@ -76,6 +95,9 @@ func.func @matmul_validation(%arg0: tensor<32x64xf32>, %arg1: tensor<64x32xf32>)
   return %diff : tensor<32x32xf32>
 }
 
+// Unary activation
+// CHECK-LABEL: def cpu_hoisted_ttir_relu_{{.*}}
+// CHECK: ttir_cpu.relu(
 // CHECK-LABEL: def relu_validation
 // CHECK: cpu_hoisted_ttir_relu_{{.*}}
 // CHECK: ttnn.relu(
@@ -87,6 +109,9 @@ func.func @relu_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Unary trigonometric
+// CHECK-LABEL: def cpu_hoisted_ttir_sin_{{.*}}
+// CHECK: ttir_cpu.sin(
 // CHECK-LABEL: def sin_validation
 // CHECK: cpu_hoisted_ttir_sin_{{.*}}
 // CHECK: ttnn.sin(
@@ -98,6 +123,22 @@ func.func @sin_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// CHECK-LABEL: def cpu_hoisted_ttir_asinh_{{.*}}
+// CHECK: ttir_cpu.asinh(
+// CHECK-LABEL: def asinh_validation
+// CHECK: cpu_hoisted_ttir_asinh_{{.*}}
+// CHECK: ttnn.asinh(
+// CHECK: ttnn.subtract(
+func.func @asinh_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %cpu_result = "ttir.asinh"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %device_result = "ttir.asinh"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %diff = "ttir.subtract"(%cpu_result, %device_result) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %diff : tensor<32x32xf32>
+}
+
+// Unary exponential
+// CHECK-LABEL: def cpu_hoisted_ttir_exp_{{.*}}
+// CHECK: ttir_cpu.exp(
 // CHECK-LABEL: def exp_validation
 // CHECK: cpu_hoisted_ttir_exp_{{.*}}
 // CHECK: ttnn.exp(
@@ -109,6 +150,9 @@ func.func @exp_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Unary logarithmic
+// CHECK-LABEL: def cpu_hoisted_ttir_log_{{.*}}
+// CHECK: ttir_cpu.log(
 // CHECK-LABEL: def log_validation
 // CHECK: cpu_hoisted_ttir_log_{{.*}}
 // CHECK: ttnn.log(
@@ -120,6 +164,9 @@ func.func @log_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Unary rounding
+// CHECK-LABEL: def cpu_hoisted_ttir_ceil_{{.*}}
+// CHECK: ttir_cpu.ceil(
 // CHECK-LABEL: def ceil_validation
 // CHECK: cpu_hoisted_ttir_ceil_{{.*}}
 // CHECK: ttnn.ceil(
@@ -131,6 +178,9 @@ func.func @ceil_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Unary sign/abs
+// CHECK-LABEL: def cpu_hoisted_ttir_abs_{{.*}}
+// CHECK: ttir_cpu.abs(
 // CHECK-LABEL: def abs_validation
 // CHECK: cpu_hoisted_ttir_abs_{{.*}}
 // CHECK: ttnn.abs(
@@ -142,6 +192,9 @@ func.func @abs_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Unary reciprocal
+// CHECK-LABEL: def cpu_hoisted_ttir_reciprocal_{{.*}}
+// CHECK: ttir_cpu.reciprocal(
 // CHECK-LABEL: def reciprocal_validation
 // CHECK: cpu_hoisted_ttir_reciprocal_{{.*}}
 // CHECK: ttnn.reciprocal(
@@ -153,6 +206,9 @@ func.func @reciprocal_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> 
   return %diff : tensor<32x32xf32>
 }
 
+// Unary sqrt
+// CHECK-LABEL: def cpu_hoisted_ttir_sqrt_{{.*}}
+// CHECK: ttir_cpu.sqrt(
 // CHECK-LABEL: def sqrt_validation
 // CHECK: cpu_hoisted_ttir_sqrt_{{.*}}
 // CHECK: ttnn.sqrt(
@@ -164,6 +220,9 @@ func.func @sqrt_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Pooling
+// CHECK-LABEL: def cpu_hoisted_ttir_max_{{.*}}
+// CHECK: ttir_cpu.max_pool2d(
 // CHECK-LABEL: def max_pool2d_validation
 // CHECK: cpu_hoisted_ttir_max_{{.*}}
 // CHECK: ttnn.max_pool2d(
@@ -175,6 +234,9 @@ func.func @max_pool2d_validation(%arg0: tensor<1x32x32x32xf32>) -> tensor<1x16x1
   return %diff : tensor<1x16x16x32xf32>
 }
 
+// Reduction
+// CHECK-LABEL: def cpu_hoisted_ttir_sum_{{.*}}
+// CHECK: ttir_cpu.sum(
 // CHECK-LABEL: def sum_validation
 // CHECK: cpu_hoisted_ttir_sum_{{.*}}
 // CHECK: ttnn.sum(
@@ -186,6 +248,9 @@ func.func @sum_validation(%arg0: tensor<32x32xf32>) -> tensor<1x32xf32> {
   return %diff : tensor<1x32xf32>
 }
 
+// Data manipulation - reshape
+// CHECK-LABEL: def cpu_hoisted_ttir_reshape_{{.*}}
+// CHECK: ttir_cpu.reshape(
 // CHECK-LABEL: def reshape_validation
 // CHECK: cpu_hoisted_ttir_reshape_{{.*}}
 // CHECK: ttnn.reshape(
@@ -197,6 +262,9 @@ func.func @reshape_validation(%arg0: tensor<32x32xf32>) -> tensor<1024xf32> {
   return %diff : tensor<1024xf32>
 }
 
+// Data manipulation - concat
+// CHECK-LABEL: def cpu_hoisted_ttir_concat_{{.*}}
+// CHECK: ttir_cpu.concat(
 // CHECK-LABEL: def concat_validation
 // CHECK: cpu_hoisted_ttir_concat_{{.*}}
 // CHECK: ttnn.concat(
@@ -208,6 +276,9 @@ func.func @concat_validation(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>)
   return %diff : tensor<64x32xf32>
 }
 
+// Data manipulation - permute
+// CHECK-LABEL: def cpu_hoisted_ttir_permute_{{.*}}
+// CHECK: ttir_cpu.permute(
 // CHECK-LABEL: def permute_validation
 // CHECK: cpu_hoisted_ttir_permute_{{.*}}
 // CHECK: ttnn.permute(
@@ -219,6 +290,9 @@ func.func @permute_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// Softmax
+// CHECK-LABEL: def cpu_hoisted_ttir_softmax_{{.*}}
+// CHECK: ttir_cpu.softmax(
 // CHECK-LABEL: def softmax_validation
 // CHECK: cpu_hoisted_ttir_softmax_{{.*}}
 // CHECK: ttnn.softmax(
@@ -230,6 +304,9 @@ func.func @softmax_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// LayerNorm
+// CHECK-LABEL: def cpu_hoisted_ttir_layer_{{.*}}
+// CHECK: ttir_cpu.layer_norm(
 // CHECK-LABEL: def layer_norm_validation
 // CHECK: cpu_hoisted_ttir_layer_{{.*}}
 // CHECK: ttnn.layer_norm(
@@ -240,92 +317,3 @@ func.func @layer_norm_validation(%arg0: tensor<32x128xf32>, %arg1: tensor<128xf3
   %diff = "ttir.subtract"(%cpu_result, %device_result) : (tensor<32x128xf32>, tensor<32x128xf32>) -> tensor<32x128xf32>
   return %diff : tensor<32x128xf32>
 }
-
-// Verify CPU-hoisted functions call ttir_cpu.<op> directly.
-
-// CHECK-LABEL : # File: "consteval"
-
-// Binary arithmetic
-// CHECK-LABEL: def cpu_hoisted_ttir_add_{{.*}}
-// CHECK: ttir_cpu.add(
-
-// Binary division
-// CHECK-LABEL: def cpu_hoisted_ttir_div_{{.*}}
-// CHECK: ttir_cpu.div(
-
-// Binary comparison
-// CHECK-LABEL: def cpu_hoisted_ttir_eq_{{.*}}
-// CHECK: ttir_cpu.eq(
-
-// Binary logical
-// CHECK-LABEL: def cpu_hoisted_ttir_logical_{{.*}}
-// CHECK: ttir_cpu.logical_and(
-
-// Binary min/max
-// CHECK-LABEL: def cpu_hoisted_ttir_maximum_{{.*}}
-// CHECK: ttir_cpu.maximum(
-
-// Matrix multiplication
-// CHECK-LABEL: def cpu_hoisted_ttir_matmul_{{.*}}
-// CHECK: ttir_cpu.matmul(
-
-// Unary activation
-// CHECK-LABEL: def cpu_hoisted_ttir_relu_{{.*}}
-// CHECK: ttir_cpu.relu(
-
-// Unary trigonometric
-// CHECK-LABEL: def cpu_hoisted_ttir_sin_{{.*}}
-// CHECK: ttir_cpu.sin(
-
-// Unary exponential/logarithmic
-// CHECK-LABEL: def cpu_hoisted_ttir_exp_{{.*}}
-// CHECK: ttir_cpu.exp(
-
-// CHECK-LABEL: def cpu_hoisted_ttir_log_{{.*}}
-// CHECK: ttir_cpu.log(
-
-// Unary rounding
-// CHECK-LABEL: def cpu_hoisted_ttir_ceil_{{.*}}
-// CHECK: ttir_cpu.ceil(
-
-// Unary sign/abs
-// CHECK-LABEL: def cpu_hoisted_ttir_abs_{{.*}}
-// CHECK: ttir_cpu.abs(
-
-// Unary reciprocal
-// CHECK-LABEL: def cpu_hoisted_ttir_reciprocal_{{.*}}
-// CHECK: ttir_cpu.reciprocal(
-
-// Unary sqrt
-// CHECK-LABEL: def cpu_hoisted_ttir_sqrt_{{.*}}
-// CHECK: ttir_cpu.sqrt(
-
-// Pooling
-// CHECK-LABEL: def cpu_hoisted_ttir_max_{{.*}}
-// CHECK: ttir_cpu.max_pool2d(
-
-// Reduction
-// CHECK-LABEL: def cpu_hoisted_ttir_sum_{{.*}}
-// CHECK: ttir_cpu.sum(
-
-// Data manipulation - reshape
-// CHECK-LABEL: def cpu_hoisted_ttir_reshape_{{.*}}
-// CHECK: ttir_cpu.reshape(
-
-// Data manipulation - concat
-// CHECK-LABEL: def cpu_hoisted_ttir_concat_{{.*}}
-// CHECK: ttir_cpu.concat(
-
-// Data manipulation - permute
-// CHECK-LABEL: def cpu_hoisted_ttir_permute_{{.*}}
-// CHECK: ttir_cpu.permute(
-
-// Softmax
-// CHECK-LABEL: def cpu_hoisted_ttir_softmax_{{.*}}
-// CHECK: ttir_cpu.softmax(
-
-// LayerNorm (with weight and bias as kwargs)
-// CHECK-LABEL: def cpu_hoisted_ttir_layer_{{.*}}
-// CHECK: ttir_cpu.layer_norm(
-// CHECK-SAME: weight=
-// CHECK-SAME: bias=

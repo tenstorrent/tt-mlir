@@ -1026,41 +1026,41 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       // Fully indexed unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Fully indexed multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Fully indexed unicast, with destination device range
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Shard-level multicast (no indices on either, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0), with destination device range
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
       }]>
     ];
 
-    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`[` $srcIndices^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`startDevice` `[` $startDevice^ `]`)? (`deviceMcastShape` `[` $deviceMcastShape^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
 
     let hasVerifier = 1;
 
@@ -1134,11 +1134,16 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+      }]>,
+      // Fully indexed form
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems);
       }]>,
     ];
 
-    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
 
     let hasVerifier = 1;
 
@@ -1170,13 +1175,13 @@ def D2M_NullTxOp : D2M_GenericRegionDatamovementOp<"null_tx", [Pure]> {
 
     let builders =
     [
-      OpBuilder<(ins),
+      OpBuilder<(ins "DMAType":$dmaType),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), dmaType));
       }]>
     ];
 
-    let assemblyFormat = [{ attr-dict }];
+    let assemblyFormat = [{ attr-dict `:` qualified(type($result)) }];
 }
 
 def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
@@ -1187,7 +1192,7 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 
     let arguments = (ins D2M_MemTx:$mem_tx);
 
-    let assemblyFormat = [{ $mem_tx attr-dict }];
+    let assemblyFormat = [{ $mem_tx attr-dict `:` qualified(type($mem_tx)) }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1207,7 +1212,8 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       "bufferize",
       "getAliasingValues",
       "getBufferType",
-      "hasTensorSemantics"
+      "hasTensorSemantics",
+      "isNotConflicting"
     ]>
   ]> {
     let summary = "D2M Remote/Aliased Load Op";
@@ -2115,7 +2121,7 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
     within the enclosing scope, used for tracking and debugging.
 
     This op is lowered by `LowerScratchAllocate` to a `memref.subview` into
-    the scratch CB buffer.
+    the scratch memref anchored by `d2m.scratch_init`.
 
     Example:
     ```mlir
@@ -2132,58 +2138,29 @@ def D2M_ScratchAllocateOp : D2M_Op<"scratch_allocate", [
   }];
 }
 
-def D2M_GetScratchFromCBOp : D2M_GenericRegionOp<"get_scratch_from_cb",
-  [MemoryEffects<[MemRead]>]> {
-  let summary = "Unwrap scratch circular buffer into a memref.";
+def D2M_ScratchInitOp : D2M_Op<"scratch_init"> {
+  let summary = "Anchor op for scratch buffer memref.";
   let description = [{
-    The `get_scratch_from_cb` operation extracts the underlying memref from
-    a scratch circular buffer (CB) obtained via `d2m.get_cb`. This op is
-    inserted by the LowerScratchAllocate pass at the beginning of the
-    `d2m.generic` region to make the scratch buffer available as a plain memref
-    for use by downstream
-    scratch allocation ops (e.g. `d2m.scratch_allocate` lowered to
-    `memref.subview`).
+    Marks a `memref.alloc` as the scratch buffer for intermediate spilling
+    inside a `d2m.generic` region. This op consumes the memref to prevent
+    canonicalization from removing the otherwise-unused alloc.
 
-    The result type matches the CB's underlying memref type.
+    Inserted by `InsertScratchBuffers` and erased by `LowerScratchAllocate`
+    after `scratch_allocate` ops are replaced with subviews of this memref.
 
     Example:
     ```mlir
-    %scratch = d2m.get_scratch_from_cb %cb_scratch
-        : !d2m.cb<memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>>
-        -> memref<1x32x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    %scratch = memref.alloc() : memref<1x32x!ttcore.tile<32x32, f32>,
+                                       #ttcore.memory_space<l1>>
+    d2m.scratch_init %scratch : memref<1x32x!ttcore.tile<32x32, f32>,
+                                       #ttcore.memory_space<l1>>
     ```
   }];
 
-  let arguments = (ins D2M_CB:$cb);
-  let results = (outs DeviceL1MemRef:$result);
+  let arguments = (ins AnyMemRef:$scratch);
+  let results = (outs);
 
-  let assemblyFormat = [{ $cb attr-dict `:` type($cb) `->` type($result) }];
-
-  let builders = [
-    OpBuilder<(ins "Value":$cb), [{
-      auto cbType = mlir::cast<CBType>(cb.getType());
-      build($_builder, $_state, cbType.getUnderlying(), cb);
-    }]>
-  ];
-
-  let extraClassDeclaration = [{
-    CBType getCbType() {
-      return mlir::cast<CBType>(getCb().getType());
-    }
-  }];
-
-  let extraClassDefinition = [{
-    mlir::LogicalResult $cppClass::verify() {
-      auto cbType = mlir::cast<CBType>(getCb().getType());
-      if (cbType.getUnderlying() != getResult().getType()) {
-        return emitOpError() << "result type does not match circular buffer's "
-                                "underlying memref type";
-      }
-      return ::mlir::success();
-    }
-  }];
-
-  let hasVerifier = 1;
+  let assemblyFormat = [{ $scratch attr-dict `:` type($scratch) }];
 }
 
 def D2M_StoreOp : D2M_GenericRegionOp<"store",
@@ -2488,7 +2465,8 @@ def D2M_FillArangeTileOp : D2M_GenericRegionOp<"fill_arange_tile",
   let summary = "Write full linear index pattern to a tile CB";
   let description = [{
       The `fill_arange_tile` operation writes a linear index pattern
-      to a tile CB, where element[i,j] = i * 32 + j (the linear index as float).
+      to a tile CB, where element[i,j] = i * 32 + j in the tile's native data
+      format (f32, bf16, or i32).
 
       This is used for arange operations. Each element gets its linear index value
       (0-1023) within the tile, which can be used to compute global indices.

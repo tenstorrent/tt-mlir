@@ -12,6 +12,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+#include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.h"
+
 #define GET_TYPEDEF_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypeDefs.h.inc"
 

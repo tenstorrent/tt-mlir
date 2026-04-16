@@ -123,6 +123,12 @@ public:
       updateArangeDimension(arangeOp);
     } else if (auto sliceOp = dyn_cast<ttir::SliceStaticOp>(newOp)) {
       updateSliceStaticAttrs(sliceOp);
+    } else if (auto fullOp = dyn_cast<ttir::FullOp>(newOp)) {
+      updateDenseI32ShapeAttr(fullOp);
+    } else if (auto zerosOp = dyn_cast<ttir::ZerosOp>(newOp)) {
+      updateDenseI32ShapeAttr(zerosOp);
+    } else if (auto onesOp = dyn_cast<ttir::OnesOp>(newOp)) {
+      updateDenseI32ShapeAttr(onesOp);
     }
 
     rewriter.replaceOp(op, newOp->getResults());
@@ -130,6 +136,22 @@ public:
   }
 
 private:
+  /// Ops with `DenseI32ArrayAttr` `shape` (ttir.full, zeros, ones): keep shape
+  /// attr aligned with the promoted result rank.
+  template <typename OpTy>
+  static void updateDenseI32ShapeAttr(OpTy op) {
+    auto resultType = dyn_cast<RankedTensorType>(op.getResult().getType());
+    if (!resultType) {
+      return;
+    }
+    ArrayRef<int32_t> currentShape = op.getShape();
+    if (static_cast<int64_t>(currentShape.size()) == resultType.getRank()) {
+      return;
+    }
+    OpBuilder builder(op.getContext());
+    op.setShapeAttr(builder.getDenseI32ArrayAttr(expandShape(currentShape)));
+  }
+
   static void updateConstantValueAttr(ttir::ConstantOp constantOp) {
     auto valueAttr = dyn_cast<DenseElementsAttr>(constantOp.getValue());
     if (!valueAttr) {

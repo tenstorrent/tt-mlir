@@ -4,6 +4,12 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+#include <cstdlib>
+
+#include <tt-metalium/distributed.hpp>
+#endif
+
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
@@ -11,6 +17,7 @@
 #include "operations/ccl/all_reduce_async.h"
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
+#include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
@@ -62,6 +69,7 @@
 #include "operations/kv_cache/paged_fill_cache.h"
 #include "operations/kv_cache/paged_update_cache.h"
 #include "operations/kv_cache/update_cache.h"
+#include "operations/layout/bitcast_convert.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_layout.h"
@@ -76,6 +84,7 @@
 #include "operations/normalization/layer_norm_post_all_gather.h"
 #include "operations/normalization/layer_norm_pre_all_gather.h"
 #include "operations/normalization/rms_norm.h"
+#include "operations/normalization/rms_norm_pre_all_gather.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
@@ -85,6 +94,7 @@
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "operations/reduction/topk.h"
+#include "operations/reduction/topk_router_gpt.h"
 #include "operations/tensor_serialization/dump_tensor.h"
 #include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
@@ -181,6 +191,9 @@ void ProgramExecutor::execute() {
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    syncAfterOpIfNeeded();
+#endif
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
     dumpPerfCountersIfNeeded();
@@ -216,6 +229,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::BitcastConvertOp: {
+    return operations::layout::run(op->type_as_BitcastConvertOp(),
+                                   getContext());
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     return operations::layout::run(op->type_as_TypecastOp(), getContext());
@@ -382,6 +399,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
+    return operations::rms_norm_pre_all_gather::run(
+        op->type_as_RMSNormPreAllGatherOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     return operations::distributed_rms_norm::run(
         op->type_as_DistributedRMSNormOp(), getContext());
@@ -462,6 +483,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
     return operations::ccl::run(op->type_as_AllToAllDispatchOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp: {
+    return operations::ccl::run(op->type_as_AllToAllDispatchMetadataOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     return operations::ccl::run(op->type_as_AllToAllCombineOp(), getContext());
@@ -582,6 +607,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::TopKOp: {
     return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::TopKRouterGptOp: {
+    return operations::reduction::topk_router_gpt::run(
+        op->type_as_TopKRouterGptOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
     return operations::creation::run(op->type_as_CreateGlobalSemaphoreOp(),
                                      getContext());
@@ -612,5 +641,16 @@ void ProgramExecutor::dumpPerfCountersIfNeeded() {
   }
 #endif
 }
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+void ProgramExecutor::syncAfterOpIfNeeded() {
+  static const bool enabled =
+      std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
+  if (enabled) {
+    ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
+                                             std::nullopt);
+  }
+}
+#endif
 
 } // namespace tt::runtime::ttnn

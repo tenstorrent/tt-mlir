@@ -10,6 +10,7 @@ include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td"
 include "ttmlir/Dialect/D2M/IR/D2MBase.td"
+include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.td"
 
 class D2M_Type<string name, string typeMnemonic, list<Trait> traits = []>
     : TypeDef<D2M_Dialect, name, traits> {
@@ -18,7 +19,14 @@ class D2M_Type<string name, string typeMnemonic, list<Trait> traits = []>
 
 def D2M_MemTx : D2M_Type<"MemTx", "mem_tx"> {
     let summary = "D2M memory transaction type.";
-    let description = "Memory transaction returned by dma op, used to wait for completion.";
+    let description = [{
+      Memory transaction returned by a DMA op, used to wait for completion.
+      Parameterized by DMAType to encode the barrier type (read, write,
+      mcast_write) so downstream lowering can emit the correct NOC barrier
+      without needing use-def chain analysis.
+    }];
+    let parameters = (ins "DMAType":$dmaType);
+    let assemblyFormat = "`<` $dmaType `>`";
 }
 
 def D2M_Semaphore : D2M_Type<"Semaphore", "semaphore"> {

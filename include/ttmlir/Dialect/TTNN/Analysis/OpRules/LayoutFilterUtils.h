@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_LAYOUTFILTERUTILS_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
 
 #include <vector>
 
@@ -21,6 +22,19 @@ inline bool rejectAllSharded(TTNNLayoutAttr layout) {
 inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();
   return !(ml && ml.getValue() == TensorMemoryLayout::WidthSharded);
+}
+
+/// Allow only a specific sharding type (plus interleaved). Returns a filter
+/// function that rejects sharded layouts whose type doesn't match.
+inline LayoutFilterFn
+allowOnlyShardingType(TensorMemoryLayout allowedSharding) {
+  return [allowedSharding](TTNNLayoutAttr layout) -> bool {
+    auto ml = layout.getMemLayout();
+    if (!ml || !isShardedMemoryLayout(ml.getValue())) {
+      return true; // interleaved — keep
+    }
+    return ml.getValue() == allowedSharding;
+  };
 }
 
 /// Filter legalConfigs to only include non-sharded (DRAM or L1-interleaved).
@@ -43,9 +57,7 @@ filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
 /// Non-sharded output hints (common pattern for many ops).
 inline OutputHints
 nonShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
-  return OutputHints{filterNonSharded(legalConfigs),
-                     {},
-                     /*attemptL1Sharding=*/false};
+  return OutputHints{filterNonSharded(legalConfigs), {}};
 }
 
 /// NULL-hint-only output (backend decides from inputs, no fallbacks).

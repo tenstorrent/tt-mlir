@@ -23,11 +23,6 @@ pytestmark = pytest.mark.frontend("ttir")
 
 ttir_mlir_snippets = {}
 skip_split_ttir_tests = [
-    "ttir_reduce_scatter.mlir",
-    "ttir_all_to_all.mlir",
-    "ttir_collective_permute.mlir",
-    "ttir_all_gather.mlir",
-    "ttir_collective_broadcast.mlir",
     "ttir_device_module_nested_func.mlir",
     "ttir_nested_funcs.mlir",
 ]
@@ -91,16 +86,8 @@ def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
     split_modules = split_mlir_file(mlir_module, builder, target="stablehlo")
 
 
-skip_split_ttnn_tests = [
-    "ttnn_all_gather.mlir",
-    "ttnn_reduce_scatter.mlir",
-]
-
-
 @pytest.mark.parametrize("mlir_snippet", ttnn_mlir_snippets.keys())
 def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttnn_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
-
-    if mlir_snippet not in skip_split_ttnn_tests:
-        split_modules = split_mlir_file(mlir_module, builder, target="ttnn")
+    split_modules = split_mlir_file(mlir_module, builder, target="ttnn")
