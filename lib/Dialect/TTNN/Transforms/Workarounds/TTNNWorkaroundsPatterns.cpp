@@ -36,7 +36,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ToLayoutPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -648,16 +647,6 @@ public:
       // indicates a bug in the workarounds implementation.
       const int64_t maxIterations = 2;
       runRewritePatterns(std::move(patterns), maxIterations);
-
-      // After operands workarounds insert to_layout ops, some may target
-      // TILE layout on tensors with non-tile-aligned dimensions. Pad those
-      // before tilizing and slice after to recover the original shape.
-      RewritePatternSet tilePadPatterns(&getContext());
-      tilePadPatterns
-          .add<workarounds::decomposition::ToLayoutPadTileDimsRewritePattern>(
-              &getContext());
-      runRewritePatterns(std::move(tilePadPatterns),
-                         GreedyRewriteConfig::kNoLimit);
     }
   }
 
