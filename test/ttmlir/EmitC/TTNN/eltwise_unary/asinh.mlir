@@ -4,7 +4,22 @@
 // RUN: ttmlir-opt --ttnn-to-emitc-device-pipeline -o %t2.mlir %t.mlir
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
-func.func @asinh(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+func.func @asinh_f32(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   %1 = "ttir.asinh"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
+}
+
+func.func @asinh_bf16(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
+  %1 = "ttir.asinh"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
+  return %1 : tensor<64x128xbf16>
+}
+
+func.func @asinh_rank3(%arg0: tensor<2x64x128xf32>) -> tensor<2x64x128xf32> {
+  %1 = "ttir.asinh"(%arg0) : (tensor<2x64x128xf32>) -> tensor<2x64x128xf32>
+  return %1 : tensor<2x64x128xf32>
+}
+
+func.func @asinh_rank4(%arg0: tensor<2x4x64x128xf32>) -> tensor<2x4x64x128xf32> {
+  %1 = "ttir.asinh"(%arg0) : (tensor<2x4x64x128xf32>) -> tensor<2x4x64x128xf32>
+  return %1 : tensor<2x4x64x128xf32>
 }

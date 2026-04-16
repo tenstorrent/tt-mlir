@@ -7441,7 +7441,7 @@ public:
 } // namespace
 
 namespace {
-class StableHLOAsinhOpMHLOConversionPattern
+class StableHLOToTTIRAsinhOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
 
@@ -8276,7 +8276,7 @@ static void addErfOpConversionPattern(MLIRContext *ctx,
 static void addAsinhOpConversionPattern(MLIRContext *ctx,
                                         RewritePatternSet &patterns,
                                         TypeConverter &typeConverter) {
-  patterns.add<StableHLOAsinhOpMHLOConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRAsinhOpConversionPattern>(typeConverter, ctx);
 }
 
 static void addSortOpConversionPattern(MLIRContext *ctx,
