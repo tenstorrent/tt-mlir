@@ -73,7 +73,8 @@ private:
               shardGrid, deviceGrid));
     }
     bool isL1Sharded() const {
-      return isShardedMemoryLayout(tensorMemoryLayout.getValue());
+      return bufferType == ttnn::BufferType::L1 && tensorMemoryLayout &&
+             isShardedMemoryLayout(tensorMemoryLayout.getValue());
     }
     bool isOnHost() const {
       return bufferType == ttnn::BufferType::SystemMemory;
@@ -156,6 +157,21 @@ private:
            dataType == ttcore::DataType::UInt32 ||
            dataType == ttcore::DataType::UInt16 ||
            dataType == ttcore::DataType::Int32;
+  }
+
+  // Check if a sharded tensor's shard shape is compatible with tiling on
+  // device. TILE layout requires shard dimensions to be multiples of the tile
+  // size (32).
+  bool canTilizeShardedOnDevice(const LayoutInfo &layoutInfo) const {
+    if (!layoutInfo.isL1Sharded()) {
+      return true; // Not sharded — no constraint.
+    }
+    for (int64_t dim : layoutInfo.shardShape) {
+      if (dim % 32 != 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {

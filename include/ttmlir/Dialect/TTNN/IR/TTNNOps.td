@@ -1778,6 +1778,76 @@ def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap"> {
     let hasVerifier = 1;
 }
 
+def TTNN_MoeGptOp : TTNN_Op<"moe_gpt"> {
+    let summary = "Fused MoE compute kernel for GPT-OSS models.";
+    let description = [{
+      Fused Mixture-of-Experts compute kernel for GPT-OSS-style models. Runs
+      the full MoE compute pipeline in a single kernel: selective tilize,
+      gate/up projection (w0_w1), SwiGLU activation, all-to-all ring exchange
+      along cluster_axis, down projection (w2), and combine. Typically follows
+      ttnn.all_to_all_dispatch_metadata in the MoE dispatch/compute/combine flow.
+
+      Dimensions:
+        T         = total_tokens across the dispatch ring
+        K         = hidden_size
+        N         = intermediate_size
+        K_sel     = selected experts per token (top-k)
+        E         = experts per device
+        D         = total devices
+        C_dram    = DRAM-bank-aligned compute cores used for weight sharding
+        C_worker  = worker cores in the compute grid
+        L         = layers per weight tensor (typically 1)
+        G         = weight groups per core (gate/up interleaved pairs)
+        TILE_SIZE = compute tile size
+        L1_ALIGN  = L1 alignment
+
+      Input shapes and layouts (per device, after mesh sharding; enforced by
+      TTNNWorkaroundsPass to match kernel expectations):
+      - input_tensor:   [T, K]                             bf16,   ROW_MAJOR
+          (kernel tilizes internally)
+      - expert_indices: [T, K_sel]                         uint16, ROW_MAJOR, L1 HEIGHT_SHARDED
+      - expert_scores:  [T, K_sel]                         bf16,   ROW_MAJOR, L1 HEIGHT_SHARDED
+      - expert_mapping: [1, E*D]                           uint16, ROW_MAJOR
+          (flattened mapping, entry [0, i] = device ID owning expert i;
+           the tilize_reader kernel casts the buffer to uint16_t*)
+      - w0_w1_tensor:   [C_dram, L, E, G, K, 4*TILE_SIZE]  (interleaved gate+up)
+      - w2_tensor:      [C_dram, L, E, 2, N, 4*TILE_SIZE]  (down projection)
+
+      Output shapes:
+      - token_counts:       [1, align(E*sizeof(u32), L1_ALIGN) / sizeof(u32)]                      uint32
+      - activation_records: [1, (T+1) * align((2*E+1)*sizeof(u32), L1_ALIGN) / sizeof(u32)]        uint32
+      - token_indices:      [E, (T+1) * align(sizeof(u32), L1_ALIGN) / sizeof(u32)]                uint32
+      - tilize_out:         [C_worker, 2, TILE_SIZE, K]    bf16, TILE
+      - tilize_out_rm:      [C_worker, 2, TILE_SIZE, K]    bf16, ROW_MAJOR
+      where align(n, a) = ceil(n/a) * a.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$w0_w1_tensor,
+                         AnyRankedTensor:$w2_tensor,
+                         DefaultValuedAttr<UI32Attr, "4">:$output_height_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "3">:$output_width_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "2880">:$hidden_size,
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$token_counts,
+                        AnyRankedTensor:$activation_records,
+                        AnyRankedTensor:$token_indices,
+                        AnyRankedTensor:$tilize_out,
+                        AnyRankedTensor:$tilize_out_rm);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
