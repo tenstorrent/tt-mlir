@@ -38,15 +38,7 @@ public:
   /**
    * Executes pre execution callback if registered
    */
-  void runPreExecutionCallback(
-      const std::optional<::tt::runtime::debug::Hooks::ExecutionCallbackFn>
-          &callback,
-      Binary &executableHandle, ProgramContext *programContext);
-
-  /**
-   * Executes post execution callback if registered
-   */
-  void runPostExecutionCallback(
+  void runExecutionCallback(
       const std::optional<::tt::runtime::debug::Hooks::ExecutionCallbackFn>
           &callback,
       Binary &executableHandle, ProgramContext *programContext);

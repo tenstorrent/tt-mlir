@@ -171,18 +171,7 @@ void ProgramExecutor::runCallback(
   }
 }
 
-void ProgramExecutor::runPreExecutionCallback(
-    const std::optional<debug::Hooks::ExecutionCallbackFn> &callback,
-    Binary &executableHandle, ProgramContext *programContext) {
-  if (callback) {
-    std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafeBorrowShared(programContext);
-    (*callback)(executableHandle,
-                CallbackContext(programContextPtr, DeviceRuntime::TTNN));
-  }
-}
-
-void ProgramExecutor::runPostExecutionCallback(
+void ProgramExecutor::runExecutionCallback(
     const std::optional<debug::Hooks::ExecutionCallbackFn> &callback,
     Binary &executableHandle, ProgramContext *programContext) {
   if (callback) {
@@ -198,8 +187,8 @@ void ProgramExecutor::execute() {
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
-  runPreExecutionCallback(debug::Hooks::get().getPreExecutionCallback(),
-                          executableHandle, context.get());
+  runExecutionCallback(debug::Hooks::get().getPreExecutionCallback(),
+                       executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -219,8 +208,8 @@ void ProgramExecutor::execute() {
                 op, context.get());
     dumpPerfCountersIfNeeded();
   }
-  runPostExecutionCallback(debug::Hooks::get().getPostExecutionCallback(),
-                           executableHandle, context.get());
+  runExecutionCallback(debug::Hooks::get().getPostExecutionCallback(),
+                       executableHandle, context.get());
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }

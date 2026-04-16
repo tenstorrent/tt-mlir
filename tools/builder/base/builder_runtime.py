@@ -766,6 +766,7 @@ def execute_fb(
             )
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:
+            tt_runtime.runtime.unregister_hooks()
             raise TTBuilderRuntimeException(e)
 
         golden_outputs_torch = []
