@@ -82,18 +82,23 @@ getMeshShapeFromMeshAttr(mlir::sdy::MeshAttr meshAttr) {
 
 // Insert a new mesh into the module.
 void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
-                     std::string firstAxisName, std::string secondAxisName,
-                     int64_t firstAxisSize, int64_t secondAxisSize) {
+                     MeshMap meshMap) {
   MLIRContext *context = module.getContext();
   mlir::OpBuilder builder(context);
-  shardy_utils::MeshMap meshMap;
-  meshMap[firstAxisName] = firstAxisSize;
-  meshMap[secondAxisName] = secondAxisSize;
   mlir::sdy::MeshAttr sdyMeshAttr =
       shardy_utils::createMeshAttrFromMeshMap(context, meshMap);
   builder.setInsertionPoint(&(module.getBody()->front()));
   builder.create<mlir::sdy::MeshOp>(
       builder.getUnknownLoc(), builder.getStringAttr(meshName), sdyMeshAttr);
+}
+
+void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
+                     std::string firstAxisName, std::string secondAxisName,
+                     int64_t firstAxisSize, int64_t secondAxisSize) {
+  shardy_utils::MeshMap meshMap;
+  meshMap[firstAxisName] = firstAxisSize;
+  meshMap[secondAxisName] = secondAxisSize;
+  addMeshToModule(module, meshName, meshMap);
 }
 
 // Normalize a 0D or 1D mesh to 2D. 0D meshes get {1,1}, 1D meshes get {1,N}.
