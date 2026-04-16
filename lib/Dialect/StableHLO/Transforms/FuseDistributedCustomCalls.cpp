@@ -61,10 +61,22 @@ public:
       return failure();
     }
 
-    // The custom_call must have at least one operand (input).
+    // The custom_call must have exactly one result and at least one operand.
+    if (customCallOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(customCallOp,
+                                         "expected exactly one result");
+    }
     if (customCallOp.getNumOperands() < 1) {
       return rewriter.notifyMatchFailure(customCallOp,
                                          "at least one operand is required");
+    }
+
+    // Reject fusion when bias is present (3 operands: input, weight, bias).
+    // distributed_rms_norm interprets the 3rd operand as residual, not bias.
+    if (customCallOp.getNumOperands() > 2) {
+      return rewriter.notifyMatchFailure(
+          customCallOp, "cannot fuse rms_norm with bias into distributed "
+                        "variant (bias vs residual pos. operand mismatch)");
     }
 
     // Check that the input (operand 0) comes from an all_gather.
@@ -100,14 +112,20 @@ public:
     }
 
     // Gather the local operands (bypassing the all_gathers).
+    // Verify that all gathered operands use the same replica_groups as the
+    // input all_gather, so the derived cluster_axis is consistent.
     SmallVector<mlir::Value> localOperands;
-    // Operand 0: local input (the all_gather's input).
     localOperands.push_back(inputAllGather.getOperand(0));
-    // Operand 1+: weight/bias, may come from all_gather or directly.
     for (unsigned i = 1; i < customCallOp.getNumOperands(); ++i) {
       mlir::Value operand = customCallOp.getOperand(i);
       if (auto opAllGather =
               operand.getDefiningOp<mlir::stablehlo::AllGatherOp>()) {
+        if (opAllGather.getReplicaGroups() !=
+            inputAllGather.getReplicaGroups()) {
+          return rewriter.notifyMatchFailure(
+              customCallOp,
+              "operand all_gathers have mismatched replica_groups");
+        }
         localOperands.push_back(opAllGather.getOperand(0));
       } else {
         localOperands.push_back(operand);
