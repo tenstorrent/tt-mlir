@@ -122,6 +122,9 @@ public:
       const std::unordered_map<std::string, std::string> &strategy,
       const std::vector<uint32_t> &meshShape);
 
+  ::tt::runtime::Tensor createUnsafeBorrowedHostTensor(
+      const ::tt::runtime::Tensor &ownedHostTensor);
+
   bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle);
 
   std::uint32_t getTensorVolume(const ::tt::runtime::Tensor &tensorHandle);
@@ -252,6 +255,10 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleCreateMultiDeviceHostTensorFromShardsResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleCreateUnsafeBorrowedHostTensorResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

@@ -263,6 +263,20 @@ uint64_t CommandFactory::buildCreateMultiDeviceHostTensorFromShardsCommand(
   return commandId;
 }
 
+uint64_t CommandFactory::buildCreateUnsafeBorrowedHostTensorCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Tensor &sourceHostTensor,
+    const ::tt::runtime::Tensor &outputTensor) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId = BUILD_COMMAND(
+      CreateUnsafeBorrowedHostTensor, fbb, sourceHostTensor.getGlobalId(),
+      outputTensor.getGlobalId());
+
+  return commandId;
+}
+
 uint64_t CommandFactory::buildIsTensorAllocatedCommand(
     ::flatbuffers::FlatBufferBuilder &fbb,
     const ::tt::runtime::Tensor &tensor) {
