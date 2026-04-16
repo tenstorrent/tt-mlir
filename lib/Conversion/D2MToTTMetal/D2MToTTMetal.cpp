@@ -716,7 +716,6 @@ private:
                    SmallVector<Operation *> &postEnqueueOps,
                    ttmetal::EnqueueProgramOp &regionEnqueueProgram) {
     Block &block = region.front();
-    bool seenEnqueue = false;
     unsigned enqueueCount = 0;
 
     for (Operation &innerOperation : block) {
@@ -731,11 +730,10 @@ private:
           return failure();
         }
         regionEnqueueProgram = enqueueProgram;
-        seenEnqueue = true;
         continue;
       }
 
-      if (!seenEnqueue) {
+      if (enqueueCount == 0) {
         preEnqueueOps.push_back(&innerOperation);
       } else {
         postEnqueueOps.push_back(&innerOperation);
