@@ -3083,6 +3083,35 @@ def TTIR_SamplingOp : TTIR_NamedOp<"sampling"> {
   let hasVerifier = 1;
 }
 
+def TTIR_TopKSampleOp : TTIR_NamedOp<"topk_sample"> {
+  let summary = "Fused top-k + sampling operation.";
+  let description = [{
+    Performs chunked top-k pre-filtering followed by fused sampling on
+    full-vocabulary logits. The runtime internally splits the vocab into
+    multi-core-friendly chunks (<=32768), runs per-chunk top-k, merges
+    candidates, and calls ttnn::sampling — all in a single dispatch.
+
+    This avoids the ~25ms host-side dispatch overhead from 50+ compiled ops
+    when top-k chunking and sampling are expressed as separate TTNN ops.
+
+    Inputs:
+      - `logits`: Full-vocabulary logits [batch, vocab_size] bf16/f32
+      - `temperature`: Per-request temperature [batch] f32/bf16
+      - `seed`: Optional random seed (uint32 scalar attribute)
+
+    Output:
+      - `result`: Sampled token indices [batch] int32
+  }];
+
+  let arguments = (ins AnyRankedTensor:$logits,
+                       AnyRankedTensor:$temperature,
+                       OptionalAttr<UI32Attr>:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
     let summary = "Tensor transpose operation.";
     let description = [{

@@ -1294,6 +1294,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_SamplingOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::TopKSampleOp: {
+    tensorRef = opContext.type_as_TopKSampleOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PointToPointOp: {
     tensorRef = opContext.type_as_PointToPointOp()->out();
     break;
@@ -1814,6 +1818,11 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_SamplingOp()->k(),
                   opContext.type_as_SamplingOp()->p(),
                   opContext.type_as_SamplingOp()->temp()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::TopKSampleOp: {
+    tensorRefs = {opContext.type_as_TopKSampleOp()->logits(),
+                  opContext.type_as_TopKSampleOp()->temperature()};
     break;
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {

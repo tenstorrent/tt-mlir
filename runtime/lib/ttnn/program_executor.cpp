@@ -94,6 +94,7 @@
 #include "operations/reduction/sampling.h"
 #include "operations/reduction/topk.h"
 #include "operations/reduction/topk_router_gpt.h"
+#include "operations/reduction/topk_sample.h"
 #include "operations/tensor_serialization/dump_tensor.h"
 #include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
@@ -509,6 +510,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::SamplingOp: {
     return operations::reduction::sampling::run(op->type_as_SamplingOp(),
                                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::TopKSampleOp: {
+    return operations::reduction::topk_sample::run(op->type_as_TopKSampleOp(),
+                                                   getContext());
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), getContext());

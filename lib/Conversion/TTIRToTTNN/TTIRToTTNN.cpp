@@ -781,6 +781,23 @@ public:
 } // namespace
 
 namespace {
+class TopKSampleOpConversionPattern
+    : public OpConversionPattern<ttir::TopKSampleOp> {
+public:
+  using OpConversionPattern<ttir::TopKSampleOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TopKSampleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::TopKSampleOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getLogits(), adaptor.getTemperature(), adaptor.getSeedAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class PagedFillCacheOpConversionPattern
     : public OpConversionPattern<ttir::PagedFillCacheOp> {
 public:
@@ -3750,6 +3767,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedFillCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
            SamplingOpConversionPattern,
+           TopKSampleOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
            GatherDimOpConversionPattern,

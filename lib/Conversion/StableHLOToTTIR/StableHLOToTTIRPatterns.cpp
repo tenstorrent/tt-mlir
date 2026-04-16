@@ -7075,6 +7075,65 @@ public:
 } // namespace
 
 namespace {
+class StableHLOTopKSampleConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.topk_sample") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 2 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "TopKSample op must have exactly two operands and one result. Got " +
+              std::to_string(adaptor.getOperands().size()) + " operands and " +
+              std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    Value logits = adaptor.getOperands()[0];
+    Value temperature = adaptor.getOperands()[1];
+
+    // Parse optional seed from frontend attributes.
+    std::optional<uint32_t> seed;
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (frontendAttributes) {
+      auto seedStringAttr = frontendAttributes.getAs<mlir::StringAttr>("seed");
+      if (seedStringAttr) {
+        uint32_t seedVal;
+        if (seedStringAttr.getValue().getAsInteger(10, seedVal)) {
+          return rewriter.notifyMatchFailure(srcOp,
+                                             "Failed to parse seed attribute.");
+        }
+        seed = seedVal;
+      }
+    }
+
+    auto resultType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    mlir::IntegerAttr seedAttr;
+    if (seed.has_value()) {
+      seedAttr = rewriter.getIntegerAttr(
+          rewriter.getIntegerType(32, /*isSigned=*/false), seed.value());
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::TopKSampleOp>(srcOp, resultType, logits,
+                                                    temperature, seedAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOPagedFillCacheConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -7960,6 +8019,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedFillCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOSamplingConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOTopKSampleConversionPattern>(typeConverter, ctx);
 }
 
 static void

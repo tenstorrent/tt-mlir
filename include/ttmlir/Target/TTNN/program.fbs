@@ -120,6 +120,7 @@ union OpType {
   RMSNormOp,
   ReshapeOp,
   SamplingOp,
+  TopKSampleOp,
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,
   ScatterOp,

@@ -56,6 +56,13 @@ table SamplingOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table TopKSampleOp {
+  logits: tt.target.ttnn.TensorRef;
+  temperature: tt.target.ttnn.TensorRef;
+  seed: uint32 = null;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table TopKRouterGptOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;

@@ -79,6 +79,18 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
     output = ::ttnn::typecast(output, ::tt::tt_metal::DataType::INT32);
   }
 
+  // Debug: log output tensor properties for comparison with TopKSampleOp.
+  {
+    auto s = output.logical_shape();
+    LOG_INFO("SamplingOp output: shape=[");
+    for (uint32_t i = 0; i < s.rank(); ++i) {
+      LOG_INFO("{}{}", s[i], (i < s.rank() - 1) ? "," : "");
+    }
+    LOG_INFO("], dtype={}, layout={}, storage={}",
+             static_cast<int>(output.dtype()),
+             static_cast<int>(output.layout()),
+             static_cast<int>(output.storage_type()));
+  }
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::reduction::sampling

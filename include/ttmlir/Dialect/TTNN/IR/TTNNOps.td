@@ -3869,6 +3869,31 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
   let hasVerifier = 1;
 }
 
+def TTNN_TopKSampleOp : TTNN_Op<"topk_sample"> {
+  let summary = "Fused top-k + sampling operation.";
+  let description = [{
+    Performs chunked top-k pre-filtering followed by fused sampling on
+    full-vocabulary logits. The runtime handles vocab chunking, multi-core
+    top-k, candidate merging, and sampling internally.
+
+    Inputs:
+      - `logits`: Full-vocabulary logits [batch, vocab_size] bf16/f32
+      - `temperature`: Per-request temperature [batch] f32/bf16
+      - `seed`: Optional random seed (uint32 scalar attribute)
+
+    Output:
+      - `result`: Sampled token indices [batch] int32
+  }];
+
+  let arguments = (ins AnyRankedTensor:$logits,
+                       AnyRankedTensor:$temperature,
+                       OptionalAttr<UI32Attr>:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {
   let summary = "Top-K selection operation.";
   let description = [{
