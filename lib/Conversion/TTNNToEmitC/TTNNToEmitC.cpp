@@ -4724,10 +4724,8 @@ public:
         rewriter.create<emitc::AssignOp>(
             loc, getGlobalVariable(rewriter, loc, traceOutputVariable[i]),
             getResult.getResult(0));
-      }
 
-      // Return the output slots as the actual outputs for the first call.
-      for (size_t i = 0; i < returnVariable.size(); ++i) {
+        // Return the output slot as the actual output for the first call.
         rewriter.create<emitc::AssignOp>(
             loc, returnVariable[i].getResult(),
             loadGlobalVariable(rewriter, loc, traceOutputVariable[i]));
