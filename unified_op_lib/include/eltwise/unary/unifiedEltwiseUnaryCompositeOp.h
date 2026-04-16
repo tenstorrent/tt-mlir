@@ -22,6 +22,83 @@ using EltwiseUnaryCompositeOpResult =
     std::variant<::ttnn::graph::ConstraintQueryResponse,
                  ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
 
+struct EltwiseUnaryCompositeResolvedParams {
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
+  bool fastApproxMode = false;
+};
+
+EltwiseUnaryCompositeResolvedParams resolveEltwiseUnaryCompositeParams(
+    const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+        &eltwiseUnaryCompositeOpT);
+
+template <typename Fn>
+EltwiseUnaryCompositeOpResult callEltwiseUnaryComposite(
+    CallType callType,
+    const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+        &eltwiseUnaryCompositeOpT,
+    Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr,
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt) {
+
+  EltwiseUnaryCompositeResolvedParams params =
+      resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT);
+  if (outputMemoryConfig.has_value()) {
+    params.outputMemoryConfig = outputMemoryConfig;
+  }
+
+  switch (callType) {
+  case CallType::QUERY_OP_CONSTRAINTS:
+    return ::ttnn::graph::query_op_constraints(
+        ttnnOp, device, std::get<::ttnn::TensorSpec>(input),
+        params.outputMemoryConfig);
+  case CallType::QUERY_OP_RUNTIME:
+    return ::ttnn::graph::query_op_runtime(ttnnOp, device,
+                                           std::get<::ttnn::TensorSpec>(input),
+                                           params.outputMemoryConfig);
+  case CallType::EXECUTE: {
+    const auto &in = *std::get<const ::ttnn::Tensor *>(input);
+
+    return ttnnOp(in, params.outputMemoryConfig,
+                  /*optional_output_tensor=*/std::nullopt,
+                  /*sub_core_grids=*/std::nullopt);
+  }
+  }
+}
+
+template <typename Fn>
+EltwiseUnaryCompositeOpResult
+callEltwiseUnaryCompositeWithFastAndApproximateMode(
+    CallType callType,
+    const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+        &eltwiseUnaryCompositeOpT,
+    Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr,
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt) {
+
+  EltwiseUnaryCompositeResolvedParams params =
+      resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT);
+  if (outputMemoryConfig.has_value()) {
+    params.outputMemoryConfig = outputMemoryConfig;
+  }
+
+  switch (callType) {
+  case CallType::QUERY_OP_CONSTRAINTS:
+    return ::ttnn::graph::query_op_constraints(
+        ttnnOp, device, std::get<::ttnn::TensorSpec>(input),
+        params.fastApproxMode, params.outputMemoryConfig);
+  case CallType::QUERY_OP_RUNTIME:
+    return ::ttnn::graph::query_op_runtime(
+        ttnnOp, device, std::get<::ttnn::TensorSpec>(input),
+        params.fastApproxMode, params.outputMemoryConfig);
+  case CallType::EXECUTE: {
+    const auto &in = *std::get<const ::ttnn::Tensor *>(input);
+
+    return ttnnOp(in, /*approx=*/params.fastApproxMode,
+                  params.outputMemoryConfig,
+                  /*optional_output_tensor=*/std::nullopt,
+                  /*sub_core_grids=*/std::nullopt);
+  }
+  }
+}
+
 struct EltwiseUnaryCompositeClampScalarResolvedParams {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
   std::variant<float, int32_t> min;

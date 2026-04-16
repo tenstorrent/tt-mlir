@@ -986,6 +986,181 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// Unary Composite Eltwise Ops
+//===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+buildEltwiseUnaryCompositeOpTFromMLIR() {
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
+
+  return eltwiseUnaryCompositeOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
+template <typename OpTy>
+llvm::Expected<OpConstraints>
+UnaryCompositeEltwiseOpModel<OpTy>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnaryComposite(
+        unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryCompositeOpT,
+        detail::getOpSymbol<OpTy>(), inputSpec, device,
+        detail::getNullableMemoryConfig(outputLayout));
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EltwiseUnaryCompositeOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+template <typename OpTy>
+llvm::Expected<size_t> UnaryCompositeEltwiseOpModel<OpTy>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnaryComposite(
+        unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
+        detail::getOpSymbol<OpTy>(), inputSpec, device,
+        detail::getNullableMemoryConfig(outputLayout));
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseUnaryCompositeOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+template <typename OpTy>
+llvm::Expected<OpConstraints>
+UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryCompositeWithFastAndApproximateMode(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryCompositeOpT,
+            detail::getOpSymbol<OpTy>(), inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "EltwiseUnaryCompositeWithFastAndApproximateModeOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+template <typename OpTy>
+llvm::Expected<size_t>
+UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryCompositeWithFastAndApproximateMode(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
+            detail::getOpSymbol<OpTy>(), inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from "
+        "EltwiseUnaryCompositeWithFastAndApproximateModeOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 // Explicit template instantiation for UnaryEltwiseOpModel.
 template struct UnaryEltwiseOpModel<ReluOp>;
 template struct UnaryEltwiseOpModel<Relu6Op>;
@@ -1007,11 +1182,11 @@ template struct UnaryEltwiseOpModel<AsinOp>;
 template struct UnaryEltwiseOpModel<AsinhOp>;
 template struct UnaryEltwiseOpModel<AcosOp>;
 template struct UnaryEltwiseOpModel<ReciprocalOp>;
-template struct UnaryEltwiseOpModel<CbrtOp>;
+template struct UnaryCompositeEltwiseOpModel<CbrtOp>;
 template struct UnaryEltwiseOpModel<BitwiseNotOp>;
 template struct UnaryEltwiseOpModel<SiluOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<MishOp>;
-template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
+template struct UnaryCompositeEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
