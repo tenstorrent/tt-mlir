@@ -458,6 +458,26 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     if (!producerLayoutOp) {
       return failure();
     }
+
+    // Don't fold when the chain spans an OOB transition
+    // (e.g. device(undef) → host → device(neginf)). Collapsing would
+    // create a device-to-device to_layout that only changes OOB, which
+    // lower-to-layout cannot lower and downstream views depend on.
+    auto producerInputType =
+        mlir::dyn_cast<RankedTensorType>(producerLayoutOp.getInput().getType());
+    auto outputType =
+        mlir::dyn_cast<RankedTensorType>(op.getOutput().getType());
+    if (producerInputType && outputType) {
+      auto srcLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          producerInputType.getEncoding());
+      auto dstLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          outputType.getEncoding());
+      if (srcLayout && dstLayout &&
+          srcLayout.getOobVal() != dstLayout.getOobVal()) {
+        return failure();
+      }
+    }
+
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
                                             op.getOutput());
     return success();
