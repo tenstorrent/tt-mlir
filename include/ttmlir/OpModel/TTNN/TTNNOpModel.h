@@ -114,9 +114,6 @@ template <>
 struct OpModel<AcosOp> : UnaryEltwiseOpModel<AcosOp> {};
 
 template <>
-struct OpModel<TanhOp> : UnaryEltwiseOpModel<TanhOp> {};
-
-template <>
 struct OpModel<LogOp> : UnaryEltwiseWithFastApproxModeOpModel<LogOp> {};
 
 template <>
@@ -178,6 +175,22 @@ struct OpModel<ErfOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfOp> {};
 
 template <>
 struct OpModel<ErfcOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfcOp> {};
+
+//===----------------------------------------------------------------------===//
+// TanhOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<TanhOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             TTNNLayoutAttr outputLayout);
+};
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
