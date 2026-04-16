@@ -3449,6 +3449,13 @@ def ttir_asin_golden(
     return torch.asin(input_tensor).to(output_dtype)
 
 
+def ttir_asinh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.asinh(input_tensor).to(output_dtype)
+
+
 def ttir_sin_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6109,6 +6116,13 @@ def ttnn_asin_golden(
     return torch.asin(input_tensor).to(dtype)
 
 
+def ttnn_asinh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.asinh(input_tensor).to(dtype)
+
+
 def ttnn_sqrt_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -7131,6 +7145,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SiluOp: silu_golden,
     ttir.SinOp: ttir_sin_golden,
     ttir.AsinOp: ttir_asin_golden,
+    ttir.AsinhOp: ttir_asinh_golden,
     ttir.SqrtOp: ttir_sqrt_golden,
     ttir.LogOp: ttir_log_golden,
     ttir.Log1pOp: ttir_log1p_golden,
@@ -7372,6 +7387,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.SiluOp: ttnn_silu_golden,
     ttnn.SinOp: ttnn_sin_golden,
     ttnn.AsinOp: ttnn_asin_golden,
+    ttnn.AsinhOp: ttnn_asinh_golden,
     ttnn.SqrtOp: ttnn_sqrt_golden,
     ttnn.LogOp: ttnn_log_golden,
     ttnn.Log1pOp: ttnn_log1p_golden,

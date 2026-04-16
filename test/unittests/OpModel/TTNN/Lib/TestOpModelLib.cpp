@@ -163,6 +163,7 @@ using OpModelSigmoidParam = OpModelUnaryEltwiseParam<SigmoidOp>;
 using OpModelHardsigmoidParam = OpModelUnaryEltwiseParam<HardsigmoidOp>;
 using OpModelSinParam = OpModelUnaryEltwiseParam<SinOp>;
 using OpModelAsinParam = OpModelUnaryEltwiseParam<AsinOp>;
+using OpModelAsinhParam = OpModelUnaryEltwiseParam<AsinhOp>;
 using OpModelCosParam = OpModelUnaryEltwiseParam<CosOp>;
 using OpModelAcosParam = OpModelUnaryEltwiseParam<AcosOp>;
 using OpModelExpParam = OpModelUnaryEltwiseParam<ExpOp>;
@@ -195,6 +196,7 @@ TEST_P(OpModelSigmoidParam, SigmoidOp) { RunTest(); }
 TEST_P(OpModelHardsigmoidParam, HardsigmoidOp) { RunTest(); }
 TEST_P(OpModelSinParam, SinOp) { RunTest(); }
 TEST_P(OpModelAsinParam, AsinOp) { RunTest(); }
+TEST_P(OpModelAsinhParam, AsinhOp) { RunTest(); }
 TEST_P(OpModelCosParam, CosOp) { RunTest(); }
 TEST_P(OpModelAcosParam, AcosOp) { RunTest(); }
 TEST_P(OpModelExpParam, ExpOp) { RunTest(); }
@@ -279,6 +281,9 @@ INSTANTIATE_TEST_SUITE_P(SinTests, OpModelSinParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(AsinTests, OpModelAsinParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(AsinhTests, OpModelAsinhParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(CosTests, OpModelCosParam,
