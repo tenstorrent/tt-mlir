@@ -355,9 +355,12 @@ void createTTIRToTTNNDevicePipeline(
     // Forward the OptionalMathFidelity value directly
     setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
     setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
+    setConfigOptions.maxAccuracy =
+        (options.accuracyMode == AccuracyMode::Accuracy);
 
     if (setConfigOptions.fp32DestAccEn ||
-        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined) {
+        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined ||
+        setConfigOptions.maxAccuracy) {
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 

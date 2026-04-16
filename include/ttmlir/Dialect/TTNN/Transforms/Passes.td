@@ -524,7 +524,9 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
     Option<"packerL1Acc", "packer-l1-acc", "bool", /*default=*/"false",
            "Set default packer_l1_acc">,
     Option<"dstFullSyncEn", "dst-full-sync-en", "bool", /*default=*/"false",
-           "Set default dst_full_sync_en">
+           "Set default dst_full_sync_en">,
+    Option<"maxAccuracy", "max-accuracy", "bool", /*default=*/"false",
+           "Enable per-op accuracy rules (e.g., disable approx modes on SDPA decode)">
   ];
 }
 

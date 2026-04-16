@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
+#include "ttmlir/Dialect/TTNN/Utils/AccuracyModeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
@@ -394,6 +395,21 @@ struct TTIRToTTNNDevicePipelineOptions
                      "operations exposing compute kernel config."),
       llvm::cl::init(true)};
 
+  mutable Option<AccuracyMode> accuracyMode{
+      *this, "accuracy-mode",
+      llvm::cl::desc(
+          "Set accuracy mode for compute operations. 'accuracy' enables "
+          "HiFi4 math, fp32 accumulation, and per-op accuracy rules. "
+          "'performance' uses ttnn per-op defaults. When set, overrides "
+          "optimization level defaults for compute config."),
+      llvm::cl::values(
+          clEnumValN(AccuracyMode::None, "none",
+                     "Not set (use optimization level defaults)"),
+          clEnumValN(AccuracyMode::Accuracy, "accuracy", "Maximum accuracy"),
+          clEnumValN(AccuracyMode::Performance, "performance",
+                     "Maximum performance")),
+      llvm::cl::init(AccuracyMode::None)};
+
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
       llvm::cl::desc("Enable performance metrics collection."),
@@ -484,6 +500,22 @@ struct TTIRToTTNNDevicePipelineOptions
     if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
         optimizationLevel > 0) {
       computeCfgFp32DestAccEn = false;
+    }
+
+    // AccuracyMode overrides optimization level defaults when explicitly set.
+    // Individual CLI knobs (computeCfgMathFidelity, computeCfgFp32DestAccEn)
+    // take precedence over accuracy_mode when also explicitly set via CLI.
+    // Note: we check accuracyMode != None rather than getNumOccurrences()
+    // because tt-xla sets this programmatically (not from CLI).
+    if (accuracyMode != AccuracyMode::None) {
+      if (computeCfgMathFidelity.getNumOccurrences() == 0) {
+        computeCfgMathFidelity = (accuracyMode == AccuracyMode::Accuracy)
+                                     ? OptionalMathFidelity::HiFi4
+                                     : OptionalMathFidelity::Undefined;
+      }
+      if (computeCfgFp32DestAccEn.getNumOccurrences() == 0) {
+        computeCfgFp32DestAccEn = (accuracyMode == AccuracyMode::Accuracy);
+      }
     }
   }
 };

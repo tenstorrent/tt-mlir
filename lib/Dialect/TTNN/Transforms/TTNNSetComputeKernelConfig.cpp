@@ -83,22 +83,23 @@ public:
         config = config.withDstFullSyncEn(dstFullSyncEn);
       }
 
-      // HACK: For SDPA decode ops, when math fidelity is HiFi4, force
-      // math_approx_mode=false and exp_approx_mode=false to maximize accuracy.
-      if (mathFidelityOverride.has_value() &&
-          *mathFidelityOverride == MathFidelity::HiFi4) {
+      // When maxAccuracy is enabled, apply per-op accuracy rules to maximize
+      // numerical precision for specific operations.
+      if (maxAccuracy) {
         if (auto sdpaDecodeOp =
                 dyn_cast<ScaledDotProductAttentionDecodeOp>(op)) {
+          // Force math_approx_mode=false for maximum accuracy.
           config = config.withMathApproxMode(false);
 
-          // Also set exp_approx_mode=false on SDPAProgramConfig.
+          // Force exp_approx_mode=false on SDPAProgramConfig to disable
+          // exponential approximation in softmax.
           SDPAProgramConfigAttr programConfig =
               sdpaDecodeOp.getProgramConfigAttr();
           if (programConfig) {
             auto newProgramConfig = SDPAProgramConfigAttr::get(
                 context, programConfig.getComputeWithStorageGridSize(),
-                programConfig.getSubCoreGrids(),
-                programConfig.getQChunkSize(), programConfig.getKChunkSize(),
+                programConfig.getSubCoreGrids(), programConfig.getQChunkSize(),
+                programConfig.getKChunkSize(),
                 /*exp_approx_mode=*/BoolAttr::get(context, false),
                 programConfig.getMaxCoresPerHeadBatch());
             sdpaDecodeOp.setProgramConfigAttr(newProgramConfig);

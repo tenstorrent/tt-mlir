@@ -394,6 +394,20 @@ def TTNN_WeightDtype : I32EnumAttr<"WeightDtype", "Weight data type for conversi
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+def TTNN_AccuracyModeNone : I32EnumAttrCase<"None", 0, "none">;
+def TTNN_AccuracyModeAccuracy : I32EnumAttrCase<"Accuracy", 1, "accuracy">;
+def TTNN_AccuracyModePerformance : I32EnumAttrCase<"Performance", 2, "performance">;
+
+def TTNN_AccuracyMode : I32EnumAttr<"AccuracyMode", "Accuracy mode for compute operations",
+                           [
+                            TTNN_AccuracyModeNone,
+                            TTNN_AccuracyModeAccuracy,
+                            TTNN_AccuracyModePerformance,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 def TTNN_NocModeDedicatedNoc : I32EnumAttrCase<"DedicatedNoc", 0, "dedicated_noc">;
 def TTNN_NocModeDynamicNoc : I32EnumAttrCase<"DynamicNoc", 1, "dynamic_noc">;
 

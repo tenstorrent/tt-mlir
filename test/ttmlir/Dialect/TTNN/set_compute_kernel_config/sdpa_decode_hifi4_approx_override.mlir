@@ -1,5 +1,5 @@
-// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" %s | FileCheck %s
-// Test that when math fidelity is HiFi4, SDPA decode ops get math_approx_mode=false
+// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4 max-accuracy=true" %s | FileCheck %s
+// Test that when max-accuracy is enabled, SDPA decode ops get math_approx_mode=false
 // on compute_config and exp_approx_mode=false on program_config to maximize accuracy.
 
 // CHECK-LABEL: func @test_sdpa_decode_hifi4_forces_approx_off
