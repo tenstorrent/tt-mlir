@@ -169,63 +169,57 @@ public:
   }
 
   // Create a Conv2dOp for testing
-  Conv2dOp
-  createMockConv2dOp(
-    const llvm::ArrayRef<int64_t> &inputShape = {1, 32, 32, 256},
-    const llvm::ArrayRef<int64_t> &weightShape = {128, 256, 3, 3},
-    const llvm::ArrayRef<int64_t> &biasShape = {1, 1, 1, 128}) {
+  Conv2dOp createMockConv2dOp(
+      const llvm::ArrayRef<int64_t> &inputShape = {1, 32, 32, 256},
+      const llvm::ArrayRef<int64_t> &weightShape = {128, 256, 3, 3},
+      const llvm::ArrayRef<int64_t> &biasShape = {1, 1, 1, 128}) {
 
-    int32_t in_channels   = inputShape[3];
-    int32_t out_channels  = weightShape[0];
-    int32_t batch_size    = inputShape[0];
-    int32_t input_height  = inputShape[1];
-    int32_t input_width   = inputShape[2];
-    int32_t groups        = 1;
+    int32_t in_channels = inputShape[3];
+    int32_t out_channels = weightShape[0];
+    int32_t batch_size = inputShape[0];
+    int32_t input_height = inputShape[1];
+    int32_t input_width = inputShape[2];
+    int32_t groups = 1;
     llvm::SmallVector<int32_t, 2> kernel_size = {
-        static_cast<int32_t>(weightShape[2]), 
+        static_cast<int32_t>(weightShape[2]),
         static_cast<int32_t>(weightShape[3])};
-    llvm::SmallVector<int32_t, 2> stride   = {1, 1};
-    llvm::SmallVector<int32_t, 2> padding  = {0, 0};
+    llvm::SmallVector<int32_t, 2> stride = {1, 1};
+    llvm::SmallVector<int32_t, 2> padding = {0, 0};
     llvm::SmallVector<int32_t, 2> dilation = {1, 1};
     auto device = builder.create<GetDeviceOp>(
-      builder.getUnknownLoc(),
-      MeshShapeAttr::get(&context, 1, 1),
-      MeshOffsetAttr::get(&context, 0, 0));
-
+        builder.getUnknownLoc(), MeshShapeAttr::get(&context, 1, 1),
+        MeshOffsetAttr::get(&context, 0, 0));
 
     auto inputLayout = createL1InterleavedLayout(inputShape);
-    auto inputTensorType =
-        mlir::RankedTensorType::get(inputShape, 
-          builder.getBF16Type(), inputLayout);
+    auto inputTensorType = mlir::RankedTensorType::get(
+        inputShape, builder.getBF16Type(), inputLayout);
     auto input = builder.create<OnesOp>(
         builder.getUnknownLoc(), inputTensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
     auto weightLayout = createL1InterleavedLayout(weightShape);
-    auto weightTensorType =
-        mlir::RankedTensorType::get(weightShape, 
-          builder.getBF16Type(), weightLayout);
+    auto weightTensorType = mlir::RankedTensorType::get(
+        weightShape, builder.getBF16Type(), weightLayout);
     auto weight = builder.create<OnesOp>(
         builder.getUnknownLoc(), weightTensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, weightShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
     llvm::SmallVector<int64_t> outputShape = {
-      batch_size,
-      (input_height + 2*padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) 
-        / stride[0] + 1,
-      (input_width + 2*padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) 
-        / stride[1] + 1,
-      out_channels
-    };
-    auto outputLayout = createTiledLayout(outputShape, 
-                          BufferType::L1,
-                          TensorMemoryLayout::HeightSharded);
-    auto outputTensorType =
-        mlir::RankedTensorType::get(biasShape, 
-          builder.getBF16Type(), outputLayout);
-    
+        batch_size,
+        (input_height + 2 * padding[0] - dilation[0] * (kernel_size[0] - 1) -
+         1) / stride[0] +
+            1,
+        (input_width + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) -
+         1) / stride[1] +
+            1,
+        out_channels};
+    auto outputLayout = createTiledLayout(outputShape, BufferType::L1,
+                                          TensorMemoryLayout::HeightSharded);
+    auto outputTensorType = mlir::RankedTensorType::get(
+        biasShape, builder.getBF16Type(), outputLayout);
+
     return builder.create<Conv2dOp>(builder.getUnknownLoc(), outputTensorType,
                                     input.getResult(), weight.getResult(),
                                     /*bias=*/nullptr,
@@ -487,22 +481,17 @@ TEST_F(OpModelStrategyTest, Conv2dPreferHeightSharded) {
                         /*requiresReshard=*/false, /*outputL1Usage=*/32768};
   auto outputShape = conv2dOp.getResult().getType().getShape();
 
-  auto interLayout = createTiledLayout(outputShape, 
-                          BufferType::L1,
-                          TensorMemoryLayout::Interleaved);
-  auto hsLayout = createTiledLayout(outputShape, 
-                          BufferType::L1,
-                          TensorMemoryLayout::HeightSharded);
-  auto wsLayout = createTiledLayout(outputShape, 
-                          BufferType::L1,
-                          TensorMemoryLayout::WidthSharded);
-  auto bsLayout = createTiledLayout(outputShape, 
-                          BufferType::L1,
-                          TensorMemoryLayout::BlockSharded);
-  auto ndLayout = createTiledLayout(outputShape, 
-                          BufferType::L1,
-                          TensorMemoryLayout::NDSharded);
-  
+  auto interLayout = createTiledLayout(outputShape, BufferType::L1,
+                                       TensorMemoryLayout::Interleaved);
+  auto hsLayout = createTiledLayout(outputShape, BufferType::L1,
+                                    TensorMemoryLayout::HeightSharded);
+  auto wsLayout = createTiledLayout(outputShape, BufferType::L1,
+                                    TensorMemoryLayout::WidthSharded);
+  auto bsLayout = createTiledLayout(outputShape, BufferType::L1,
+                                    TensorMemoryLayout::BlockSharded);
+  auto ndLayout = createTiledLayout(outputShape, BufferType::L1,
+                                    TensorMemoryLayout::NDSharded);
+
   BeamCandidate interCandidate;
   interCandidate.score = tiedScore;
   interCandidate.outputLayouts = {interLayout};
@@ -522,7 +511,7 @@ TEST_F(OpModelStrategyTest, Conv2dPreferHeightSharded) {
   BeamCandidate ndCandidate;
   ndCandidate.score = tiedScore;
   ndCandidate.outputLayouts = {ndLayout};
-  
+
   // Function preferCandidate() should prefer HeighSharded over any other.
   // HeighSharded vs Interleaved.
   EXPECT_TRUE(preferCandidate(conv2dOp, hsCandidate, interCandidate));

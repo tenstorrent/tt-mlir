@@ -63,8 +63,7 @@ static uint32_t getActBlockHOverride(const BeamCandidate &c) {
 static std::optional<TensorMemoryLayout>
 getTensorMemoryLayout(const BeamCandidate &c) {
   // First try conv2dConfig's shard_layout if explicitly set
-  if (auto *conv2d =
-          std::get_if<Conv2dAttrs>(&c.configHint.opSpecificAttrs)) {
+  if (auto *conv2d = std::get_if<Conv2dAttrs>(&c.configHint.opSpecificAttrs)) {
     if (conv2d->conv2dConfig.has_value() && conv2d->conv2dConfig.value()) {
       auto shardLayout = conv2d->conv2dConfig.value().getShardLayout();
       if (shardLayout.has_value()) {
