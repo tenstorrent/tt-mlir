@@ -15,6 +15,27 @@
 
 namespace unifiedOpLib {
 
+EltwiseUnaryCompositeResolvedParams resolveEltwiseUnaryCompositeParams(
+    const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+        &eltwiseUnaryCompositeOpT) {
+
+  EltwiseUnaryCompositeResolvedParams params;
+
+  params.fastApproxMode = false;
+
+  if (eltwiseUnaryCompositeOpT.out) {
+    params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
+        operations::utils::getTensorRefMemoryConfig(
+            *eltwiseUnaryCompositeOpT.out));
+    LOG_ASSERT(
+        operations::utils::inSystemMemory(*eltwiseUnaryCompositeOpT.out) ||
+            params.outputMemoryConfig.has_value(),
+        "Memory config must exist for device tensors");
+  }
+
+  return params;
+}
+
 EltwiseUnaryCompositeClampScalarResolvedParams
 resolveEltwiseUnaryCompositeClampScalarParams(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
