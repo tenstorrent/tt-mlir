@@ -780,7 +780,8 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
 
-void populateSpatialOpPatterns(MLIRContext *ctx, RewritePatternSet &patterns) {
+void populateD2MToTTMetalSpatialOpPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns) {
   patterns.add<ttmetal::SpatialOpRewriter>(ctx);
 }
 
