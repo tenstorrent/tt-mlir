@@ -31,7 +31,7 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       tensorPool.getTTNNTensorAndValidate(op->dense_token_counts_tensor());
 
   // GPT-OSS worker cores: 3x4 rectangle at (1,0)-(3,3).
-  std::vector<ttnn::CoreCoord> workerCores;
+  std::vector<::ttnn::CoreCoord> workerCores;
   for (uint32_t y = 0; y < kDefaultTokenParallelCoreDim; ++y) {
     for (uint32_t x = 1; x <= kDefaultDataParallelCoreDim; ++x) {
       workerCores.emplace_back(x, y);
