@@ -109,7 +109,7 @@ struct ConvertD2MToTTMetal
     targetForSpatial.addIllegalOp<d2m::SpatialOp>();
 
     RewritePatternSet spatialPatterns(&getContext());
-    populateSpatialOpPatterns(&getContext(), spatialPatterns);
+    populateD2MToTTMetalSpatialOpPattern(&getContext(), spatialPatterns);
     if (failed(applyFullConversion(getOperation(), targetForSpatial,
                                    std::move(spatialPatterns)))) {
       signalPassFailure();
