@@ -213,14 +213,33 @@ gh workflow run manual-test.yml \
   -f test_suite=<suite>
 ```
 
-After dispatching, wait a few seconds then find the newly created runs:
+After dispatching, wait ~5 seconds then find the newly created runs. Record the
+timestamp just before dispatching and use it to filter:
 
 ```bash
-gh run list --repo tenstorrent/tt-xla --workflow=manual-test.yml --limit 10 \
-  --json databaseId,status,name,createdAt,url
+# capture before dispatch
+DISPATCH_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# ... dispatch commands ...
+
+# wait for GitHub to register the run
+sleep 5
+
+gh run list --repo tenstorrent/tt-xla --workflow=manual-test.yml --limit 20 \
+  --json databaseId,status,name,createdAt,url \
+  --jq "[.[] | select(.createdAt >= \"$DISPATCH_TIME\")]"
 ```
 
-Match runs by recency. Collect run URLs and IDs for both PR and baseline runs.
+Match each dispatched suite to exactly one run created at or after `DISPATCH_TIME`.
+If multiple candidates appear for the same suite, take the most recent. If no run
+appears within 15 seconds, retry once — GitHub Actions dispatch is occasionally slow.
+
+**Important:** Re-triggering failed jobs within an existing run does NOT create a new
+run ID. The run ID is stable for the lifetime of the workflow run. Only dispatch
+creates new IDs. Once IDs are recorded here, treat them as final — never update them
+during polling.
+
+Collect run URLs and IDs. These are the **only** IDs tracked for the rest of the skill.
 
 ### 8. Update the PR description (initial — in_progress)
 
@@ -279,11 +298,17 @@ other work.
 
 ### 10. Poll for run completion
 
-Each iteration, check all tracked runs:
+Each iteration, check the exact run IDs recorded in step 7 — never scan for new runs
+or add IDs during polling. Re-triggered jobs stay under the same run ID and will be
+reflected in the existing run's status automatically.
 
 ```bash
-gh run view <run-id> --repo tenstorrent/tt-xla --json status,conclusion
+gh run view <run-id> --repo tenstorrent/tt-xla --json status,conclusion,url
 ```
+
+A run with re-triggered jobs may cycle through `queued` or `in_progress` again after
+previously being `completed` — this is normal. Keep polling until the run settles in a
+terminal state and stays there for one full poll cycle.
 
 Report status in the terminal each iteration (e.g. `[12:34] <default-suite>:
 in_progress, next check in 3min`). Keep polling until all tracked runs (PR runs + any
