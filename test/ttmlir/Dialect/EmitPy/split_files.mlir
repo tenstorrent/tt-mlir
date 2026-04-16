@@ -23,9 +23,9 @@ module {
 // CHECK:     emitpy.import import "utils"
 // CHECK:     emitpy.import from "consteval" import "consteval_forward"
 // CHECK:     func.func private @consteval_forward
-// CHECK:     emitpy.global @_cached_forward = #emitpy.opaque<"{}">
+// CHECK:     emitpy.global @ce_cache_forward = #emitpy.opaque<"{}">
 // CHECK:     func.func @forward(
-// CHECK:       emitpy.global_statement @_cached_forward
+// CHECK:       emitpy.global_statement @ce_cache_forward
 // CHECK:       call @consteval_forward({{.*}})
 // CHECK:       emitpy.call_opaque "ttnn.add"
 // CHECK:       emitpy.call_opaque "ttnn.add"

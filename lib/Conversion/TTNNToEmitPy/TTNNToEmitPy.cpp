@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -2887,13 +2888,17 @@ public:
     Location loc = setKVOp.getLoc();
     Value key = emitDictKey(rewriter, loc, setKVOp.getKey());
 
-    // Pack values to set into a list.
-    auto tensorListType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
-    auto tensorListOp = rewriter.create<emitpy::CallOpaqueOp>(
-        loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
-        adaptor.getValues());
-    auto value = tensorListOp.getResult(0);
+    Value value;
+    if (adaptor.getValues().size() == 1) {
+      value = adaptor.getValues().front();
+    } else {
+      auto tensorListType =
+          emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
+      auto tensorListOp = rewriter.create<emitpy::CallOpaqueOp>(
+          loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
+          adaptor.getValues());
+      value = tensorListOp.getResult(0);
+    }
 
     // Build an expression that computes the subscript lvalue.
     SmallVector<Value> exprOperands = {adaptor.getDict(), key};
@@ -2938,13 +2943,20 @@ public:
     Location loc = getKVOp.getLoc();
     Value key = emitDictKey(rewriter, loc, getKVOp.getKey());
 
-    auto tensorListType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
     llvm::SmallVector<Type> convertedTypes;
     for (auto resultType : getKVOp.getResultTypes()) {
       convertedTypes.push_back(getTypeConverter()->convertType(resultType));
     }
 
+    if (getKVOp.getNumResults() == 1) {
+      auto value = rewriter.create<emitpy::SubscriptOp>(loc, convertedTypes[0],
+                                                        adaptor.getDict(), key);
+      rewriter.replaceOp(getKVOp, value);
+      return success();
+    }
+
+    auto tensorListType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
     llvm::SmallVector<Value> results;
     auto value = rewriter
                      .create<emitpy::SubscriptOp>(loc, tensorListType,
@@ -3005,7 +3017,7 @@ public:
   matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    rewriter.modifyOpInPlace(funcOp, [&funcOp]() {
+    rewriter.modifyOpInPlace(funcOp, [&funcOp, &rewriter]() {
       // Preserve emitpy.name attributes before removing all argument
       // attributes.
       SmallVector<Attribute> emitPyNames;
@@ -3021,9 +3033,23 @@ public:
           funcOp.setArgAttr(i, ttnn_to_emitpy::kNameAttr, emitPyNames[i]);
         }
       }
+
+      if (ttmlir::utils::isConstEvalWrapperFunc(funcOp)) {
+        funcOp.setArgAttr(0, ttnn_to_emitpy::kNameAttr,
+                          StringAttr::get(rewriter.getContext(), "ce_cache"));
+        if (funcOp.getNumArguments() > 1 && isDictArgumentType(funcOp, 1)) {
+          funcOp.setArgAttr(1, ttnn_to_emitpy::kNameAttr,
+                            StringAttr::get(rewriter.getContext(), "weights"));
+        }
+      }
     });
 
     return success();
+  }
+
+  static bool isDictArgumentType(func::FuncOp funcOp, size_t argIndex) {
+    auto argType = funcOp.getArgument(argIndex).getType();
+    return isa<ttcore::DictType>(argType) || isa<emitpy::DictType>(argType);
   }
 };
 } // namespace
