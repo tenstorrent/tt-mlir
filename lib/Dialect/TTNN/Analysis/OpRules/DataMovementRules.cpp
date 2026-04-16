@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 
 namespace mlir::tt::ttnn {
@@ -160,8 +161,14 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 
 /// Check if a reshape can be optimized to a view (no kernel launch) by
 /// tt-metal. Mirrors the `this_is_view` condition in tt-metal's
-/// reshape.cpp:378-384.
+/// reshape.cpp:378-384. Only applies to ReshapeOp — PermuteOp has its own
+/// NOP optimization (is_permute_nop) with different conditions.
+/// TODO(#7988): Split PermuteOp into its own PermuteRuleBook to avoid this
+/// op-kind check.
 static bool canReshapeBeView(Operation *op) {
+  if (!mlir::isa<ReshapeOp>(op)) {
+    return false;
+  }
   auto inputType =
       mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
   auto outputType =
@@ -191,7 +198,7 @@ static bool canReshapeBeView(Operation *op) {
         outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
     if (inputSecondLast != outputSecondLast &&
         !(outputSecondLast % TILE_HEIGHT == 0 &&
-          inputSecondLast % TILE_WIDTH == 0)) {
+          inputSecondLast % TILE_HEIGHT == 0)) {
       return false;
     }
   }

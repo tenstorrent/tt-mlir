@@ -91,6 +91,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SliceStaticOp::getOperationName(), &slice);
     reg(SliceDynamicOp::getOperationName(), &slice);
     reg(ReshapeOp::getOperationName(), &reshape);
+
+    // TODO: split permute's from reshape's rule book
+    // https://github.com/tenstorrent/tt-mlir/issues/7988
     reg(PermuteOp::getOperationName(), &reshape);
     reg(PadOp::getOperationName(), &pad);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
