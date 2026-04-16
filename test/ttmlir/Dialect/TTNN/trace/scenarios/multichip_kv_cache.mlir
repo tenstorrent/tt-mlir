@@ -26,6 +26,11 @@ module {
     // CHECK-SAME: buffer_type<dram>
     // CHECK-SAME: ttcore.kv_cache
 
+    // CHECK: "ttnn.deallocate"
+    // CHECK: "ttnn.begin_trace_capture"
+    // CHECK: "ttnn.end_trace_capture"
+    // CHECK: "ttnn.execute_trace"
+
     // CHECK-LABEL: func.func @main(
     // CHECK: "ttnn.mesh_shard"
     // CHECK: "ttnn.mesh_shard"
