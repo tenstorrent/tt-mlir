@@ -21,6 +21,7 @@
 #include <eltwise/binary/unifiedEltwiseBinaryOp.h>
 #include <eltwise/quantization/unifiedEltwiseQuantizationOp.h>
 #include <eltwise/ternary/unifiedEltwiseTernaryOp.h>
+#include <eltwise/unary/unifiedEltwiseUnaryOp.h>
 #include <matmul/unifiedMatmulOp.h>
 #include <ttnn/graph/graph_query_op_runtime.hpp>
 
@@ -816,6 +817,26 @@ llvm::Expected<bool> Device::getDeviceConstraints(ttcore::GridAttr workerGrid) {
 //===----------------------------------------------------------------------===//
 // Unary Eltwise Ops
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+template <typename OpTy>
+static ::tt::target::ttnn::EltwiseUnaryOpT buildEltwiseUnaryOpTFromMLIR(std::optional<llvm::APFloat> slope = std::nullopt) {
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
+
+  if (std::is_same_v<OpTy, TanhOp>) {
+    eltwiseUnaryOpT.type = ::tt::target::ttnn::EltwiseUnaryOpType::Tanh;
+  } else if (std::is_same_v<OpTy, SigmoidOp>) {
+    eltwiseUnaryOpT.type = ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid;
+  } else if (std::is_same_v<OpTy, LeakyReluOp>) {
+    eltwiseUnaryOpT.type = ::tt::target::ttnn::EltwiseUnaryOpType::LeakyRelu;
+    assert(slope.has_value() && "LeakyReluOp requires a slope value");
+    ::tt::target::ttnn::EltwiseOpWithFloatParamsT eltwiseOpWithFloatParamsT;
+    eltwiseOpWithFloatParamsT.parameter = slope.value().convertToFloat();
+    eltwiseUnaryOpT.params.Set(eltwiseOpWithFloatParamsT);
+  }
+
+  return eltwiseUnaryOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 template <typename OpTy>
 llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
@@ -833,11 +854,21 @@ llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<OpTy>();
+
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        detail::getOpSymbol<OpTy>(), device, inputSpec,
+    unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnary(
+        unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
+        detail::getOpSymbol<OpTy>(), inputSpec, device,
         detail::getNullableMemoryConfig(outputLayout));
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EltwiseUnaryOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -863,11 +894,21 @@ UnaryEltwiseOpModel<OpTy>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<OpTy>();
+
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        detail::getOpSymbol<OpTy>(), device, inputSpec,
+    unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnary(
+        unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
+        detail::getOpSymbol<OpTy>(), inputSpec, device,
         detail::getNullableMemoryConfig(outputLayout));
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseUnaryOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -892,13 +933,23 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  bool fastApproxMode = true;
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<OpTy>();
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        detail::getOpSymbol<OpTy>(), device, inputSpec, fastApproxMode,
-        detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryWithFastAndApproximateMode(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
+            detail::getOpSymbol<OpTy>(), inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "EltwiseUnaryWithFastAndApproximateModeOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -924,13 +975,23 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  bool fastApproxMode = true;
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<OpTy>();
 
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        detail::getOpSymbol<OpTy>(), device, inputSpec, fastApproxMode,
-        detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryWithFastAndApproximateMode(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
+            detail::getOpSymbol<OpTy>(), inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from "
+        "EltwiseUnaryWithFastAndApproximateModeOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -947,7 +1008,6 @@ template struct UnaryEltwiseWithFastApproxModeOpModel<SqrtOp>;
 template struct UnaryEltwiseOpModel<SinOp>;
 template struct UnaryEltwiseOpModel<AbsOp>;
 template struct UnaryEltwiseOpModel<CosOp>;
-template struct UnaryEltwiseOpModel<TanhOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<LogOp>;
 template struct UnaryEltwiseOpModel<CeilOp>;
 template struct UnaryEltwiseOpModel<SignOp>;
@@ -973,6 +1033,88 @@ template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
 
 //===----------------------------------------------------------------------===//
+// TanhOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<TanhOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<TanhOp>();
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryTanh(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
+            ::ttnn::tanh, inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EltwiseUnaryTanhOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<TanhOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                              TTNNLayoutAttr inputLayout,
+                              TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<TanhOp>();
+
+  // Create query closure
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryTanh(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
+            ::ttnn::tanh, inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseUnaryTanhOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // SigmoidOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
@@ -989,16 +1131,23 @@ llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Add default parameters
-  int32_t vectorMode =
-      static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<SigmoidOp>();
 
   // Create query closure
   auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::sigmoid, device, inputSpec, vectorMode,
-                                sigmoidMode,
-                                detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnarySigmoid(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
+            ::ttnn::sigmoid, inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "EltwiseUnarySigmoidOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1023,16 +1172,22 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  // Add default parameters
-  int32_t vectorMode =
-      static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
-  auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<SigmoidOp>();
 
   // Create query closure
   auto query = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::sigmoid, device, inputSpec, vectorMode,
-                            sigmoidMode,
-                            detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnarySigmoid(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
+            ::ttnn::sigmoid, inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseUnarySigmoidOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -1059,11 +1214,23 @@ llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<LeakyReluOp>(slope);
+
   // Create query closure
   auto leakyReluOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::leaky_relu, device, inputSpec,
-                                slope.convertToFloat(),
-                                detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryWithFloatParameter(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
+            ::ttnn::leaky_relu, inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "runEltwiseUnaryWithFloatParameterOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1087,11 +1254,23 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
+  ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
+      buildEltwiseUnaryOpTFromMLIR<LeakyReluOp>(slope);
+
   // Create query closure
   auto leakyReluOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::leaky_relu, device, inputSpec,
-                            slope.convertToFloat(),
-                            detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryWithFloatParameter(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
+            ::ttnn::leaky_relu, inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from "
+        "runEltwiseUnaryWithFloatParameterOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(leakyReluOpQuery);
@@ -1626,10 +1805,6 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
                result) &&
            "Expected ConstraintQueryResponse from EltwiseTernaryOp query");
     return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
-    // return ::ttnn::graph::query_op_constraints(detail::getOpSymbol<OpTy>(),
-    //                                            device, inputSpecA,
-    //                                            inputSpecB, inputSpecC,
-    //                                            outputMemoryConfig);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -1688,10 +1863,6 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
         "Expected RuntimeQueryResponse from EltwiseTernaryOp query");
     return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
-    // return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(),
-    // device,
-    //                                        inputSpecA, inputSpecB,
-    //                                        inputSpecC, outputMemoryConfig);
   };
 
   return operation::getOpRuntime(query);
@@ -4658,16 +4829,15 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
 
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
-                                                outputLayout);
+                                                        outputLayout);
 
   // Create query closure
   auto requantizeOpQuery = [=]() {
     unifiedOpLib::EltwiseQuantizationOpResult result =
         unifiedOpLib::callEltwiseRequantize(
-            unifiedOpLib::CallType::QUERY_OP_RUNTIME,
-            eltwiseQuantizationOpT, inputSpec, inScaleSpec, inZeroPointSpec,
-            outScaleSpec, outZeroPointSpec, device, outputMemoryConfig,
-            outputDType);
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseQuantizationOpT,
+            inputSpec, inScaleSpec, inZeroPointSpec, outScaleSpec,
+            outZeroPointSpec, device, outputMemoryConfig, outputDType);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&

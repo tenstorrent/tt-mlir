@@ -74,7 +74,6 @@ EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
              ::tt::target::ttnn::EltwiseQuantizationOpType::Dequantize) {
     func = ::ttnn::dequantize;
   } else {
-    func = ::ttnn::dequantize;
     LOG_ASSERT(false &&
                "EltwiseQuantizationOpType must be Quantize or Dequantize");
   }
