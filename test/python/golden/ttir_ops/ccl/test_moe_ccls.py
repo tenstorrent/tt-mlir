@@ -7,7 +7,6 @@ import torch
 from collections import OrderedDict
 from typing import List, Optional, Tuple
 
-import _ttmlir_runtime as tt_runtime
 from builder.base.builder_utils import Operand, Shape
 from builder.base.builder_enums import MeshShardDirection, MeshShardType
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -215,7 +214,6 @@ def _build_expert_scores(batch, S, K):
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.skip(reason="Temporarily disabled")
 @pytest.mark.parametrize("mesh_shape", [(4, 8)], ids=shape_str)
 @pytest.mark.parametrize(
     "fabric_config",
@@ -383,7 +381,7 @@ def test_moe_dispatch_metadata(
             mask_reshaped = builder.reshape(mask, (1, tokens_global, 1))
             masked_dispatched = builder.multiply(dispatched, mask_reshaped)
 
-            return masked_dispatched
+            return masked_dispatched, indices_out, scores_out
 
     compile_and_execute_ttir(
         module,

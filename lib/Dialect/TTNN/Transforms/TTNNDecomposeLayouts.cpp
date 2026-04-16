@@ -407,6 +407,23 @@ private:
         mlir::cast<RankedTensorType>(currentInput.getType());
     TTNNLayoutAttr currentLayout =
         utils::getLayoutAttrFromTensor(currentInputType);
+
+    // Skip if the current input is already interleaved in the target buffer
+    // type. This can happen when a forced createToDeviceOp already placed
+    // the tensor in the correct memory config — the precomputed
+    // createToMemoryConfigOp flag doesn't account for intermediate ops.
+    // For interleaved tensors the only remaining difference would be the
+    // physical encoding shape (memref), which has no runtime effect.
+    // We only skip for interleaved because sharded tensors may need a
+    // reshard (different shard grid) even with matching buffer type and
+    // memory layout.
+    if (currentLayout.getBufferType() == info.output.bufferType &&
+        currentLayout.getMemLayout() == info.output.tensorMemoryLayout &&
+        currentLayout.getMemLayout().getValue() ==
+            TensorMemoryLayout::Interleaved) {
+      return currentInput;
+    }
+
     ttcore::DataType dataType = currentLayout.getDataType();
 
     // ttnn.copy (used internally by to_memory_config) does not support uint16.
