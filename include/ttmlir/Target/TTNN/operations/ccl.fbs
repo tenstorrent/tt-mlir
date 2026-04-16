@@ -150,3 +150,21 @@ table MoeExpertTokenRemapOp {
   reduction_size: uint32;
   memory_config: tt.target.ttnn.MemoryConfig;
 }
+
+table MoeGptOp {
+  input_tensor: tt.target.ttnn.TensorRef;
+  expert_indices: tt.target.ttnn.TensorRef;
+  expert_scores: tt.target.ttnn.TensorRef;
+  expert_mapping: tt.target.ttnn.TensorRef;
+  w0_w1_tensor: tt.target.ttnn.TensorRef;
+  w2_tensor: tt.target.ttnn.TensorRef;
+  output_height_shard_dim: uint32 = 4;
+  output_width_shard_dim: uint32 = 3;
+  hidden_size: uint32 = 2880;
+  cluster_axis: uint32 = null;
+  token_counts: tt.target.ttnn.TensorRef;
+  activation_records: tt.target.ttnn.TensorRef;
+  token_indices: tt.target.ttnn.TensorRef;
+  tilize_out: tt.target.ttnn.TensorRef;
+  tilize_out_rm: tt.target.ttnn.TensorRef;
+}

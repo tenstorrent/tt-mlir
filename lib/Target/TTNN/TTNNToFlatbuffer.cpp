@@ -1327,6 +1327,44 @@ createOp(FlatbufferObjectCache &cache, MoeExpertTokenRemapOp op) {
       static_cast<uint32_t>(op.getReductionSize()), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::MoeGptOp>
+createOp(FlatbufferObjectCache &cache, MoeGptOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertScores = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertScores()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto w0w1Tensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getW0W1Tensor()));
+  auto w2Tensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getW2Tensor()));
+
+  auto tokenCounts = cache.getOrCreateNoSharding(
+      op.getTokenCounts(), tensorValueToFlatbuffer, std::nullopt);
+  auto activationRecords = cache.getOrCreateNoSharding(
+      op.getActivationRecords(), tensorValueToFlatbuffer, std::nullopt);
+  auto tokenIndices = cache.getOrCreateNoSharding(
+      op.getTokenIndices(), tensorValueToFlatbuffer, std::nullopt);
+  auto tilizeOut = cache.getOrCreateNoSharding(
+      op.getTilizeOut(), tensorValueToFlatbuffer, std::nullopt);
+  auto tilizeOutRm = cache.getOrCreateNoSharding(
+      op.getTilizeOutRm(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Optional<uint32_t> clusterAxis;
+  if (auto attr = op.getClusterAxisAttr()) {
+    clusterAxis = attr.getUInt();
+  }
+
+  return ::tt::target::ttnn::CreateMoeGptOp(
+      *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
+      w0w1Tensor, w2Tensor, op.getOutputHeightShardDim(),
+      op.getOutputWidthShardDim(), op.getHiddenSize(), clusterAxis, tokenCounts,
+      activationRecords, tokenIndices, tilizeOut, tilizeOutRm);
+}
+
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
 // Sum, Max, Min, Prod - applied reduction type to source tensor
 // Invalid - copy source to output tensor
@@ -4477,6 +4515,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       moeExpertTokenRemapOp) {
     return createOperation(cache, createOp(cache, moeExpertTokenRemapOp),
                            debugString, locInfo);
+  }
+  if (auto moeGptOp = dyn_cast<MoeGptOp>(op); moeGptOp) {
+    return createOperation(cache, createOp(cache, moeGptOp), debugString,
+                           locInfo);
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,
