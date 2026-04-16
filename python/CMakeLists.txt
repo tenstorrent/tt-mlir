@@ -31,6 +31,7 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/TTCoreEnumBinding.td
   SOURCES dialects/ttcore.py
   DIALECT_NAME ttcore
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTCore/IR/TTCoreOps.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -39,6 +40,8 @@ declare_mlir_dialect_python_bindings(
   TD_FILE dialects/TTIRBinding.td
   SOURCES dialects/ttir.py
   DIALECT_NAME ttir
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTIR/IR/TTIROps.td
+          ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -49,6 +52,7 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/D2MEnumBinding.td
   SOURCES dialects/d2m.py
   DIALECT_NAME d2m
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/D2M/IR/D2MOps.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -59,6 +63,7 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/TTKernelEnumBinding.td
   SOURCES dialects/ttkernel.py
   DIALECT_NAME ttkernel
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTKernel/IR/TTKernelOps.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -69,6 +74,8 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/TTNNEnumBinding.td
   SOURCES dialects/ttnn.py
   DIALECT_NAME ttnn
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTNN/IR/TTNNOps.td
+          ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.td
 )
 
 declare_mlir_dialect_python_bindings(
