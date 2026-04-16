@@ -32,7 +32,7 @@ static void copyTensorFromHostToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on host and dstTensor must be on device");
 
-  ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
+  ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
 }
 
 static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
@@ -41,7 +41,7 @@ static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on device and dstTensor must be on device");
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-  ::tt::tt_metal::tensor_impl::copy_to_device(hostSrcTensor, dstTensor);
+  ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
 }
 
 static void runTraceProgramAndCaptureTrace(

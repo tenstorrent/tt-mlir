@@ -1225,6 +1225,41 @@ createOp(FlatbufferObjectCache &cache, AllToAllDispatchOp op) {
       static_cast<uint32_t>(op.getClusterAxis()), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllDispatchMetadataOp>
+createOp(FlatbufferObjectCache &cache, AllToAllDispatchMetadataOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertScores = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertScores()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto dispatched = cache.getOrCreateNoSharding(
+      op.getDispatched(), tensorValueToFlatbuffer, std::nullopt);
+  auto indices = cache.getOrCreateNoSharding(
+      op.getIndices(), tensorValueToFlatbuffer, std::nullopt);
+  auto scores = cache.getOrCreateNoSharding(
+      op.getScores(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  const ::tt::target::ttnn::CoreCoord *drainCorePtr = nullptr;
+  ::tt::target::ttnn::CoreCoord drainCoreVal;
+  if (auto drainCoreAttr = op.getDrainCore()) {
+    drainCoreVal = toFlatbuffer(cache, *drainCoreAttr);
+    drainCorePtr = &drainCoreVal;
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllDispatchMetadataOp(
+      *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
+      dispatched, indices, scores, static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig, drainCorePtr);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>
 createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
   auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1568,6 +1603,48 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
       *cache.fbb, input, weight, residual, op.getClusterAxis(),
       op.getEpsilon().convertToFloat(), subDeviceId, memoryConfig, numLinks,
       topology, computeConfig.value_or(0), stats, programConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormPreAllGatherOp>
+createOp(FlatbufferObjectCache &cache, RMSNormPreAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residual = 0;
+  if (op.getResidual()) {
+    residual = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidual()));
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  bool use2DCoreGrid = false;
+  if (op.getUse_2dCoreGrid()) {
+    use2DCoreGrid = op.getUse_2dCoreGrid().value();
+  }
+
+  return ::tt::target::ttnn::CreateRMSNormPreAllGatherOp(
+      *cache.fbb, input, dtype.value_or(::tt::target::DataType::BFloat16),
+      residual, memoryConfig, computeConfig.value_or(0), programConfig,
+      use2DCoreGrid, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
@@ -4374,6 +4451,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, allToAllDispatchOp),
                            debugString, locInfo);
   }
+  if (auto allToAllDispatchMetadataOp =
+          dyn_cast<AllToAllDispatchMetadataOp>(op);
+      allToAllDispatchMetadataOp) {
+    return createOperation(cache, createOp(cache, allToAllDispatchMetadataOp),
+                           debugString, locInfo);
+  }
   if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);
       allToAllCombineOp) {
     return createOperation(cache, createOp(cache, allToAllCombineOp),
@@ -4503,6 +4586,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto distributedRMSNormOp = dyn_cast<DistributedRMSNormOp>(op);
       distributedRMSNormOp) {
     return createOperation(cache, createOp(cache, distributedRMSNormOp),
+                           debugString, locInfo);
+  }
+  if (auto rmsNormPreAllGatherOp = dyn_cast<RMSNormPreAllGatherOp>(op);
+      rmsNormPreAllGatherOp) {
+    return createOperation(cache, createOp(cache, rmsNormPreAllGatherOp),
                            debugString, locInfo);
   }
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {

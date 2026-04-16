@@ -150,3 +150,50 @@ def test_layer_norm_post_all_gather(
         device=device,
         target=target,
     )
+
+
+# RMSNormPreAllGather tests
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 32, 128),
+        (1, 1, 32, 512),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("has_residual", [False, True])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rms_norm_pre_all_gather(
+    shape: Shape,
+    has_residual: bool,
+    target: str,
+    request,
+    device,
+):
+    shapes = [shape]
+    if has_residual:
+        shapes.append(shape)
+
+    def module(builder: TTNNBuilder):
+        @builder.func(shapes, [torch.bfloat16] * len(shapes))
+        def rms_norm_pre_all_gather(*inputs, unit_attrs: Optional[List[str]] = None):
+            builder = inputs[-1]
+            in0 = inputs[0]
+            residual = None
+            if has_residual and len(inputs) > 2:
+                residual = inputs[1]
+
+            return builder.rms_norm_pre_all_gather(
+                in0,
+                residual=residual,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )

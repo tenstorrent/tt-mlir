@@ -1710,6 +1710,52 @@ public:
 } // namespace
 
 namespace {
+class AllToAllDispatchMetadataOpConversionPattern
+    : public OpConversionPattern<ttir::AllToAllDispatchMetadataOp> {
+public:
+  using OpConversionPattern<
+      ttir::AllToAllDispatchMetadataOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AllToAllDispatchMetadataOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // TTIR outputs are 3D [1, tokens_global, C], matching the metal kernel.
+    // No output reshape needed.
+    auto dispatched3D = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getDispatched().getType()));
+    auto indices3D = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getIndices().getType()));
+    auto scores3D = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getScores().getType()));
+
+    // Reshape expert_mapping from 4D [1, 1, D, E] to 2D [D, E].
+    Value expertMapping = adaptor.getExpertMapping();
+    auto mappingType = cast<RankedTensorType>(expertMapping.getType());
+    if (mappingType.getRank() == 4) {
+      int64_t D = mappingType.getShape()[2];
+      int64_t E = mappingType.getShape()[3];
+      SmallVector<int64_t> newShape = {D, E};
+      auto reshapedType =
+          ttnn::utils::RankedTensorTypeFactory::create(mappingType, newShape);
+      auto shapeAttr = rewriter.getI32ArrayAttr(
+          {static_cast<int32_t>(D), static_cast<int32_t>(E)});
+      expertMapping = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), reshapedType, expertMapping, shapeAttr,
+          /*memory_config=*/nullptr);
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
+        op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
+        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
+        /*memory_config=*/nullptr,
+        /*drain_core=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class AllToAllCombineOpConversionPattern
     : public OpConversionPattern<ttir::AllToAllCombineOp> {
 public:
@@ -3737,6 +3783,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MatmulOpConversionPattern,
            SparseMatmulOpConversionPattern,
            AllToAllDispatchOpConversionPattern,
+           AllToAllDispatchMetadataOpConversionPattern,
            AllToAllCombineOpConversionPattern,
            SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,

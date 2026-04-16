@@ -6886,6 +6886,60 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::AllToAllDispatchMetadataOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType scoresType = getExpertScores().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType indicesOutType = getIndices().getType();
+  ::mlir::RankedTensorType scoresOutType = getScores().getType();
+
+  // Inputs must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
+  }
+  if (scoresType.getRank() != 4) {
+    return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, D, E]");
+  }
+  // Outputs are 3D matching the metal kernel output shapes
+  if (dispatchedType.getRank() != 3) {
+    return emitOpError(
+        "dispatched output must be a 3D tensor [1, tokens_global, H]");
+  }
+  if (indicesOutType.getRank() != 3) {
+    return emitOpError(
+        "indices output must be a 3D tensor [1, tokens_global, K]");
+  }
+  if (scoresOutType.getRank() != 3) {
+    return emitOpError(
+        "scores output must be a 3D tensor [1, tokens_global, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllToAllCombineOp
 //===----------------------------------------------------------------------===//
 

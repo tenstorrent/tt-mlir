@@ -1398,7 +1398,7 @@ void d2m::GenericOp::build(
 
   build(builder, state, TypeRange(outputs), inputs, outputs, additionalArgs,
         grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads,
-        /*scratch_inputs=*/nullptr, fabricConnectionConfig, /*numRegions=*/1);
+        fabricConnectionConfig, /*numRegions=*/1);
 }
 
 void d2m::GenericOp::build(
@@ -2255,8 +2255,7 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
       thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
-      thisOp.getScratchInputsAttr(), thisOp.getFabricConnectionConfigAttr(),
-      thisOp.getNumRegions());
+      thisOp.getFabricConnectionConfigAttr(), thisOp.getNumRegions());
 }
 
 // Clone one generic region and retarget its block args to reblocked operands.
@@ -2811,7 +2810,7 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getAdditionalArgs(),
       getGrid(), getBlockFactors(), getIndexingMaps(), getIteratorTypes(),
-      getThreads(), getScratchInputsAttr(), getFabricConnectionConfigAttr(),
+      getThreads(), getFabricConnectionConfigAttr(),
       /*numRegions=*/getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));

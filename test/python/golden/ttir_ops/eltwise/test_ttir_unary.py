@@ -267,7 +267,7 @@ unary_ops = [
     rsqrt,
     sigmoid,
     sign,
-    hardsigmoid | Marks(pytest.mark.skip_config(["emitpy"])),
+    hardsigmoid,
     silu,
     sin,
     sqrt,

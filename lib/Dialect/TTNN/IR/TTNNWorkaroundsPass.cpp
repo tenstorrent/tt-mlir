@@ -1122,6 +1122,54 @@ TTNNOperandsWorkaroundsFactory::createAllToAllDispatchOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorUint16Workaround); // metadata
 }
 
+// Factory method to create workarounds for all_to_all_dispatch_metadata op
+// operands.
+// tt-metal CCL requirements:
+//   input_tensor:      ROW_MAJOR, BFLOAT16
+//   expert_indices:    ROW_MAJOR, UINT16
+//   expert_scores:     ROW_MAJOR, BFLOAT16
+//   expert_mapping:    ROW_MAJOR, UINT16
+//   dispatched out:    ROW_MAJOR, BFLOAT16
+//   indices out:       ROW_MAJOR, UINT16, L1 HEIGHT_SHARDED
+//   scores out:        ROW_MAJOR, BFLOAT16, L1 HEIGHT_SHARDED
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createAllToAllDispatchMetadataOpOperandsWorkarounds(Operation *op) {
+  TTNNOperandWorkarounds rowMajorBf16Workaround;
+  rowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds rowMajorUint16Workaround;
+  rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  // The metal kernel produces indices/scores outputs as HEIGHT_SHARDED on L1
+  // (on the drain_sync_tilizer_core). Set output workarounds so the compiler
+  // inserts to_memory_config ops to convert back to DRAM INTERLEAVED.
+  auto heightSharded = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::HeightSharded);
+
+  TTNNOperandWorkarounds l1ShardedUint16Workaround;
+  l1ShardedUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1ShardedUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  l1ShardedUint16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  l1ShardedUint16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
+
+  TTNNOperandWorkarounds l1ShardedBf16Workaround;
+  l1ShardedBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1ShardedBf16Workaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  l1ShardedBf16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  l1ShardedBf16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(rowMajorBf16Workaround)     // input_tensor
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_indices
+      .addInputOperandWorkaround(rowMajorBf16Workaround)     // expert_scores
+      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_mapping
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // dispatched
+      .addOutputOperandWorkaround(l1ShardedUint16Workaround) // indices
+      .addOutputOperandWorkaround(l1ShardedBf16Workaround);  // scores
+}
+
 // Factory method to create workarounds for all_to_all_combine op operands.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
 // tt-metal CCL requirements:

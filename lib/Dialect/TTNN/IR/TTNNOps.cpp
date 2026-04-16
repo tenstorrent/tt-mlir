@@ -2666,6 +2666,59 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllToAllDispatchMetadataOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType scoresType = getExpertScores().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType indicesOutType = getIndices().getType();
+  ::mlir::RankedTensorType scoresOutType = getScores().getType();
+
+  // Input tensors must be 4D, mapping must be 2D, outputs must be 3D.
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
+  }
+  if (scoresType.getRank() != 4) {
+    return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
+  }
+  if (mappingType.getRank() != 2) {
+    return emitOpError("expert_mapping must be a 2D tensor [D, E]");
+  }
+  if (dispatchedType.getRank() != 3) {
+    return emitOpError(
+        "dispatched output must be a 3D tensor [1, tokens_global, H]");
+  }
+  if (indicesOutType.getRank() != 3) {
+    return emitOpError(
+        "indices output must be a 3D tensor [1, tokens_global, K]");
+  }
+  if (scoresOutType.getRank() != 3) {
+    return emitOpError(
+        "scores output must be a 3D tensor [1, tokens_global, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllToAllCombineOp
 //===----------------------------------------------------------------------===//
 
@@ -3060,6 +3113,47 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
     if (weightElements != inputLastDim) {
       return emitOpError(
           "weight tensor total elements must match input's last dimension");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank greater than 1");
+  }
+
+  // output shape containing the partial stats must match
+  // input shape except last dimension
+  RankedTensorType outputType = getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    emitOpError("input rank must match the output rank");
+  }
+
+  for (auto idx = 0; idx < inputType.getRank() - 1; idx++) {
+    if (inputShape[idx] != outputShape[idx]) {
+      return emitOpError() << "output dimension " << idx << " ("
+                           << outputShape[idx]
+                           << ") must match input dimension ("
+                           << inputShape[idx] << ")";
+    }
+  }
+
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError(
+          "residual tensor shape must match the input tensor shape");
     }
   }
 
