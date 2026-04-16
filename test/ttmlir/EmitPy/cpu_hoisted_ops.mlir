@@ -123,6 +123,19 @@ func.func @sin_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   return %diff : tensor<32x32xf32>
 }
 
+// CHECK-LABEL: def cpu_hoisted_ttir_asinh_{{.*}}
+// CHECK: ttir_cpu.asinh(
+// CHECK-LABEL: def asinh_validation
+// CHECK: cpu_hoisted_ttir_asinh_{{.*}}
+// CHECK: ttnn.asinh(
+// CHECK: ttnn.subtract(
+func.func @asinh_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %cpu_result = "ttir.asinh"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %device_result = "ttir.asinh"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %diff = "ttir.subtract"(%cpu_result, %device_result) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %diff : tensor<32x32xf32>
+}
+
 // Unary exponential
 // CHECK-LABEL: def cpu_hoisted_ttir_exp_{{.*}}
 // CHECK: ttir_cpu.exp(

@@ -944,6 +944,28 @@ def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
     }];
 }
 
+def TTIR_AsinhOp: TTIR_ElementwiseUnaryOp<"asinh"> {
+    let summary = "Eltwise inverse hyperbolic sine op.";
+    let description = [{
+      The `asinh` operation computes the inverse hyperbolic sine of each element in the input tensor.
+
+      For each element, it returns the value whose hyperbolic sine is the input value. Unlike `asin`,
+      this function accepts all real numbers as input.
+
+      Example:
+      ```mlir
+      // Compute inverse hyperbolic sine of all elements in %input
+      %result = ttir.asinh(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [0.0, 1.0, -1.0, 10.0]
+      // Output tensor:
+      // [0.0, 0.8814, -0.8814, 2.9982]
+      ```
+
+      Mathematical definition: asinh(x) = ln(x + √(x² + 1))
+    }];
+}
+
 
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";
@@ -2206,6 +2228,55 @@ def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedO
 
   let arguments = (ins AnyRankedTensor:$input,
                        Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$residual,
+                       UI32Attr:$cluster_axis,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_DistributedLayerNormOp : TTIR_NamedOp<"distributed_layer_norm", [AttrSizedOperandSegments]> {
+  let summary = "Distributed layer normalization with all-gather operation";
+  let description = [{
+    Fused distributed layer normalization across mesh devices. Each device
+    computes local partial statistics (sum of x and sum of x²), the statistics are all-gathered along cluster_axis to obtain
+    globally-correct mean and variance, and each device then normalizes its
+    local shard. The steps are:
+    1. Optional residual addition: norm_input = input + residual
+    2. Compute local partial statistics and all-gather across cluster_axis
+    3. Layer normalization: output = (norm_input - mean) / sqrt(var + epsilon) * weight + bias
+
+    Only statistics are communicated across devices — the input data itself
+    is not all-gathered. Each device's output shape equals its input shape.
+
+    This is a multi-device operation that requires the tensor to be sharded
+    across a device mesh along the normalized (last) dimension.
+
+    Decomposes in the TTNN dialect into:
+      layer_norm_pre_all_gather → all_gather → layer_norm_post_all_gather.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma).
+    - `bias` (Optional Tensor): The shift parameter (beta).
+    - `residual` (Optional Tensor): Residual tensor for fused add before
+        normalization.
+
+    Attributes:
+    - `cluster_axis` specifies which mesh dimension to all-gather the
+        statistics across (0 or 1).
+    - `epsilon` is a small constant added for numerical stability
+        (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The normalized output tensor (same shape as input).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
                        Optional<AnyRankedTensor>:$residual,
                        UI32Attr:$cluster_axis,
                        DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);

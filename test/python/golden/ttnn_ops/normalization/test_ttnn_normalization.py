@@ -48,6 +48,7 @@ def build_stats_golden(input_golden: GoldenMapTensor) -> GoldenMapTensor:
     [
         (1, 1, 32, 128),
         (1, 1, 32, 512),
+        (1, 1, 37, 72),
     ],
     ids=shape_str,
 )
@@ -95,14 +96,18 @@ def test_layer_norm_pre_all_gather(
     [
         (1, 1, 32, 128),
         (1, 1, 32, 512),
+        (1, 1, 32, 34),
+        (1, 1, 37, 72),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("has_weight_bias", [False, True])
+@pytest.mark.parametrize("has_weight", [False, True])
+@pytest.mark.parametrize("has_bias", [False, True])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 def test_layer_norm_post_all_gather(
     shape: Shape,
-    has_weight_bias: bool,
+    has_weight: bool,
+    has_bias: bool,
     target: str,
     request,
     device,
@@ -112,11 +117,13 @@ def test_layer_norm_post_all_gather(
     shapes = [shape, stats_shape]
     dtypes = [torch.bfloat16, torch.bfloat16]
 
-    if has_weight_bias:
-        weight_shape = (shape[-1],)
+    weight_shape = (shape[-1],)
+    if has_weight:
         shapes.append(weight_shape)
+        dtypes.append(torch.bfloat16)
+    if has_bias:
         shapes.append(weight_shape)
-        dtypes.extend([torch.bfloat16, torch.bfloat16])
+        dtypes.append(torch.bfloat16)
 
     def module(builder: TTNNBuilder):
         @builder.func(shapes, dtypes)
@@ -124,11 +131,14 @@ def test_layer_norm_post_all_gather(
             builder = inputs[-1]
             in0 = inputs[0]
             stats = inputs[1]
+            idx = 2
             weight = None
             bias = None
-            if has_weight_bias and len(inputs) > 3:
-                weight = inputs[2]
-                bias = inputs[3]
+            if has_weight:
+                weight = inputs[idx]
+                idx += 1
+            if has_bias:
+                bias = inputs[idx]
 
             # Override the random stats golden with valid statistics
             # derived from the input tensor, matching tt-metal's format.

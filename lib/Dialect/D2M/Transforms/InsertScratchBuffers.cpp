@@ -57,6 +57,31 @@ static bool needsScratch(GenericOp genericOp) {
   return linalgCount > 1;
 }
 
+// Transfer d2m.blocking_map attributes from inner linalg ops (set during
+// elementwise fusion) to their output memref.alloc ops, so that the allocator
+// can read the map directly from the alloc.
+static void transferBlockingMaps(GenericOp genericOp) {
+  if (genericOp.getNumRegions() == 0) {
+    return;
+  }
+  for (Operation &op : genericOp.getRegion(0).front()) {
+    auto linalgOp = dyn_cast<linalg::GenericOp>(&op);
+    if (!linalgOp) {
+      continue;
+    }
+    auto blockingMap = linalgOp->getAttr("d2m.blocking_map");
+    if (!blockingMap) {
+      continue;
+    }
+    for (OpOperand &init : linalgOp.getDpsInitsMutable()) {
+      if (auto allocOp = init.get().getDefiningOp<memref::AllocOp>()) {
+        allocOp->setAttr("d2m.blocking_map", blockingMap);
+      }
+    }
+    linalgOp->removeAttr("d2m.blocking_map");
+  }
+}
+
 // Add a scratch buffer inside a single d2m.generic op's region
 // (post-bufferization). Creates a memref.alloc + scratch_init at the start of
 // the region body.
@@ -124,6 +149,7 @@ class D2MInsertScratchBuffers
         [&](GenericOp genericOp) { genericsToProcess.push_back(genericOp); });
 
     for (GenericOp genericOp : genericsToProcess) {
+      transferBlockingMaps(genericOp);
       addScratchToGeneric(genericOp);
     }
   }
