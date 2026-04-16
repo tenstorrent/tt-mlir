@@ -1994,6 +1994,127 @@ def test_all_gather(target: str, request, device):
 @pytest.mark.parametrize(
     "shapes,stride,padding,dilation,groups",
     [
+        # ResNet 7x7 initial conv (list-of-2 stride, list-of-4 pad, list-of-2 dilation)
+        (
+            [(1, 3, 224, 224), (64, 3, 7, 7)],
+            [2, 2],
+            [3, 3, 3, 3],
+            [1, 1],
+            1,
+        ),
+        # Basic 3x3 (exercises int-form stride/padding/dilation normalization)
+        (
+            [(1, 16, 32, 32), (32, 16, 3, 3)],
+            1,
+            1,
+            1,
+            1,
+        ),
+        # 1x1 conv (zero-padding edge case)
+        (
+            [(1, 64, 56, 56), (64, 64, 1, 1)],
+            [1, 1],
+            [0, 0, 0, 0],
+            [1, 1],
+            1,
+        ),
+        # Strided downsample (list-of-2 pad expansion)
+        (
+            [(1, 64, 56, 56), (128, 64, 3, 3)],
+            [2, 2],
+            [1, 1],
+            [1, 1],
+            1,
+        ),
+        # Depthwise conv (groups == in_channels)
+        (
+            [(1, 32, 28, 28), (32, 1, 3, 3)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            32,
+        ),
+        # Grouped conv (1 < groups < in_channels)
+        (
+            [(1, 64, 32, 32), (64, 16, 3, 3)],
+            [1, 1],
+            [1, 1],
+            [1, 1],
+            4,
+        ),
+        # Dilated conv (dilation > 1)
+        (
+            [(1, 32, 32, 32), (64, 32, 3, 3)],
+            [1, 1],
+            [2, 2, 2, 2],
+            [2, 2],
+            1,
+        ),
+        # Asymmetric padding
+        (
+            [(1, 16, 17, 17), (32, 16, 3, 3)],
+            [1, 1],
+            [0, 1, 1, 0],
+            [1, 1],
+            1,
+        ),
+    ],
+    ids=[
+        "conv2d_resnet_7x7",
+        "conv2d_basic_3x3_int",
+        "conv2d_1x1",
+        "conv2d_strided_down",
+        "conv2d_depthwise",
+        "conv2d_grouped",
+        "conv2d_dilated",
+        "conv2d_asymmetric_pad",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_conv2d(
+    shapes: List[Shape],
+    stride,
+    padding,
+    dilation,
+    groups: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test the StableHLOBuilder.conv2d convenience API (NCHW/OIHW)."""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def conv2d(
+            in0: Operand,
+            weight: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv2d(
+                in0,
+                weight,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
         # ResNet initial 7x7 conv: stride=2, padding=3
         (
             [(1, 3, 224, 224), (64, 3, 7, 7)],
