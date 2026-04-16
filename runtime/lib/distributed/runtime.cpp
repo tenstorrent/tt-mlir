@@ -138,6 +138,19 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
 #endif
 }
 
+::tt::runtime::Tensor createOwnedHostTensorOnController(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType) {
+  assertControllerLaunched();
+#if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
+  return ::tt::runtime::ttnn::createOwnedHostTensor(data, shape, stride,
+                                                    itemsize, dataType);
+#else
+  LOG_FATAL("createOwnedHostTensorOnController requires TTNN runtime");
+#endif
+}
+
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
     const std::unordered_map<std::string, std::string> &strategy,

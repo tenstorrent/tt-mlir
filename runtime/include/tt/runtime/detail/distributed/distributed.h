@@ -49,6 +49,13 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
     const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType);
 
+// Builds a TTNN owned host tensor in the controller process; does not touch
+// workers.
+::tt::runtime::Tensor createOwnedHostTensorOnController(
+    const void *data, const std::vector<std::uint32_t> &shape,
+    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    ::tt::target::DataType dataType);
+
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<::tt::runtime::Tensor> &tensorShards,
     const std::unordered_map<std::string, std::string> &strategy,
