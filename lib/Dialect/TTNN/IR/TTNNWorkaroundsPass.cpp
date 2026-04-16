@@ -377,8 +377,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
     if (inputElementType.isInteger()) {
       // Both are integers. Use INT32 to preserve integer precision.
       // Float32 would lose lower bits for values > 2^24.
-      predicateTypeWorkaround =
-          TTNNOperandWorkarounds(ttcore::DataType::Int32);
+      predicateTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
       inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
       outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
     } else {
@@ -433,8 +432,9 @@ TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
     }
   }
   auto wa = TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-  for (unsigned i = 0; i < op->getNumOperands(); ++i)
+  for (unsigned i = 0; i < op->getNumOperands(); ++i) {
     wa = wa.addInputOperandWorkaround(typeWorkarounds);
+  }
   return wa.addOutputOperandWorkaround(typeWorkarounds);
 }
 
