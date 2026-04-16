@@ -5634,6 +5634,7 @@ public:
                                               scatterIndicesType.getDimSize(0)};
       scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
                                                     scatterIndices, newShape);
+      indexVectorDim = 0;
     }
 
     // StableHLO uses vectorized indices for scatter.
