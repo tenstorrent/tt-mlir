@@ -8233,20 +8233,8 @@ class TTNNBuilder(Builder):
         input: Operand,
         layout,
         output_type: Optional[torch.dtype] = None,
-        output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
     ) -> OpResult:
-        ttnn_op = self.get_opview_from_method(TTNNBuilder.to_layout)
-
-        if output_type is None:
-            mlir_output_type = self.get_type(input)
-        else:
-            mlir_output_type = self._get_type_from_torch_dtype(output_type)
-
-        input_golden = self._get_golden_tensor(input)
-        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
-        op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input_golden, layout_attr, mlir_output_type)
         ttnn_op = self.get_opview_from_method(TTNNBuilder.to_layout)
 
         if output_type is None:
@@ -8261,23 +8249,13 @@ class TTNNBuilder(Builder):
         shape = input.type.shape
         if layout == ttnn.Layout.Tile:
             result = self._create_host_ttnn_tensor(shape, mlir_output_type)
-            result = self._create_host_ttnn_tensor(shape, mlir_output_type)
         else:
-            result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
-
             result = self._create_host_row_major_ttnn_tensor(shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
         else:
             loc = Location.name(loc)
-
-        op = ttnn_op(result, input, layout=layout_attr, loc=loc)
-        op_result = op.result
-
-        self._set_golden_tensor(op_result, golden_output)
-
-        return op_result
 
         op = ttnn_op(result, input, layout=layout_attr, loc=loc)
         op_result = op.result
@@ -8319,7 +8297,7 @@ class TTNNBuilder(Builder):
         with old_ctx, old_loc:
             to_layout_module = Module.create()
             to_layout_builder = TTNNBuilder(
-                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
