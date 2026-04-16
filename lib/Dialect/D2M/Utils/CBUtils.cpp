@@ -61,6 +61,19 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
   }
 
   if (!cbUnderlyingType) {
+    // The operand itself may carry CBLayoutAttr (e.g. hoisted additionalArgs
+    // whose alloc is outside the region).  Use it directly.
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(
+            generic->getOperand(operandIndex).getType())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+        cbUnderlyingType =
+            MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
+                            nullptr, L1Attr);
+      }
+    }
+  }
+
+  if (!cbUnderlyingType) {
     // Derive from the generic operand's device layout.
     auto operandType =
         mlir::cast<ShapedType>(generic->getOperand(operandIndex).getType());

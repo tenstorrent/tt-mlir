@@ -446,11 +446,21 @@ static LogicalResult processComputeLocalCopies(Block *computeBlock,
     Value dst = copyOp.getDst();
 
     // --- Source side (compute → copy) ---
-    // When the source traces to a ReserveOp (compute-produced buffer),
-    // insert push so the DMA thread can wait on the source CB.
-    if (auto reserveOp = traceToDefiningOp<ReserveOp>(src)) {
-      rewriter.setInsertionPoint(copyOp);
-      rewriter.create<PushOp>(loc, reserveOp.getCb());
+    // When the source is compute-produced, insert push so the DMA thread
+    // can wait on the source CB.  DMA-produced sources (from WaitOp, i.e.
+    // processed by processComputeLoads) already had their push on the DMA
+    // thread and don't need one here.
+    if (!src.getDefiningOp<WaitOp>()) {
+      Value srcCb;
+      if (auto reserveOp = traceToDefiningOp<ReserveOp>(src)) {
+        srcCb = reserveOp.getCb();
+      } else {
+        srcCb = findAssociatedCB(copyOp, src, rewriter, cache, portCounters);
+      }
+      if (srcCb) {
+        rewriter.setInsertionPoint(copyOp);
+        rewriter.create<PushOp>(loc, srcCb);
+      }
     }
 
     // --- Destination side (copy → compute) ---
@@ -464,8 +474,12 @@ static LogicalResult processComputeLocalCopies(Block *computeBlock,
     rewriter.setInsertionPoint(copyOp);
     auto waitOp = rewriter.create<WaitOp>(loc, dstCb);
 
-    // Replace all uses of the destination buffer with the wait result.
-    rewriter.replaceAllUsesWith(dst, waitOp.getResult());
+    // Replace uses of the destination buffer within the compute region only.
+    // Must NOT replace the generic's own operand or uses in the DMA region.
+    Region *computeRegion = copyOp->getParentRegion();
+    rewriter.replaceUsesWithIf(dst, waitOp.getResult(), [&](OpOperand &use) {
+      return computeRegion->isAncestor(use.getOwner()->getParentRegion());
+    });
 
     // If the dst came from a ReserveOp that is now unused, collect it for
     // erasure (compute reads via wait, not reserve).
@@ -825,19 +839,18 @@ public:
     // Collect ops for deferred erasure instead of erasing inline.
     DenseSet<Operation *> toErase;
 
-    // Compute thread: insert CB sync ops for implicit-form remote ops.
+    // Compute thread: insert CB sync ops for implicit-form DMA ops.
+    // local_copy must be processed before stores so that findAssociatedCB
+    // can still find the destination buffer on the generic's operand list
+    // (processComputeStores may replace it with a ReserveOp result).
     if (failed(processSharedBufferPairs(computeBlock, rewriter, computeCache,
                                         portCounters, toErase)) ||
         failed(processComputeLoads(computeBlock, rewriter, computeCache,
                                    portCounters, toErase)) ||
+        failed(processComputeLocalCopies(computeBlock, rewriter, computeCache,
+                                         portCounters, toErase)) ||
         failed(processComputeStores(computeBlock, rewriter, computeCache,
                                     portCounters, toErase))) {
-      return failure();
-    }
-
-    // Process implicit-form local_copy ops in the compute thread.
-    if (failed(processComputeLocalCopies(computeBlock, rewriter, computeCache,
-                                         portCounters, toErase))) {
       return failure();
     }
 
