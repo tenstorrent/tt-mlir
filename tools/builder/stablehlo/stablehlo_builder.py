@@ -3226,6 +3226,534 @@ class StableHLOBuilder(Builder):
 
         return logistic_module, logistic_builder
 
+    ################ stablehlo.SignOp ###############
+
+    @tag(stablehlo.SignOp)
+    def sign(
+        self,
+        in0: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sign)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, op_result.type.element_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.SignOp)
+    def sign_parser(
+        self,
+        old_op: stablehlo.SignOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.sign_parser)
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, new_op_result.type.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.SignOp)
+    def sign_split(
+        self,
+        old_op: stablehlo.SignOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.sign_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            sign_module = Module.create()
+            sign_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(sign_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sign_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+
+                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    sign_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    sign_builder._set_golden_tensor(operand, input0)
+                    sign_builder._annotate_presharded_arg(operand)
+                    ordered_inputs.append(operand)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sign_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sign_module, sign_builder
+
+    ################ stablehlo.ConvertOp ###############
+
+    @tag(stablehlo.ConvertOp)
+    def convert(
+        self,
+        in0: Operand,
+        output_type: torch.dtype,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.convert)
+
+        output_mlir_type = self._get_type_from_torch_dtype(output_type)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, output_mlir_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_mlir_type)
+
+        op = stablehlo_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.ConvertOp)
+    def convert_parser(
+        self,
+        old_op: stablehlo.ConvertOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.convert_parser)
+        operand = global_dict[old_op.operand]
+        result_type = old_op.result.type
+
+        new_op = stablehlo_op(
+            result_type,
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, new_op_result.type.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ConvertOp)
+    def convert_split(
+        self,
+        old_op: stablehlo.ConvertOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.convert_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            convert_module = Module.create()
+            convert_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(convert_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="convert_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+                    result_type = old_op.result.type
+
+                    new_op = stablehlo_op(result_type, operand, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    convert_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    convert_builder._set_golden_tensor(operand, input0)
+                    convert_builder._annotate_presharded_arg(operand)
+                    ordered_inputs.append(operand)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                convert_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return convert_module, convert_builder
+
+    ################ stablehlo.CbrtOp ###############
+
+    @tag(stablehlo.CbrtOp)
+    def cbrt(
+        self,
+        in0: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.cbrt)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, op_result.type.element_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.CbrtOp)
+    def cbrt_parser(
+        self,
+        old_op: stablehlo.CbrtOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.cbrt_parser)
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, new_op_result.type.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.CbrtOp)
+    def cbrt_split(
+        self,
+        old_op: stablehlo.CbrtOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.cbrt_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            cbrt_module = Module.create()
+            cbrt_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(cbrt_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="cbrt_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+
+                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    cbrt_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    cbrt_builder._set_golden_tensor(operand, input0)
+                    cbrt_builder._annotate_presharded_arg(operand)
+                    ordered_inputs.append(operand)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                cbrt_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return cbrt_module, cbrt_builder
+
+    ################ stablehlo.Expm1Op ###############
+
+    @tag(stablehlo.Expm1Op)
+    def expm1(
+        self,
+        in0: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.expm1)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, op_result.type.element_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.Expm1Op)
+    def expm1_parser(
+        self,
+        old_op: stablehlo.Expm1Op,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.expm1_parser)
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, new_op_result.type.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.Expm1Op)
+    def expm1_split(
+        self,
+        old_op: stablehlo.Expm1Op,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.expm1_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            expm1_module = Module.create()
+            expm1_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(expm1_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="expm1_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+
+                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    expm1_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    expm1_builder._set_golden_tensor(operand, input0)
+                    expm1_builder._annotate_presharded_arg(operand)
+                    ordered_inputs.append(operand)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                expm1_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return expm1_module, expm1_builder
+
+    ################ stablehlo.IsFiniteOp ###############
+
+    @tag(stablehlo.IsFiniteOp)
+    def is_finite(
+        self,
+        in0: Operand,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.is_finite)
+
+        op = stablehlo_op(
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, op_result.type.element_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.IsFiniteOp)
+    def is_finite_parser(
+        self,
+        old_op: stablehlo.IsFiniteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.is_finite_parser)
+        operand = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            operand,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(operand)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, new_op_result.type.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.IsFiniteOp)
+    def is_finite_split(
+        self,
+        old_op: stablehlo.IsFiniteOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.is_finite_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            is_finite_module = Module.create()
+            is_finite_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(is_finite_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="is_finite_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+
+                    new_op = stablehlo_op(operand, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    is_finite_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    is_finite_builder._set_golden_tensor(operand, input0)
+                    is_finite_builder._annotate_presharded_arg(operand)
+                    ordered_inputs.append(operand)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                is_finite_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return is_finite_module, is_finite_builder
+
     ############### stablehlo.SliceOp ###############
 
     @tag(stablehlo.SliceOp)
@@ -5052,6 +5580,390 @@ class StableHLOBuilder(Builder):
                 ]
 
         return reverse_module, reverse_builder
+
+    ############### stablehlo.RemOp ###############
+
+    @tag(stablehlo.RemOp)
+    def remainder(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.remainder)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.RemOp)
+    def remainder_parser(
+        self,
+        old_op: stablehlo.RemOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.remainder_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0, input1, new_op_result.type.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.RemOp)
+    def remainder_split(
+        self,
+        old_op: stablehlo.RemOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.remainder_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            remainder_module = Module.create()
+            remainder_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(remainder_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="remainder_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    remainder_builder._set_golden_tensor(new_op_result, old_op_result)
+                    remainder_builder._set_golden_tensor(lhs, input0)
+                    remainder_builder._set_golden_tensor(rhs, input1)
+                    remainder_builder._annotate_presharded_arg(lhs)
+                    remainder_builder._annotate_presharded_arg(rhs)
+                    ordered_inputs.extend([lhs, rhs])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                remainder_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return remainder_module, remainder_builder
+
+    ############### stablehlo.Atan2Op ###############
+
+    @tag(stablehlo.Atan2Op)
+    def atan2(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.atan2)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.Atan2Op)
+    def atan2_parser(
+        self,
+        old_op: stablehlo.Atan2Op,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.atan2_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0, input1, new_op_result.type.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.Atan2Op)
+    def atan2_split(
+        self,
+        old_op: stablehlo.Atan2Op,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.atan2_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            atan2_module = Module.create()
+            atan2_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(atan2_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="atan2_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    atan2_builder._set_golden_tensor(new_op_result, old_op_result)
+                    atan2_builder._set_golden_tensor(lhs, input0)
+                    atan2_builder._set_golden_tensor(rhs, input1)
+                    atan2_builder._annotate_presharded_arg(lhs)
+                    atan2_builder._annotate_presharded_arg(rhs)
+                    ordered_inputs.extend([lhs, rhs])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                atan2_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return atan2_module, atan2_builder
+
+    ############### stablehlo.ShiftLeftOp ###############
+
+    @tag(stablehlo.ShiftLeftOp)
+    def shift_left(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.shift_left)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            in0,
+            in1,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.ShiftLeftOp)
+    def shift_left_parser(
+        self,
+        old_op: stablehlo.ShiftLeftOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.shift_left_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+
+        new_op = stablehlo_op(
+            lhs,
+            rhs,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(lhs)
+        input1 = self._get_golden_tensor(rhs)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0, input1, new_op_result.type.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ShiftLeftOp)
+    def shift_left_split(
+        self,
+        old_op: stablehlo.ShiftLeftOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.shift_left_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            shift_left_module = Module.create()
+            shift_left_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(shift_left_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="shift_left_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_op = stablehlo_op(lhs, rhs, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.lhs)
+                    input1 = self._get_golden_tensor(old_op.rhs)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    shift_left_builder._set_golden_tensor(new_op_result, old_op_result)
+                    shift_left_builder._set_golden_tensor(lhs, input0)
+                    shift_left_builder._set_golden_tensor(rhs, input1)
+                    shift_left_builder._annotate_presharded_arg(lhs)
+                    shift_left_builder._annotate_presharded_arg(rhs)
+                    ordered_inputs.extend([lhs, rhs])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                shift_left_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return shift_left_module, shift_left_builder
 
     ############### stablehlo.SelectOp ###############
 
@@ -7596,6 +8508,177 @@ class StableHLOBuilder(Builder):
                 ]
 
         return convolution_module, convolution_builder
+
+    ############### stablehlo.GatherOp ###############
+
+    @tag(stablehlo.GatherOp)
+    def gather(
+        self,
+        operand: Operand,
+        start_indices: Operand,
+        offset_dims: List[int],
+        collapsed_slice_dims: List[int],
+        operand_batching_dims: List[int],
+        start_indices_batching_dims: List[int],
+        start_index_map: List[int],
+        index_vector_dim: int,
+        slice_sizes: List[int],
+        indices_are_sorted: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.gather)
+
+        dimension_numbers = stablehlo.GatherDimensionNumbers.get(
+            offset_dims=offset_dims,
+            collapsed_slice_dims=collapsed_slice_dims,
+            operand_batching_dims=operand_batching_dims,
+            start_indices_batching_dims=start_indices_batching_dims,
+            start_index_map=start_index_map,
+            index_vector_dim=index_vector_dim,
+            context=self._ctx,
+        )
+
+        slice_sizes_attr = DenseI64ArrayAttr.get(slice_sizes, self._ctx)
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted, self._ctx)
+        mlir_output_type = self.get_type(operand)
+
+        input_golden = self._get_golden_tensor(operand)
+        indices_golden = self._get_golden_tensor(start_indices)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_golden,
+            indices_golden,
+            dimension_numbers,
+            slice_sizes_attr,
+            indices_are_sorted_attr,
+        )
+        result_type = self._create_ranked_tensor_type(
+            golden_output.shape, mlir_output_type
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            operand,
+            start_indices,
+            dimension_numbers,
+            slice_sizes_attr,
+            indices_are_sorted=indices_are_sorted_attr,
+            results=[result_type],
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.GatherOp)
+    def gather_parser(
+        self,
+        old_op: stablehlo.GatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.gather_parser)
+        in0 = global_dict[old_op.operand]
+        in1 = global_dict[old_op.start_indices]
+        result_type = old_op.result.type
+        dimension_numbers = stablehlo.GatherDimensionNumbers(old_op.dimension_numbers)
+
+        new_op = stablehlo_op(
+            in0,
+            in1,
+            dimension_numbers,
+            old_op.slice_sizes,
+            indices_are_sorted=old_op.indices_are_sorted,
+            results=[result_type],
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0,
+            input1,
+            dimension_numbers,
+            old_op.slice_sizes,
+            old_op.indices_are_sorted,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.GatherOp)
+    def gather_split(
+        self,
+        old_op: stablehlo.GatherOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.gather_split)
+
+        old_context = old_op.context
+        old_location = Location.unknown(old_context)
+        dimension_numbers = stablehlo.GatherDimensionNumbers(old_op.dimension_numbers)
+        with old_context, old_location:
+
+            gather_module = Module.create()
+            gather_builder = StableHLOBuilder(old_context, old_location)
+            op_input_types = [
+                self._get_type(old_op.operand),
+                self._get_type(old_op.start_indices),
+            ]
+
+            with InsertionPoint(gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result_type = old_op.result.type
+
+                    new_op = stablehlo_op(
+                        in0,
+                        in1,
+                        dimension_numbers,
+                        old_op.slice_sizes,
+                        indices_are_sorted=old_op.indices_are_sorted,
+                        results=[result_type],
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    input1 = self._get_golden_tensor(old_op.start_indices)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gather_builder._set_golden_tensor(new_op_result, old_op_result)
+                    gather_builder._set_golden_tensor(in0, input0)
+                    gather_builder._set_golden_tensor(in1, input1)
+                    ordered_inputs.extend([in0, in1])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return gather_module, gather_builder
 
     def dot_general(
         self,

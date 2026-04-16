@@ -332,84 +332,96 @@ def test_logical_ops(
 def add_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Add a scalar value to a tensor"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.add(in0, scalar, unit_attrs=unit_attrs)
 
 
 def multiply_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Multiply a tensor by a scalar value"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.multiply(in0, scalar, unit_attrs=unit_attrs)
 
 
 def subtract_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Subtract a scalar value from a tensor"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.subtract(in0, scalar, unit_attrs=unit_attrs)
 
 
 def div_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Divide a tensor by a scalar value"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.div(in0, scalar, unit_attrs=unit_attrs)
 
 
 def pow_scalar(
     in0: Operand,
     scalar_value: float,
+    dtype: torch.dtype,
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    """Raise a tensor to a scalar power"""
     shape = builder.get_shape(in0)
-    scalar = builder.constant(torch.full(shape, scalar_value))
+    scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
     return builder.pow(in0, scalar, unit_attrs=unit_attrs)
 
 
 scalar_binary_ops = [
     (add_scalar, 2.5),
-    (multiply_scalar, 3.0),
+    (add_scalar, 5),
+    (multiply_scalar, 3.7),
     (subtract_scalar, 1.5),
-    (div_scalar, 3.0),
+    (subtract_scalar, 3),
+    (div_scalar, 2.5),
     (pow_scalar, 2.0),
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+    ],
+    ids=["f32", "bf16", "i32"],
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn,scalar_value",
     scalar_binary_ops,
     ids=[
-        "add_scalar",
-        "multiply_scalar",
-        "subtract_scalar",
-        "div_scalar",
-        "pow_scalar",
+        "add_2.5",
+        "add_5",
+        "multiply_3.7",
+        "subtract_1.5",
+        "subtract_3",
+        "div_2.5",
+        "pow_2.0",
     ],
 )
 def test_scalar_binary_ops(
@@ -421,7 +433,16 @@ def test_scalar_binary_ops(
     request,
     device,
 ):
-    """Test binary operations with scalar operands on ttmetal"""
+    """Test binary operations with scalar operands across f32, bf16, and i32 on ttmetal"""
+    int_dtypes = (torch.int32, torch.int64)
+    float_only_ops = ("multiply_scalar", "div_scalar", "pow_scalar")
+    is_int = dtype in int_dtypes
+    is_fractional = scalar_value != int(scalar_value)
+
+    if is_int and test_fn.__name__ in float_only_ops:
+        pytest.skip(f"{test_fn.__name__} not supported for {dtype}")
+    if is_int and is_fractional:
+        pytest.skip(f"fractional scalar {scalar_value} not valid for {dtype}")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -430,7 +451,89 @@ def test_scalar_binary_ops(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+            return test_fn(in0, scalar_value, dtype, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# Scalar comparison ops
+
+SCALAR_CMP_VALUE = 5
+
+
+def _make_scalar_cmp_fn(op_name):
+    def fn(in0, scalar_value, dtype, builder, unit_attrs=None):
+        shape = builder.get_shape(in0)
+        scalar = builder.constant(torch.full(shape, scalar_value, dtype=dtype))
+        return getattr(builder, op_name)(in0, scalar, unit_attrs=unit_attrs)
+
+    fn.__name__ = f"{op_name}_scalar"
+    return fn
+
+
+scalar_comparison_ops = [
+    _make_scalar_cmp_fn("eq"),
+    _make_scalar_cmp_fn("ne"),
+    _make_scalar_cmp_fn("gt"),
+    _make_scalar_cmp_fn("ge"),
+    _make_scalar_cmp_fn("lt"),
+    _make_scalar_cmp_fn("le"),
+]
+
+
+def _make_scalar_cmp_golden(shape, dtype, op_name):
+    """Input with good coverage: eq/ne get half matching the scalar, half
+    random; relational ops get values spread around the scalar."""
+    n = 1
+    for d in shape:
+        n *= d
+    sv = SCALAR_CMP_VALUE
+
+    if op_name in ("eq_scalar", "ne_scalar"):
+        t = torch.randint(sv - 10, sv + 10, (n,)).to(torch.float32)
+        t[torch.randperm(n)[: n // 2]] = float(sv)
+        return t.reshape(shape).to(dtype)
+
+    if dtype in (torch.int32, torch.int64):
+        return torch.randint(sv - 10, sv + 11, (n,)).reshape(shape).to(dtype)
+    return (torch.rand(n) * 20 + (sv - 10)).reshape(shape).to(dtype)
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+    ],
+    ids=["f32", "bf16", "i32"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("test_fn", scalar_comparison_ops)
+def test_scalar_comparison_ops(
+    test_fn: Callable,
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def scalar_cmp_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            golden = _make_scalar_cmp_golden(shape, dtype, test_fn.__name__)
+            builder.set_goldens(inputs={in0: golden})
+            return test_fn(in0, SCALAR_CMP_VALUE, dtype, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
@@ -767,11 +870,7 @@ hoisted_binary_ops_float_integer = [
     maximum,
     minimum,
     multiply,
-    # TODO(#6183): Re-enable when F32 untilize on-device precision loss is fixed
-    # F32 untilize on-device introduces precision loss that causes close values to become
-    # identical, breaking exact equality comparisons in CPU-hoisted ops.
-    # See: https://github.com/tenstorrent/tt-mlir/issues/6183
-    # eq,
+    eq,
     ne,
     gt,
     ge,
@@ -808,7 +907,7 @@ hoisted_binary_shapes = [
 @pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops_float)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_binary_ops_float(
     test_fn: Callable,
     shapes: List[Shape],
@@ -839,7 +938,7 @@ def test_cpu_hoistable_binary_ops_float(
 @pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops_float_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_binary_ops_float_integer(
     test_fn: Callable,
     shapes: List[Shape],
@@ -869,7 +968,7 @@ def test_cpu_hoistable_binary_ops_float_integer(
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", logical_ops)
 def test_hoisted_logical_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -904,7 +1003,7 @@ def test_hoisted_logical_ops(
 @pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_binary_ops_integer(
     test_fn: Callable,
     shapes: List[Shape],
@@ -935,7 +1034,7 @@ def test_cpu_hoistable_binary_ops_integer(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("test_fn", binary_logical_shift_ops)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_logical_shift_ops(
     test_fn: Callable,
     shape: Shape,
@@ -1181,7 +1280,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
     # Separate from the generic hoisted test because pow needs torch.abs() on
     # the base operand to avoid negative bases with fractional exponents (NaN).

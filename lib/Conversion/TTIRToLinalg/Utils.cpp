@@ -226,4 +226,8 @@ Value sliceResultToShape(Value result, RankedTensorType targetType,
                                                  offsets, sizes, strides);
 }
 
+int64_t normalizeDim(int64_t dim, int64_t rank) {
+  return dim < 0 ? dim + rank : dim;
+}
+
 } // namespace mlir::tt::ttir_to_linalg

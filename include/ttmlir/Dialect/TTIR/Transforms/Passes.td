@@ -119,7 +119,6 @@ def PredicateTypeAlignment : Pass<"ttir-predicate-type-alignment", "::mlir::Modu
     elementwise edges. Rules:
       - Unary tensor-manipulation ops (reshape, broadcast, etc.): result
         element type follows the input (stops at typecast).
-      - Gather: result element type follows the data input.
       - Elementwise binary (e.g. logical_and): if one operand is i1 and the
         other is not, align to the non-i1 type via typecasts.
       - Comparisons (eq, ne, gt, ge, lt, le), logical_not, reduce_or: result
@@ -243,6 +242,20 @@ def TTIRDecomposeComplexPermute: Pass<"ttir-decompose-complex-permute", "::mlir:
 
     The permute will at most be decomposed into an Outer -> Inner -> Outer permute.
   }];
+}
+
+def TTIRRMSNormDecomposition: Pass<"ttir-rms-norm-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose ttir.rms_norm into multiply, mean, rsqrt, and related ops.";
+  let description = [{
+    Lowers `ttir.rms_norm` to `ttir.multiply`, `ttir.mean` (last dimension,
+    keep_dim=true), `ttir.full` (epsilon), `ttir.add`, `ttir.rsqrt`, and
+    optional `ttir.reshape`/`multiply`/`add` for weight and bias.
+
+    Used by the TTMetal pipeline before `ttir-rank-normalization` so the
+    expanded ops participate in rank normalization like other TTIR ops.
+    Backends with a native fused RMS norm (e.g. TTNN) do not need this pass.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
 def TTIRRankNormalization: Pass<"ttir-rank-normalization", "::mlir::ModuleOp"> {
@@ -374,12 +387,12 @@ def TTIRFoldConstantReshapeBroadcast: Pass<"ttir-fold-constant-reshape-broadcast
 }
 
 def TTIRPropagateWeightDtype: Pass<"ttir-propagate-weight-dtype", "::mlir::ModuleOp"> {
-  let summary = "Resolve weight_dtype annotations for matmul/linear ops.";
+  let summary = "Resolve weight_dtype annotations for matmul/linear/sparse_matmul ops.";
   let description = [{
-    For each matmul/linear op, traces the weight (B) operand backward through
-    ops with the TensorManipulation trait to find the originating
-    func arg. If it carries a "ttcore.weight_dtype" annotation, sets it as a
-    discardable attribute on the consumer op.
+    For each matmul/linear/sparse_matmul op, traces the weight (B) operand
+    backward through ops with the TensorManipulation trait to find the
+    originating func arg. If it carries a "ttcore.weight_dtype" annotation,
+    sets it as a discardable attribute on the consumer op.
 
     This pass should run before const-eval hoisting, while the graph is still
     flat and has no load_cached ops.
@@ -405,8 +418,11 @@ def TTIRDecomposeMinReduction: Pass<"ttir-decompose-min-reduction", "::mlir::Mod
   let summary = "Decompose min reduction into neg(max(neg(x))).";
   let description = [{
     Decomposes ttir.min into ttir.neg(ttir.max(ttir.neg(x))) for backends
-    that lack native reduce_min hardware (e.g. TTMetal/D2M).  The TTNN
-    backend has native ttnn.min support and does not need this pass.
+    that lack native reduce_min hardware (e.g. TTMetal/D2M).  Skips
+    decomposition when the reduction includes a logical dimension before the
+    last two (tile C/R): those lower to d2m.tile_minimum on the outer
+    reduction path.  The TTNN backend has native ttnn.min support and does
+    not need this pass.
   }];
 }
 

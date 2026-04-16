@@ -2948,6 +2948,46 @@ public:
 };
 } // namespace
 
+namespace {
+class AllReduceAsyncOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllReduceAsyncOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_reduce_async";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::all_reduce_async";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllReduceAsyncOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllReduceAsyncOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllReduceAsyncOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getReduceType()),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getNumLinks()),
+        emitter.emit(srcOp.getTopology()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // ReduceScatterOp conversion pattern
 //
 namespace {
@@ -3005,6 +3045,38 @@ public:
     };
 
     emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class GatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::GatherOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GatherOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GatherOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GatherOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getIndex()),
+        emitter.emit(/*sparse_grad=*/false),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/*optional_output_tensor=*/std::nullopt),
+        emitter.emit(/*sub_core_grids=*/std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
     return success();
   }
 };
@@ -3402,6 +3474,59 @@ public:
 };
 } // namespace
 
+namespace {
+class PagedFlashMultiLatentAttentionDecodeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_flash_multi_latent_attention_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::paged_flash_multi_latent_attention_decode";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getHeadDimV()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(srcOp.getIsCausal()),
+        emitter.emit(srcOp.getAttentionMask()),
+        emitter.emit(srcOp.getCurPosTensor()),
+        emitter.emit(srcOp.getAttentionSink()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(/*slidingWindowSize=*/std::nullopt),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(/*program_config=*/std::nullopt),
+        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // ScaledDotProductAttentionOp conversion pattern
 //
 namespace {
@@ -3483,6 +3608,45 @@ public:
 };
 } // namespace
 
+// RMSNormPreAllGatherOp conversion pattern
+//
+namespace {
+class RMSNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormPreAllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormPreAllGatherOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::RMSNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Args must match tt-metal invoke parameter order:
+    // input, dtype, residual_input, compute_kernel_config,
+    // program_config, memory_config, use_2d_core_grid
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype()),
+        emitter.emit(srcOp.getResidual()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getUse_2dCoreGrid()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // LayerNormOp conversion pattern
 //
 namespace {
@@ -3546,6 +3710,45 @@ public:
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getRecip()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// LayerNormPostAllGatherOp conversion pattern
+//
+namespace {
+class LayerNormPostAllGatherOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormPostAllGatherOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormPostAllGatherOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormPostAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LayerNormPostAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getStats()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getDtype()),
     };
 
     emitter.replaceOp(*this, args);
@@ -3728,6 +3931,86 @@ public:
 };
 } // namespace
 
+// AllToAllDispatchMetadataOp conversion pattern (multi-result: dispatched +
+// indices + scores)
+//
+namespace {
+class AllToAllDispatchMetadataOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchMetadataOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_to_all_dispatch_metadata";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::all_to_all_dispatch_metadata";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchMetadataOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchMetadataOp srcOp,
+                  mlir::tt::ttnn::AllToAllDispatchMetadataOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchMetadataOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Emit drain_sync_tilizer_core as tt::tt_metal::CoreCoord if present.
+    mlir::Attribute drainCoreArg;
+    if (auto drainCore = srcOp.getDrainCore()) {
+      std::string buf;
+      llvm::raw_string_ostream rso(buf);
+      rso << "std::make_optional<tt::tt_metal::CoreCoord>("
+          << "tt::tt_metal::CoreCoord(" << drainCore->getX() << ", "
+          << drainCore->getY() << "))";
+      drainCoreArg = rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
+    } else {
+      drainCoreArg = emitter.emit(std::nullopt);
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertIndices()),
+        emitter.emit(srcOp.getExpertScores()),
+        emitter.emit(srcOp.getExpertMapping()),
+        /*axis=*/emitter.emit(srcOp.getClusterAxis()),
+        /*optional_output_tensors=*/emitter.emit(std::nullopt),
+        /*num_links=*/emitter.emit(std::nullopt),
+        /*drain_sync_tilizer_core=*/drainCoreArg,
+    };
+
+    // Multi-result: returns std::array<ttnn::Tensor, 3>.
+    static constexpr llvm::StringLiteral kReturnTypeName =
+        "::std::array<::ttnn::Tensor, 3>";
+    static constexpr llvm::StringLiteral kElemTypeName = "::ttnn::Tensor";
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), rewriter.getType<emitc::OpaqueType>(kReturnTypeName),
+        this->convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    SmallVector<Value> results;
+    for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
+      auto indexOp = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto lvalueType = emitc::LValueType::get(
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName));
+      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), lvalueType, callOp.getResult(0), indexOp.getResult());
+      auto loadOp = rewriter.create<emitc::LoadOp>(
+          srcOp.getLoc(),
+          emitc::OpaqueType::get(rewriter.getContext(), kElemTypeName),
+          subscriptOp.getResult());
+      results.push_back(loadOp.getResult());
+    }
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
 // AllToAllCombineOp conversion pattern
 //
 namespace {
@@ -3753,7 +4036,7 @@ public:
         /*topology=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getMemoryConfig()),
         /*axis=*/emitter.emit(srcOp.getClusterAxis()),
-        /*output_shard_dim=*/emitter.emit(std::nullopt)};
+        /*output_shard_dim=*/emitter.emit(srcOp.getOutputShardDim())};
 
     emitter.replaceOp(*this, args);
     return success();
@@ -4775,6 +5058,38 @@ public:
 } // namespace
 
 namespace {
+class TTNNToEmitCTopKRouterGptOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::TopKRouterGptOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.topk_router_gpt";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::topk_router_gpt";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::TopKRouterGptOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::TopKRouterGptOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::TopKRouterGptOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),      emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),       emitter.emit(srcOp.getK()),
+        emitter.emit(srcOp.getNumExperts()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+
 class TTNNToEmitCTopKOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::TopKOp> {
 public:
@@ -4914,7 +5229,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::DivideOp>,
       EltwiseBinaryCompositeOpConversionPattern<
           mlir::tt::ttnn::LogicalLeftShiftOp>,
-      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
+      EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
       PowScalarOpConversionPattern>(typeConverter, ctx);
@@ -4934,13 +5249,14 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Tensor manipulation ops
   //
-  patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
-               ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern,
-               SliceStaticOpConversionPattern, SliceDynamicOpConversionPattern,
-               SortOpConversionPattern, PermuteOpConversionPattern,
-               PadOpConversionPattern, TTNNToEmitCTopKOpConversionPattern>(
-      typeConverter, ctx);
+  patterns
+      .add<TransposeOpConversionPattern, ConcatOpConversionPattern,
+           ReshapeOpConversionPattern, RepeatOpConversionPattern,
+           RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
+           SliceDynamicOpConversionPattern, SortOpConversionPattern,
+           PermuteOpConversionPattern, PadOpConversionPattern,
+           TTNNToEmitCTopKOpConversionPattern, GatherOpConversionPattern>(
+          typeConverter, ctx);
 
   // Quantization ops.
   //
@@ -4959,8 +5275,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                ReductionOpConversionPattern<mlir::tt::ttnn::MeanOp>,
                ReductionOpConversionPattern<mlir::tt::ttnn::MaxOp>,
                ReductionOpConversionPattern<mlir::tt::ttnn::MinOp>,
-               ProdOpConversionPattern, ArgMaxOpConversionPattern>(
-      typeConverter, ctx);
+               ProdOpConversionPattern, ArgMaxOpConversionPattern,
+               TTNNToEmitCTopKRouterGptOpConversionPattern>(typeConverter, ctx);
 
   // Pooling ops
   //
@@ -4984,18 +5300,21 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
 
   // Other ops
   //
-  patterns.add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
-               CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
-               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern,
-               LayerNormPreAllGatherOpConversionPattern,
-               GroupNormOpConversionPattern>(typeConverter, ctx);
+  patterns
+      .add<SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
+           DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
+           CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
+           LayerNormPreAllGatherOpConversionPattern,
+           LayerNormPostAllGatherOpConversionPattern,
+           GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //
   patterns.add<AllGatherOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllReduceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllReduceAsyncOpConversionPattern>(typeConverter, ctx);
   patterns.add<ReduceScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshPartitionOpConversionPattern>(typeConverter, ctx);
@@ -5004,6 +5323,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<AggregateTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllToAllDispatchOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AllToAllDispatchMetadataOpConversionPattern>(typeConverter, ctx);
   patterns.add<AllToAllCombineOpConversionPattern>(typeConverter, ctx);
   patterns.add<MoeExpertTokenRemapOpConversionPattern>(typeConverter, ctx);
 
@@ -5058,6 +5378,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
+  patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);

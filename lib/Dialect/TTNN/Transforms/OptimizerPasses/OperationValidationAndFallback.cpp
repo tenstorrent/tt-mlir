@@ -527,9 +527,10 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // Define the 2 target layouts for fallbacks
   std::vector<Layout> targetLayouts = {Layout::RowMajor, Layout::Tile};
 
-  // Define the 2 buffer types for fallbacks
-  std::vector<BufferType> targetBufferTypes = {BufferType::DRAM,
-                                               BufferType::SystemMemory};
+  // Only DRAM for fallbacks. SystemMemory cannot be used as tt-metal allocator
+  // rejects it and asserts. Anyway, there should not be a need to fallback to
+  // system memory.
+  std::vector<BufferType> targetBufferTypes = {BufferType::DRAM};
 
   for (Layout targetLayout : targetLayouts) {
     for (ttcore::DataType targetDataType : targetDataTypes) {

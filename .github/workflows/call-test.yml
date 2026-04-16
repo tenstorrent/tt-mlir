@@ -86,7 +86,7 @@ jobs:
         rm -f *.whl
 
     - name: Download ttrt run whls
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: ttrt-whl-${{ matrix.build.image }}
 
@@ -217,7 +217,7 @@ jobs:
 
     - name: Upload Test Durations
       if: success()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: test-durations-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
         path: _test_duration
@@ -225,14 +225,14 @@ jobs:
 
     - name: Upload ttrt test report json
       if: (success() || failure())
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ steps.fetch-job-id.outputs.job_id }}_results
         path: ttrt_results
         if-no-files-found: 'ignore'
 
     - name: Upload Test Report xml
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: success() || failure()
       with:
         name: test-reports-${{ matrix.build.runs-on }}-${{ matrix.build.image }}-${{ steps.fetch-job-id.outputs.job_id }}
@@ -241,7 +241,7 @@ jobs:
 
     - name: Show Test Report
       continue-on-error: true
-      uses: mikepenz/action-junit-report@v5
+      uses: mikepenz/action-junit-report@v6
       if: success() || failure()
       with:
         report_paths: ${{ steps.strings.outputs.work-dir }}/test_reports/report_*.xml
@@ -272,7 +272,7 @@ jobs:
 
       - name: Show consolidated test report
         continue-on-error: true
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@v6
         if: success() || failure()
         with:
           report_paths: test_reports/report_*.xml

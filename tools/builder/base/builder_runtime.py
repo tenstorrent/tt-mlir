@@ -985,7 +985,7 @@ def execute_py(
                 and node.name[0:18] != "create_inputs_for_"
                 and not node.name.__contains__("_const_eval_")
                 # TODO(dmilinkovic): this is getting out of hand, issue #6386.
-                and not node.name.__contains__("hoisted_")
+                and not node.name.startswith("cpu_hoisted_")
                 and not node.name.startswith("consteval_")
             ):
                 program_names.append(node.name)
@@ -1073,6 +1073,8 @@ def execute_py(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        raise
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
     finally:
@@ -1172,6 +1174,8 @@ def execute_cpp(
     output_tensors = {}
     golden_report = {}
 
+    emitc_dylib_handle = None
+    exc_in_flight = False
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
         program_names = tt_runtime.runtime.test.get_so_programs(
@@ -1272,7 +1276,19 @@ def execute_cpp(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        exc_in_flight = True
+        raise
     except Exception as e:
+        exc_in_flight = True
         raise TTBuilderRuntimeException(e) from e
+    finally:
+        if emitc_dylib_handle is not None:
+            try:
+                tt_runtime.runtime.test.close_so(emitc_dylib_handle)
+            except Exception as close_exc:
+                if not exc_in_flight:
+                    raise TTBuilderRuntimeException(close_exc) from close_exc
+                print(f"close_so() failed during cleanup: {close_exc}")
 
     return golden_report, output_tensors

@@ -45,4 +45,36 @@ OutputHints SDPARuleBook::getOutputHints(
   return layout_filter_utils::nullHintOnly();
 }
 
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn RotaryEmbeddingRuleBook::getInputLayoutFilter() const {
+  return layout_filter_utils::allowOnlyShardingType(
+      TensorMemoryLayout::HeightSharded);
+}
+
+bool RotaryEmbeddingRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints RotaryEmbeddingRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// SplitQKVRuleBook
+//===----------------------------------------------------------------------===//
+
+bool SplitQKVRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints SplitQKVRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  // The sharded create_qkv_heads kernel (BLOCK_SHARDED input →
+  // HEIGHT_SHARDED output) corrupts data when the sequence dimension
+  // is non-tile-aligned (e.g. ViT sequence length 197).
+  // Use NULL hint only to keep input/output DRAM-interleaved.
+  // https://github.com/tenstorrent/tt-metal/issues/41526
+  return layout_filter_utils::nullHintOnly();
+}
+
 } // namespace mlir::tt::ttnn

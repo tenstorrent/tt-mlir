@@ -5,6 +5,7 @@
 #ifndef TTMLIR_CONVERSION_TTNNTOEMITPY_EMITPYCONVERSION_H
 #define TTMLIR_CONVERSION_TTNNTOEMITPY_EMITPYCONVERSION_H
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -103,7 +104,6 @@ namespace ttnn_to_emitpy {
 
 constexpr const char *kNameAttr = "emitpy.name";
 constexpr const char *kConstEvaledAttr = "emitpy.const_evaled";
-constexpr const char *kWrapperAttr = "consteval_wrapper";
 
 template <typename T, typename Enable = void>
 struct TypeName;
@@ -2130,10 +2130,8 @@ public:
   using OpAdaptor = typename TTNNOp::Adaptor;
 
   EmitPyTTNNEmitter(TTNNOp op, OpAdaptor adaptor,
-                    mlir::ConversionPatternRewriter &rewriter,
-                    bool enableGoldenMode)
-      : op{op}, adaptor{adaptor}, rewriter{rewriter},
-        enableGoldenMode{enableGoldenMode} {}
+                    mlir::ConversionPatternRewriter &rewriter)
+      : op{op}, adaptor{adaptor}, rewriter{rewriter} {}
 
   EmitPyTTNNEmitter(const EmitPyTTNNEmitter &) = delete;
   EmitPyTTNNEmitter &operator=(const EmitPyTTNNEmitter &) = delete;
@@ -2314,10 +2312,7 @@ public:
   ttnn::MemoryConfigAttr getMemoryConfig(mlir::Value val) {
     auto deviceOp = ttcore::lookupDeviceOp(op);
 
-    if (!deviceOp) {
-      // We're inside a CPU module, so no memory config is needed.
-      return ttnn::MemoryConfigAttr{};
-    }
+    TT_assertv(deviceOp, "ttcore.device must exist in the enclosing scope");
 
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
@@ -2351,10 +2346,6 @@ public:
         }));
 
     auto callee = opConversionPattern.convertOpName(op);
-
-    if (enableGoldenMode) {
-      callee += ".golden_function";
-    }
 
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         op, resultTypes, callee, operands, rewriter.getArrayAttr(args),
@@ -2395,7 +2386,6 @@ private:
   ConversionPatternRewriter &rewriter;
   llvm::SmallVector<mlir::Value> operands;
   llvm::SmallVector<mlir::Attribute> keywordArgs;
-  bool enableGoldenMode;
 };
 
 // Helper function to secure memory config attribute.

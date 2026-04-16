@@ -26,6 +26,17 @@ table AllReduceOp {
   topology: tt.target.Topology = null;
 }
 
+table AllReduceAsyncOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  reduce_type: uint32;
+  cluster_axis: uint32;
+  sub_device_id: uint8 = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  num_links: uint32 = null;
+  topology: tt.target.Topology = null;
+}
+
 table MeshShardOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
@@ -91,6 +102,20 @@ table AllToAllDispatchOp {
   memory_config: tt.target.ttnn.MemoryConfig;
 }
 
+table AllToAllDispatchMetadataOp {
+  input_tensor: tt.target.ttnn.TensorRef;
+  expert_indices: tt.target.ttnn.TensorRef;
+  expert_scores: tt.target.ttnn.TensorRef;
+  expert_mapping: tt.target.ttnn.TensorRef;
+  dispatched: tt.target.ttnn.TensorRef;
+  indices: tt.target.ttnn.TensorRef;
+  scores: tt.target.ttnn.TensorRef;
+  num_devices: uint32;
+  cluster_axis: uint32;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  drain_core: tt.target.ttnn.CoreCoord;
+}
+
 table AllToAllCombineOp {
   input_tensor: tt.target.ttnn.TensorRef;
   expert_metadata: tt.target.ttnn.TensorRef;
@@ -99,6 +124,7 @@ table AllToAllCombineOp {
   num_devices: uint32;
   cluster_axis: uint32;
   num_experts_per_tok: uint32;
+  output_shard_dim: uint32 = 2;
   memory_config: tt.target.ttnn.MemoryConfig;
 }
 

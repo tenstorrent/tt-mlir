@@ -193,13 +193,23 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def ConvertTTIRCPUToEmitPy : Pass<"convert-ttir-cpu-to-emitpy", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR CPU-hoisted ops to EmitPy dialect.";
+  let description = [{
+    Lowers TTIR ops to EmitPy CallOpaqueOp calls targeting
+    `ttir_cpu.<mnemonic>` functions — pure-torch implementations that run
+    on the host CPU.
+  }];
+  let constructor = "createConvertTTIRCPUToEmitPyPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
+}
+
 def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
   let options = [
-    Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
-    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">,
     // `target-module` is forwarded from the TTNN EmitPy pipeline options.
     // Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
     Option<"targetModule", "target-module", "bool", /*default=*/"false",
@@ -283,6 +293,32 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
+def EmitPyAddImports : Pass<"emitpy-add-imports", "::mlir::ModuleOp"> {
+  let summary = "Add Python import statements to EmitPy IR.";
+  let description = [{
+    Adds Python import statements to the EmitPy IR:
+
+    1. Module-level imports (`import ttnn`, `import utils`, `import ttir_cpu`).
+       If FileOps exist (i.e., file splitting was performed), these are added
+       to each file scope. Otherwise, they are added to the module scope.
+       `import ttir_cpu` is only added to scopes that contain CPU-hoisted code.
+
+    2. Imported-declaration imports (`from <file> import <func>`). These are
+       generated from ImportedDeclaration func ops created by TTNNFileSplit,
+       and are placed in the same scope as the declaration they correspond to.
+
+    This pass runs after EmitPyLinkModules so that all modules have been merged
+    and the final file structure is known.
+
+    Note: the module-level imports are hardcoded. If the number of required
+    modules grows, consider a more scalable approach (e.g., scanning call
+    sites or having each conversion pass register its import requirements,
+    as well as ensuring that imports are deduplicated).
+  }];
+  let constructor = "createEmitPyAddImportsPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
@@ -331,7 +367,7 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
     }
   }];
   let constructor = "createConvertTTIRToLinalgPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect", "mlir::scf::SCFDialect"];
 }
 
 def ConvertTTNNToTTIR : Pass<"convert-ttnn-to-ttir", "::mlir::ModuleOp"> {

@@ -28,7 +28,6 @@ OpRuleBook::getOutputHints(Operation * /*op*/,
   // Fallback: sharded configs -- tried only when NULL yields non-sharded
   // output.
   OutputHints result;
-  result.attemptL1Sharding = true;
   result.hints.push_back(OpConfig(TTNNLayoutAttr()));
   for (const auto &cfg : legalConfigs) {
     if (!cfg.outputLayout) {
@@ -58,6 +57,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SDPARuleBook sdpa;
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
+  static RotaryEmbeddingRuleBook rotaryEmbedding;
+  static SplitQKVRuleBook splitQKV;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -84,6 +85,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(EmbeddingOp::getOperationName(), &embedding);
     reg(TypecastOp::getOperationName(), &typecast);
     reg(WhereOp::getOperationName(), &typecast);
+    reg(RotaryEmbeddingOp::getOperationName(), &rotaryEmbedding);
+    reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
+    reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;

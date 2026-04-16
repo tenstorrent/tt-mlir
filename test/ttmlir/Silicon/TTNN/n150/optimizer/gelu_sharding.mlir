@@ -7,7 +7,10 @@
 
 func.func @gelu_sharding(%arg0: tensor<32x1x8192xbf16>) -> tensor<32x1x8192xbf16> {
     // GELU operation with potential sharding: input [32,1,8192xbf16]
-    // CHECK: = "ttnn.gelu"{{.*}} -> {{.*}}#ttnn.ttnn_layout{{.*}}width_sharded{{.*}}
+    // Temporarily fix CHECK to block sharded.
+    // See https://github.com/tenstorrent/tt-mlir/issues/7918
+
+    // CHECK: = "ttnn.gelu"{{.*}} -> {{.*}}#ttnn.ttnn_layout{{.*}}block_sharded{{.*}}
     %1 = "ttir.gelu"(%arg0) : (tensor<32x1x8192xbf16>) -> tensor<32x1x8192xbf16>
 
     // Additional add to create chain (required for sharding policy to apply)

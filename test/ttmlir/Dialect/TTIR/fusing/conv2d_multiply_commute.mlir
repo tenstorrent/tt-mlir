@@ -122,7 +122,8 @@ module {
   // Verify that we can commute when weight and scale are creation ops.
   // CHECK-LABEL: func.func @conv2d_creation_op_commute
   func.func @conv2d_creation_op_commute(%input: tensor<1x32x32x64xbf16>) -> tensor<1x30x30x64xbf16> {
-    // CHECK: "ttir.reshape"
+    // CHECK: "ttir.ones"()
+    // CHECK-SAME: shape = array<i32: 64, 1, 1, 1>
     // CHECK: "ttir.multiply"
     // CHECK: "ttir.conv2d"
     %weight = "ttir.zeros"() <{shape = array<i32: 64, 64, 3, 3>}> : () -> tensor<64x64x3x3xbf16>
@@ -144,7 +145,7 @@ module {
   // CHECK-LABEL: func.func @conv2d_creation_op_commutable
   func.func @conv2d_creation_op_commutable(%input: tensor<1x32x32x64xbf16>) -> tensor<1x30x30x64xbf16> {
     // CHECK: "ttir.ones"
-    // CHECK: "ttir.reshape"
+    // CHECK-SAME: shape = array<i32: 64, 1, 1, 1>
     // CHECK: "ttir.multiply"
     // CHECK: "ttir.conv2d"
     %weight = "ttir.zeros"() <{shape = array<i32: 64, 64, 3, 3>}> : () -> tensor<64x64x3x3xbf16>

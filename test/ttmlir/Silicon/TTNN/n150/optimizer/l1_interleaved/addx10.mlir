@@ -1,6 +1,6 @@
 // Test for L1InterleavedFallbackAnalysis: Serves as sanity check for checking perf gain of the analysis for ops valid for it, in this example the Binary Add operation.
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1 enable-greedy-optimizer=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=%t_ttnn.mlir
 
 module @L1InterleavedAddx10 attributes {} {

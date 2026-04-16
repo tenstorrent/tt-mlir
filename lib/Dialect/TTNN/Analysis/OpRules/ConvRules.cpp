@@ -13,7 +13,7 @@ namespace mlir::tt::ttnn {
 OutputHints Conv2dRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
   // Conv2d configs carry Conv2dConfig tied to output hint.
-  return OutputHints{legalConfigs, {}, /*attemptL1Sharding=*/true};
+  return OutputHints{legalConfigs, {}};
 }
 
 void Conv2dRuleBook::applyOpSpecificAttrs(

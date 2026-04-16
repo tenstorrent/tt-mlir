@@ -4,12 +4,20 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+#include <cstdlib>
+
+#include <tt-metalium/distributed.hpp>
+#endif
+
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/all_reduce.h"
+#include "operations/ccl/all_reduce_async.h"
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
+#include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
@@ -32,6 +40,7 @@
 #include "operations/creation/full_with.h"
 #include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/gather.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/repeat.h"
@@ -60,6 +69,7 @@
 #include "operations/kv_cache/paged_fill_cache.h"
 #include "operations/kv_cache/paged_update_cache.h"
 #include "operations/kv_cache/update_cache.h"
+#include "operations/layout/bitcast_convert.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_layout.h"
@@ -71,8 +81,10 @@
 #include "operations/normalization/distributed_rms_norm.h"
 #include "operations/normalization/group_norm.h"
 #include "operations/normalization/layer_norm.h"
+#include "operations/normalization/layer_norm_post_all_gather.h"
 #include "operations/normalization/layer_norm_pre_all_gather.h"
 #include "operations/normalization/rms_norm.h"
+#include "operations/normalization/rms_norm_pre_all_gather.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
@@ -82,6 +94,7 @@
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
 #include "operations/reduction/topk.h"
+#include "operations/reduction/topk_router_gpt.h"
 #include "operations/tensor_serialization/dump_tensor.h"
 #include "operations/tensor_serialization/load_tensor.h"
 #include "operations/trace/begin_trace_capture.h"
@@ -92,6 +105,7 @@
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
+#include "operations/transformer/paged_flash_multi_latent_attention_decode.h"
 #include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 #include "operations/transformer/rotary_embedding.h"
 #include "operations/transformer/rotary_embedding_llama.h"
@@ -103,6 +117,10 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
+
+#include "tracy/Tracy.hpp"
+
+#include <cstring>
 
 namespace tt::runtime::ttnn {
 
@@ -157,11 +175,15 @@ void ProgramExecutor::runCallback(
 }
 
 void ProgramExecutor::execute() {
+  ZoneScopedN("program_execute");
+  ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+    // TODO(#7743): Remove these tracy messages.
+    // Currently they are being used by `ttrt perf` for parsing the csv output.
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
@@ -169,6 +191,9 @@ void ProgramExecutor::execute() {
     runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
                 op, context.get());
     runOperation(op);
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    syncAfterOpIfNeeded();
+#endif
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
     dumpPerfCountersIfNeeded();
@@ -182,6 +207,9 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
+  ZoneScoped;
+  ZoneName(::tt::target::ttnn::EnumNameOpType(op->type_type()),
+           std::strlen(::tt::target::ttnn::EnumNameOpType(op->type_type())));
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(
@@ -201,6 +229,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::BitcastConvertOp: {
+    return operations::layout::run(op->type_as_BitcastConvertOp(),
+                                   getContext());
   }
   case ::tt::target::ttnn::OpType::TypecastOp: {
     return operations::layout::run(op->type_as_TypecastOp(), getContext());
@@ -309,6 +341,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::data_movement::run(op->type_as_ScatterOp(),
                                           getContext());
   }
+  case ::tt::target::ttnn::OpType::GatherOp: {
+    return operations::data_movement::run(op->type_as_GatherOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ConcatenateHeadsOp: {
     return operations::transformer::run(op->type_as_ConcatenateHeadsOp(),
                                         getContext());
@@ -364,6 +399,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
+    return operations::rms_norm_pre_all_gather::run(
+        op->type_as_RMSNormPreAllGatherOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     return operations::distributed_rms_norm::run(
         op->type_as_DistributedRMSNormOp(), getContext());
@@ -374,6 +413,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::LayerNormPreAllGatherOp: {
     return operations::layer_norm_pre_all_gather::run(
         op->type_as_LayerNormPreAllGatherOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::LayerNormPostAllGatherOp: {
+    return operations::layer_norm_post_all_gather::run(
+        op->type_as_LayerNormPostAllGatherOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::GroupNormOp: {
     return operations::group_norm::run(op->type_as_GroupNormOp(), getContext());
@@ -429,6 +472,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllReduceOp: {
     return operations::ccl::run(op->type_as_AllReduceOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::AllReduceAsyncOp: {
+    return operations::ccl::run(op->type_as_AllReduceAsyncOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
   }
@@ -437,6 +483,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
     return operations::ccl::run(op->type_as_AllToAllDispatchOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp: {
+    return operations::ccl::run(op->type_as_AllToAllDispatchMetadataOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     return operations::ccl::run(op->type_as_AllToAllCombineOp(), getContext());
@@ -522,6 +572,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(
         op->type_as_PagedScaledDotProductAttentionDecodeOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
+    return operations::transformer::run(
+        op->type_as_PagedFlashMultiLatentAttentionDecodeOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionOp(), getContext());
@@ -553,6 +607,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::TopKOp: {
     return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::TopKRouterGptOp: {
+    return operations::reduction::topk_router_gpt::run(
+        op->type_as_TopKRouterGptOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::CreateGlobalSemaphoreOp: {
     return operations::creation::run(op->type_as_CreateGlobalSemaphoreOp(),
                                      getContext());
@@ -583,5 +641,16 @@ void ProgramExecutor::dumpPerfCountersIfNeeded() {
   }
 #endif
 }
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+void ProgramExecutor::syncAfterOpIfNeeded() {
+  static const bool enabled =
+      std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
+  if (enabled) {
+    ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
+                                             std::nullopt);
+  }
+}
+#endif
 
 } // namespace tt::runtime::ttnn

@@ -141,6 +141,10 @@ inline std::vector<TTNNLayoutAttr> getShardedLayoutsForPageLayout(
 // Clear all sharded layout entries from the map, keeping only interleaved.
 void clearShardedLayouts(TensorTypeLayoutsMap &map);
 
+// Clear L1 interleaved layout entries from the map, keeping only DRAM
+// interleaved.
+void clearL1InterleavedLayouts(TensorTypeLayoutsMap &map);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_TENSORLAYOUTS_H

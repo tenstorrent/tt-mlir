@@ -533,16 +533,16 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
 // there's no clear usecase for it other than conversion from
 // MathFidelity to ::ttnn::MathFidelity. Therefore, I decided to
 // not expose it for now. Subject to change in the future.
-::MathFidelity getMathFidelity(MathFidelity mathFidelity) {
+::tt::tt_metal::MathFidelity getMathFidelity(MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case MathFidelity::LoFi:
-    return ::MathFidelity::LoFi;
+    return ::tt::tt_metal::MathFidelity::LoFi;
   case MathFidelity::HiFi2:
-    return ::MathFidelity::HiFi2;
+    return ::tt::tt_metal::MathFidelity::HiFi2;
   case MathFidelity::HiFi3:
-    return ::MathFidelity::HiFi3;
+    return ::tt::tt_metal::MathFidelity::HiFi3;
   case MathFidelity::HiFi4:
-    return ::MathFidelity::HiFi4;
+    return ::tt::tt_metal::MathFidelity::HiFi4;
   }
 }
 

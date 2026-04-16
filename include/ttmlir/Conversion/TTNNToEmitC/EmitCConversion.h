@@ -877,28 +877,28 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     rso << TypeNameV<::reduction_common::ReduceType> << "::";
     switch (attr) {
     case ttcore::ReduceType::Sum:
-      rso << "SUM";
+      rso << "Sum";
       return buf;
     case ttcore::ReduceType::Mean:
-      rso << "MEAN";
+      rso << "Mean";
       return buf;
     case ttcore::ReduceType::Max:
-      rso << "MAX";
+      rso << "Max";
       return buf;
     case ttcore::ReduceType::Min:
-      rso << "MIN";
+      rso << "Min";
       return buf;
     case ttcore::ReduceType::Std:
-      rso << "STD";
+      rso << "Std";
       return buf;
     case ttcore::ReduceType::Var:
-      rso << "VAR";
+      rso << "Var";
       return buf;
     case ttcore::ReduceType::Prod:
-      rso << "PROD";
+      rso << "Prod";
       return buf;
     case ttcore::ReduceType::Invalid:
-      rso << "INVALID";
+      rso << "Invalid";
       return buf;
     }
 
@@ -2287,6 +2287,34 @@ public:
 
       rewriter.replaceOp(op, loadOp.getResult());
       return loadOp.getResult();
+    }
+
+    // TopKRouterGptOp returns a std::tuple<ttnn::Tensor, ttnn::Tensor>
+    // containing two elements: [0] = expert_indices, [1] = expert_weights.
+    // Extract both elements using std::get<i> to replace the original op.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::TopKRouterGptOp>) {
+      assert(op.getNumResults() == 2 &&
+             "Expected two outputs (expert_indices and expert_weights) for "
+             "TopKRouterGptOp.");
+      using ReturnTy = std::tuple<::ttnn::Tensor, ::ttnn::Tensor>;
+      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      SmallVector<Value> results;
+      for (unsigned i = 0; i < op.getNumResults(); ++i) {
+        auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+            op.getLoc(),
+            rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+            "::std::get", /*args=*/nullptr,
+            rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+            callOp.getResult(0));
+        results.push_back(getTensorOp.getResult(0));
+      }
+
+      rewriter.replaceOp(op, results);
+      return callOp.getResult(0);
     }
 
     // SortOp and TopKOp returns a std::vector<ttnn::Tensor> containing two

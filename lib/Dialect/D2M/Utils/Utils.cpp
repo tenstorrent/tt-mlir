@@ -256,30 +256,48 @@ getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
   return ttmlir::utils::evalShape(gridResultMap, overallDeviceShape);
 }
 
+static bool hasL1MemorySpace(Value val) {
+  if (auto memrefType = mlir::dyn_cast<MemRefType>(val.getType())) {
+    return ttcore::isL1MemorySpace(ttcore::getMemorySpace(memrefType));
+  }
+  if (auto tensorType = mlir::dyn_cast<RankedTensorType>(val.getType())) {
+    if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            tensorType.getEncoding())) {
+      return ttcore::isL1MemorySpace(layout.getMemorySpace());
+    }
+  }
+  return false;
+}
+
 SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
-  // Handle view-like ops first.
   if (auto viewOp = tensorOrMemref.getDefiningOp<d2m::ViewOpInterface>()) {
+    if (!viewOp.isComposite() && hasL1MemorySpace(viewOp.getInput())) {
+      // Single-input aliasing views over L1 buffers inherit the backing
+      // buffer's physical grid.  The view only reinterprets the layout; it
+      // does not change physical core placement.
+      return getPhysicalGridShape(viewOp.getInput());
+    }
+
+    // DRAM-backed views: the backing buffer has no core-grid placement, so the
+    // physical execution grid must be inferred from the view's apparent shape.
+    // Composite views: multiple backing buffers exist so there is no single
+    // input to recurse into.
+    // In both cases, derive the grid from the view's output shape, collapsing
+    // to 2D if it exceeds the device.
     ttcore::DeviceAttr device = ttcore::lookupDevice(viewOp);
     auto deviceGridShape = device.getWorkerGrid().getShape();
-    SmallVector<int64_t> outputGridShape;
     TT_assert(ttcore::hasDeviceLayout(tensorOrMemref));
-    outputGridShape = llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
+    SmallVector<int64_t> outputGridShape =
+        llvm::to_vector(ttcore::getGridShape(tensorOrMemref));
 
     bool rankMismatch = outputGridShape.size() != deviceGridShape.size();
     bool outOfDeviceGridBounds = (outputGridShape[0] > deviceGridShape[0]) ||
                                  (outputGridShape[1] > deviceGridShape[1]);
 
-    // For views, assume that if direct 1:1 mapping to device grid shape is
-    // impossible, the physical grid shape is given by collapsing the ND grid
-    // to a 2D physical grid that fits within the device.  This is checked
-    // against actual gridAttr inverse map and output virtual grid shape in
-    // GenericOp::verify().
     if (rankMismatch || outOfDeviceGridBounds) {
       return llvm::to_vector<2>(
           collapseToPhysicalGrid2D(outputGridShape, deviceGridShape));
     }
-    // View virtual and physical grid shapes are equivalent if directly mappable
-    // to device grid.
     return SmallVector<int64_t>(outputGridShape);
   }
 
@@ -383,6 +401,16 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
       return std::nullopt;
     }
 
+    if (auto spatialOp = mlir::dyn_cast<SpatialOp>(defOp)) {
+      for (auto [idx, result] : llvm::enumerate(spatialOp.getResults())) {
+        if (result == val) {
+          Value outputOperand = spatialOp.getOutputs()[idx];
+          return getVirtualGridInverseMapping(outputOperand);
+        }
+      }
+      return std::nullopt;
+    }
+
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       if (viewOp.isComposite()) {
@@ -428,6 +456,16 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
       for (auto [idx, result] : llvm::enumerate(genericOp.getResults())) {
         if (result == val) {
           Value outputOperand = genericOp.getOutputs()[idx];
+          return getVirtualGridForwardMapping(outputOperand);
+        }
+      }
+      return std::nullopt;
+    }
+
+    if (auto spatialOp = mlir::dyn_cast<SpatialOp>(defOp)) {
+      for (auto [idx, result] : llvm::enumerate(spatialOp.getResults())) {
+        if (result == val) {
+          Value outputOperand = spatialOp.getOutputs()[idx];
           return getVirtualGridForwardMapping(outputOperand);
         }
       }
