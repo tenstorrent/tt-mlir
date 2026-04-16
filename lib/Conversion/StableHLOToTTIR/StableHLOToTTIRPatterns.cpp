@@ -4474,11 +4474,64 @@ public:
     RankedTensorType updatesType =
         mlir::cast<RankedTensorType>(updates.getType());
 
+    int64_t seqLen = updatesType.getShape()[2];
+    int64_t maxCacheLen =
+        mlir::cast<RankedTensorType>(cache.getType()).getShape()[2];
+
     // If the cachePositions tensor has more than one element we assume it
     // represents a set of arranged indices (0, cachePositions.size), so we
     // replace it with FillCacheOp. If the tensor has only one element, we
-    // assume it represents the update index for UpateCacheOp.
+    // assume it represents the update index for UpdateCacheOp.
     if (cacheUpdateInputShape[0] != 1) {
+      // Pad the updates tensor to the full cache height (maxCacheLen rows).
+      //
+      // fill_cache_multi_core_program_factory.cpp distributes tile-row blocks
+      // across cores.  When a core's block range spans a head boundary in the
+      // fill_value, the sequential cache write leaves a gap because
+      //   input_Ht  (fill_len / TILE_HEIGHT)  !=  cache_Ht (maxCacheLen / TILE_HEIGHT)
+      // This causes two problems for the affected heads:
+      //   1. A few rows at the START of the head are written with data from the
+      //      WRONG tile rows (off-by-N corruption).
+      //   2. The rows immediately after those are NEVER written and remain zero.
+      //
+      // Padding the fill_value to maxCacheLen makes input_Ht == cache_Ht, so
+      // no core ever spans a head boundary and the bug cannot occur.
+      //
+      // Zeros are safe here: this is always a prefill on a zero-initialised
+      // cache, and the rows beyond seq_len are -inf masked in attention so they
+      // do not affect model outputs.
+      //
+      // We use zeros (NOT a slice of the cache tensor) because
+      // FillCacheOpConversionPattern in TTIRToTTNN.cpp requires the cache
+      // argument to have exactly one user (the fill_cache op itself); slicing
+      // the cache would create a second user and fail that check.
+      //
+      // NOTE: This padding is intentionally only applied to the FillCacheOp
+      // (prefill) path. The UpdateCacheOp (decode) path must NOT be padded:
+      // UpdateCacheOp canonicalization expects the input in [1, num_heads, 1,
+      // head_dim] form so it can permute to [1, num_users, num_heads, head_dim]
+      // before creating PagedUpdateCacheOp. Passing the full-cache-sized padded
+      // tensor would break that check (inputShape[2] != numUsers).
+      if (seqLen < maxCacheLen) {
+        int64_t padRows = maxCacheLen - seqLen;
+        SmallVector<int64_t> padShape(updatesType.getShape());
+        padShape[2] = padRows;
+        assert(!updatesType.getEncoding() &&
+               "Encoding should not be set when this pass is run");
+        RankedTensorType padType = RankedTensorType::get(
+            padShape, updatesType.getElementType(), nullptr);
+        auto zeros = rewriter.create<ttir::ZerosOp>(
+            scatterOp.getLoc(), padType,
+            llvm::to_vector_of<int32_t>(padType.getShape()));
+        SmallVector<int64_t> paddedShape(updatesType.getShape());
+        paddedShape[2] = maxCacheLen;
+        RankedTensorType paddedUpdatesType = RankedTensorType::get(
+            paddedShape, updatesType.getElementType(), nullptr);
+        updates = rewriter.create<ttir::ConcatOp>(
+            scatterOp.getLoc(), paddedUpdatesType,
+            SmallVector<Value>{updates, zeros.getResult()}, /*dim=*/2);
+        updatesType = paddedUpdatesType;
+      }
       // Fill cache requires that each batch is filled separately. So, we will
       // insert a FillCacheOp for each batch. This requires slicing out each
       // batch.
