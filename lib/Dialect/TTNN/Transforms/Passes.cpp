@@ -35,6 +35,7 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
+#define GEN_PASS_DEF_TTNNSPLITACTIVATIONSANDWEIGHTS
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
 #define GEN_PASS_DEF_TTNNPREPAREMODULEFOREXPORT
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
@@ -263,8 +264,34 @@ public:
   }
 };
 
+/// Recovers the original flat argument indices for activations and weights
+/// from the ttcore.original_argument_types attribute. This is needed to
+static void recoverOriginalArgIndices(func::FuncOp funcOp,
+                                      SmallVector<size_t> &activationIndices,
+                                      SmallVector<size_t> &weightIndices) {
+  auto origTypesAttr =
+      funcOp->getAttrOfType<ArrayAttr>("ttcore.original_argument_types");
+  assert(origTypesAttr && "Expected ttcore.original_argument_types on function "
+                          "that has split activation and weight inputs!");
+  for (unsigned i = 0; i < origTypesAttr.size(); ++i) {
+    auto typeAttr = mlir::cast<ttcore::ArgumentTypeAttr>(origTypesAttr[i]);
+    if (typeAttr.getValue() == ttcore::ArgumentType::Input) {
+      activationIndices.push_back(i);
+    } else {
+      weightIndices.push_back(i);
+    }
+  }
+}
+
 template <typename Derived>
 class TTNNInputFunctionCreatorBase {
+  /// Bundles the input generator functions created for a single forward
+  /// function.
+  struct ForwardFuncInputGeneratorOps {
+    func::FuncOp forwardFuncOp;
+    SmallVector<func::FuncOp, 2> inputGeneratorOps;
+  };
+
 protected:
   void runOnOperationImpl(ModuleOp moduleOp, IRRewriter &rewriter,
                           const std::string &functionPrefix) {
@@ -289,27 +316,54 @@ protected:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (funcOp.isPrivate()) {
+      if (!ttmlir::utils::isForwardDeviceFunc(funcOp) || funcOp.isPrivate()) {
         return mlir::WalkResult::skip();
       }
 
-      forwardFuncOps.push_back(funcOp);
+      if (funcOp.getFunctionType().getNumInputs() > 0) {
+        forwardFuncOps.push_back(funcOp);
+      }
+
       return mlir::WalkResult::advance();
     });
 
-    // Iterate over all func ops and add input tensor functions if needed.
+    // Iterate over all forward functions and add input tensor functions if
+    // needed.
     //
-    llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
-        forwardAndInputFuncOps;
-    for (mlir::func::FuncOp forwardFuncOp : forwardFuncOps) {
-      rewriter.setInsertionPointToEnd(block);
-      mlir::func::FuncOp inputFuncOp;
-      // Only create input function if the forward function has inputs
-      if (!forwardFuncOp.getFunctionType().getInputs().empty()) {
-        inputFuncOp = createInputFunctionImpl(rewriter, forwardFuncOp.getLoc(),
-                                              forwardFuncOp, functionPrefix);
+    SmallVector<ForwardFuncInputGeneratorOps, 1> forwardAndInputFuncOps;
+    for (func::FuncOp forwardFuncOp : forwardFuncOps) {
+      ForwardFuncInputGeneratorOps entry;
+      entry.forwardFuncOp = forwardFuncOp;
+
+      if (ttmlir::utils::isSplitInput(forwardFuncOp)) {
+        SmallVector<size_t> activationOrigIndices, weightOrigIndices;
+        recoverOriginalArgIndices(forwardFuncOp, activationOrigIndices,
+                                  weightOrigIndices);
+
+        for (auto type : forwardFuncOp.getFunctionType().getInputs()) {
+          if (auto tupleType = dyn_cast<mlir::TupleType>(type)) {
+            entry.inputGeneratorOps.push_back(createTupleInputFunctionImpl(
+                rewriter, block, forwardFuncOp.getLoc(), forwardFuncOp,
+                functionPrefix + "activations_for_", tupleType,
+                activationOrigIndices));
+          }
+          if (isa<ttcore::DictType>(type)) {
+            entry.inputGeneratorOps.push_back(createDictInputFunctionImpl(
+                rewriter, block, forwardFuncOp.getLoc(), forwardFuncOp,
+                functionPrefix + "weights_for_", weightOrigIndices));
+          }
+        }
+      } else {
+        auto inputs = forwardFuncOp.getFunctionType().getInputs();
+        assert(inputs.size() == 1 && isa<mlir::TupleType>(inputs[0]) &&
+               "Expected upstream pass to have tuplified inputs!");
+        entry.inputGeneratorOps.push_back(createTupleInputFunctionImpl(
+            rewriter, block, forwardFuncOp.getLoc(), forwardFuncOp,
+            functionPrefix + "inputs_for_",
+            mlir::cast<mlir::TupleType>(inputs[0])));
       }
-      forwardAndInputFuncOps.emplace_back(forwardFuncOp, inputFuncOp);
+
+      forwardAndInputFuncOps.push_back(entry);
     }
 
     // Create a main function to call input functions and forward funcs.
@@ -317,87 +371,144 @@ protected:
     createMainFunction(moduleOp, rewriter, forwardAndInputFuncOps);
   }
 
-  func::FuncOp createInputFunctionImpl(IRRewriter &rewriter, Location loc,
-                                       func::FuncOp forwardFuncOp,
-                                       const std::string &functionPrefix) {
+  // Creates a function input generator for a tuple of tensors.
+  func::FuncOp createTupleInputFunctionImpl(
+      IRRewriter &rewriter, Block *block, Location loc,
+      func::FuncOp forwardFuncOp, const std::string &functionPrefix,
+      mlir::TupleType tupleType, ArrayRef<size_t> originalArgIndices = {}) {
     MLIRContext *ctx = rewriter.getContext();
-
-    // Create a new function that will handle the input tensors.
-    //
-    std::string inputFuncName = functionPrefix + forwardFuncOp.getName().str();
-
-    // Create the function type.
-    //
-    llvm::SmallVector<mlir::Type> returnTypes =
-        llvm::to_vector(forwardFuncOp.getFunctionType().getInputs());
-    if (returnTypes.empty()) {
-      returnTypes = {mlir::TupleType::get(ctx, {})};
-    }
-    FunctionType functionType = mlir::FunctionType::get(ctx, {}, returnTypes);
+    std::string funcName = functionPrefix + forwardFuncOp.getName().str();
+    FunctionType functionType = mlir::FunctionType::get(ctx, {}, tupleType);
 
     // Create the function.
     //
-    func::FuncOp inputFuncOp =
-        rewriter.create<mlir::func::FuncOp>(loc, inputFuncName, functionType);
+    rewriter.setInsertionPointToEnd(block);
+    func::FuncOp funcOp =
+        rewriter.create<mlir::func::FuncOp>(loc, funcName, functionType);
 
     // Mark this function as an input generator function.
     //
-    ttmlir::utils::setFunctionType(inputFuncOp,
+    ttmlir::utils::setFunctionType(funcOp,
                                    ttmlir::utils::FunctionType::InputGenerator);
 
     // Add a Block to func op and set insertion point to the beginning of the
     // Block.
     //
-    rewriter.modifyOpInPlace(inputFuncOp, [&]() {
-      rewriter.setInsertionPointToStart(inputFuncOp.addEntryBlock());
+    rewriter.modifyOpInPlace(funcOp, [&]() {
+      rewriter.setInsertionPointToStart(funcOp.addEntryBlock());
     });
 
-    // Create/load input tensors.
+    // Create/load tensors.
     //
-    assert(
-        returnTypes.size() == 1 && mlir::isa<TupleType>(returnTypes.front()) &&
-        "Expected input function to return a single tuple of input tensors!");
-
     SmallVector<Value> tensors;
-    size_t argIndex = 0;
-    for (const Type &type :
-         mlir::cast<mlir::TupleType>(returnTypes[0]).getTypes()) {
-      // Ensure that the type is a RankedTensorType.
-      //
-      RankedTensorType rankedTensorType =
-          mlir::dyn_cast<RankedTensorType>(type);
+    for (auto [i, type] : llvm::enumerate(tupleType.getTypes())) {
+      auto rankedTensorType = mlir::dyn_cast<RankedTensorType>(type);
       assert(rankedTensorType &&
-             "Expected input tensor to be of type RankedTensorType!");
+             "Expected tensor to be of type RankedTensorType!");
 
+      size_t argIndex = originalArgIndices.empty() ? i : originalArgIndices[i];
       tensors.push_back(static_cast<Derived *>(this)->createTensor(
           rewriter, loc, rankedTensorType, argIndex));
-      argIndex++;
     }
 
     // Create a tuple from the tensors.
     //
     ttcore::TupleOp tuple =
-        rewriter.create<ttcore::TupleOp>(loc, returnTypes, tensors);
+        rewriter.create<ttcore::TupleOp>(loc, tupleType, tensors);
 
     // Create ReturnOp.
     //
     rewriter.create<func::ReturnOp>(forwardFuncOp.getLoc(),
                                     tuple->getResults());
 
-    return inputFuncOp;
+    return funcOp;
+  }
+
+  // Creates a function input generator for a dictionary of tensors. This is
+  // used to pack weights into a dictionary.
+  func::FuncOp
+  createDictInputFunctionImpl(IRRewriter &rewriter, Block *block, Location loc,
+                              func::FuncOp forwardFuncOp,
+                              const std::string &functionPrefix,
+                              ArrayRef<size_t> originalArgIndices = {}) {
+    MLIRContext *ctx = rewriter.getContext();
+    std::string forwardFuncName = forwardFuncOp.getName().str();
+    std::string funcName = functionPrefix + forwardFuncName;
+    auto dictType = ttcore::DictType::get(ctx);
+    auto functionType = mlir::FunctionType::get(ctx, {}, {dictType});
+
+    // Create the global dictionary (module-level).
+    //
+    rewriter.setInsertionPointToEnd(block);
+    std::string dictName = forwardFuncName + "_weights";
+    rewriter.create<ttcore::GlobalOp>(loc, dictName, dictType,
+                                      /*index=*/IntegerAttr());
+
+    // Create the function.
+    //
+    func::FuncOp funcOp =
+        rewriter.create<mlir::func::FuncOp>(loc, funcName, functionType);
+
+    // Mark this function as an input generator function.
+    //
+    ttmlir::utils::setFunctionType(funcOp,
+                                   ttmlir::utils::FunctionType::InputGenerator);
+
+    // Add a Block to func op and set insertion point to the beginning of the
+    // Block.
+    //
+    rewriter.modifyOpInPlace(funcOp, [&]() {
+      rewriter.setInsertionPointToStart(funcOp.addEntryBlock());
+    });
+
+    // Retrieve the global dictionary.
+    //
+    Value dict = rewriter.create<ttcore::GetGlobalOp>(loc, dictType, dictName)
+                     ->getResult(0);
+
+    // Collect tensor names and types from GetKeyValueOp ops in the
+    // forward function body. All GetKeyValueOps in the forward function body
+    // are relevant since at this point all of them are created by
+    // TTNNSplitActivationsAndWeights pass.
+    //
+    SmallVector<std::pair<Attribute, Type>> namesAndTypes;
+    forwardFuncOp.walk([&](ttcore::GetKeyValueOp op) {
+      namesAndTypes.push_back({op.getKeyAttr(), op.getResult(0).getType()});
+    });
+
+    // Create/load tensors and store them in the dictionary.
+    //
+    for (auto [i, nameAndType] : llvm::enumerate(namesAndTypes)) {
+      auto &[key, type] = nameAndType;
+      auto rankedTensorType = mlir::dyn_cast<RankedTensorType>(type);
+      assert(rankedTensorType &&
+             "Expected tensor to be of type RankedTensorType!");
+
+      size_t argIndex = originalArgIndices.empty() ? i : originalArgIndices[i];
+      Value tensor = static_cast<Derived *>(this)->createTensor(
+          rewriter, loc, rankedTensorType, argIndex);
+
+      rewriter.create<ttcore::SetKeyValueOp>(loc, dict, key, tensor);
+    }
+
+    // Create ReturnOp.
+    //
+    rewriter.create<func::ReturnOp>(funcOp.getLoc(), dict);
+
+    return funcOp;
   }
 
 private:
   void createMainFunction(
       ModuleOp moduleOp, IRRewriter &rewriter,
-      llvm::SmallVector<std::pair<mlir::func::FuncOp, mlir::func::FuncOp>, 1>
-          forwardAndInputFuncOps) {
+      SmallVector<ForwardFuncInputGeneratorOps, 1> forwardAndInputFuncOps) {
+    MLIRContext *ctx = rewriter.getContext();
     std::string mainFuncName = "main";
 
     // Create a function type.
     //
-    FunctionType functionType = mlir::FunctionType::get(
-        rewriter.getContext(), {}, rewriter.getI32Type());
+    FunctionType functionType =
+        mlir::FunctionType::get(ctx, {}, rewriter.getI32Type());
 
     // Set insertion point to end of the block.
     //
@@ -420,17 +531,13 @@ private:
       rewriter.setInsertionPointToStart(mainFuncOp.addEntryBlock());
     });
 
-    for (auto [forwardFuncOp, inputFuncOp] : forwardAndInputFuncOps) {
-
+    for (auto &[forwardFuncOp, inputGeneratorOps] : forwardAndInputFuncOps) {
       llvm::SmallVector<Value> operands;
-      // Generate/load the input tensors for a forwardFuncOp if needed.
-      // inputFuncOp will be null if the forward function has no inputs.
-      //
-      if (inputFuncOp) {
-        func::CallOp tensors = rewriter.create<mlir::func::CallOp>(
-            forwardFuncOp.getLoc(), inputFuncOp,
+      for (auto generatorOp : inputGeneratorOps) {
+        func::CallOp call = rewriter.create<mlir::func::CallOp>(
+            forwardFuncOp.getLoc(), generatorOp,
             /*operands=*/ValueRange());
-        operands = tensors->getResults();
+        operands.push_back(call.getResult(0));
       }
 
       // Call a forward function. If there are input tensors, pass them as
@@ -463,7 +570,7 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
-    runOnOperationImpl(moduleOp, rewriter, "create_inputs_for_");
+    runOnOperationImpl(moduleOp, rewriter, "create_");
   }
 
   mlir::Value createTensor(IRRewriter &rewriter, Location loc, Type type,
@@ -521,7 +628,7 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
-    runOnOperationImpl(moduleOp, rewriter, "load_inputs_for_");
+    runOnOperationImpl(moduleOp, rewriter, "load_");
   }
 
   mlir::Value createTensor(IRRewriter &rewriter, Location loc, Type type,
@@ -811,6 +918,203 @@ private:
   }
 };
 
+// Splits the inputs of the forward functions into activations and
+// weights. Only performed on forward functions which inputs have
+// ttcore.argument_type attributes set, so that each input argument can
+// be properly classified as an activation or a weight.
+class TTNNSplitActivationsAndWeights
+    : public impl::TTNNSplitActivationsAndWeightsBase<
+          TTNNSplitActivationsAndWeights> {
+public:
+  using impl::TTNNSplitActivationsAndWeightsBase<
+      TTNNSplitActivationsAndWeights>::TTNNSplitActivationsAndWeightsBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    MLIRContext &ctx = getContext();
+    IRRewriter rewriter(&ctx);
+
+    // Ensure that the module has a single region and a single block within
+    // that region.
+    //
+    assert(moduleOp->getRegions().size() == 1);
+    assert(moduleOp->getRegion(0).hasOneBlock());
+
+    Block *block = moduleOp.getBody(0);
+
+    // Collect forward functions eligible for splitting.
+    //
+    SmallVector<func::FuncOp> forwardFuncOps;
+    block->walk([&](func::FuncOp funcOp) {
+      if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        return mlir::WalkResult::skip();
+      }
+      if (funcOp.getFunctionType().getNumInputs() == 0) {
+        return mlir::WalkResult::skip();
+      }
+      if (isMissingArgTypes(funcOp)) {
+        return mlir::WalkResult::skip();
+      }
+      forwardFuncOps.push_back(funcOp);
+      return mlir::WalkResult::advance();
+    });
+
+    for (func::FuncOp funcOp : forwardFuncOps) {
+      mlir::FunctionType oldFunctionType = funcOp.getFunctionType();
+
+      // Classify the function arguments into activations and weights.
+      //
+      llvm::SmallDenseSet<unsigned> activationArgIndices, weightArgIndices;
+      SmallVector<Attribute> originalArgTypes;
+      SmallVector<Attribute> originalArgNames;
+      classifyFuncArguments(funcOp, activationArgIndices, weightArgIndices,
+                            originalArgTypes, originalArgNames);
+
+      bool hasActivations = !activationArgIndices.empty();
+      bool hasWeights = !weightArgIndices.empty();
+
+      assert((hasActivations || hasWeights) &&
+             "Expected at least one activation or weight argument!");
+
+      // Collect the activation argument types.
+      //
+      SmallVector<mlir::Type> activationTypes;
+      for (unsigned i = 0; i < oldFunctionType.getNumInputs(); ++i) {
+        if (activationArgIndices.count(i)) {
+          activationTypes.push_back(oldFunctionType.getInput(i));
+        }
+      }
+
+      // Create and set the new function type.
+      //
+      SmallVector<mlir::Type> newInputType;
+      if (hasActivations) {
+        newInputType.push_back(mlir::TupleType::get(&ctx, activationTypes));
+      }
+      if (hasWeights) {
+        newInputType.push_back(ttcore::DictType::get(&ctx));
+      }
+
+      mlir::FunctionType newFunctionType =
+          oldFunctionType.clone(newInputType, oldFunctionType.getResults());
+
+      rewriter.modifyOpInPlace(funcOp, [&funcOp, &newFunctionType]() {
+        funcOp.setFunctionType(newFunctionType);
+        funcOp->removeAttr(funcOp.getArgAttrsAttrName());
+      });
+
+      // Save original argument types and names as function-level attributes
+      // before the function signature is modified.
+      //
+      assert(!originalArgTypes.empty() && "Expected argument types to be set!");
+      funcOp->setAttr("ttcore.original_argument_types",
+                      ArrayAttr::get(&ctx, originalArgTypes));
+      if (!originalArgNames.empty()) {
+        funcOp->setAttr("ttcore.original_argument_names",
+                        ArrayAttr::get(&ctx, originalArgNames));
+      }
+
+      // Insert the new block arguments.
+      //
+      Block &entryBlock = funcOp.getBody().front();
+      BlockArgument activationsTuple, weightsDict;
+      unsigned newArgsCount = 0;
+      if (hasActivations) {
+        activationsTuple = entryBlock.insertArgument(
+            newArgsCount, newInputType[newArgsCount], funcOp.getLoc());
+        ++newArgsCount;
+      }
+      if (hasWeights) {
+        weightsDict = entryBlock.insertArgument(
+            newArgsCount, newInputType[newArgsCount], funcOp.getLoc());
+        ++newArgsCount;
+      }
+
+      // Create ops to unpack original arguments from the tuple (activations)
+      // or dict (weights), and replace all uses of the original arguments with
+      // the unpacked values.
+      //
+      rewriter.setInsertionPointToStart(&entryBlock);
+      size_t activationsTupleIdx = 0;
+      size_t weightsNameIdx = 0;
+      for (unsigned idx = 0; idx < oldFunctionType.getNumInputs(); ++idx) {
+        Type originalType = oldFunctionType.getInputs()[idx];
+        Value getElement;
+        if (activationArgIndices.count(idx)) {
+          getElement = rewriter
+                           .create<ttcore::GetTupleElementOp>(
+                               funcOp.getLoc(), originalType, activationsTuple,
+                               activationsTupleIdx++)
+                           ->getResult(0);
+        } else {
+          assert(weightArgIndices.count(idx) && "Expected weight argument!");
+          getElement = rewriter
+                           .create<ttcore::GetKeyValueOp>(
+                               funcOp.getLoc(), originalType, weightsDict,
+                               originalArgNames[weightsNameIdx++])
+                           ->getResult(0);
+        }
+
+        rewriter.replaceAllUsesWith(entryBlock.getArgument(newArgsCount + idx),
+                                    getElement);
+      }
+
+      // Erase original arguments.
+      //
+      entryBlock.eraseArguments(newArgsCount, oldFunctionType.getNumInputs());
+
+      // Mark the function input as split.
+      //
+      ttmlir::utils::setSplitInput(funcOp);
+    }
+  }
+
+  bool isMissingArgTypes(func::FuncOp funcOp) {
+    return llvm::any_of(
+        llvm::seq<unsigned>(0, funcOp.getFunctionType().getNumInputs()),
+        [&](unsigned i) {
+          return funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+                     i, ttcore::ArgumentTypeAttr::name) == nullptr;
+        });
+  }
+
+  void
+  classifyFuncArguments(func::FuncOp funcOp,
+                        llvm::SmallDenseSet<unsigned> &activationArgIndices,
+                        llvm::SmallDenseSet<unsigned> &weightArgIndices,
+                        llvm::SmallVector<Attribute> &originalArgTypes,
+                        llvm::SmallVector<Attribute> &originalArgNames) {
+    mlir::FunctionType functionType = funcOp.getFunctionType();
+    MLIRContext &ctx = getContext();
+
+    unsigned unnamedWeightsCount = 0;
+    for (unsigned i = 0; i < functionType.getNumInputs(); ++i) {
+      if (auto typeAttr = funcOp.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+              i, ttcore::ArgumentTypeAttr::name)) {
+        originalArgTypes.push_back(typeAttr);
+        if (typeAttr.getValue() == ttcore::ArgumentType::Input) {
+          activationArgIndices.insert(i);
+        } else if (typeAttr.getValue() == ttcore::ArgumentType::Parameter ||
+                   typeAttr.getValue() == ttcore::ArgumentType::Constant) {
+          weightArgIndices.insert(i);
+          if (auto nameAttr =
+                  funcOp.getArgAttrOfType<StringAttr>(i, "ttir.name")) {
+            originalArgNames.push_back(
+                StringAttr::get(&ctx, nameAttr.getValue()));
+          } else {
+            originalArgNames.push_back(StringAttr::get(
+                &ctx, "weight_" + std::to_string(unnamedWeightsCount++)));
+          }
+        }
+      } else {
+        llvm_unreachable("Pre-check should have skipped unannotated functions");
+      }
+    }
+  }
+};
+
+// Tuplifies inputs and/or results of all the functions whose inputs and/or
+// results are still flat (i.e. not packed into a tuple or dictionary).
 class TTNNTuplifyTensors
     : public impl::TTNNTuplifyTensorsBase<TTNNTuplifyTensors> {
 

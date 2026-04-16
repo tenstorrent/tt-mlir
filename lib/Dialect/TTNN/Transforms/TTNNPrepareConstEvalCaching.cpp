@@ -23,7 +23,7 @@ namespace mlir::tt::ttnn {
 // LoadCachedOps within each forward function into a single global cache
 // dictionary. For each forward function containing LoadCachedOps, it:
 //
-//   1. Creates a global cache dictionary (e.g., `_cached_forward`).
+//   1. Creates a global cache dictionary (e.g., `ce_cache_forward`).
 //   2. Inserts a retrieval of the dictionary at the top of the forward function
 //   body.
 //   3. Creates a separate consteval wrapper function and moves the complete
@@ -37,7 +37,7 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
-constexpr const char *kCachePrefix = "_cached_";
+constexpr const char *kCachePrefix = "ce_cache_";
 constexpr const char *kConstEvalWrapperNamePrefix = "consteval_";
 
 // Collect the sorteddef-use chain of the given ops.
@@ -112,10 +112,17 @@ public:
       // dictionary retrieval in the forward function.
       builder.setInsertionPointAfter(dict);
       Block &forwardBody = funcOp.getBody().front();
-      llvm::SmallVector<Value> callArgs;
-      callArgs.push_back(dict.getResult());
-      callArgs.append(forwardBody.getArguments().begin(),
-                      forwardBody.getArguments().end());
+
+      // Collect the arguments to pass to the consteval wrapper function.
+      SmallVector<Value> callArgs = {dict.getResult()};
+      auto activationIdx = getActivationArgIdx(funcOp);
+      for (unsigned i = 0; i < forwardBody.getNumArguments(); ++i) {
+        if (activationIdx && *activationIdx == i) {
+          continue;
+        }
+        callArgs.push_back(forwardBody.getArgument(i));
+      }
+
       auto cacheDict = builder.create<func::CallOp>(
           funcOp.getLoc(), kConstEvalWrapperNamePrefix + funcOp.getName().str(),
           TypeRange{dictType}, callArgs);
@@ -147,18 +154,38 @@ public:
     }
   }
 
+  /// Return the index of the activations argument if it exists.
+  std::optional<unsigned> getActivationArgIdx(func::FuncOp funcOp) {
+    if (!ttmlir::utils::isSplitInput(funcOp)) {
+      return std::nullopt;
+    }
+
+    for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+      if (isa<TupleType>(funcOp.getArgument(i).getType())) {
+        return i;
+      }
+    }
+    return std::nullopt;
+  }
+
+  // Create the consteval wrapper function.
   LogicalResult
   createConstEvalWrapper(OpBuilder &builder, func::FuncOp forwardFunc,
                          llvm::SmallVector<ttcore::LoadCachedOp> &loadCachedOps,
                          Value cacheDict) {
-    // Create the consteval wrapper function.
     std::string wrapperName =
         kConstEvalWrapperNamePrefix + forwardFunc.getName().str();
     auto dictType = ttcore::DictType::get(&getContext());
-    llvm::SmallVector<Type> wrapperArgTypes;
-    wrapperArgTypes.push_back(dictType);
-    wrapperArgTypes.append(forwardFunc.getArgumentTypes().begin(),
-                           forwardFunc.getArgumentTypes().end());
+
+    llvm::SmallVector<Type> wrapperArgTypes = {dictType};
+    auto activationIdx = getActivationArgIdx(forwardFunc);
+    for (unsigned i = 0; i < forwardFunc.getNumArguments(); ++i) {
+      if (activationIdx && *activationIdx == i) {
+        continue;
+      }
+      wrapperArgTypes.push_back(forwardFunc.getArgument(i).getType());
+    }
+
     auto wrapperFuncType = builder.getFunctionType(wrapperArgTypes, {dictType});
 
     builder.setInsertionPointAfter(forwardFunc);
@@ -176,9 +203,14 @@ public:
     // arguments.
     IRMapping mapping;
     mapping.map(cacheDict, wrapperBody.getArgument(0));
+    unsigned wrapperArgIdx = 1;
     for (unsigned i = 0; i < forwardFunc.getNumArguments(); ++i) {
-      wrapperFunc.setArgAttrs(i + 1, forwardFunc.getArgAttrDict(i));
-      mapping.map(forwardBody.getArgument(i), wrapperBody.getArgument(i + 1));
+      if (activationIdx && *activationIdx == i) {
+        continue;
+      }
+      mapping.map(forwardBody.getArgument(i),
+                  wrapperBody.getArgument(wrapperArgIdx));
+      wrapperFunc.setArgAttrs(wrapperArgIdx++, forwardFunc.getArgAttrDict(i));
     }
 
     // Collect all ops from the forward function to clone into the wrapper.

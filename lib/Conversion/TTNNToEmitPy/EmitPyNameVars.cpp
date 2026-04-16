@@ -8,6 +8,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/Pass.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/FunctionTypes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Casting.h"
@@ -20,6 +22,39 @@ namespace mlir::tt {
 #include "ttmlir/Conversion/Passes.h.inc"
 
 namespace {
+
+// Infer an argument name from the function-level ttcore.original_argument_types
+// attribute if present.
+std::optional<std::string> inferArgNameFromOriginalTypes(func::FuncOp funcOp,
+                                                         unsigned argIdx) {
+  auto origTypesAttr =
+      funcOp->getAttrOfType<ArrayAttr>("ttcore.original_argument_types");
+  if (!origTypesAttr) {
+    return std::nullopt;
+  }
+
+  bool hasActivations = false, hasWeights = false;
+  for (Attribute attr : origTypesAttr) {
+    auto typeAttr = mlir::dyn_cast<ttcore::ArgumentTypeAttr>(attr);
+    assert(typeAttr &&
+           "Expected attribute to be of type ttcore::ArgumentTypeAttr");
+    if (typeAttr.getValue() == ttcore::ArgumentType::Input) {
+      hasActivations = true;
+    } else if (typeAttr.getValue() == ttcore::ArgumentType::Parameter ||
+               typeAttr.getValue() == ttcore::ArgumentType::Constant) {
+      hasWeights = true;
+    }
+  }
+
+  if (hasActivations && argIdx == 0) {
+    return "activations";
+  }
+  if (hasWeights && argIdx == (hasActivations ? 1 : 0)) {
+    return "weights";
+  }
+
+  return std::nullopt;
+}
 
 class EmitPyNameVarsPass : public impl::EmitPyNameVarsBase<EmitPyNameVarsPass> {
 public:
@@ -90,13 +125,12 @@ public:
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
         std::string argName;
 
-        // Check if an emitpy.name attribute already exists for this argument.
-        // If so, use it instead of generating a new name.
         if (auto existingNameAttr =
                 funcOp.getArgAttrOfType<StringAttr>(i, "emitpy.name")) {
           argName = existingNameAttr.getValue().str();
-        } else if (isa<emitpy::DictType>(funcOp.getArgument(i).getType())) {
-          argName = "ce_cache";
+        } else if (auto inferredName =
+                       inferArgNameFromOriginalTypes(funcOp, i)) {
+          argName = *inferredName;
         } else {
           argName = funcOp.getNumArguments() > 1 ? "input_" + std::to_string(i)
                                                  : "input";
