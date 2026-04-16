@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/SDPADecodeDecompositionPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/SDPADecompositionPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -20,8 +22,29 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
+
+    // DistributedRMSNorm decomposition always runs (shape-gated internally).
     patterns.add<decomposition::DistributedRMSNormDecompositionRewritePattern>(
         &getContext());
+
+    // SDPA decomposition patterns: validation-gated or force-decompose.
+    if (forceDecompose) {
+      patterns.add<decomposition::SDPADecodeDecompositionPattern>(
+          &getContext());
+      patterns.add<decomposition::SDPADecompositionPattern>(&getContext());
+    }
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+    if (enableOpConstraints) {
+      FusionValidationConfig validationConfig;
+      validationConfig.maxFallbackAttempts = maxFallbackAttempts;
+
+      patterns.add<decomposition::SDPADecodeDecompositionPattern>(
+          &getContext(), validationConfig);
+      patterns.add<decomposition::SDPADecompositionPattern>(&getContext(),
+                                                            validationConfig);
+    }
+#endif
 
     FrozenRewritePatternSet patternSet(std::move(patterns));
     GreedyRewriteConfig config;

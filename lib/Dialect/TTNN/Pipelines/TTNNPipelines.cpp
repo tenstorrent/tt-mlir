@@ -224,6 +224,44 @@ void createTTNNFusingPass(OpPassManager &pm,
   }
 }
 
+// Create TTNN decomposition pass.
+// If optimizer is enabled we wrap the decomposition pass inside the device
+// passes wrapper to ensure device is properly initialized. This is required
+// for op constraint validation for SDPA decomposition patterns.
+// If optimizer is not enabled we just add the decomposition pass directly
+// (shape-based decompositions like DistributedRMSNorm still run).
+void createTTNNDecompositionPass(
+    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+  TTNNDecompositionOptions decompositionOptions;
+  decompositionOptions.forceDecompose = options.ttnnForceDecompose;
+
+  if (options.optimizerPassEnabled) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+    DevicePassesWrapperOptions wrapperOptions;
+    wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+
+    uint32_t fallbackAttempts = options.maxFallbackAttempts;
+    bool forceDecompose = options.ttnnForceDecompose;
+    pm.addPass(createDevicePassesWrapper(
+        [fallbackAttempts, forceDecompose](OpPassManager &innerPm) {
+          TTNNDecompositionOptions decompositionOptions;
+          decompositionOptions.enableOpConstraints = true;
+          decompositionOptions.maxFallbackAttempts = fallbackAttempts;
+          decompositionOptions.forceDecompose = forceDecompose;
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNDecomposition(decompositionOptions));
+        },
+        wrapperOptions));
+#else
+    llvm::llvm_unreachable_internal(
+        "TTNNOptimizer passes require OpModel support to be enabled.");
+#endif
+  } else {
+    pm.addPass(createTTNNDecomposition(decompositionOptions));
+  }
+}
+
 // Create a pass to workaround issues in the TTNN dialect.
 void createTTNNPipelineWorkaroundPass(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
@@ -331,7 +369,7 @@ void createTTIRToTTNNDevicePipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
-    devicePm.addPass(createTTNNDecomposition());
+    createTTNNDecompositionPass(devicePm, options);
 
     if (options.dramSpaceSavingOptimizationEnabled) {
       devicePm.addPass(createTTNNMemoryManagement());

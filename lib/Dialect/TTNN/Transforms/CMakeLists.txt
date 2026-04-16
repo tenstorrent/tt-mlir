@@ -25,6 +25,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
+        Decomposition/SDPADecodeDecompositionPattern.cpp
+        Decomposition/SDPADecompositionPattern.cpp
         Decomposition/TTNNDecompositionPass.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
