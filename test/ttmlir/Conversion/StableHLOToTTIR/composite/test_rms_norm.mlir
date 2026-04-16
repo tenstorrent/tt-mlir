@@ -3,7 +3,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module @jit__rms_norm attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {
-  sdy.mesh @empty_mesh = <["default_updated"=1, "default"=1]>
+  sdy.mesh @empty_mesh = <["default_aux"=1, "default"=1]>
 
   // CHECK-LABEL: func.func public @test_rms_norm_no_weight
   // CHECK: "ttir.rms_norm"(%{{.*}})
