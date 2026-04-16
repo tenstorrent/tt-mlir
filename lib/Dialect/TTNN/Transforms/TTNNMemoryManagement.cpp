@@ -96,6 +96,32 @@ static bool hasOnlySingletonDimsBetween(ArrayRef<int64_t> shape, int64_t src,
                        [&](int64_t dim) { return shape[dim] != 1; });
 }
 
+static bool isFullSliceForDim(int32_t begin, int32_t end, int32_t step,
+                              int64_t dimSize) {
+  return begin == 0 && end == dimSize && step == 1;
+}
+
+static int64_t getTiledVolume(ArrayRef<int64_t> shape) {
+  llvm::SmallVector<int64_t> paddedShape =
+      ttnn::utils::getTilePaddedShape(shape);
+  return ttmlir::utils::volume(llvm::ArrayRef<int64_t>(paddedShape));
+}
+
+static bool isLeadingSliceUser(ttnn::SliceStaticOp op) {
+  for (Operation *user : op.getInput().getUsers()) {
+    if (user == op.getOperation()) {
+      continue;
+    }
+    if (user->getBlock() != op->getBlock()) {
+      return false;
+    }
+    if (user->isBeforeInBlock(op.getOperation())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class PropagateSliceThroughPermute
     : public OpRewritePattern<ttnn::SliceStaticOp> {
 public:
@@ -153,6 +179,174 @@ public:
         /*memory_config=*/nullptr, /*pad_value=*/permuteOp.getPadValue());
 
     rewriter.replaceOp(op, newPermuteOp.getResult());
+    return success();
+  }
+};
+
+class HoistCommonReshapeAboveSlices
+    : public OpRewritePattern<ttnn::SliceStaticOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  // This pattern hoists a shared reshape above sibling slices in the special
+  // case where each slice selects a single element from one dimension and the
+  // following reshape simply drops that singleton dimension.
+  // For example:
+  // slice([1, 8190, 6, 3072], dim=2, begin=2, end=3) -> [1, 8190, 1, 3072]
+  // reshape [1, 8190, 1, 3072] -> [1, 8190, 3072]
+  // can be rewritten as:
+  // reshape [1, 8190, 6, 3072] -> [1, 49140, 3072]
+  // slice(dim=1, begin=2, end=49140, step=6) [1, 49140, 3072] -> [1, 8190,
+  // 3072]
+  LogicalResult matchAndRewrite(ttnn::SliceStaticOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!isLeadingSliceUser(op)) {
+      return failure();
+    }
+
+    RankedTensorType sourceType = op.getInput().getType();
+    auto sourceLayout = dyn_cast<TTNNLayoutAttr>(sourceType.getEncoding());
+    if (!sourceLayout || !sourceLayout.isTiled()) {
+      return failure();
+    }
+
+    SmallVector<ttnn::SliceStaticOp> sliceOps;
+    SmallVector<ttnn::ReshapeOp> reshapeOps;
+    for (Operation *user : op.getInput().getUsers()) {
+      auto sliceUser = dyn_cast<ttnn::SliceStaticOp>(user);
+      if (!sliceUser || !sliceUser->hasOneUse() ||
+          sliceUser->getBlock() != op->getBlock()) {
+        return failure();
+      }
+      auto reshapeUser = dyn_cast<ttnn::ReshapeOp>(*sliceUser->user_begin());
+      if (!reshapeUser || reshapeUser->getBlock() != op->getBlock()) {
+        return failure();
+      }
+      sliceOps.push_back(sliceUser);
+      reshapeOps.push_back(reshapeUser);
+    }
+
+    if (sliceOps.size() < 2) {
+      return failure();
+    }
+
+    ArrayRef<int64_t> sourceShape = sourceType.getShape();
+    RankedTensorType reshapedType = reshapeOps.front().getType();
+    SmallVector<int32_t> firstBegins = toI32Vec(sliceOps.front().getBegins());
+    SmallVector<int32_t> firstEnds = toI32Vec(sliceOps.front().getEnds());
+    SmallVector<int32_t> firstStep = toI32Vec(sliceOps.front().getStep());
+
+    SmallVector<int64_t> partialDims;
+    for (int64_t dim = 0; dim < static_cast<int64_t>(sourceShape.size());
+         ++dim) {
+      if (!isFullSliceForDim(firstBegins[dim], firstEnds[dim], firstStep[dim],
+                             sourceShape[dim])) {
+        partialDims.push_back(dim);
+      }
+    }
+
+    if (partialDims.size() != 1) {
+      return failure();
+    }
+
+    int64_t slicedDim = partialDims.front();
+    if (slicedDim == 0 || firstStep[slicedDim] != 1 ||
+        firstEnds[slicedDim] - firstBegins[slicedDim] != 1) {
+      return failure();
+    }
+
+    SmallVector<int64_t> expectedShape(sourceShape.begin(), sourceShape.end());
+    expectedShape.erase(expectedShape.begin() + slicedDim);
+    if (llvm::ArrayRef<int64_t>(expectedShape) != reshapedType.getShape()) {
+      return failure();
+    }
+
+    SmallVector<int64_t> hoistedShape(sourceShape.begin(), sourceShape.end());
+    hoistedShape[slicedDim - 1] *= hoistedShape[slicedDim];
+    hoistedShape.erase(hoistedShape.begin() + slicedDim);
+
+    int64_t oldVolume = 0;
+    for (ttnn::SliceStaticOp sliceOp : sliceOps) {
+      oldVolume += getTiledVolume(sliceOp.getType().getShape());
+    }
+    int64_t newVolume = getTiledVolume(hoistedShape);
+    if (newVolume >= oldVolume) {
+      return failure();
+    }
+
+    for (size_t i = 0; i < sliceOps.size(); ++i) {
+      if (reshapeOps[i].getType() != reshapedType) {
+        return failure();
+      }
+
+      SmallVector<int32_t> begins = toI32Vec(sliceOps[i].getBegins());
+      SmallVector<int32_t> ends = toI32Vec(sliceOps[i].getEnds());
+      SmallVector<int32_t> step = toI32Vec(sliceOps[i].getStep());
+
+      for (int64_t dim = 0; dim < static_cast<int64_t>(sourceShape.size());
+           ++dim) {
+        bool isTargetDim = dim == slicedDim;
+        if (isTargetDim) {
+          if (step[dim] != 1 || ends[dim] - begins[dim] != 1) {
+            return failure();
+          }
+          continue;
+        }
+        if (!isFullSliceForDim(begins[dim], ends[dim], step[dim],
+                               sourceShape[dim])) {
+          return failure();
+        }
+      }
+
+      if (sliceOps[i].getType().getShape()[slicedDim] != 1) {
+        return failure();
+      }
+    }
+
+    RankedTensorType hoistedType =
+        utils::RankedTensorTypeFactory::create(sourceType, hoistedShape);
+    SmallVector<int32_t> hoistedShape32(hoistedShape.begin(),
+                                        hoistedShape.end());
+    auto hoistedReshape = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), hoistedType, op.getInput(),
+        rewriter.getI32ArrayAttr(hoistedShape32),
+        /*memory_config=*/nullptr);
+
+    for (size_t i = 0; i < sliceOps.size(); ++i) {
+      SmallVector<int32_t> begins = toI32Vec(sliceOps[i].getBegins());
+      SmallVector<int32_t> newBegins;
+      SmallVector<int32_t> newEnds;
+      SmallVector<int32_t> newStep;
+
+      for (int64_t dim = 0; dim < static_cast<int64_t>(hoistedShape.size());
+           ++dim) {
+        if (dim < slicedDim - 1) {
+          newBegins.push_back(0);
+          newEnds.push_back(static_cast<int32_t>(hoistedShape[dim]));
+          newStep.push_back(1);
+          continue;
+        }
+        if (dim == slicedDim - 1) {
+          newBegins.push_back(begins[slicedDim]);
+          newEnds.push_back(static_cast<int32_t>(hoistedShape[dim]));
+          newStep.push_back(static_cast<int32_t>(sourceShape[slicedDim]));
+          continue;
+        }
+        newBegins.push_back(0);
+        newEnds.push_back(static_cast<int32_t>(hoistedShape[dim]));
+        newStep.push_back(1);
+      }
+
+      auto newSliceOp = rewriter.create<ttnn::SliceStaticOp>(
+          reshapeOps[i].getLoc(), reshapeOps[i].getType(),
+          hoistedReshape.getResult(), rewriter.getI32ArrayAttr(newBegins),
+          rewriter.getI32ArrayAttr(newEnds), rewriter.getI32ArrayAttr(newStep));
+      rewriter.replaceOp(reshapeOps[i], newSliceOp.getResult());
+    }
+
+    for (ttnn::SliceStaticOp sliceOp : sliceOps) {
+      rewriter.eraseOp(sliceOp);
+    }
     return success();
   }
 };
@@ -565,16 +759,12 @@ public:
 
     RankedTensorType finalType = op.getResult().getType();
     ArrayRef<int64_t> finalShape = finalType.getShape();
-    auto paddedShape = ttnn::utils::getTilePaddedShape(finalShape);
-
-    int64_t tiledVolume = ttmlir::utils::volume(llvm::ArrayRef(paddedShape));
+    int64_t tiledVolume = getTiledVolume(finalShape);
 
     RankedTensorType eltwiseType =
         cast<RankedTensorType>(eltwiseOp->getResult(0).getType());
     ArrayRef<int64_t> eltwiseShape = eltwiseType.getShape();
-    auto paddedEltwiseShape = ttnn::utils::getTilePaddedShape(eltwiseShape);
-    int64_t tiledEltwiseVolume =
-        ttmlir::utils::volume(llvm::ArrayRef(paddedEltwiseShape));
+    int64_t tiledEltwiseVolume = getTiledVolume(eltwiseShape);
 
     // If the elementwise is already in target space, nothing to do.
     if (tiledVolume >= tiledEltwiseVolume) {
@@ -681,16 +871,17 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<
-        PropagateSliceThroughPermute, PropagateSliceThroughReshape,
-        PropagateSliceThroughRepeat, PropagateSliceThroughEltwise<ttnn::AddOp>,
-        PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
-        PropagateSliceThroughEltwise<ttnn::SubtractOp>,
-        PropagateSliceThroughEltwise<ttnn::DivideOp>, RepeatReshapeAdjusting,
-        ReshapeElementwiseAdjusting<ttnn::AddOp>,
-        ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
-        ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
-        ReshapeElementwiseAdjusting<ttnn::DivideOp>>(&getContext());
+    patterns
+        .add<PropagateSliceThroughPermute, PropagateSliceThroughReshape,
+             HoistCommonReshapeAboveSlices, PropagateSliceThroughRepeat,
+             PropagateSliceThroughEltwise<ttnn::AddOp>,
+             PropagateSliceThroughEltwise<ttnn::MultiplyOp>,
+             PropagateSliceThroughEltwise<ttnn::SubtractOp>,
+             PropagateSliceThroughEltwise<ttnn::DivideOp>,
+             RepeatReshapeAdjusting, ReshapeElementwiseAdjusting<ttnn::AddOp>,
+             ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
+             ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
+             ReshapeElementwiseAdjusting<ttnn::DivideOp>>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
