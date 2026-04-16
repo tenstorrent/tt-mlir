@@ -96,6 +96,11 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
+// Creates a borrowed host tensor that aliases the buffer of `ownedHostTensor`.
+// `ownedHostTensor` must remain valid for the lifetime of uses of the result.
+::tt::runtime::Tensor
+createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor);
+
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).

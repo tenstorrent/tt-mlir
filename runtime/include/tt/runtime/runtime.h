@@ -67,6 +67,13 @@ Tensor createOwnedHostTensor(const void *data,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType);
 
+// Creates a host tensor with borrowed storage that aliases the same allocation
+// as `ownedHostTensor` (no copy). The returned tensor must not outlive
+// `ownedHostTensor`, and the caller must keep `ownedHostTensor` valid for the
+// lifetime of any use of the returned tensor. Only implemented for the local
+// TTNN device runtime; other runtimes report not implemented.
+Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor);
+
 // Creates multi-device host tensor with owned storage (buffers of the tensor
 // are on the host and their allocation/deallocation is owned by this tensor
 // instance).
