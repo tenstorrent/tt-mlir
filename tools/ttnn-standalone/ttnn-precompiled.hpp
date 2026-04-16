@@ -31,7 +31,6 @@
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
-#include "operations/experimental/ccl/moe/selective_reduce_combine/selective_reduce_combine.hpp"
 #include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
