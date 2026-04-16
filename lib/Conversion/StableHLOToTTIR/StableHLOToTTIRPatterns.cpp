@@ -5355,11 +5355,12 @@ public:
     RankedTensorType updatesType =
         mlir::cast<RankedTensorType>(updates.getType());
 
-    // If the cachePositions tensor has more than one element we assume it
-    // represents a set of arranged indices (0, cachePositions.size), so we
-    // replace it with FillCacheOp. If the tensor has only one element, we
-    // assume it represents the update index for UpateCacheOp.
-    if (cacheUpdateInputShape[0] != 1) {
+    // If the update seq_len > 1 we use FillCacheOp (prefill). If not, we use
+    // UpdateCacheOp (single-token decode). We use the update tensor's sequence
+    // dim rather than the block arg shape because the block arg may be a scalar
+    // cumulative_length (shape [1]) even when filling multiple positions.
+    int64_t cacheUpdateSeqLen = updatesType.getShape()[2];
+    if (cacheUpdateSeqLen != 1) {
       // Fill cache requires that each batch is filled separately. So, we will
       // insert a FillCacheOp for each batch. This requires slicing out each
       // batch.
@@ -5521,7 +5522,8 @@ private:
       if (!effectively1D) {
         continue;
       }
-      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
+      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize ||
+          ttmlir::utils::volume(argTensorShape) == 1) {
         // We found the cachePositions input tensor.
         return blockArg;
       }
