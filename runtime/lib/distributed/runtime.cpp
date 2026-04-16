@@ -130,6 +130,13 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
       tensorShards, strategy, meshShape);
 }
 
+::tt::runtime::Tensor
+createUnsafeBorrowedHostTensor(const ::tt::runtime::Tensor &ownedHostTensor) {
+  assertControllerLaunched();
+  return ControllerSingleton::get().createUnsafeBorrowedHostTensor(
+      ownedHostTensor);
+}
+
 bool isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle) {
   assertControllerLaunched();
   return ControllerSingleton::get().isTensorAllocated(tensorHandle);

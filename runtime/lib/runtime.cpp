@@ -338,8 +338,8 @@ Tensor createUnsafeBorrowedHostTensor(Tensor ownedHostTensor) {
                                     DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("createUnsafeBorrowedHostTensor",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::createUnsafeBorrowedHostTensor(
+            ownedHostTensor);
       });
 }
 

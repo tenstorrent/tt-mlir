@@ -147,6 +147,13 @@ void ResponseFactory::buildCreateMultiDeviceHostTensorFromShardsResponse(
   BUILD_RESPONSE(CreateMultiDeviceHostTensorFromShards, fbb, commandId);
 }
 
+void ResponseFactory::buildCreateUnsafeBorrowedHostTensorResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(CreateUnsafeBorrowedHostTensor, fbb, commandId);
+}
+
 void ResponseFactory::buildIsTensorAllocatedResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool allocated) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
