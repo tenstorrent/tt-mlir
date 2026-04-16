@@ -27,36 +27,36 @@ class CallbackTracker:
     """Helper class to track callback invocations."""
 
     def __init__(self):
-        self.pre_execution_count = 0
-        self.post_execution_count = 0
+        self.pre_program_count = 0
+        self.post_program_count = 0
         self.pre_op_count = 0
         self.post_op_count = 0
         self.pre_op_locations = []
         self.post_op_locations = []
-        self.execution_contexts = []
+        self.program_contexts = []
 
     def reset(self):
         """Reset all counters and tracked data."""
-        self.pre_execution_count = 0
-        self.post_execution_count = 0
+        self.pre_program_count = 0
+        self.post_program_count = 0
         self.pre_op_count = 0
         self.post_op_count = 0
         self.pre_op_locations = []
         self.post_op_locations = []
-        self.execution_contexts = []
+        self.program_contexts = []
 
-    def pre_execution_callback(self, binary, program_context):
-        """Called before program execution starts."""
-        self.pre_execution_count += 1
-        self.execution_contexts.append(("pre_exec", binary, program_context))
+    def pre_program_callback(self, binary, program_context):
+        """Called before program program starts."""
+        self.pre_program_count += 1
+        self.program_contexts.append(("pre_program", binary, program_context))
 
-    def post_execution_callback(self, binary, program_context):
-        """Called after program execution completes."""
-        self.post_execution_count += 1
-        self.execution_contexts.append(("post_exec", binary, program_context))
+    def post_program_callback(self, binary, program_context):
+        """Called after program program completes."""
+        self.post_program_count += 1
+        self.program_contexts.append(("post_program", binary, program_context))
 
     def pre_op_callback(self, binary, program_context, op_context):
-        """Called before each operation execution."""
+        """Called before each operation program."""
         self.pre_op_count += 1
         # Extract operation location if available
         try:
@@ -66,7 +66,7 @@ class CallbackTracker:
             self.pre_op_locations.append("unknown")
 
     def post_op_callback(self, binary, program_context, op_context):
-        """Called after each operation execution."""
+        """Called after each operation program."""
         self.post_op_count += 1
         # Extract operation location if available
         try:
@@ -107,8 +107,8 @@ def test_all_four_callbacks(helper: Helper, request):
     hooks = ttrt.runtime.DebugHooks.get(
         pre_op=tracker.pre_op_callback,
         post_op=tracker.post_op_callback,
-        pre_exec=tracker.pre_execution_callback,
-        post_exec=tracker.post_execution_callback,
+        pre_program=tracker.pre_program_callback,
+        post_program=tracker.post_program_callback,
     )
 
     assert hooks is not None, "Failed to register hooks"
@@ -123,11 +123,11 @@ def test_all_four_callbacks(helper: Helper, request):
 
         # Verify all callbacks were called
         assert (
-            tracker.pre_execution_count == 1
-        ), f"Pre-execution callback called {tracker.pre_execution_count} times, expected 1"
+            tracker.pre_program_count == 1
+        ), f"Pre-program callback called {tracker.pre_program_count} times, expected 1"
         assert (
-            tracker.post_execution_count == 1
-        ), f"Post-execution callback called {tracker.post_execution_count} times, expected 1"
+            tracker.post_program_count == 1
+        ), f"Post-program callback called {tracker.post_program_count} times, expected 1"
         assert (
             tracker.pre_op_count > 0
         ), f"Pre-op callback never called (expected at least 1 operation)"
@@ -138,10 +138,10 @@ def test_all_four_callbacks(helper: Helper, request):
             tracker.pre_op_count == tracker.post_op_count
         ), f"Pre-op count {tracker.pre_op_count} != Post-op count {tracker.post_op_count}"
 
-        # Verify execution contexts were captured
-        assert len(tracker.execution_contexts) == 2, "Expected 2 execution contexts"
-        assert tracker.execution_contexts[0][0] == "pre_exec"
-        assert tracker.execution_contexts[1][0] == "post_exec"
+        # Verify program contexts were captured
+        assert len(tracker.program_contexts) == 2, "Expected 2 program contexts"
+        assert tracker.program_contexts[0][0] == "pre_program"
+        assert tracker.program_contexts[1][0] == "post_program"
 
     # Cleanup
     ttrt.runtime.unregister_hooks()
@@ -169,9 +169,9 @@ def test_selective_callbacks(helper: Helper, request):
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
     tracker = CallbackTracker()
 
-    # Register only pre_op and post_exec callbacks
+    # Register only pre_op and post_program callbacks
     hooks = ttrt.runtime.DebugHooks.get(
-        pre_op=tracker.pre_op_callback, post_exec=tracker.post_execution_callback
+        pre_op=tracker.pre_op_callback, post_program=tracker.post_program_callback
     )
 
     assert hooks is not None, "Failed to register hooks"
@@ -186,11 +186,11 @@ def test_selective_callbacks(helper: Helper, request):
 
         # Verify only registered callbacks were called
         assert (
-            tracker.pre_execution_count == 0
-        ), "Pre-execution callback should not be called"
+            tracker.pre_program_count == 0
+        ), "Pre-program callback should not be called"
         assert (
-            tracker.post_execution_count == 1
-        ), "Post-execution callback should be called once"
+            tracker.post_program_count == 1
+        ), "Post-program callback should be called once"
         assert tracker.pre_op_count > 0, "Pre-op callback should be called"
         assert tracker.post_op_count == 0, "Post-op callback should not be called"
 
@@ -224,8 +224,8 @@ def test_unregister_hooks(helper: Helper, request):
     hooks = ttrt.runtime.DebugHooks.get(
         pre_op=tracker.pre_op_callback,
         post_op=tracker.post_op_callback,
-        pre_exec=tracker.pre_execution_callback,
-        post_exec=tracker.post_execution_callback,
+        pre_program=tracker.pre_program_callback,
+        post_program=tracker.post_program_callback,
     )
 
     assert hooks is not None, "Failed to register hooks"
@@ -239,13 +239,13 @@ def test_unregister_hooks(helper: Helper, request):
         output1 = test_runner.run_program(device, inputs_runtime_with_layout)
 
         # Verify callbacks were called
-        first_pre_exec_count = tracker.pre_execution_count
-        first_post_exec_count = tracker.post_execution_count
+        first_pre_program_count = tracker.pre_program_count
+        first_post_program_count = tracker.post_program_count
         first_pre_op_count = tracker.pre_op_count
         first_post_op_count = tracker.post_op_count
 
-        assert first_pre_exec_count == 1
-        assert first_post_exec_count == 1
+        assert first_pre_program_count == 1
+        assert first_post_program_count == 1
         assert first_pre_op_count > 0
         assert first_post_op_count > 0
 
@@ -257,11 +257,11 @@ def test_unregister_hooks(helper: Helper, request):
 
         # Verify callbacks were NOT called after unregister
         assert (
-            tracker.pre_execution_count == first_pre_exec_count
-        ), "Pre-execution callback called after unregister"
+            tracker.pre_program_count == first_pre_program_count
+        ), "Pre-program callback called after unregister"
         assert (
-            tracker.post_execution_count == first_post_exec_count
-        ), "Post-execution callback called after unregister"
+            tracker.post_program_count == first_post_program_count
+        ), "Post-program callback called after unregister"
         assert (
             tracker.pre_op_count == first_pre_op_count
         ), "Pre-op callback called after unregister"
@@ -296,8 +296,8 @@ def test_multiple_registrations(helper: Helper, request):
 
     # First registration
     hooks1 = ttrt.runtime.DebugHooks.get(
-        pre_exec=tracker1.pre_execution_callback,
-        post_exec=tracker1.post_execution_callback,
+        pre_program=tracker1.pre_program_callback,
+        post_program=tracker1.post_program_callback,
     )
 
     assert hooks1 is not None, "Failed to register first hooks"
@@ -311,15 +311,15 @@ def test_multiple_registrations(helper: Helper, request):
         output1 = test_runner.run_program(device, inputs_runtime_with_layout)
 
         # Verify first callbacks were called
-        assert tracker1.pre_execution_count == 1
-        assert tracker1.post_execution_count == 1
-        assert tracker2.pre_execution_count == 0
-        assert tracker2.post_execution_count == 0
+        assert tracker1.pre_program_count == 1
+        assert tracker1.post_program_count == 1
+        assert tracker2.pre_program_count == 0
+        assert tracker2.post_program_count == 0
 
         # Second registration (should replace the first)
         hooks2 = ttrt.runtime.DebugHooks.get(
-            pre_exec=tracker2.pre_execution_callback,
-            post_exec=tracker2.post_execution_callback,
+            pre_program=tracker2.pre_program_callback,
+            post_program=tracker2.post_program_callback,
         )
 
         assert hooks2 is not None, "Failed to register second hooks"
@@ -329,16 +329,16 @@ def test_multiple_registrations(helper: Helper, request):
 
         # Verify second callbacks were called, first were not called again
         assert (
-            tracker1.pre_execution_count == 1
+            tracker1.pre_program_count == 1
         ), "First tracker should not be called after re-registration"
         assert (
-            tracker1.post_execution_count == 1
+            tracker1.post_program_count == 1
         ), "First tracker should not be called after re-registration"
         assert (
-            tracker2.pre_execution_count == 1
+            tracker2.pre_program_count == 1
         ), "Second tracker should be called after re-registration"
         assert (
-            tracker2.post_execution_count == 1
+            tracker2.post_program_count == 1
         ), "Second tracker should be called after re-registration"
 
     # Cleanup
@@ -367,24 +367,24 @@ def test_partial_re_registration(helper: Helper, request):
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
     tracker = CallbackTracker()
 
-    # First: Register only execution callbacks
+    # First: Register only program callbacks
     hooks1 = ttrt.runtime.DebugHooks.get(
-        pre_exec=tracker.pre_execution_callback,
-        post_exec=tracker.post_execution_callback,
+        pre_program=tracker.pre_program_callback,
+        post_program=tracker.post_program_callback,
     )
 
-    assert hooks1 is not None, "Failed to register execution hooks"
+    assert hooks1 is not None, "Failed to register program hooks"
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
         inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
             device
         )
 
-        # Run with only execution callbacks
+        # Run with only program callbacks
         output1 = test_runner.run_program(device, inputs_runtime_with_layout)
 
-        assert tracker.pre_execution_count == 1
-        assert tracker.post_execution_count == 1
+        assert tracker.pre_program_count == 1
+        assert tracker.post_program_count == 1
         assert tracker.pre_op_count == 0
         assert tracker.post_op_count == 0
 
@@ -398,13 +398,13 @@ def test_partial_re_registration(helper: Helper, request):
         # Run with all callbacks
         output2 = test_runner.run_program(device, inputs_runtime_with_layout)
 
-        # Both execution and operation callbacks should be active
+        # Both program and operation callbacks should be active
         assert (
-            tracker.pre_execution_count == 2
-        ), "Pre-execution callback should still be active"
+            tracker.pre_program_count == 2
+        ), "Pre-program callback should still be active"
         assert (
-            tracker.post_execution_count == 2
-        ), "Post-execution callback should still be active"
+            tracker.post_program_count == 2
+        ), "Post-program callback should still be active"
         assert tracker.pre_op_count > 0, "Pre-op callback should now be active"
         assert tracker.post_op_count > 0, "Post-op callback should now be active"
 
@@ -438,7 +438,7 @@ def test_callback_exception_handling(helper: Helper, request):
         raise RuntimeError("Intentional callback failure")
 
     # Register a callback that will fail
-    hooks = ttrt.runtime.DebugHooks.get(pre_exec=failing_callback)
+    hooks = ttrt.runtime.DebugHooks.get(pre_program=failing_callback)
 
     assert hooks is not None, "Failed to register hooks"
 
@@ -457,7 +457,7 @@ def test_callback_exception_handling(helper: Helper, request):
 
 
 def test_callback_with_multiple_programs(helper: Helper, request):
-    """Test that callbacks work correctly across multiple program executions."""
+    """Test that callbacks work correctly across multiple program programs."""
     if not is_debug_enabled():
         pytest.skip("Debug hooks not enabled (TT_RUNTIME_DEBUG=0)")
 
@@ -471,7 +471,7 @@ def test_callback_with_multiple_programs(helper: Helper, request):
         expected_num_inputs=4,
         compute_golden=lambda inputs: (inputs[0] + inputs[1])
         * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
-        description="Test callbacks across multiple executions",
+        description="Test callbacks across multiple programs",
     )
 
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
@@ -479,16 +479,16 @@ def test_callback_with_multiple_programs(helper: Helper, request):
 
     # Register callbacks
     hooks = ttrt.runtime.DebugHooks.get(
-        pre_exec=tracker.pre_execution_callback,
-        post_exec=tracker.post_execution_callback,
+        pre_program=tracker.pre_program_callback,
+        post_program=tracker.post_program_callback,
     )
 
     assert hooks is not None, "Failed to register hooks"
 
-    num_executions = 5
+    num_programs = 5
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
-        for i in range(num_executions):
+        for i in range(num_programs):
             inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
                 device
             )
@@ -496,11 +496,11 @@ def test_callback_with_multiple_programs(helper: Helper, request):
 
         # Verify callbacks were called correct number of times
         assert (
-            tracker.pre_execution_count == num_executions
-        ), f"Pre-execution callback called {tracker.pre_execution_count} times, expected {num_executions}"
+            tracker.pre_program_count == num_programs
+        ), f"Pre-program callback called {tracker.pre_program_count} times, expected {num_programs}"
         assert (
-            tracker.post_execution_count == num_executions
-        ), f"Post-execution callback called {tracker.post_execution_count} times, expected {num_executions}"
+            tracker.post_program_count == num_programs
+        ), f"Post-program callback called {tracker.post_program_count} times, expected {num_programs}"
 
     # Cleanup
     ttrt.runtime.unregister_hooks()
