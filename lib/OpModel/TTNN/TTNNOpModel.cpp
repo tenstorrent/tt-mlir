@@ -21,6 +21,7 @@
 #include <eltwise/binary/unifiedEltwiseBinaryOp.h>
 #include <eltwise/quantization/unifiedEltwiseQuantizationOp.h>
 #include <eltwise/ternary/unifiedEltwiseTernaryOp.h>
+#include <eltwise/unary/unifiedEltwiseUnaryCompositeOp.h>
 #include <eltwise/unary/unifiedEltwiseUnaryOp.h>
 #include <matmul/unifiedMatmulOp.h>
 #include <ttnn/graph/graph_query_op_runtime.hpp>
@@ -815,7 +816,8 @@ llvm::Expected<bool> Device::getDeviceConstraints(ttcore::GridAttr workerGrid) {
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseUnaryOpT buildEltwiseUnaryOpTFromMLIR(std::optional<llvm::APFloat> slope = std::nullopt) {
+static ::tt::target::ttnn::EltwiseUnaryOpT buildEltwiseUnaryOpTFromMLIR(
+    std::optional<llvm::APFloat> slope = std::nullopt) {
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
 
   if (std::is_same_v<OpTy, TanhOp>) {
@@ -7041,17 +7043,44 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
 // ClampScalar
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
-/// Convert a clamp min/max mlir::Attribute (F32Attr or I32Attr) to the
-/// std::variant tt-metal expects, mirroring the runtime's NumberType dispatch.
-static std::optional<std::variant<float, int32_t>>
-clampAttrToVariant(mlir::Attribute attr) {
-  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-    return static_cast<int32_t>(intAttr.getValue().getSExtValue());
+static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(mlir::Attribute min,
+                                                 mlir::Attribute max) {
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
+  eltwiseUnaryCompositeOpT.type =
+      ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
+
+  // int32_t adf = static_cast<int32_t>(intAttr.getValue().getSExtValue());
+
+  ::tt::target::ttnn::ClampScalarOpParamsT paramsT;
+
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(min)) {
+    ::tt::target::ttnn::FloatingPointTypeT fp;
+    fp.value = floatAttr.getValue().convertToFloat();
+    paramsT.min.Set(fp);
+  } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(min)) {
+    ::tt::target::ttnn::IntegralTypeT i32;
+    i32.value = static_cast<int32_t>(intAttr.getInt());
+    paramsT.min.Set(i32);
+  } else {
+    assert(false && "Invalid clamp min attribute");
   }
-  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-    return static_cast<float>(floatAttr.getValueAsDouble());
+
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(max)) {
+    ::tt::target::ttnn::FloatingPointTypeT fp;
+    fp.value = floatAttr.getValue().convertToFloat();
+    paramsT.max.Set(fp);
+  } else if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(max)) {
+    ::tt::target::ttnn::IntegralTypeT i32;
+    i32.value = static_cast<int32_t>(intAttr.getInt());
+    paramsT.max.Set(i32);
+  } else {
+    assert(false && "Invalid clamp max attribute");
   }
-  return std::nullopt;
+
+  eltwiseUnaryCompositeOpT.params.Set(paramsT);
+
+  return eltwiseUnaryCompositeOpT;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -7068,17 +7097,28 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto memConfig = detail::getNullableMemoryConfig(outputLayout);
-  auto minVariant = clampAttrToVariant(min);
-  auto maxVariant = clampAttrToVariant(max);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
-  auto clampScalarQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::clamp, device, inputSpec, minVariant,
-                                maxVariant, memConfig);
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max);
+
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryCompositeOpResult result =
+        unifiedOpLib::callEltwiseUnaryCompositeClampScalar(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseUnaryCompositeOpT, inputSpec, device, outputMemoryConfig);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "EltwiseUnaryCompositeClampScalar query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     clampScalarQuery);
+                                     query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7096,16 +7136,27 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto memConfig = detail::getNullableMemoryConfig(outputLayout);
-  auto minVariant = clampAttrToVariant(min);
-  auto maxVariant = clampAttrToVariant(max);
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
 
-  auto clampScalarQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::clamp, device, inputSpec, minVariant,
-                            maxVariant, memConfig);
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max);
+
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryCompositeOpResult result =
+        unifiedOpLib::callEltwiseUnaryCompositeClampScalar(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
+            inputSpec, device, outputMemoryConfig);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseUnaryCompositeClampScalar "
+        "query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
-  return operation::getOpRuntime(clampScalarQuery);
+  return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7114,6 +7165,17 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ClampTensor
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+buildEltwiseUnaryCompositeClampTensorOpTFromMLIR() {
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
+  eltwiseUnaryCompositeOpT.type =
+      ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor;
+
+  return eltwiseUnaryCompositeOpT;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> minShape,
@@ -7134,15 +7196,29 @@ llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
   ASSIGN_OR_RETURN(::ttnn::TensorSpec maxSpec,
                    detail::convertToTensorSpec(device, maxShape, maxLayout));
 
-  // Create query closure
-  auto clampTensorQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::clamp, device, inputSpec, minSpec,
-                                maxSpec,
-                                detail::getNullableMemoryConfig(outputLayout));
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeClampTensorOpTFromMLIR();
+
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryCompositeOpResult result =
+        unifiedOpLib::callEltwiseUnaryCompositeClampTensor(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseUnaryCompositeOpT, inputSpec, minSpec, maxSpec, device,
+            outputMemoryConfig);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from "
+           "EltwiseUnaryCompositeClampTensor query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
-                                     clampTensorQuery);
+                                     query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7168,13 +7244,27 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
   ASSIGN_OR_RETURN(::ttnn::TensorSpec maxSpec,
                    detail::convertToTensorSpec(device, maxShape, maxLayout));
 
-  // Create query closure
-  auto clampTensorQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::clamp, device, inputSpec, minSpec, maxSpec,
-                            detail::getNullableMemoryConfig(outputLayout));
+  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
+      detail::getNullableMemoryConfig(outputLayout);
+
+  ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
+      buildEltwiseUnaryCompositeClampTensorOpTFromMLIR();
+
+  auto query = [=]() {
+    unifiedOpLib::EltwiseUnaryCompositeOpResult result =
+        unifiedOpLib::callEltwiseUnaryCompositeClampTensor(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
+            inputSpec, minSpec, maxSpec, device, outputMemoryConfig);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EltwiseUnaryCompositeClampTensor "
+        "query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
-  return operation::getOpRuntime(clampTensorQuery);
+  return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
