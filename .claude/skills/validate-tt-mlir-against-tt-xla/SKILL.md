@@ -98,8 +98,10 @@ authoritative source for what values `manual-test.yml` will actually accept:
 ```bash
 gh api "repos/tenstorrent/tt-xla/contents/.github/workflows/manual-test.yml?ref=<XLA_BRANCH>" \
   -q .content | base64 -d \
-  | grep -A100 'test_suite:' | grep -oP "'\K[^']+" | head -20
+  | grep -A100 'test_suite:' | grep -oP "'\K[^']+"
 ```
+
+Do not truncate this output — capture all options before selecting the default.
 
 If the workflow uses `options:` under `test_suite`, parse those. If it uses a free-text
 `input` with no enumerated options, fall back to listing JSON files in
@@ -176,6 +178,14 @@ Get the list of commits from the PR:
 
 ```bash
 gh api repos/tenstorrent/tt-mlir/pulls/<pr-number>/commits --paginate -q '.[].sha'
+```
+
+Fetch the PR's head ref to ensure all commit objects are present locally before
+cherry-picking (the commits may not exist in the local clone if the PR branch was
+never checked out):
+
+```bash
+git fetch origin refs/pull/<pr-number>/head
 ```
 
 Create the branch fresh by cherry-picking those commits onto `UPLIFTED_SHA`:
