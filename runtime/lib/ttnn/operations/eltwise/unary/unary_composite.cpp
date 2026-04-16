@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/eltwise/unary/unary_composite.h"
+#include "eltwise/unary/unifiedEltwiseUnaryCompositeOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -39,28 +40,19 @@ static void runEltwiseUnaryCompositeClampScalarOp(
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  const auto *params = op->params_as_ClampScalarOpParams();
+  target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
+  op->UnPackTo(&eltwiseUnaryCompositeOpT);
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
+  unifiedOpLib::EltwiseUnaryCompositeOpResult result =
+      unifiedOpLib::callEltwiseUnaryCompositeClampScalar(
+          unifiedOpLib::CallType::EXECUTE, eltwiseUnaryCompositeOpT, &in);
 
-  // Use the union type to determine whether to use int or float clamp
-  ::ttnn::Tensor out;
-  if (params->min_type() == ::tt::target::ttnn::NumberType::I32) {
-    int32_t min = params->min_as_I32()->value();
-    int32_t max = params->max_as_I32()->value();
-    out = ::ttnn::clamp(in, min, max, outputMemoryConfig);
-  } else {
-    float min = params->min_as_FP()->value();
-    float max = params->max_as_FP()->value();
-    out = ::ttnn::clamp(in, min, max, outputMemoryConfig);
-  }
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseUnaryCompositeClampScalar "
+             "execution");
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 static void runEltwiseUnaryCompositeClampTensorOp(
@@ -74,16 +66,20 @@ static void runEltwiseUnaryCompositeClampTensorOp(
   ::ttnn::Tensor max = tensorPool.getTTNNTensorAndValidate(
       op->params_as_ClampTensorOpParams()->max());
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
+  target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
+  op->UnPackTo(&eltwiseUnaryCompositeOpT);
 
-  ::ttnn::Tensor out = ::ttnn::clamp(in, min, max, outputMemoryConfig);
+  unifiedOpLib::EltwiseUnaryCompositeOpResult result =
+      unifiedOpLib::callEltwiseUnaryCompositeClampTensor(
+          unifiedOpLib::CallType::EXECUTE, eltwiseUnaryCompositeOpT, &in, &min,
+          &max);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseUnaryCompositeClampTensor "
+             "execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 static void runEltwiseUnaryCompositeWithFastAndApproximateModeOp(
