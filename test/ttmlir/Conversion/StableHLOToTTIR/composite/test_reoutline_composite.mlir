@@ -3,9 +3,9 @@
 // RUN: FileCheck %s --input-file=%t
 
 module @CompositeBackSuccess attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
-  sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+  sdy.mesh @mesh = <["_axis_0_aux"=1, "_axis_0"=2]>
   func.func @main(%arg0: tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
-    %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {"_axis_0"}]>] out_shardings=[<@mesh, [{?}, {"_axis_0", ?}]>] manual_axes={"_axis_0_updated", "_axis_0"} (%arg1: tensor<32x16xf32>) {
+    %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {"_axis_0"}]>] out_shardings=[<@mesh, [{?}, {"_axis_0", ?}]>] manual_axes={"_axis_0_aux", "_axis_0"} (%arg1: tensor<32x16xf32>) {
         %1 = stablehlo.reshape %arg1 : (tensor<32x16xf32>) -> tensor<1x32x16xf32>
         %2 = stablehlo.reshape %1 : (tensor<1x32x16xf32>) -> tensor<32x16xf32>
         // CHECK: ttir.gelu
@@ -37,9 +37,9 @@ module @CompositeBackSuccess attributes {mhlo.cross_program_prefetches = [], mhl
 // -----
 
 module @CompositeBackFailed attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
-  sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+  sdy.mesh @mesh = <["_axis_0_aux"=1, "_axis_0"=2]>
   func.func @main(%arg0: tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
-    %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {"_axis_0"}]>] out_shardings=[<@mesh, [{?}, {"_axis_0", ?}]>] manual_axes={"_axis_0_updated", "_axis_0"} (%arg1: tensor<32x16xf32>) {
+    %0 = sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {"_axis_0"}]>] out_shardings=[<@mesh, [{?}, {"_axis_0", ?}]>] manual_axes={"_axis_0_aux", "_axis_0"} (%arg1: tensor<32x16xf32>) {
         %1 = stablehlo.reshape %arg1 : (tensor<32x16xf32>) -> tensor<1x32x16xf32>
         %2 = stablehlo.reshape %1 : (tensor<1x32x16xf32>) -> tensor<32x16xf32>
         // CHECK: ttir.tanh

@@ -51,6 +51,8 @@ getMeshShapeFromMeshAttr(mlir::sdy::MeshAttr meshAttr);
 
 // Insert a mesh into the module.
 void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
+                     MeshMap meshMap);
+void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
                      std::string firstAxisName, std::string secondAxisName,
                      int64_t firstAxisSize, int64_t secondAxisSize);
 
