@@ -431,6 +431,24 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
   return outputTensorHandle;
 }
 
+::tt::runtime::Tensor Controller::createUnsafeBorrowedHostTensor(
+    const ::tt::runtime::Tensor &ownedHostTensor) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  ::tt::runtime::Tensor outputTensorHandle;
+
+  uint64_t commandId =
+      CommandFactory::buildCreateUnsafeBorrowedHostTensorCommand(
+          *commandBuilder, ownedHostTensor, outputTensorHandle);
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::CreateUnsafeBorrowedHostTensorCommand,
+      std::move(commandBuilder));
+
+  return outputTensorHandle;
+}
+
 bool Controller::isTensorAllocated(const ::tt::runtime::Tensor &tensorHandle) {
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
@@ -1177,6 +1195,20 @@ void Controller::handleCreateMultiDeviceHostTensorFromShardsResponse(
                                "CreateMultiDeviceHostTensorFromShards");
 }
 
+void Controller::handleCreateUnsafeBorrowedHostTensorResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(
+      responseBuffers,
+      fb::ResponseType::CreateUnsafeBorrowedHostTensorResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse,
+                               "CreateUnsafeBorrowedHostTensor");
+}
+
 void Controller::handleIsTensorAllocatedResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1531,6 +1563,10 @@ void Controller::handleResponse(
   }
   case fb::CommandType::CreateMultiDeviceHostTensorFromShardsCommand: {
     return handleCreateMultiDeviceHostTensorFromShardsResponse(
+        responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::CreateUnsafeBorrowedHostTensorCommand: {
+    return handleCreateUnsafeBorrowedHostTensorResponse(
         responseBuffers, std::move(awaitingResponse));
   }
   case fb::CommandType::GetLayoutCommand: {

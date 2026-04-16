@@ -75,6 +75,11 @@ public:
       const std::unordered_map<std::string, std::string> &strategy,
       const std::vector<uint32_t> &meshShape);
 
+  static uint64_t buildCreateUnsafeBorrowedHostTensorCommand(
+      ::flatbuffers::FlatBufferBuilder &fbb,
+      const ::tt::runtime::Tensor &sourceHostTensor,
+      const ::tt::runtime::Tensor &outputTensor);
+
   static uint64_t
   buildIsTensorAllocatedCommand(::flatbuffers::FlatBufferBuilder &fbb,
                                 const ::tt::runtime::Tensor &tensor);
