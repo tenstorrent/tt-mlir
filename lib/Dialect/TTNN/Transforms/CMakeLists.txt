@@ -67,7 +67,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/PadHighDimRewritePattern.cpp
         Workarounds/Decomposition/ProdOpRewritePattern.cpp
-        Workarounds/Decomposition/ToLayoutPadTileDimsRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
