@@ -138,6 +138,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MInsertScratchBuffers());
+  pm.addPass(d2m::createD2MMarkSynchronizedOpBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -246,6 +247,7 @@ void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
   { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  pm.addPass(d2m::createD2MInsertCBOps());
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());

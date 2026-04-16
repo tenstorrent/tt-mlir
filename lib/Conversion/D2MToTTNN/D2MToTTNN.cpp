@@ -151,7 +151,7 @@ static mlir::Attribute convertKernelArg(Builder &builder,
     return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(
         arg.getOperandIndex());
   }
-  case ttkernel::ArgType::CBPort: {
+  case ttkernel::ArgType::CB: {
     return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
         arg.getOperandIndex());
   }

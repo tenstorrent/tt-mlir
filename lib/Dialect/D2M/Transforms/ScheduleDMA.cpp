@@ -34,29 +34,31 @@ struct DMAThreadAssignment {
 };
 
 // Get the CB port number from a remote_load or remote_store operation.
-static unsigned getCBPort(Operation *dmaOp) {
+static unsigned getCBPort(Operation *dmaOp,
+                          const llvm::DenseMap<Value, unsigned> &cbPortMap) {
   if (auto load = mlir::dyn_cast<RemoteLoadOp>(dmaOp)) {
-    return load.getCBPort();
+    return cbPortMap.at(load.getCb());
   }
   if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
-    return store.getCBPort();
+    return cbPortMap.at(store.getCb());
   }
-  llvm_unreachable("getCBPort called on non-DMA op");
+  llvm_unreachable("getCb called on non-DMA op");
 }
 
 // Collect all remote_load and remote_store operations from a block,
 // recursively walking into nested scf.for loops.
 static void
 collectDMAOps(Block *block,
-              SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
+              SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
+              const llvm::DenseMap<Value, unsigned> &cbPortMap) {
   for (Operation &op : block->getOperations()) {
     if (auto forOp = mlir::dyn_cast<scf::ForOp>(&op)) {
-      collectDMAOps(forOp.getBody(), dmaOps);
+      collectDMAOps(forOp.getBody(), dmaOps, cbPortMap);
       continue;
     }
 
     if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
-      dmaOps.push_back({&op, getCBPort(&op)});
+      dmaOps.push_back({&op, getCBPort(&op, cbPortMap)});
     }
   }
 }
@@ -158,18 +160,21 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 
 // Check if an operation should be kept in a thread based on CB assignments.
 // Returns true if the operation uses a CB assigned to this thread.
-static bool shouldKeepOpForThread(Operation *op,
-                                  const DenseSet<unsigned> &assignedCBs) {
+static bool
+shouldKeepOpForThread(Operation *op, const DenseSet<unsigned> &assignedCBs,
+                      const llvm::DenseMap<Value, unsigned> &cbPortMap) {
   if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(op)) {
-    return assignedCBs.contains(getCBPort(op));
+    return assignedCBs.contains(getCBPort(op, cbPortMap));
   }
   return false;
 }
 
 // Recursively erase DMA ops not assigned to this thread.
 // Also removes ops that become dead as a result.
-static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
-                               const DenseSet<unsigned> &assignedCBs) {
+static void
+filterOpsForThread(PatternRewriter &rewriter, Block *block,
+                   const DenseSet<unsigned> &assignedCBs,
+                   const llvm::DenseMap<Value, unsigned> &cbPortMap) {
   bool changed = true;
   while (changed) {
     changed = false;
@@ -182,13 +187,13 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
 
       // Recurse into nested loops.
       if (auto forOp = mlir::dyn_cast<scf::ForOp>(&op)) {
-        filterOpsForThread(rewriter, forOp.getBody(), assignedCBs);
+        filterOpsForThread(rewriter, forOp.getBody(), assignedCBs, cbPortMap);
         continue;
       }
 
       // Check if this is a DMA op.
       if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
-        if (!shouldKeepOpForThread(&op, assignedCBs)) {
+        if (!shouldKeepOpForThread(&op, assignedCBs, cbPortMap)) {
           if (op.use_empty()) {
             toErase.push_back(&op);
             changed = true;
@@ -237,9 +242,17 @@ public:
       return failure();
     }
 
+    // temporary: create fake cb port numbers for each CB
+    auto cbUsageInfo = getCBUsageInfo(dmRegion);
+    llvm::DenseMap<Value, unsigned> cbPortMap;
+    unsigned port = 0;
+    for (auto &[cb, usageInfo] : cbUsageInfo) {
+      cbPortMap[cb] = port++;
+    }
+
     // Collect all DMA operations and their CB associations.
     SmallVector<std::pair<Operation *, unsigned>> dmaOps;
-    collectDMAOps(dmBlock, dmaOps);
+    collectDMAOps(dmBlock, dmaOps, cbPortMap);
 
     // If no DMA ops, nothing to split.
     if (dmaOps.empty()) {
@@ -317,7 +330,8 @@ public:
       }
 
       // Filter to keep only DMA ops for this thread's assigned CBs.
-      filterOpsForThread(rewriter, newDMBlock, assignments[i].assignedCBs);
+      filterOpsForThread(rewriter, newDMBlock, assignments[i].assignedCBs,
+                         cbPortMap);
     }
 
     // Clone the compute region to the new generic (not move, to preserve SSA).

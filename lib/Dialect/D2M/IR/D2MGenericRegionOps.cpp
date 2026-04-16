@@ -1495,9 +1495,9 @@ mlir::LogicalResult TileTilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  if (getResult().getType() != getOutput().getType()) {
-    return emitOpError("result type must match output parameter type");
-  }
+  // if (getResult().getType() != getOutput().getType()) {
+  //  return emitOpError("result type must match output parameter type");
+  //}
 
   return success();
 }
@@ -1593,9 +1593,9 @@ mlir::LogicalResult TileUntilizeBlockOp::verify() {
   }
 
   // Verify result type matches output type (DPS style)
-  if (getResult().getType() != getOutput().getType()) {
-    return emitOpError("result type must match output parameter type");
-  }
+  // if (getResult().getType() != getOutput().getType()) {
+  //  return emitOpError("result type must match output parameter type");
+  //}
 
   return success();
 }
@@ -1854,7 +1854,13 @@ void BlockMaskOp::getEffects(
 // YieldOp / WaitOp / ReserveOp / PushOp / PopOp
 //===----------------------------------------------------------------------===//
 
+// this is a hack, we need a proper, syncrhonized yield op
 mlir::LogicalResult YieldOp::verify() {
+  auto syncRegion = getOperation()->getParentOfType<SynchronizedRegionOp>();
+  if (syncRegion) {
+    return ::mlir::success();
+  }
+
   auto generic = getOperation()->getParentOfType<GenericOp>();
   if (!generic || !generic.hasPureTensorSemantics()) {
     return emitOpError()

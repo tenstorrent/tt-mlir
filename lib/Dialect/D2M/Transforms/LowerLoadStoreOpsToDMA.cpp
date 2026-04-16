@@ -306,6 +306,30 @@ public:
   }
 };
 
+class D2MLowerAliasedLoadRewritePattern
+    : public OpRewritePattern<AliasedLoadOp> {
+public:
+  using OpRewritePattern<AliasedLoadOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AliasedLoadOp aliasedLoad,
+                                PatternRewriter &rewriter) const final {
+    rewriter.eraseOp(aliasedLoad);
+    return success();
+  }
+};
+
+class D2MLowerAliasedStoreRewritePattern
+    : public OpRewritePattern<AliasedStoreOp> {
+public:
+  using OpRewritePattern<AliasedStoreOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AliasedStoreOp aliasedStore,
+                                PatternRewriter &rewriter) const final {
+    rewriter.eraseOp(aliasedStore);
+    return success();
+  }
+};
+
 class D2MLowerLoadStoreOpsToDMA
     : public impl::D2MLowerLoadStoreOpsToDMABase<D2MLowerLoadStoreOpsToDMA> {
 public:
@@ -316,6 +340,8 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
+    patterns.add<D2MLowerAliasedLoadRewritePattern>(&getContext());
+    patterns.add<D2MLowerAliasedStoreRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

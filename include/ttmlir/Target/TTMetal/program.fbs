@@ -60,7 +60,7 @@ union Kernel {
   KernelBinary,
 }
 
-table KernelArgCBPort {
+table KernelArgCB {
   operand_idx: uint32;
 }
 
@@ -83,7 +83,7 @@ table KernelArgGlobalSemaphore {
 }
 
 union KernelArgType {
-  KernelArgCBPort,
+  KernelArgCB,
   KernelArgBufferAddress,
   KernelArgSemaphore,
   KernelArgNamedArgument,
