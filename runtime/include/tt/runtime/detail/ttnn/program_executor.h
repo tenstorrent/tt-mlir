@@ -36,7 +36,7 @@ public:
       ProgramContext *programContext);
 
   /**
-   * Executes pre execution callback if registered
+   * Executes pre/post program callback if registered
    */
   void runProgramCallback(
       const std::optional<::tt::runtime::debug::Hooks::ProgramCallbackFn>

@@ -187,7 +187,7 @@ void ProgramExecutor::execute() {
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
-  runProgramCallback(debug::Hooks::get().getPreExecutionCallback(),
+  runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
                      executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
@@ -208,7 +208,7 @@ void ProgramExecutor::execute() {
                   executableHandle, op, context.get());
     dumpPerfCountersIfNeeded();
   }
-  runProgramCallback(debug::Hooks::get().getPostExecutionCallback(),
+  runProgramCallback(debug::Hooks::get().getpostProgramCallback(),
                      executableHandle, context.get());
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
