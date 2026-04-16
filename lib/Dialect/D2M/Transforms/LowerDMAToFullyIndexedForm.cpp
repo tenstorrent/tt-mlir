@@ -444,6 +444,14 @@ public:
       }
     }
 
+    for (auto [blockIV, blockingDim] : blockingLoops) {
+      if (static_cast<size_t>(blockingDim) >=
+          static_cast<size_t>(dstShape.size())) {
+        return rewriter.notifyMatchFailure(
+            op, "blocking_loop dimension exceeds dst rank");
+      }
+    }
+
     Value newTx = generateDMAWithCoalescing(
         rewriter, loc, dstShape, coalescingFactor, DMAType::Read,
         [&](OpBuilder &b, Location l, ValueRange iters, size_t cf) -> Value {

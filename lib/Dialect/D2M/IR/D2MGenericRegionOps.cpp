@@ -231,6 +231,11 @@ void DMAWriteOp::getEffects(
     }
   }
 
+  auto srcType = mlir::cast<ShapedType>(getSrc().getType());
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError("source and destination element types must match");
+  }
+
   bool hasTensors = mlir::isa<RankedTensorType>(getSrc().getType()) ||
                     (hasDst && mlir::isa<RankedTensorType>(getDst().getType()));
   if (hasTensors) {
