@@ -1201,9 +1201,10 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
 
-    // Use square grid to simplify virtual grid bounce calculations.
-    llvm::SmallVector<int64_t> targetGridShape =
-        d2m::utils::getSquareTargetGrid(getTargetGridShape());
+    // Use the full device grid; squaring here would mismatch the target grid
+    // that d2m-grid-selection picked from and produce unplaceable virtual
+    // grids on non-square devices (e.g. Blackhole 10x13).
+    llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape();
 
     patterns.add<D2MLowerToLayoutRewriter>(&getContext(), targetGridShape);
     GreedyRewriteConfig config;
