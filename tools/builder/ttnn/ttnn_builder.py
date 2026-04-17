@@ -277,6 +277,7 @@ class TTNNBuilder(Builder):
         # The pybound MemoryConfigAttr.get() requires a TensorMemoryLayoutAttr, but system_memory requires no TensorMemoryLayoutAttr
         memory_config_str = "#ttnn.memory_config<#ttnn.buffer_type<system_memory>>"
         return Attribute.parse(memory_config_str)
+
     def _get_empty_activation_array(self):
         return ArrayAttr.get([])
 

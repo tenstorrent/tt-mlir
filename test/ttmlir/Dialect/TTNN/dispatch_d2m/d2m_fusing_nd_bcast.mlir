@@ -30,8 +30,8 @@ module {
     // CHECK: ttnn.d2m_subgraph
     // CHECK-NOT: "ttnn.add"
     // CHECK-NOT: "ttnn.multiply"
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x32x1xbf16, #layout4d_col_bcast>) -> tensor<1x1x32x128xbf16, #layout4d_full>
-    %1 = "ttnn.multiply"(%0, %arg2) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x1x128xbf16, #layout4d_row_bcast>) -> tensor<1x1x32x128xbf16, #layout4d_full>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x32x1xbf16, #layout4d_col_bcast>) -> tensor<1x1x32x128xbf16, #layout4d_full>
+    %1 = "ttnn.multiply"(%0, %arg2) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x1x128xbf16, #layout4d_row_bcast>) -> tensor<1x1x32x128xbf16, #layout4d_full>
     return %1 : tensor<1x1x32x128xbf16, #layout4d_full>
   }
 
@@ -43,8 +43,8 @@ module {
     // CHECK: ttnn.d2m_subgraph
     // CHECK-NOT: "ttnn.add"
     // CHECK-NOT: "ttnn.multiply"
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x32x128xbf16, #layout3d_full>, tensor<1x32x1xbf16, #layout3d_col_bcast>) -> tensor<1x32x128xbf16, #layout3d_full>
-    %1 = "ttnn.multiply"(%0, %arg0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x32x128xbf16, #layout3d_full>, tensor<1x32x128xbf16, #layout3d_full>) -> tensor<1x32x128xbf16, #layout3d_full>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x32x128xbf16, #layout3d_full>, tensor<1x32x1xbf16, #layout3d_col_bcast>) -> tensor<1x32x128xbf16, #layout3d_full>
+    %1 = "ttnn.multiply"(%0, %arg0) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x32x128xbf16, #layout3d_full>, tensor<1x32x128xbf16, #layout3d_full>) -> tensor<1x32x128xbf16, #layout3d_full>
     return %1 : tensor<1x32x128xbf16, #layout3d_full>
   }
 
@@ -56,8 +56,8 @@ module {
       %arg1: tensor<1x1x32x128xbf16, #layout4d_full>,
       %arg2: tensor<1x1x32x128xbf16, #layout4d_full>) -> tensor<1x1x32x128xbf16, #layout4d_full> {
     // CHECK: ttnn.d2m_subgraph
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x32x128xbf16, #layout4d_full>) -> tensor<1x1x32x128xbf16, #layout4d_full>
-    %1 = "ttnn.multiply"(%0, %arg2) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x32x128xbf16, #layout4d_full>) -> tensor<1x1x32x128xbf16, #layout4d_full>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x32x128xbf16, #layout4d_full>) -> tensor<1x1x32x128xbf16, #layout4d_full>
+    %1 = "ttnn.multiply"(%0, %arg2) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x1x32x128xbf16, #layout4d_full>, tensor<1x1x32x128xbf16, #layout4d_full>) -> tensor<1x1x32x128xbf16, #layout4d_full>
     return %1 : tensor<1x1x32x128xbf16, #layout4d_full>
   }
 
@@ -69,8 +69,8 @@ module {
       %arg1: tensor<1x256xbf16, #layout2d_row>,
       %arg2: tensor<64x256xbf16, #layout2d>) -> tensor<64x256xbf16, #layout2d> {
     // CHECK: ttnn.d2m_subgraph
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout2d>, tensor<1x256xbf16, #layout2d_row>) -> tensor<64x256xbf16, #layout2d>
-    %1 = "ttnn.multiply"(%0, %arg2) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<64x256xbf16, #layout2d>, tensor<64x256xbf16, #layout2d>) -> tensor<64x256xbf16, #layout2d>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x256xbf16, #layout2d>, tensor<1x256xbf16, #layout2d_row>) -> tensor<64x256xbf16, #layout2d>
+    %1 = "ttnn.multiply"(%0, %arg2) <{dtype = #ttcore.supportedDataTypes<bf16>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<64x256xbf16, #layout2d>, tensor<64x256xbf16, #layout2d>) -> tensor<64x256xbf16, #layout2d>
     return %1 : tensor<64x256xbf16, #layout2d>
   }
 }
