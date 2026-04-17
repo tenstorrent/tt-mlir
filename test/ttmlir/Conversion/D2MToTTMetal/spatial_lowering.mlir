@@ -8,7 +8,8 @@
 // 3) Index-based kernel args (global_semaphore operand index) are remapped
 //    when args from multiple enqueues are concatenated.
 // 4) CBPort operand_idx remaps into the merged `cbs` list per region; hardware
-//    cb_ports values still concatenate per region (may repeat across cores).
+//    cb_ports are reassigned to sequential globally unique ids (temporary
+//    workaround for spatial merge).
 
 // Single-region merge smoke test.
 #l1 = #ttcore.memory_space<l1>
@@ -146,13 +147,13 @@ module {
 // -----
 
 // Two-region CBPort index remap: second region kernels must reference merged
-// cbs slots [2,3], not [0,1]. Hardware cb_ports ids stay 0,1 per region.
+// cbs slots [2,3], not [0,1]. Hardware cb_ports are 0,1,2,3 after merge remap.
 #l1 = #ttcore.memory_space<l1>
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK-LABEL: func.func @spatial_two_regions_cb_port_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
-  // CHECK: cb_ports = array<i64: 0, 1, 0, 1>
+  // CHECK: cb_ports = array<i64: 0, 1, 2, 3>
   // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_cbport_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>
   // CHECK-SAME: #ttmetal.noc_config<@dm_cbport_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, noc0>]
   // CHECK: operandSegmentSizes = array<i32: 4, 4>

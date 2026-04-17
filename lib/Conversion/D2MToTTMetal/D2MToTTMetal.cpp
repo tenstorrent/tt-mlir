@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -484,8 +485,11 @@ public:
 
 /// Second-phase lowering for d2m.spatial:
 /// - Merge all nested ttmetal.enqueue_program ops into one enqueue_program.
-/// - Concatenate per-region `cbs` / `cb_ports`. Hardware port ids may repeat
-/// across disjoint spatial regions.
+/// - Concatenate per-region `cbs`. Temporary workaround: remap hardware
+/// `cb_ports` to globally unique ids (sequential 0..N-1) so merged regions do
+/// not reuse the same CB port id when circular-buffer placement is
+/// over-approximated to the full worker grid (see TTMetalToFlatbuffer
+/// circular_buffer_config).
 /// - Remap kernel-arg indices for merged enqueue: BufferAddress,
 /// GlobalSemaphore, and CBPort. Runtime resolves CBPort by indexing the merged
 /// `cbs` list, then reads that entry's hardware port.
@@ -503,6 +507,26 @@ public:
     }
 
     ArrayAttr gridRanges = op.getGridRanges();
+    unsigned chipNumCbs = 0;
+    bool foundSystemDesc = false;
+    for (Operation *walk = op->getParentOp(); walk;
+         walk = walk->getParentOp()) {
+      if (auto mod = dyn_cast<mlir::ModuleOp>(walk)) {
+        if (auto systemDesc = mod->getAttrOfType<ttcore::SystemDescAttr>(
+                ttcore::SystemDescAttr::name)) {
+          chipNumCbs = systemDesc.getChipDesc(0).getNumCBs();
+          foundSystemDesc = true;
+          break;
+        }
+      }
+    }
+    if (!foundSystemDesc) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "missing ttcore.system_desc on an enclosing module for spatial CB "
+          "port remap");
+    }
+
     SpatialRemapTable remapTable;
     SmallVector<Value> mergedCbs;
     SmallVector<int64_t> mergedCbPorts;
@@ -527,7 +551,15 @@ public:
 
       const size_t mergedCbSlotBase = mergedCbs.size();
       llvm::append_range(mergedCbs, enqueueProgram.getCbs());
-      llvm::append_range(mergedCbPorts, enqueueProgram.getCbPorts());
+      for (int64_t ignored : enqueueProgram.getCbPorts()) {
+        (void)ignored;
+        if (mergedCbPorts.size() >= chipNumCbs) {
+          return rewriter.notifyMatchFailure(
+              op,
+              "merged spatial enqueue_program cb_ports exceed chip num_cbs");
+        }
+        mergedCbPorts.push_back(static_cast<int64_t>(mergedCbPorts.size()));
+      }
       for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
         mergedKernelConfigs.push_back(
             remapKernelConfig(kernelConfig, spatialMetalRange, enqueueProgram,
