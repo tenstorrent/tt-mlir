@@ -69,7 +69,22 @@ struct TensorInfo {
 // Helper to extract scalar type from potentially tiled type.
 static Type getScalarType(Type type) {
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(type)) {
-    return tileType.getElementType();
+    // For block-float tiles, TileType::getElementType returns another
+    // TileType with the same DataType (see dataTypeToElementType), which is
+    // not usable as a scalar element type. Map to the uncompressed scalar
+    // equivalent explicitly.
+    switch (tileType.getDataType()) {
+    case ttcore::DataType::BFP_Float8:
+    case ttcore::DataType::BFP_Float4:
+    case ttcore::DataType::BFP_Float2:
+      return Float32Type::get(type.getContext());
+    case ttcore::DataType::BFP_BFloat8:
+    case ttcore::DataType::BFP_BFloat4:
+    case ttcore::DataType::BFP_BFloat2:
+      return BFloat16Type::get(type.getContext());
+    default:
+      return tileType.getElementType();
+    }
   }
   return type;
 }
