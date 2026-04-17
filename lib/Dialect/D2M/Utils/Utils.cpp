@@ -681,9 +681,8 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device,
                           memrefAndView.second, baseOffset);
 }
 
-static AffineMap canonicalStridedMap(MLIRContext *context,
-                                     ArrayRef<int64_t> shape, Type elementType,
-                                     AffineMap map) {
+AffineMap canonicalStridedMap(MLIRContext *context, ArrayRef<int64_t> shape,
+                              Type elementType, AffineMap map) {
   assert(map.isIdentity() && "Only identity maps are supported for now.");
   auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
   int64_t elementSizeBytes = tileType ? tileType.getSizeBytes()
