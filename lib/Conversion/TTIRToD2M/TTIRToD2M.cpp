@@ -811,6 +811,69 @@ private:
       std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
       std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
 
+  // Build outer (per-shard) implicit-broadcast indexing maps in `physicalRank`,
+  // by comparing each input's physical shard shape (in tiles) to the output's.
+  //
+  // The d2m.generic / linalg.generic iteration domain is `physicalRank`, which
+  // for TTNN-encoded operands may be smaller than the logical rank because the
+  // TTNN layout collapses leading dims into a 2D physical memref. Building the
+  // indexing maps in physical rank (instead of the logical output rank) keeps
+  // the indexing-map domain in lock-step with the iteration domain regardless
+  // of whether the layout collapses dims.
+  //
+  // Per physical dim:
+  //   - input dim == output dim         -> identity dim expr
+  //   - input dim == 1 && output dim > 1 -> constant 0 (broadcast)
+  //   - any other mismatch              -> assertion failure
+  //
+  // In-tile broadcasts (TileBcastType::{Row, Col, Scalar}) are computed
+  // independently from the original logical shapes via `getImplicitBcastInfo`
+  // and applied inside the d2m.generic body via `d2m.tile_bcast`.
+  static SmallVector<mlir::AffineMap> buildPhysicalImplicitBcastIndexingMaps(
+      mlir::OpBuilder &builder, mlir::ArrayRef<Value> physicalInputs,
+      Value physicalOutput, std::size_t physicalRank) {
+    auto getShardTiles = [](Value v) -> mlir::ArrayRef<int64_t> {
+      auto tensorType = mlir::cast<mlir::RankedTensorType>(v.getType());
+      auto layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+      return layout.getShardShape(tensorType);
+    };
+
+    mlir::ArrayRef<int64_t> outShard = getShardTiles(physicalOutput);
+    TT_assertv(outShard.size() == physicalRank,
+               "output shard rank ({}) must equal physicalRank ({})",
+               outShard.size(), physicalRank);
+
+    SmallVector<mlir::AffineMap> maps;
+    maps.reserve(physicalInputs.size() + 1);
+
+    for (Value input : physicalInputs) {
+      mlir::ArrayRef<int64_t> inShard = getShardTiles(input);
+      TT_assertv(inShard.size() == physicalRank,
+                 "input shard rank ({}) must equal physicalRank ({})",
+                 inShard.size(), physicalRank);
+
+      SmallVector<mlir::AffineExpr> exprs;
+      exprs.reserve(physicalRank);
+      for (std::size_t d = 0; d < physicalRank; ++d) {
+        if (inShard[d] == outShard[d]) {
+          exprs.push_back(builder.getAffineDimExpr(d));
+        } else {
+          TT_assertv(inShard[d] == 1,
+                     "incompatible implicit bcast in physical dim {} "
+                     "(input={}, output={})",
+                     d, inShard[d], outShard[d]);
+          exprs.push_back(builder.getAffineConstantExpr(0));
+        }
+      }
+      maps.push_back(AffineMap::get(physicalRank, /*symbolCount=*/0, exprs,
+                                    builder.getContext()));
+    }
+
+    maps.push_back(builder.getMultiDimIdentityMap(physicalRank));
+    return maps;
+  }
+
   static std::pair<SmallVector<mlir::AffineMap>,
                    SmallVector<d2m::TileBcastType>>
   getImplicitBcastInfo(mlir::OpBuilder &builder, ArrayRef<Value> inputs,
@@ -1002,18 +1065,25 @@ private:
         createDpsOutputs(loc, rewriter, {op.getResult().getType()});
     SmallVector<Value> origInputs = adaptor.getOperands();
 
-    SmallVector<mlir::AffineMap> bcastIndexingMaps;
+    // Compute logical-shape-derived bcast info. Only `tileBcastTypes` (used
+    // for in-tile broadcasting via d2m.tile_bcast) and the `isImplicitBcast`
+    // flag are consumed from this; the logical-rank affine maps are not used
+    // to construct the d2m.generic, because they would not match the physical
+    // (possibly collapsed) iteration domain. See
+    // `buildPhysicalImplicitBcastIndexingMaps` below.
+    SmallVector<mlir::AffineMap> logicalBcastMaps;
     SmallVector<d2m::TileBcastType> tileBcastTypes;
-    std::tie(bcastIndexingMaps, tileBcastTypes) =
+    std::tie(logicalBcastMaps, tileBcastTypes) =
         getImplicitBcastInfo(rewriter, origInputs, origOutputs);
 
     // Implicit bcast if tile-level bcast exists or any input indexing map is
     // not identity.
     const bool isImplicitBcast =
-        !bcastIndexingMaps.empty() &&
-        llvm::any_of(ArrayRef<mlir::AffineMap>(bcastIndexingMaps)
+        !logicalBcastMaps.empty() &&
+        llvm::any_of(ArrayRef<mlir::AffineMap>(logicalBcastMaps)
                          .take_front(origInputs.size()),
                      [](mlir::AffineMap map) { return !map.isIdentity(); });
+
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true, isImplicitBcast);
@@ -1024,13 +1094,29 @@ private:
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
-    auto indexingMaps =
+    // Build indexing maps in the *physical* iteration domain. For implicit
+    // broadcasts we cannot reuse the logical-rank maps from
+    // `getImplicitBcastInfo` because TTNN-encoded operands may collapse leading
+    // logical dims into a 2D physical layout, leaving the logical-rank maps
+    // (e.g. 4D) misaligned with the physical iteration domain (e.g. 2D). The
+    // physical-rank maps below are derived from per-operand physical shard
+    // shape comparison and stay correct regardless of layout collapse.
+    SmallVector<mlir::AffineMap> indexingMaps =
         isImplicitBcast
-            ? bcastIndexingMaps
+            ? buildPhysicalImplicitBcastIndexingMaps(rewriter, inputs,
+                                                     outputs[0], physicalRank)
             : getAffineMapsArray(rewriter, numOperands, physicalRank);
 
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, physicalRank);
+
+    // Invariant required by getMulticastGridDims and downstream code: the
+    // domain of every indexing map must match the size of iteratorTypes.
+    assert(llvm::all_of(indexingMaps,
+                        [&](mlir::AffineMap m) {
+                          return m.getNumDims() == iteratorTypes.size();
+                        }) &&
+           "indexing map domain rank must match iterator types count");
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -1054,11 +1140,13 @@ private:
             generic, inputIndices, mcastGridDims);
         ArrayRef<Value> blockArgs(blockArgsVec);
 
-        // Create 'linalg.generic' accepting 'blockArgs'.
-        auto linalgIndexingMaps =
-            isImplicitBcast
-                ? bcastIndexingMaps
-                : getAffineMapsArray(rewriter, numOperands, physicalRank);
+        // Create 'linalg.generic' accepting 'blockArgs'. The inner per-shard
+        // tile iteration domain has the same rank as the d2m.generic outer
+        // iteration domain (both `physicalRank`), and the same
+        // shard-shape-derived broadcast pattern applies (broadcast inputs read
+        // their single shard tile across the output's tile iteration). Reuse
+        // the physical-rank maps to keep the two ranks/domains in sync.
+        auto linalgIndexingMaps = indexingMaps;
 
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);

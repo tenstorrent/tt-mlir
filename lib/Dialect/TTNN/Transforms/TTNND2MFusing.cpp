@@ -45,25 +45,17 @@ public:
       return false;
     }
     // Eltwise unary ops.
-    if (mlir::isa<AbsOp, CbrtOp, CeilOp, SignOp, 
-      //CosOp,
-                  ExpOp, ErfOp, ErfcOp,
+    if (mlir::isa<AbsOp, CbrtOp, CeilOp, SignOp, CosOp, ExpOp, ErfOp, ErfcOp,
                   FloorOp, GeluOp, IsFiniteOp, LogicalNotOp, BitwiseNotOp,
-                  NegOp, TanOp, TanhOp, ReciprocalOp, ReluOp, 
-      //SinOp, 
-                  SqrtOp,
+                  NegOp, TanOp, TanhOp, ReciprocalOp, ReluOp, SinOp, SqrtOp,
                   RsqrtOp, SigmoidOp, HardsigmoidOp, SiluOp, MishOp, LogOp,
                   Log1pOp, Expm1Op>(op)) {
       return true;
     }
     // Eltwise binary ops.
     if (mlir::isa<AddOp, DivideOp, MultiplyOp, SubtractOp, EqualOp, NotEqualOp,
-                  GreaterEqualOp, 
-                  // GreaterThanOp,
-                   LessEqualOp, LessThanOp,
-                  
-                  // LogicalAndOp,
-                   LogicalOrOp, LogicalXorOp, LogicalRightShiftOp,
+                  GreaterEqualOp, GreaterThanOp, LessEqualOp, LessThanOp,
+                  LogicalAndOp, LogicalOrOp, LogicalXorOp, LogicalRightShiftOp,
                   BitwiseAndOp, BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp,
                   RemainderOp, LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
       return true;
