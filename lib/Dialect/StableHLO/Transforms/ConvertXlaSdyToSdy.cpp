@@ -25,7 +25,6 @@ public:
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
     MLIRContext *context = rootModule.getContext();
-    mlir::OpBuilder builder(context);
 
     if (gspmd_utils::hasFrontendSdyAttributes(rootModule)) {
       // Handle frontend_attributes conversion
@@ -42,20 +41,6 @@ public:
         signalPassFailure();
         return;
       }
-    }
-
-    // Mesh may be squashed to 1D by the calling framework.
-    if (mlir::failed(shardy_utils::normalize1DMeshTo2D(rootModule))) {
-      signalPassFailure();
-      return;
-    }
-
-    // Convert stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
-    // @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
-    if (mlir::failed(shardy_utils::convertCustomCallToShardingConstraint(
-            rootModule, context, builder))) {
-      signalPassFailure();
-      return;
     }
   }
 };
