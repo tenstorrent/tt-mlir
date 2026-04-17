@@ -18,6 +18,16 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // Input tensor shape: [batch_size, num_heads, sequence_size, head_size]
 // Output tensor shape: [batch_size, sequence_size, num_heads * head_size]
 //
+// Applied when either:
+//   * head_size is not divisible by tile width (tt-metal's nlp_concat_heads
+//     kernel requires tile-aligned heads), or
+//   * the fused kernel's static per-core circular buffer allocation would
+//     exceed the per-core L1 budget. The factory reserves
+//     (num_heads * head_dim / TILE_WIDTH) * 2 * single_tile_size bytes on
+//     every core it runs on; for large models (e.g. Gemma-4 31B with
+//     num_heads=32, head_dim=512) that bursts L1 on prefill, where only a
+//     handful of cores are active per shard.
+//
 // Rewrite strategy:
 // 1. Permute: [batch_size, num_heads, sequence_size, head_size]
 //             -> [batch_size, sequence_size, num_heads, head_size]
