@@ -522,4 +522,21 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
   }];
 }
 
+def TTIRStripIntermediateTTNNLayouts : Pass<"ttir-strip-intermediate-ttnn-layouts", "::mlir::ModuleOp"> {
+  let summary = "Strip TTNN layouts from intermediate tensors.";
+  let description = [{
+    This pass removes TTNN layouts from tensors which are intermediates ops. In the TTIRToTTMetal pipeline, optimal
+    layouts are inferred and applied to all intermediates. If layouts already exist prior to this, the effect will be a reshard:
+
+      original layout -> optimal layout -> original layout
+
+    This pass runs before TTIRToTTMetal pipeline and after
+    TTNNToTTIR pass to ensure there are no existing layouts on intermediates.
+
+    Example:
+
+    TODO: Add example
+  }];
+}
+
 #endif
