@@ -19,10 +19,15 @@ TensorDesc::TensorDesc(const std::vector<uint32_t> &shape,
                        const std::optional<std::vector<uint32_t>> &stride,
                        const std::optional<uint64_t> physicalVolume)
     : shape(shape), dataType(dataType) {
-  this->itemsize =
-      itemsize.value_or(utils::isBlockFormatDataType(dataType)
-                            ? 0
-                            : utils::dataTypeElementSize(dataType));
+  if (utils::isBlockFormatDataType(dataType)) {
+    if (itemsize.has_value()) {
+      LOG_WARNING("itemsize is not meaningful for block format dtypes; use "
+                  "sizeBytes() instead. Defaulting to 1.");
+    }
+    this->itemsize = 1;
+  } else {
+    this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
+  }
   this->stride = stride.value_or(utils::calculateStride(shape));
   this->physicalVolume = physicalVolume.value_or(volume());
 }
@@ -33,6 +38,10 @@ size_t TensorDesc::volume() const {
 
 size_t TensorDesc::sizeBytes() const {
   if (utils::isBlockFormatDataType(dataType)) {
+    LOG_ASSERT(physicalVolume % 1024 == 0,
+               "Block format tensor physicalVolume must be a multiple of 1024 "
+               "(elements per 32x32 tile), got ",
+               physicalVolume);
     return (physicalVolume / 1024) * utils::blockFormatTileSizeBytes(dataType);
   }
   return physicalVolume * itemsize;
