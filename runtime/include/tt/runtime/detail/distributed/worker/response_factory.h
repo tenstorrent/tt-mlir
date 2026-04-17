@@ -22,7 +22,7 @@ public:
                                  uint64_t commandId);
   static void buildGetWorkerDebugStatsResponse(
       ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
-      const DebugStatsMap &stats);
+      const std::string &hostname, const DebugStatsMap &stats);
 
   static void
   buildConfigureRuntimeContextResponse(::flatbuffers::FlatBufferBuilder &fbb,

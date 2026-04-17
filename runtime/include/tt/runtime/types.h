@@ -41,7 +41,12 @@ using MemoryBlockTable =
     std::vector<std::unordered_map<std::string, std::string>>;
 
 using DebugStatsMap = std::unordered_map<std::string, std::int64_t>;
-using WorkerDebugStats = std::vector<DebugStatsMap>;
+
+struct WorkerDebugStatsEntry {
+  std::string hostname;
+  DebugStatsMap stats;
+};
+using WorkerDebugStats = std::vector<WorkerDebugStatsEntry>;
 
 enum class MemoryBufferType {
   DRAM,

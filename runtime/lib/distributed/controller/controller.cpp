@@ -1006,13 +1006,19 @@ void Controller::handleGetWorkerDebugStatsResponse(
     const fb::GetWorkerDebugStatsResponse *response =
         getResponse(responseBuffer)->type_as_GetWorkerDebugStatsResponse();
 
+    std::string hostname;
+    if (response->hostname()) {
+      hostname = response->hostname()->str();
+    }
     DebugStatsMap workerStats;
     if (response->stats()) {
       for (const fb::DebugStatEntry *entry : *response->stats()) {
         workerStats[entry->key()->str()] = entry->value();
       }
     }
-    workerDebugStatsHandle->push_back(std::move(workerStats));
+    workerDebugStatsHandle->push_back(
+        ::tt::runtime::WorkerDebugStatsEntry{std::move(hostname),
+                                             std::move(workerStats)});
   }
 
   awaitingPromise->set_value();
