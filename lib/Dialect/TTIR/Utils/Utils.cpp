@@ -64,42 +64,56 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
   return mlir::success();
 }
 
+int64_t findMatchingDim(llvm::ArrayRef<int64_t> fromShape,
+                        llvm::ArrayRef<int64_t> toShape, int64_t dim) {
+  int64_t fromRank = fromShape.size();
+  int64_t toRank = toShape.size();
+
+  if (dim < 0 || dim >= fromRank) {
+    return -1;
+  }
+
+  int64_t dimSize = fromShape[dim];
+
+  // Stride of `dim` is the product of all dimensions trailing it.
+  int64_t fromStride = 1;
+  for (int64_t i = dim + 1; i < fromRank; ++i) {
+    fromStride *= fromShape[i];
+  }
+
+  // Walk toShape right-to-left, accumulating stride. A matching dim must have
+  // the same trailing-stride and the same size. Once accumulated stride
+  // exceeds fromStride it can never match again, so we can stop early.
+  int64_t toStride = 1;
+  for (int64_t i = toRank - 1; i >= 0; --i) {
+    if (toStride > fromStride) {
+      break;
+    }
+    if (toStride == fromStride && toShape[i] == dimSize) {
+      return i;
+    }
+    toStride *= toShape[i];
+  }
+
+  return -1;
+}
+
 int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL) {
   auto inputShape = reshapeOp.getInput().getType().getShape();
   auto outputShape = reshapeOp.getResult().getType().getShape();
   int64_t inputRank = inputShape.size();
   int64_t outputRank = outputShape.size();
 
-  // Validate dimRTL is within bounds.
   if (dimRTL < 0 || dimRTL >= inputRank) {
     return -1;
   }
 
-  // RTL position 0 is the rightmost dimension.
-  // The number of trailing dimensions equals the RTL position.
-  int64_t inputDimSize = inputShape[inputRank - 1 - dimRTL];
-
-  // Calculate stride of the input dimension (product of trailing dimensions).
-  auto inputTrailing = inputShape.take_back(dimRTL);
-  int64_t inputStride =
-      std::accumulate(inputTrailing.begin(), inputTrailing.end(), int64_t{1},
-                      std::multiplies<>());
-
-  // Search for a dimension in output with the same size and stride.
-  // Check dimensions from right to left, accumulating stride incrementally.
-  int64_t outputStride = 1;
-  for (int64_t i = outputRank - 1; i >= 0; --i) {
-    if (outputStride > inputStride) {
-      break;
-    }
-    if (outputStride == inputStride && outputShape[i] == inputDimSize) {
-      return outputRank - 1 - i;
-    }
-    outputStride *= outputShape[i];
+  int64_t ltrDim = inputRank - 1 - dimRTL;
+  int64_t ltrResult = findMatchingDim(inputShape, outputShape, ltrDim);
+  if (ltrResult == -1) {
+    return -1;
   }
-
-  // No dimension with the same size and stride found.
-  return -1;
+  return outputRank - 1 - ltrResult;
 }
 
 bool preservesDim(mlir::Operation *op, int64_t dim) {

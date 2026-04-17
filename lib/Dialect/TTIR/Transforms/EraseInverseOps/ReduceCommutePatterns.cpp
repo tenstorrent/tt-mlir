@@ -269,41 +269,6 @@ private:
     return true;
   }
 };
-// Find the corresponding reduce dimension in a reshaped tensor by matching
-// stride and reduction length. Returns -1 if the reduce dimension was split
-// or merged by the reshape (commute not possible).
-static int64_t findReduceDimInReshapedTensor(llvm::ArrayRef<int64_t> fromShape,
-                                             llvm::ArrayRef<int64_t> toShape,
-                                             int64_t reduceDim) {
-  int64_t fromRank = fromShape.size();
-  int64_t toRank = toShape.size();
-
-  if (reduceDim < 0) {
-    reduceDim += fromRank;
-  }
-
-  assert(reduceDim >= 0 && reduceDim < fromRank && "Invalid reduce dimension");
-
-  int64_t reductionLength = fromShape[reduceDim];
-
-  // Compute stride of reduceDim in fromShape.
-  int64_t fromStride = 1;
-  for (int64_t i = reduceDim + 1; i < fromRank; ++i) {
-    fromStride *= fromShape[i];
-  }
-
-  // Find a dimension in toShape with the same stride and length.
-  int64_t toStride = 1;
-  for (int64_t dim = toRank - 1; dim >= 0; dim--) {
-    if (toStride == fromStride && toShape[dim] == reductionLength) {
-      return dim;
-    }
-    toStride *= toShape[dim];
-  }
-
-  return -1;
-}
-
 template <typename ReduceOpType, CommuteDirection commuteDirection>
 class TTIRCommuteReshapeThroughReduce
     : public TTIRCommuteOpRewritePattern<ReshapeOp, ReduceOpType,
@@ -364,8 +329,7 @@ public:
     auto reshapeOutputShape = reshapeOperand.getResult().getType().getShape();
 
     // Map reduce dims from reshape-output space back to reshape-input space.
-    auto newDimArgs =
-        mapReduceDims(reshapeOutputShape, reshapeInputShape, op);
+    auto newDimArgs = mapReduceDims(reshapeOutputShape, reshapeInputShape, op);
     assert(!newDimArgs.empty() &&
            "isCommuteDownwardsFavorable should have ensured valid mapping");
 
@@ -403,9 +367,10 @@ private:
     for (Attribute attr : op.getDimArg()->getValue()) {
       int64_t d = cast<IntegerAttr>(attr).getInt();
       d = d < 0 ? d + fromRank : d;
-      int64_t mapped = findReduceDimInReshapedTensor(fromShape, toShape, d);
+      int64_t mapped = utils::findMatchingDim(fromShape, toShape, d);
       if (mapped == -1) {
-        return {}; // Can't map this dim — commute not possible.
+        // Can't map this dim — commute not possible.
+        return {};
       }
       reduceDims.push_back(mapped);
     }
@@ -414,9 +379,9 @@ private:
 
   // Create a new reduce op with the given dims on the given input.
   ReduceOpType createReduceOp(ReduceOpType origOp, Value newInput,
-                               ArrayRef<int64_t> newDims,
-                               ArrayRef<int64_t> inputShape,
-                               PatternRewriter &rewriter) const {
+                              ArrayRef<int64_t> newDims,
+                              ArrayRef<int64_t> inputShape,
+                              PatternRewriter &rewriter) const {
     SmallVector<Attribute> dimAttrs;
     for (int64_t d : newDims) {
       dimAttrs.push_back(rewriter.getI32IntegerAttr(d));
@@ -437,8 +402,8 @@ private:
         RankedTensorType::get(outputShape, origOp.getType().getElementType(),
                               origOp.getType().getEncoding());
     return rewriter.create<ReduceOpType>(origOp->getLoc(), outputType, newInput,
-                                          origOp.getKeepDimAttr(),
-                                          newDimArgAttr);
+                                         origOp.getKeepDimAttr(),
+                                         newDimArgAttr);
   }
 
   bool isCommuteUpwardsViable(ReduceOpType op,
@@ -469,13 +434,10 @@ private:
 
   bool isCommuteDownwardsFavorable(ReduceOpType op,
                                    ReshapeOp reshapeOperand) const override {
-    auto reshapeOutputShape =
-        reshapeOperand.getResult().getType().getShape();
-    auto reshapeInputShape =
-        reshapeOperand.getInput().getType().getShape();
+    auto reshapeOutputShape = reshapeOperand.getResult().getType().getShape();
+    auto reshapeInputShape = reshapeOperand.getInput().getType().getShape();
 
-    auto mapped =
-        mapReduceDims(reshapeOutputShape, reshapeInputShape, op);
+    auto mapped = mapReduceDims(reshapeOutputShape, reshapeInputShape, op);
     if (mapped.empty()) {
       return false;
     }
