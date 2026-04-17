@@ -2234,7 +2234,8 @@ def test_broadcast_ops(
     )
 
 
-def test_stablehlo_composite_mlir_parse_split(request, device):
+@pytest.mark.parametrize("target", ["stablehlo"])
+def test_stablehlo_composite_mlir_parse_split(target, request, device):
     mlir_path = os.path.join(
         os.path.dirname(__file__),
         "mlir_snippets",
@@ -2243,12 +2244,13 @@ def test_stablehlo_composite_mlir_parse_split(request, device):
     )
     with open(mlir_path, encoding="utf-8") as f:
         mlir_text = f.read()
-    module, builder = load_mlir_file(mlir_text, target="stablehlo")
-    split_modules = split_mlir_file(module, builder, target="stablehlo")
+    module, builder = load_mlir_file(mlir_text, target=target)
+    split_modules = split_mlir_file(module, builder, target=target)
     assert len(split_modules) >= 1
 
 
-def test_stablehlo_convert_mlir_parse_split(request, device):
+@pytest.mark.parametrize("target", ["stablehlo"])
+def test_stablehlo_convert_mlir_parse_split(target, request, device):
     mlir_path = os.path.join(
         os.path.dirname(__file__),
         "mlir_snippets",
@@ -2257,12 +2259,13 @@ def test_stablehlo_convert_mlir_parse_split(request, device):
     )
     with open(mlir_path, encoding="utf-8") as f:
         mlir_text = f.read()
-    module, builder = load_mlir_file(mlir_text, target="stablehlo")
-    split_modules = split_mlir_file(module, builder, target="stablehlo")
+    module, builder = load_mlir_file(mlir_text, target=target)
+    split_modules = split_mlir_file(module, builder, target=target)
     assert len(split_modules) >= 1
 
 
-def test_ttir_stablehlo_convert_cpu_hoisted_parse_split(request, device):
+@pytest.mark.parametrize("target", ["ttir"])
+def test_ttir_stablehlo_convert_cpu_hoisted_parse_split(target, request, device):
     # Exercises the TTIRBuilder delegators that route stablehlo.convert
     # inside CPU-hoisted TTIR modules to StableHLOBuilder.convert_parser /
     # convert_split.
@@ -2274,6 +2277,6 @@ def test_ttir_stablehlo_convert_cpu_hoisted_parse_split(request, device):
     )
     with open(mlir_path, encoding="utf-8") as f:
         mlir_text = f.read()
-    module, builder = load_mlir_file(mlir_text, target="ttir")
-    split_modules = split_mlir_file(module, builder, target="ttir")
+    module, builder = load_mlir_file(mlir_text, target=target)
+    split_modules = split_mlir_file(module, builder, target=target)
     assert len(split_modules) >= 1
