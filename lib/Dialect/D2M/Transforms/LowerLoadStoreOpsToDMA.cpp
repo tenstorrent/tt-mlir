@@ -20,11 +20,10 @@ namespace mlir::tt::d2m {
 constexpr StringRef kPreallocatedSemaphoresAttr = "preallocated_semaphores";
 
 // Helper to get pre-allocated semaphores for a multicast RemoteLoadOp.
-// Returns a pair of (receiversReady, senderFinished) semaphores.
-// Asserts if the semaphores were not pre-allocated by
-// D2MPreallocateMcastSemaphores.
-static std::pair<BlockArgument, BlockArgument>
-getPreallocatedSemaphores(Operation *op) {
+// Returns a pair of (receiversReady, senderFinished) semaphore values created
+// via d2m.get_global_operand, matching the pattern used for global semaphores.
+static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op,
+                                                         OpBuilder &builder) {
   auto arrayAttr = op->getAttrOfType<ArrayAttr>(kPreallocatedSemaphoresAttr);
   TT_assertv(arrayAttr,
              "Multicast RemoteLoadOp must have preallocated_semaphores "
@@ -33,29 +32,16 @@ getPreallocatedSemaphores(Operation *op) {
   TT_assertv(arrayAttr.size() == 2u,
              "preallocated_semaphores attribute must have exactly 2 elements");
 
-  auto genericOp = op->getParentOfType<GenericOp>();
-  TT_assertv(genericOp, "RemoteLoadOp must be inside a GenericOp");
+  int64_t receiversReadyIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
+  int64_t senderFinishedIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
 
-  // Find which region contains this operation.
-  Region *parentRegion = op->getParentRegion();
-  while (parentRegion && parentRegion->getParentOp() != genericOp) {
-    parentRegion = parentRegion->getParentOp()->getParentRegion();
-  }
-  TT_assertv(parentRegion, "Failed to find parent region for RemoteLoadOp");
-  TT_assertv(!parentRegion->empty(), "Parent region is empty");
+  LocalSemaphoreType semType = LocalSemaphoreType::get(builder.getContext());
+  Value receiversReady = builder.create<GetGlobalOperandOp>(
+      op->getLoc(), semType, receiversReadyIdx);
+  Value senderFinished = builder.create<GetGlobalOperandOp>(
+      op->getLoc(), semType, senderFinishedIdx);
 
-  Block &block = parentRegion->front();
-
-  unsigned receiversReadyIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
-  unsigned senderFinishedIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
-
-  TT_assertv(receiversReadyIdx < block.getNumArguments(),
-             "Pre-allocated receiversReady semaphore index is out of bounds");
-  TT_assertv(senderFinishedIdx < block.getNumArguments(),
-             "Pre-allocated senderFinished semaphore index is out of bounds");
-
-  return std::make_pair(block.getArgument(receiversReadyIdx),
-                        block.getArgument(senderFinishedIdx));
+  return {receiversReady, senderFinished};
 }
 
 namespace {
@@ -97,9 +83,9 @@ public:
 
     // Get pre-allocated semaphores for synchronization.
     // These must have been set by D2MPreallocateMcastSemaphores pass.
-    auto preallocatedSems = getPreallocatedSemaphores(remoteLoad);
-    BlockArgument receiversReadySemaphore = preallocatedSems.first;
-    BlockArgument senderFinishedSemaphore = preallocatedSems.second;
+    auto preallocatedSems = getPreallocatedSemaphores(remoteLoad, rewriter);
+    Value receiversReadySemaphore = preallocatedSems.first;
+    Value senderFinishedSemaphore = preallocatedSems.second;
 
     // Number of receivers is mcastVolume - 1 (excluding sender itself).
     // The sender waits for this many semaphore increments before multicasting.
