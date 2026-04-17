@@ -61,10 +61,11 @@ llvm::Expected<std::string> getPipelineName(mlir::ModuleOp module,
           extractInnerModule<mlir::tt::ttcore::CPUModuleOp>(module)) {
     if (hasOpsOfDialect(cpuModule, "llvm")) {
       return llvm::make_error<llvm::StringError>(
-          "CPU module is already lowered to LLVM dialect, which means that the "
-          "output of the ttir-to-ttnn-runtime-pipeline have been fed into the "
-          "tt-alchemist. Instead, use the outputs of the "
-          "ttir-to-ttnn-common-pipeline, or the initial TTIR module.",
+          "CPU module has already been lowered to the LLVM dialect, "
+          "indicating that the output of the ttir-to-ttnn-runtime-pipeline "
+          "was passed to tt-alchemist. Please provide either the output of "
+          "the ttir-to-ttnn-common-pipeline or the original TTIR module "
+          "instead.",
           llvm::inconvertibleErrorCode());
     }
   }
