@@ -748,7 +748,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const std::optional<std::size_t> reductionDim =
         allocation::getSingleReductionDim(iteratorTypes);
     if (!reductionDim.has_value()) {
-      return false;
+      // Parallel-only ops: trust BlockFactorAnalysis, which only selects
+      // non-trivial factors when the baseline CB footprint exceeds the L1
+      // budget.
+      return true;
     }
 
     int64_t scalableInputCount = 0;

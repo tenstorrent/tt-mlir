@@ -2505,12 +2505,23 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
     return failure();
   }
 
-  // If the derived grid shape is different from the requested newGrid,
-  // compute the reblocked types again with the adjusted grid.
+  // When the caller supplies an explicit `newGrid` that disagrees with the
+  // grid implied by the output operand's indexing map (for example when
+  // GridSelection picks a logical grid that collapses to a smaller output
+  // grid through a reduction/broadcast axis in the output map), update
+  // `normalizedGrid` to match the derived output grid. The first-pass
+  // `reblockedTypes` are already computed from the pre-adjustment
+  // `normalizedGrid` and the new block factors, so they encode the correct
+  // per-operand grids and no re-run is needed.
+  //
+  // When the caller does not supply an explicit `newGrid` (i.e. the Allocate
+  // path that only reblocks via new block factors), leave `normalizedGrid`
+  // at the op's original hardware core grid: `block_factors` multiply the
+  // per-core iteration count (and therefore the operand memref grids), but
+  // they must not be folded into the generic op's grid attribute itself.
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
-  if (numOutputs > 0) {
-    // derive grid from first output index
+  if (newGrid.has_value() && numOutputs > 0) {
     auto [derivedGridShape, _] = getGridAndShardFromShapedType(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
@@ -2519,13 +2530,6 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
           ttcore::GridAttr::get(builder.getContext(), derivedGridShape,
                                 normalizedGrid.getVirtToPhysicalMap(),
                                 normalizedGrid.getPhysicalToVirtMap());
-      reblockedTypes = computeReblockedTypes(normalizedGrid.getShape());
-      if (failed(reblockedTypes)) {
-        this->emitOpError()
-            << "withParallelization failed to derive reblocked types after "
-            << "adjusting grid to " << normalizedGrid;
-        return failure();
-      }
     }
   }
 
