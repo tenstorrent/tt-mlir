@@ -425,6 +425,35 @@ struct TTIRToTTNNDevicePipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
+  // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
+  // instead of the chain-based TTNNOptimizer. Enabled by default when
+  // optimization level >= 1.
+  mutable Option<bool> enableGreedyOptimizer{
+      *this, "enable-greedy-optimizer",
+      llvm::cl::desc(
+          "Use the greedy layout propagation optimizer instead of the "
+          "chain-based TTNNOptimizer. If not explicitly set, enabled when "
+          "optimization level >= 1."),
+      llvm::cl::init(false)};
+
+  // Enable decision trace JSON output from the greedy optimizer passes.
+  Option<bool> enableDecisionTrace{
+      *this, "enable-decision-trace",
+      llvm::cl::desc("Enable greedy optimizer decision trace output."),
+      llvm::cl::init(false)};
+
+  // Output directory for decision trace JSON files.
+  Option<std::string> decisionTraceDir{
+      *this, "decision-trace-dir",
+      llvm::cl::desc("Output directory for decision trace JSON files."),
+      llvm::cl::init("ttrt-artifacts/decision_trace")};
+
+  // Enable per-op compile-time statistics from the greedy optimizer.
+  Option<bool> enableCompileTimeStats{
+      *this, "enable-compile-time-stats",
+      llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
@@ -444,6 +473,9 @@ struct TTIRToTTNNDevicePipelineOptions
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+    if (enableGreedyOptimizer.getNumOccurrences() == 0) {
+      enableGreedyOptimizer = (optimizationLevel >= 1);
     }
     if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
         optimizationLevel > 0) {

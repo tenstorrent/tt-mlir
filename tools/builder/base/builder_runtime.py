@@ -580,14 +580,6 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     callback_runtime_config.memory_report.append(op_memory_report)
 
 
-def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def pre_op_get_callback_fn(callback_runtime_config):
-    return partial(pre_op_callback, callback_runtime_config)
-
-
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
     if callback_runtime_config.verify_intermediates:
         golden(callback_runtime_config, binary, program_context, op_context)
@@ -721,8 +713,7 @@ def execute_fb(
 
     if verify_intermediates or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
-            pre_op_get_callback_fn(callback_runtime_config),
-            post_op_get_callback_fn(callback_runtime_config),
+            post_op=post_op_get_callback_fn(callback_runtime_config),
         )
 
     for program_index in program_indices:
@@ -775,9 +766,8 @@ def execute_fb(
             )
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:
-            raise TTBuilderRuntimeException(e)
-        finally:
             tt_runtime.runtime.unregister_hooks()
+            raise TTBuilderRuntimeException(e)
 
         golden_outputs_torch = []
         outputs_torch = []
@@ -899,6 +889,9 @@ def execute_fb(
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    if verify_intermediates or dump_memory:
+        tt_runtime.runtime.unregister_hooks()
+
     return golden_report, output_tensors
 
 
@@ -985,7 +978,7 @@ def execute_py(
                 and node.name[0:18] != "create_inputs_for_"
                 and not node.name.__contains__("_const_eval_")
                 # TODO(dmilinkovic): this is getting out of hand, issue #6386.
-                and not node.name.__contains__("hoisted_")
+                and not node.name.startswith("cpu_hoisted_")
                 and not node.name.startswith("consteval_")
             ):
                 program_names.append(node.name)
@@ -1073,6 +1066,8 @@ def execute_py(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        raise
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
     finally:
@@ -1172,6 +1167,8 @@ def execute_cpp(
     output_tensors = {}
     golden_report = {}
 
+    emitc_dylib_handle = None
+    exc_in_flight = False
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
         program_names = tt_runtime.runtime.test.get_so_programs(
@@ -1272,7 +1269,19 @@ def execute_cpp(
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
 
+    except TTBuilderGoldenException:
+        exc_in_flight = True
+        raise
     except Exception as e:
+        exc_in_flight = True
         raise TTBuilderRuntimeException(e) from e
+    finally:
+        if emitc_dylib_handle is not None:
+            try:
+                tt_runtime.runtime.test.close_so(emitc_dylib_handle)
+            except Exception as close_exc:
+                if not exc_in_flight:
+                    raise TTBuilderRuntimeException(close_exc) from close_exc
+                print(f"close_so() failed during cleanup: {close_exc}")
 
     return golden_report, output_tensors

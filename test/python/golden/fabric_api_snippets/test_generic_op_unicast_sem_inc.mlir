@@ -48,7 +48,7 @@ module attributes {} {
             ],
             semaphores = []>
         >
-      ], fabric_connection_config = #ttnn.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>>,
+      ], fabric_connection_config = #ttcore.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>>,
       operandSegmentSizes = array<i32: 2, 1>
     }> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, !ttnn.global_semaphore) -> ()
 
@@ -102,7 +102,7 @@ module attributes {} {
 
     %is_dst_device = emitc.cmp eq, %my_device_id, %dst_dev_id : (i16, i16) -> i1
     emitc.if %is_dst_device {
-      emitc.call_opaque "noc_semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>, i32) -> ()
+      emitc.call_opaque "experimental::semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>, i32) -> ()
     }
     emitc.call_opaque "experimental::close_fabric_connections"(%fabric_connection_manager) : (!emitc.opaque<"experimental::FabricConnectionManager">) -> ()
     return

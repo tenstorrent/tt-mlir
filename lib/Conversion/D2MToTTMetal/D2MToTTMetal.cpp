@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <cstdint>
+#include <mlir-c/IR.h>
 
 namespace mlir::tt::ttmetal {
 
@@ -106,7 +107,7 @@ public:
         }
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs,
-            *symbolizeNocIndex(nocIdx));
+            *ttcore::symbolizeNocIndex(nocIdx));
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -186,7 +187,8 @@ public:
         rewriter, op.getInputsAndOutputs(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, cbs, cbPorts, kernelConfigs, nullptr);
+        op, args, cbs, cbPorts, kernelConfigs,
+        op.getFabricConnectionConfigAttr());
     return success();
   };
 
@@ -419,6 +421,21 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MViewLayoutRewriter : public OpConversionPattern<d2m::ViewLayoutOp> {
+public:
+  using OpConversionPattern<d2m::ViewLayoutOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ViewLayoutOp op, d2m::ViewLayoutOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Erase views.
+    rewriter.replaceOp(op, adaptor.getInput());
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -426,11 +443,12 @@ namespace mlir::tt {
 void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
                                   ttmetal::MathFidelity mathFidelity) {
-  patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
-               ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
-               ttmetal::D2MMeshShardRewriter,
-               ttmetal::D2MCreateGlobalSemaphoreRewriter,
-               ttmetal::D2MResetGlobalSemaphoreRewriter>(ctx);
+  patterns.add<
+      ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
+      ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
+      ttmetal::D2MMeshShardRewriter, ttmetal::D2MCreateGlobalSemaphoreRewriter,
+      ttmetal::D2MResetGlobalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
+      ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
 

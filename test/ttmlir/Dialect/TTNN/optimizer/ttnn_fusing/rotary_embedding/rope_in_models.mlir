@@ -10,7 +10,7 @@
 //   5. Decode with output permute [2,0,1,3] (KV-head cache pattern)
 
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s | FileCheck %s
 
 module {
 
@@ -106,5 +106,25 @@ module {
     // Permute BHSD -> SBHD for KV cache storage.
     %result = "ttir.permute"(%rope) <{permutation = array<i64: 2, 0, 1, 3>}> : (tensor<32x8x1x64xbf16>) -> tensor<1x32x8x64xbf16>
     return %result : tensor<1x32x8x64xbf16>
+  }
+
+  // GPT-OSS 20B decode: batch=16, 8 heads, seq=1, head_dim=64.
+  // Uses the expanded (trig-identity) RoPE form with half-dim cos/sin
+  // broadcast from [1,1,1,32] to match the model's actual data flow.
+  // CHECK-LABEL: @rope_gpt_oss_20b_decode
+  // CHECK: "ttnn.rotary_embedding"
+  func.func @rope_gpt_oss_20b_decode(%x: tensor<16x8x1x64xbf16>, %cos_h: tensor<1x1x1x32xbf16>, %sin_h: tensor<1x1x1x32xbf16>) -> tensor<16x8x1x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %first = "ttir.slice_static"(%x) <{begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32], ends = [16 : i32, 8 : i32, 1 : i32, 32 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0 : i32, 0 : i32, 0 : i32, 32 : i32], ends = [16 : i32, 8 : i32, 1 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+    %0 = "ttir.multiply"(%first, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %1 = "ttir.multiply"(%second, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %2 = "ttir.subtract"(%0, %1) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %3 = "ttir.multiply"(%second, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %4 = "ttir.multiply"(%first, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %5 = "ttir.add"(%3, %4) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %6 = "ttir.concat"(%2, %5) <{dim = 3 : si32}> : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x64xbf16>
+    return %6 : tensor<16x8x1x64xbf16>
   }
 }

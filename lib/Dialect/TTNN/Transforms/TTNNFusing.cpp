@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/SplitQKVFusingPatterns.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/TopKFusingPattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
@@ -323,11 +324,19 @@ public:
       FusionValidationConfig validationConfig;
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
 
-      patterns.add<fusing::RoPEFusing>(&getContext());
+      patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
+                                                 validationConfig);
+      patterns.add<fusing::RoPEExpandedFusing>(&getContext(), validationConfig);
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
+      patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
+          &getContext(), validationConfig);
+      patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
+          &getContext(), validationConfig);
+      patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
+                                                          validationConfig);
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 

@@ -153,6 +153,9 @@ llvm::SmallVector<int64_t, 2>
 collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
                          ArrayRef<int64_t> deviceGridShape);
 
+AffineMap canonicalStridedMap(MLIRContext *context, ArrayRef<int64_t> shape,
+                              Type elementType, AffineMap map);
+
 } // namespace mlir::tt::d2m::utils
 
 #endif

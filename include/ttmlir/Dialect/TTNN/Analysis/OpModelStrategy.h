@@ -36,10 +36,6 @@ struct OutputHints {
   /// sharded configs when the NULL hint already yields a sharded output
   /// (e.g., when inputs are already sharded), keeping the search space small.
   std::vector<OpConfig> fallbackHints;
-
-  /// Whether to attempt L1 sharding for this op. False for reshape, permute,
-  /// etc.
-  bool attemptL1Sharding = true;
 };
 
 /// Get output hints for an op type. Per-op dispatch via TypeSwitch.

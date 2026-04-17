@@ -75,6 +75,39 @@ module @jit_scatter attributes {} {
         return %result : tensor<1x7x2xbf16>
     }
 
+    func.func public @test_block_scatter_i32(%input: tensor<1x256x256x128xbf16>, %indices: tensor<3xi32>, %updates: tensor<1x128x256x128xbf16>) -> tensor<1x256x256x128xbf16> {
+        // CHECK-LABEL: func.func public @test_block_scatter_i32
+        // CHECK: "ttir.scatter"
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        %result = "stablehlo.scatter"(%input, %indices, %updates) <{indices_are_sorted = true, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [0, 1, 2, 3], scatter_dims_to_operand_dims = [1, 2, 3]>, unique_indices = true}> ({
+        ^bb0(%arg0: tensor<bf16>, %arg1: tensor<bf16>):
+            stablehlo.return %arg1 : tensor<bf16>
+        }) : (tensor<1x256x256x128xbf16>, tensor<3xi32>, tensor<1x128x256x128xbf16>) -> tensor<1x256x256x128xbf16>
+        return %result : tensor<1x256x256x128xbf16>
+    }
+
+    func.func public @test_block_scatter_i64(%input: tensor<1x256x256x128xbf16>, %indices: tensor<3xi64>, %updates: tensor<1x128x256x128xbf16>) -> tensor<1x256x256x128xbf16> {
+        // CHECK-LABEL: func.func public @test_block_scatter_i64
+        // CHECK: "ttir.scatter"
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        %result = "stablehlo.scatter"(%input, %indices, %updates) <{indices_are_sorted = true, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [0, 1, 2, 3], scatter_dims_to_operand_dims = [1, 2, 3]>, unique_indices = true}> ({
+        ^bb0(%arg0: tensor<bf16>, %arg1: tensor<bf16>):
+            stablehlo.return %arg1 : tensor<bf16>
+        }) : (tensor<1x256x256x128xbf16>, tensor<3xi64>, tensor<1x128x256x128xbf16>) -> tensor<1x256x256x128xbf16>
+        return %result : tensor<1x256x256x128xbf16>
+    }
+
+    func.func public @test_small_block_scatter(%input: tensor<1x4x3xi64>, %indices: tensor<2xi64>, %updates: tensor<1x2x3xi64>) -> tensor<1x4x3xi64> {
+        // CHECK-LABEL: func.func public @test_small_block_scatter
+        // CHECK: "ttir.scatter"
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        %result = "stablehlo.scatter"(%input, %indices, %updates) <{indices_are_sorted = true, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [0, 1, 2], scatter_dims_to_operand_dims = [1, 2]>, unique_indices = true}> ({
+        ^bb0(%arg0: tensor<i64>, %arg1: tensor<i64>):
+            stablehlo.return %arg1 : tensor<i64>
+        }) : (tensor<1x4x3xi64>, tensor<2xi64>, tensor<1x2x3xi64>) -> tensor<1x4x3xi64>
+        return %result : tensor<1x4x3xi64>
+    }
+
     func.func @test_multidim_scatter_with_window_extracted_from_model(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
         // CHECK: "ttir.scatter"
         // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>

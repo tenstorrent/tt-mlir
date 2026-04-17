@@ -51,6 +51,16 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNDecomposition : Pass<"ttnn-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose TTNN ops into primitive equivalents.";
+  let description = [{
+    This pass decomposes TTNN ops that cannot be handled by any available
+    fused kernel into sequences of primitive TTNN ops. Unlike workarounds,
+    these decompositions are permanent and functional - they apply when no
+    suitable kernel exists for the given op configuration (e.g. shape).
+  }];
+}
+
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{
@@ -403,13 +413,13 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
 }
 
 def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert weight tensors to a specified dtype in matmul and linear operations.";
+  let summary = "Convert weight tensors to a specified dtype in matmul, linear, and sparse_matmul operations.";
   let description = [{
-    This pass converts weight tensors in matrix multiplication and linear
-    operations to a specified data type while keeping activations and outputs
-    in high precision (bf16/f32).
+    This pass converts weight tensors in matrix multiplication, linear, and
+    sparse matrix multiplication operations to a specified data type while
+    keeping activations and outputs in high precision (bf16/f32).
 
-    For matmul/linear operations:
+    For matmul/linear/sparse_matmul operations:
       - Inserts ttnn.typecast operations to convert weights to the target dtype
       - Only converts weights that trace back to constant/parameter arguments
       - Keeps activation inputs and outputs in their original precision
@@ -607,6 +617,21 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   let description = [{
     This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
+}
+
+def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
+  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let description = [{
+    This pass uses Belady's optimal page replacement algorithm to enforce L1
+    memory budgets by spilling tensors to DRAM when necessary.
+  }];
+  let options = [
+    Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
+           "Enable decision trace JSON output.">,
+    Option<"decisionTraceDir", "decision-trace-dir", "std::string",
+           "\"ttrt-artifacts/decision_trace\"",
+           "Directory for decision trace JSON output.">,
+  ];
 }
 
 def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagation", "::mlir::ModuleOp"> {

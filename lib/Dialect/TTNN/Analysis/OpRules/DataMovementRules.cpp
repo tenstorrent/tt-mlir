@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 
 namespace mlir::tt::ttnn {
 
@@ -12,19 +13,122 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 LayoutFilterFn ConcatRuleBook::getInputLayoutFilter() const {
-  // Concat: cannot consume any sharded inputs.
-  // https://github.com/tenstorrent/tt-mlir/issues/7145
-  return layout_filter_utils::rejectAllSharded;
+  // Concat sharded inputs: re-enabled after tt-metal hang fix landed.
+  // https://github.com/tenstorrent/tt-metal/issues/39419
+  // Fix: https://github.com/tenstorrent/tt-metal/pull/39882
+  return nullptr;
 }
 
-bool ConcatRuleBook::shouldExploreReshards() const { return false; }
+bool ConcatRuleBook::shouldExploreReshards() const { return true; }
+
+bool ConcatRuleBook::isValidInputCombination(
+    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.size() < 2) {
+    return true;
+  }
+
+  // Concat requires all inputs to have the same memory layout type.
+  auto firstMem = inputLayouts[0].getMemLayout();
+  for (size_t i = 1; i < inputLayouts.size(); ++i) {
+    if (inputLayouts[i].getMemLayout() != firstMem) {
+      return false;
+    }
+  }
+
+  // Concat requires all sharded inputs to have the same grid.
+  if (inputLayouts[0].hasShardedTensorMemoryLayout()) {
+    auto firstGrid = inputLayouts[0].getGrid();
+    for (size_t i = 1; i < inputLayouts.size(); ++i) {
+      if (inputLayouts[i].getGrid() != firstGrid) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+bool ConcatRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty()) {
+    return true;
+  }
+
+  auto inputMem = inputLayouts[0].getMemLayout();
+  bool inputsSharded = inputMem && isShardedMemoryLayout(inputMem.getValue());
+
+  // NULL hint defaults to DRAM in tt-metal; reject when inputs are sharded
+  // (concat requires sharded output when inputs are sharded).
+  if (!hint.outputLayout) {
+    return !inputsSharded;
+  }
+
+  auto hintMem = hint.outputLayout.getMemLayout();
+  bool hintSharded = hintMem && isShardedMemoryLayout(hintMem.getValue());
+
+  // Sharded inputs require sharded output with matching memory layout type
+  // and matching grid.
+  if (inputsSharded) {
+    if (!hintSharded || hintMem != inputMem) {
+      return false;
+    }
+    auto hintGrid = hint.outputLayout.getGrid();
+    auto inputGrid = inputLayouts[0].getGrid();
+    if (!hintGrid || !inputGrid) {
+      return false;
+    }
+    return hintGrid == inputGrid;
+  }
+
+  // Interleaved inputs: reject sharded output hints. tt-metal concat selects
+  // the wrong writer kernel for interleaved-to-sharded, causing a JIT failure.
+  // https://github.com/tenstorrent/tt-metal/issues/41469
+  if (hintSharded) {
+    return false;
+  }
+
+  return true;
+}
 
 OutputHints ConcatRuleBook::getOutputHints(
-    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
-  // ConcatOp: sharded output causes device close hang in tt-metal.
-  // https://github.com/tenstorrent/tt-metal/issues/39419
-  // TODO(rpavlovicTT): re-enable sharded concat once tt-metal fixes it.
-  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+    Operation *op, const std::vector<OpConfig> &legalConfigs) const {
+  // tt-metal concat defaults to DRAM_MEMORY_CONFIG when output memory config is
+  // nullopt, so a NULL hint always produces DRAM output. For sharded inputs
+  // this immediately fails validation (output must be sharded when inputs are
+  // sharded). Promote sharded configs to primary hints to avoid wasting backend
+  // calls on the guaranteed-to-fail NULL path.
+  OutputHints result;
+  result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+
+  // Reject sharded output hints when the concat output tensor has non-tile-
+  // aligned inner dimensions. tt-metal hangs during UntilizeWithUnpadding when
+  // a height-sharded tensor has non-tile-aligned penultimate or last dim
+  // (e.g. 32x32x17x16).
+  // https://github.com/tenstorrent/tt-metal/issues/41504
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (outputType) {
+    llvm::ArrayRef<int64_t> shape = outputType.getShape();
+    int64_t rank = shape.size();
+    if (rank >= 2) {
+      bool penultimateAligned = (shape[rank - 2] % TILE_HEIGHT) == 0;
+      bool lastAligned = (shape[rank - 1] % TILE_WIDTH) == 0;
+      if (!penultimateAligned || !lastAligned) {
+        return result;
+      }
+    }
+  }
+
+  for (const auto &cfg : legalConfigs) {
+    if (!cfg.outputLayout) {
+      continue;
+    }
+    auto memLayout = cfg.outputLayout.getMemLayout();
+    if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+      result.hints.push_back(cfg);
+    }
+  }
+  return result;
 }
 
 //===----------------------------------------------------------------------===//

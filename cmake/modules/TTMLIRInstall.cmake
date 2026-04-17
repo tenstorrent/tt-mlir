@@ -24,6 +24,7 @@ set(ttmlir_export_targets
   TTMLIRTTNNUtils
   MLIRTTNNDialect
   MLIRTTNNAnalysis
+  MLIRTTNNDiagnostics
   MLIRTTNNTransforms
   MLIRTTNNValidation
   MLIRTTNNInterfaces
@@ -58,6 +59,7 @@ set(ttmlir_export_targets
   TTMLIRArithToD2MTileOps
   TTMLIRMathToD2MTileOps
   TTMLIRTTNNToEmitC
+  TTMLIRTTIRToEmitPy
   TTMLIRTTNNToEmitPy
   TTMLIRTTIRToLinalg
   TTMLIRTTIRToTTNN

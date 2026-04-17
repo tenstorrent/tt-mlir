@@ -175,6 +175,61 @@ def module_logistic(builder: StableHLOBuilder):
         return builder.logistic(in0, unit_attrs=unit_attrs)
 
 
+def module_sign(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def sign(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.sign(in0, unit_attrs=unit_attrs)
+
+
+def module_convert(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def convert(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.convert(in0, output_type=torch.bfloat16, unit_attrs=unit_attrs)
+
+
+def module_cbrt(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def cbrt(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.cbrt(in0, unit_attrs=unit_attrs)
+
+
+def module_expm1(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def expm1(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.expm1(in0, unit_attrs=unit_attrs)
+
+
+def module_is_finite(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def is_finite(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.is_finite(in0, unit_attrs=unit_attrs)
+
+
 def module_shift_right_logical(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
     def shift_right_logical(
@@ -185,6 +240,42 @@ def module_shift_right_logical(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_remainder(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def remainder(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.remainder(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_atan2(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def atan2(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.atan2(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_shift_left(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def shift_left(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.shift_left(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_clamp(builder: StableHLOBuilder):
@@ -485,6 +576,8 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
         module_mul,
         module_pow,
         module_subtract,
+        module_remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
 def test_binary_ops(test_fn: Callable, target: str, request, device):
@@ -538,6 +631,10 @@ def test_compare_ops(test_fn: Callable, target: str, request, device):
         module_sqrt,
         module_tan,
         module_tanh,
+        module_sign,
+        module_convert,
+        module_cbrt,
+        module_expm1,
     ],
 )
 def test_unary_ops(
@@ -560,6 +657,22 @@ def test_unary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="TTNN IsFiniteOp runtime DataType mismatch: expected BFLOAT16, got FLOAT32. Issue: #7930"
+)
+def test_is_finite(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    compile_and_execute_shlo(
+        module_is_finite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        check_pcc=False,
     )
 
 
@@ -622,10 +735,6 @@ def test_sort(
 @pytest.mark.parametrize("dimension", [2, 1, 0], ids=["dim2", "dim1", "dim0"])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("is_stable", [False])
-@pytest.mark.skip_exec(
-    ("p150",),
-    reason="Flaky on p150 in CI, ticket: https://github.com/tenstorrent/tt-mlir/issues/7571",
-)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sort_key_value(
     shape: Shape,
@@ -999,6 +1108,7 @@ def test_stablehlo_multi_return_support(
         module_or_bool,
         module_xor_bool,
         module_shift_right_logical,
+        module_shift_left,
     ],
 )
 def test_logical_binary_ops(
@@ -1761,6 +1871,72 @@ def test_reduce_window_op(test_fn: Callable, target: str, request, device):
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
+    [
+        # Simple 1D indices - f32.
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),
+        pytest.param(
+            (8, 16, 32),
+            torch.float32,
+            (4, 2, 2),
+            [0, 2],
+            [1],
+            # Complex indices - f32.
+            [1, 16, 1],
+        ),
+    ],
+    ids=[
+        "simple_1d-f32",
+        "complex_indices-f32",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_gather(
+    input_shape: Shape,
+    input_dtype: torch.dtype,
+    indices_shape: Tuple,
+    start_index_map: List[int],
+    offset_dims: List[int],
+    slice_sizes: List[int],
+    target: str,
+    request,
+    device,
+):
+    def module_gather(builder: StableHLOBuilder):
+        @builder.func([input_shape], [input_dtype])
+        def gather_func(in0: Operand, builder: StableHLOBuilder):
+            indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
+
+            collapsed_slice_dims = start_index_map
+            operand_batching_dims = []
+            start_indices_batching_dims = []
+
+            if len(indices_shape) == 1 and len(start_index_map) == 1:
+                index_vector_dim = len(indices_shape)
+            else:
+                index_vector_dim = len(indices_shape) - 1
+
+            return builder.gather(
+                in0,
+                indices,
+                offset_dims=offset_dims,
+                collapsed_slice_dims=collapsed_slice_dims,
+                operand_batching_dims=operand_batching_dims,
+                start_indices_batching_dims=start_indices_batching_dims,
+                start_index_map=start_index_map,
+                index_vector_dim=index_vector_dim,
+                slice_sizes=slice_sizes,
+            )
+
+    compile_and_execute_shlo(
+        module_gather,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

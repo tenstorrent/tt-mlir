@@ -21,7 +21,7 @@ struct TopologyInfo {
   enum class TopologyType { Ring = 0, Line, Mesh, Torus };
   enum class RoutingMode { BidirLineMesh = 0, UnidirRingTorus = 1 };
   // only for UnidirRingTorus routing mode
-  enum class RoutingDirection { Forward, Backward };
+  enum class RoutingDirection { Forward = 0, Backward };
 
   TopologyType topology_type;
   RoutingMode routing_mode;

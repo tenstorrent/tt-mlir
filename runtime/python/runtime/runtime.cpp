@@ -685,24 +685,63 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static(
           "get",
-          [](nb::callable pre_op_func, nb::callable post_op_func) {
+          [](std::optional<nb::callable> pre_op_func,
+             std::optional<nb::callable> post_op_func,
+             std::optional<nb::callable> pre_program_func,
+             std::optional<nb::callable> post_program_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                pre_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                post_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ProgramCallbackFn>
+                pre_program_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ProgramCallbackFn>
+                post_program_cb = std::nullopt;
+
+            if (pre_op_func.has_value()) {
+              pre_op_cb =
+                  [pre_op_func](tt::runtime::Binary Binary,
+                                tt::runtime::CallbackContext programContext,
+                                tt::runtime::OpContext opContext) {
+                    (*pre_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (post_op_func.has_value()) {
+              post_op_cb =
+                  [post_op_func](tt::runtime::Binary Binary,
+                                 tt::runtime::CallbackContext programContext,
+                                 tt::runtime::OpContext opContext) {
+                    (*post_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (pre_program_func.has_value()) {
+              pre_program_cb =
+                  [pre_program_func](
+                      tt::runtime::Binary Binary,
+                      tt::runtime::CallbackContext programContext) {
+                    (*pre_program_func)(Binary, programContext);
+                  };
+            }
+            if (post_program_func.has_value()) {
+              post_program_cb =
+                  [post_program_func](
+                      tt::runtime::Binary Binary,
+                      tt::runtime::CallbackContext programContext) {
+                    (*post_program_func)(Binary, programContext);
+                  };
+            }
+
             return tt::runtime::debug::Hooks::get(
-                [pre_op_func](tt::runtime::Binary Binary,
-                              tt::runtime::CallbackContext programContext,
-                              tt::runtime::OpContext opContext) {
-                  pre_op_func(Binary, programContext, opContext);
-                },
-                [post_op_func](tt::runtime::Binary Binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                  post_op_func(Binary, programContext, opContext);
-                });
+                pre_op_cb, post_op_cb, pre_program_cb, post_program_cb);
 #else
             tt::runtime::debug::Hooks::get();
             return std::nullopt;
 #endif
-          })
+          },
+          nb::arg("pre_op") = std::nullopt, nb::arg("post_op") = std::nullopt,
+          nb::arg("pre_program") = std::nullopt,
+          nb::arg("post_program") = std::nullopt)
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;

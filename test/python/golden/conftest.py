@@ -156,6 +156,41 @@ def clear_device_cache():
     _current_fabric_config = None
 
 
+def _reset_device_after_failure():
+    """Close the cached device after an execution failure.
+
+    After a device execution failure the hardware may be in an undefined state.
+    Close the device and clear the cache so the next test's ``device`` fixture
+    opens a fresh one automatically.
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    if _current_device is None:
+        return
+
+    target = _current_device_target
+    device = _current_device
+
+    try:
+        if target == "emitpy":
+            ttnn.close_mesh_device(device)
+        else:
+            tt_runtime.runtime.close_mesh_device(device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+    except Exception as e:
+        print(f"Warning: failed to close device during reset: {e}")
+
+    _current_device = None
+    _current_device_target = None
+    _current_device_mesh_shape = None
+    _current_fabric_config = None
+
+    if target == "emitpy":
+        utils.DeviceGetter._instance = None
+        utils.DeviceGetter._mesh_shape = None
+
+
 def _get_current_environment():
     if "TT_METAL_SIMULATOR" in os.environ:
         return "sim"
@@ -266,7 +301,9 @@ def get_request_kwargs(request):
         kwargs["enable_intermediate_verification"] = True
     if request.config.getoption("--disable-golden"):
         kwargs["disable_golden"] = True
-    if request.config.getoption("--skip-exec"):
+    if request.config.getoption("--skip-exec") or getattr(
+        request.node, "skip_exec", False
+    ):
         kwargs["skip_exec"] = True
     if request.config.getoption("--disable-pcc"):
         kwargs["check_pcc"] = False
@@ -704,6 +741,10 @@ def pytest_runtest_call(item: pytest.Item):
                 f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+
+        if failure_stage == "runtime" and not getattr(item, "skip_exec", False):
+            _reset_device_after_failure()
+
         raise
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)

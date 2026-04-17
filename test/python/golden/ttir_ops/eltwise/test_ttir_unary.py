@@ -50,6 +50,10 @@ def asin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return asin_0
 
 
+def asinh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.asinh(in0, unit_attrs=unit_attrs)
+
+
 def atan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.atan(in0, unit_attrs=unit_attrs)
 
@@ -245,6 +249,7 @@ unary_ops = [
     abs,
     acos | Marks(pytest.mark.skip_config(["ttmetal"])),
     asin | Marks(pytest.mark.skip_config(["ttmetal"])),
+    asinh | Marks(pytest.mark.skip_config(["ttmetal"])),
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil,
@@ -267,7 +272,7 @@ unary_ops = [
     rsqrt,
     sigmoid,
     sign,
-    hardsigmoid | Marks(pytest.mark.skip_config(["emitpy"])),
+    hardsigmoid,
     silu,
     sin,
     sqrt,
@@ -502,6 +507,9 @@ def test_unaligned_shapes_neg(
 
 
 hoisted_unary_ops_float = [
+    acos,
+    asin,
+    asinh,
     atan,
     cbrt,
     ceil,
@@ -548,7 +556,7 @@ hoisted_shapes = [
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_unary_ops_float(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -573,7 +581,7 @@ def test_cpu_hoistable_unary_ops_float(
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_unary_ops_float_integer(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -585,6 +593,32 @@ def test_cpu_hoistable_unary_ops_float_integer(
             unit_attrs: Optional[List[str]] = None,
         ):
             return test_fn(in0, builder, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=f"{request.node.name}",
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+def test_hoisted_leaky_relu(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_leaky_relu(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.leaky_relu(
+                in0, parameter=0.01, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
         module,

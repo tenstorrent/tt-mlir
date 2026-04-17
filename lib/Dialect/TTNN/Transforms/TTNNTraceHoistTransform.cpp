@@ -390,20 +390,14 @@ private:
 
     // The capture function returns multiple values for trace management:
     // 1. traceId - Identifier for the captured trace
-    // 2. actual outputs - Results from the first execution (non-traced)
-    // 3. trace input slots - Persistent device memory for input data
-    // 4. trace output slots - Persistent device memory for output data
+    // 2. trace input slots - Persistent device memory for input data
+    // 3. trace output slots - Persistent device memory for output data
+
     llvm::SmallVector<mlir::Type> outputTypes;
 
     // Trace ID for the captured trace, used for correlation between capture and
     // execution.
     outputTypes.push_back(utils::getTraceIdType(context));
-
-    // Actual outputs from the first execution of the trace function
-    // (non-traced).
-    for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
-      outputTypes.push_back(outputType);
-    }
 
     // Trace input slots for all inputs (including constants/parameters and KV
     // cache) that are persisted on device.
@@ -412,6 +406,7 @@ private:
     }
 
     // Trace output slots for all outputs that will be captured on device.
+    // These are also used as the actual outputs for the first invocation.
     for (mlir::Type outputType : traceFunc.getFunctionType().getResults()) {
       outputTypes.push_back(outputType);
     }
@@ -499,10 +494,9 @@ private:
     }
 
     // Execute the trace function once without capture to compile programs and
-    // populate program cache. The results are discarded since this execution is
-    // just for warming up.
-    auto traceFuncCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
+    // populate program cache.
+    builder.create<func::CallOp>(runAndCaptureTraceFunc.getLoc(), traceFunc,
+                                 traceInputSlots);
 
     // Start capturing the trace.
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
@@ -519,22 +513,23 @@ private:
                                             deviceOp, beginTraceCaptureOp,
                                             /*cq_id=*/0);
 
-    // Assemble return values: trace ID, actual outputs, and persistent slots.
+    // Execute the trace once to fill output slots with real computed values.
+    builder.create<ttnn::ExecuteTraceOp>(runAndCaptureTraceFunc.getLoc(),
+                                         deviceOp, beginTraceCaptureOp,
+                                         /*cq_id=*/0, /*blocking=*/false);
+
+    // Assemble return values: trace ID and persistent slots.
     llvm::SmallVector<mlir::Value> returnValues;
 
     // Return the trace ID for correlation with execution.
     returnValues.push_back(beginTraceCaptureOp.getTraceId());
-    // Return the actual outputs from the first execution (non-traced).
-    for (mlir::Value output : traceFuncCall.getResults()) {
-      returnValues.push_back(output);
-    }
     // Return the trace input slots for all inputs (including
     // constants/parameters and KV cache) that are persisted on device.
     for (mlir::Value inputSlot : traceInputSlots) {
       returnValues.push_back(inputSlot);
     }
-    // Return the trace output slots for all outputs that will be captured on
-    // device.
+    // Return the trace output slots. After the execute_trace above, these
+    // contain valid computed results for the first invocation.
     for (mlir::Value outputSlot : captureTraceCall.getResults()) {
       returnValues.push_back(outputSlot);
     }

@@ -31,6 +31,7 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/TTCoreEnumBinding.td
   SOURCES dialects/ttcore.py
   DIALECT_NAME ttcore
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTCore/IR/TTCoreOps.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -39,6 +40,8 @@ declare_mlir_dialect_python_bindings(
   TD_FILE dialects/TTIRBinding.td
   SOURCES dialects/ttir.py
   DIALECT_NAME ttir
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTIR/IR/TTIROps.td
+          ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -49,6 +52,7 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/D2MEnumBinding.td
   SOURCES dialects/d2m.py
   DIALECT_NAME d2m
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/D2M/IR/D2MOps.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -59,6 +63,7 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/TTKernelEnumBinding.td
   SOURCES dialects/ttkernel.py
   DIALECT_NAME ttkernel
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTKernel/IR/TTKernelOps.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -69,6 +74,8 @@ declare_mlir_dialect_python_bindings(
   GEN_ENUM_BINDINGS_TD_FILE dialects/TTNNEnumBinding.td
   SOURCES dialects/ttnn.py
   DIALECT_NAME ttnn
+  DEPENDS ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTNN/IR/TTNNOps.td
+          ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.td
 )
 
 declare_mlir_dialect_python_bindings(
@@ -245,33 +252,3 @@ install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ttmlir DESTINATION . COMPO
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python/dialects/ DESTINATION python/dialects COMPONENT Test EXCLUDE_FROM_ALL)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/python_packages/ DESTINATION python_packages COMPONENT Test EXCLUDE_FROM_ALL)
-
-add_custom_command(
-  COMMAND rm -rf build dist *.egg-info
-  COMMAND python -m pip install build
-  COMMAND TTMLIR_DEV_BUILD=ON python -m build --wheel
-  COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
-  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-  DEPENDS
-    TTMLIRPythonModules
-    TTMLIRPythonCAPI
-    TTMLIRCAPI
-    TTMLIRPythonExtensions
-    ${CMAKE_CURRENT_SOURCE_DIR}/TTMLIRModule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/TTModule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/TTIRModule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/D2MModule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/TTKernelModule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/TTNNModule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/DebugModule.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/OptimizerOverrides.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Passes.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Util.cpp
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
-  COMMENT "Building ttmlir wheel"
-)
-
-add_custom_target(ttmlir-wheel
-  COMMENT "ttmlir wheel"
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/.ttmlir-wheel-built
-)

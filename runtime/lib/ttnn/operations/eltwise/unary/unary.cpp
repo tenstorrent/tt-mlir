@@ -35,31 +35,12 @@ static void runEltwiseUnaryOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
-static void runEltwiseUnaryOpNoSubCoreGrids(
-    const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
-
-  const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
-
-  ::ttnn::Tensor out =
-      ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
-}
-
 static void runEltwiseUnaryTanhOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
     const std::function<::ttnn::Tensor(
         const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &, bool)> &ttnnOp) {
+        const std::optional<::ttnn::Tensor> &, bool,
+        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -71,7 +52,7 @@ static void runEltwiseUnaryTanhOp(
 
   ::ttnn::Tensor out =
       ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
-             /*approx=*/false);
+             /*approx=*/false, /*sub_core_grids=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -105,7 +86,8 @@ static void runEltwiseUnarySigmoidOp(
         ::ttnn::Tensor(const ::ttnn::Tensor &, const int,
                        const ::ttnn::operations::unary::SigmoidMode,
                        const std::optional<::ttnn::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &)> &ttnnOp) {
+                       const std::optional<::ttnn::Tensor> &,
+                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
@@ -118,7 +100,8 @@ static void runEltwiseUnarySigmoidOp(
   auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
   ::ttnn::Tensor out = ttnnOp(
       in, static_cast<int>(::ttnn::operations::unary::VecMode::RC), sigmoidMode,
-      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt);
+      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
+      /*sub_core_grids=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -152,13 +135,9 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseUnaryOpType::Abs: {
-    // Use static cast to avoid type deduction issues with the overloaded abs
-    // function
-    using AbsFn = ::ttnn::Tensor (*)(
-        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &);
-    runEltwiseUnaryOpNoSubCoreGrids(op, tensorPool,
-                                    static_cast<AbsFn>(::ttnn::abs));
+    runEltwiseUnaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::abs(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Ceil: {
@@ -233,15 +212,14 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::asin);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Asinh: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::asinh);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal: {
-    // Use static cast to avoid type deduction issues with the overloaded
-    // reciprocal function
-    using ReciprocalFn = ::ttnn::Tensor (*)(
-        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &,
-        const std::optional<::ttnn::CoreRangeSet> &);
-    runEltwiseUnaryOp(op, tensorPool,
-                      static_cast<ReciprocalFn>(::ttnn::reciprocal));
+    runEltwiseUnaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::reciprocal(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sign: {
