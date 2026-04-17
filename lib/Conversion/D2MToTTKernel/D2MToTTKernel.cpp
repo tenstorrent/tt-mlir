@@ -2354,7 +2354,7 @@ public:
     // d2m.get_cb ops, which are lowered by D2MGetCBRewriter.
     for (auto arg : blockArgs) {
       Type argType = getTypeConverter()->convertType(arg.getType());
-      if (mlir::isa<SemaphoreType>(argType)) {
+      if (mlir::isa<LocalSemaphoreType>(argType)) {
         if (getTTKernelThreadType(op) != ThreadType::Noc) {
           continue;
         }
@@ -2367,7 +2367,7 @@ public:
         signatureConverter.remapInput(arg.getArgNumber(),
                                       semaphore.getResult());
         ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
-            ArgType::Semaphore, currentSemaphoreIndex++));
+            ArgType::LocalSemaphore, currentSemaphoreIndex++));
       } else {
         llvm_unreachable("unexpected block argument type");
       }

@@ -29,7 +29,9 @@ std::vector<std::uint32_t> processKernelArgs(
     const std::unordered_map<
         std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
-        &global_semaphores_cache,
+        &globalSemaphoresCache,
+    const std::unordered_map<std::uint32_t, std::uint32_t>
+        &localSemaphoresCache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
@@ -69,10 +71,24 @@ std::vector<std::uint32_t> processKernelArgs(
                                                metalBuffer->buffer_type()));
       break;
     }
-    case target::metal::KernelArgType::KernelArgSemaphore: {
+    case target::metal::KernelArgType::KernelArgLocalSemaphore: {
       LOG_ASSERT(createSemaphoreFn, "createSemaphoreFn is not set");
-      const auto *arg = kernelArg->arg_as_KernelArgSemaphore();
-      argsVec.push_back(createSemaphoreFn(arg->initial_value()));
+      const auto *arg = kernelArg->arg_as_KernelArgLocalSemaphore();
+      LOG_ASSERT(arg->operand_idx() < argRefsType->size(),
+                 "local semaphore operand_idx out of bounds ",
+                 arg->operand_idx());
+      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
+                 target::metal::ArgRef::LocalSemaphoreRef);
+      const tt::target::metal::LocalSemaphoreRef *local_sem_ref =
+          reinterpret_cast<const target::metal::LocalSemaphoreRef *>(
+              argRefs->Get(arg->operand_idx()));
+      LOG_ASSERT(localSemaphoresCache.find(local_sem_ref->global_id()) !=
+                     localSemaphoresCache.end(),
+                 "Local semaphore id referenced by rt args is no longer alive "
+                 "or was never created ",
+                 logger::Buffer(local_sem_ref->global_id()));
+      argsVec.push_back(createSemaphoreFn(
+          localSemaphoresCache.at(local_sem_ref->global_id())));
       break;
     }
     case target::metal::KernelArgType::KernelArgNamedArgument: {
@@ -88,14 +104,14 @@ std::vector<std::uint32_t> processKernelArgs(
           reinterpret_cast<const target::metal::GlobalSemaphoreRef *>(
               argRefs->Get(arg->operand_idx()));
       LOG_ASSERT(
-          global_semaphores_cache.find(global_semaphore_operand->global_id()) !=
-              global_semaphores_cache.end(),
+          globalSemaphoresCache.find(global_semaphore_operand->global_id()) !=
+              globalSemaphoresCache.end(),
           "Global semaphore id referenced by rt args is no longer alive or was "
           "never created ",
           logger::Buffer(global_semaphore_operand->global_id()));
 
       argsVec.push_back(deviceAddressValidator(
-          global_semaphores_cache.at(global_semaphore_operand->global_id())
+          globalSemaphoresCache.at(global_semaphore_operand->global_id())
               .address(),
           target::BufferType::L1));
       break;
