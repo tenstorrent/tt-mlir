@@ -63,6 +63,11 @@ void createStableHLOPipeline(OpPassManager &pm,
   // them. All other composites are flattened (inlined).
   pm.addPass(createFlattenOrConvertCompositesPass());
 
+  // Rewrite batch-parallel axes of stablehlo.gather into operand_batching_dims
+  // so that Shardy does not insert unnecessary reshards / collectives on those
+  // axes inside composite gather bodies.
+  pm.addPass(createRewriteBatchParallelGatherPass());
+
   // Register custom sharding rules for unsupported ops in Shardy.
   pm.addPass(createRegisterCustomShardingRulePass());
 
