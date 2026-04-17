@@ -15,21 +15,21 @@ module {
     return %alloc  : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   }
 
-  func.func private @datamovement_kernel0(%arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
+  func.func private @datamovement_kernel0(%arg3: !d2m.local_semaphore, %arg4: !d2m.local_semaphore, %arg5: !d2m.local_semaphore, %arg6: !d2m.local_semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
     %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
     %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
     %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
     return
   }
 
-  func.func private @datamovement_kernel1(%arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
+  func.func private @datamovement_kernel1(%arg3: !d2m.local_semaphore, %arg4: !d2m.local_semaphore, %arg5: !d2m.local_semaphore, %arg6: !d2m.local_semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
     %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
     %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
     %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
     return
   }
 
-  func.func private @compute_kernel2(%arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<compute>} {
+  func.func private @compute_kernel2(%arg3: !d2m.local_semaphore, %arg4: !d2m.local_semaphore, %arg5: !d2m.local_semaphore, %arg6: !d2m.local_semaphore) attributes {d2m.thread = #d2m.thread<compute>} {
     %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
     %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
     %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>

@@ -89,7 +89,7 @@ public:
     // - senderFinishedSemaphore
 
     Location loc = generic.getLoc();
-    SemaphoreType semType = rewriter.getType<SemaphoreType>();
+    LocalSemaphoreType semType = rewriter.getType<LocalSemaphoreType>();
 
     // Track the starting index of semaphores for each RemoteLoadOp.
     // We'll store these indices as attributes on the ops.

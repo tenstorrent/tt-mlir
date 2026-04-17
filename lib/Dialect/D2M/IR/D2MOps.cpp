@@ -1879,9 +1879,9 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     // Block arguments may only be semaphore type.
     // Semaphore block args are added by PreallocateMcastSemaphores.
     for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::SemaphoreType>(arg.getType())) {
+      if (!mlir::isa<d2m::LocalSemaphoreType>(arg.getType())) {
         return emitOpError(
-            "region block arguments must be of 'semaphore' type");
+            "region block arguments must be of local semaphore type");
       }
 
       if (arg.getType() !=
@@ -2756,7 +2756,7 @@ void d2m::GenericOp::getAsmBlockArgumentNames(
     Region &region, function_ref<void(Value, StringRef)> setNameFn) {
   int semIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
-    if (mlir::isa<SemaphoreType>(arg.getType())) {
+    if (mlir::isa<LocalSemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
     }
   }

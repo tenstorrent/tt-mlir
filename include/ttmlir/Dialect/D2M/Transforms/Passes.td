@@ -911,11 +911,11 @@ def D2MPreallocateMcastSemaphores : Pass<"d2m-preallocate-mcast-semaphores", "::
 
     // After (semaphores pre-allocated):
     d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]} {
-    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.local_semaphore, %sem1: !d2m.local_semaphore):
       d2m.remote_load %cb0, %memref[%i] core[%c0] mcast[%c4]
         {preallocated_semaphores = [2, 3]} : ...
     }, {
-    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.local_semaphore, %sem1: !d2m.local_semaphore):
       ...
     }
     ```
