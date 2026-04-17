@@ -30,16 +30,28 @@ ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern::matchAndRewrite(
     return failure();
   }
 
+  // Query layout: [1, batch, num_heads, head_dim].
+  // Mask layout (per ScaledDotProductAttentionDecodeOp::verify):
+  //   [batch_or_1, 1, num_heads_or_1, kv_seq_len]
+  // so dim 0 is the batch dim and dim 2 is the heads dim.
+  int64_t batch = queryType.getShape()[1];
   int64_t numHeads = queryType.getShape()[2];
+  int64_t maskBatch = maskType.getShape()[0];
   int64_t maskHeads = maskType.getShape()[2];
 
-  // Only broadcast if mask heads == 1 and query has more heads.
-  if (maskHeads != 1 || numHeads <= 1) {
+  bool needBatchBroadcast = (maskBatch == 1 && batch > 1);
+  bool needHeadBroadcast = (maskHeads == 1 && numHeads > 1);
+  if (!needBatchBroadcast && !needHeadBroadcast) {
     return failure();
   }
 
   SmallVector<int64_t> targetShape(maskType.getShape());
-  targetShape[2] = numHeads;
+  if (needBatchBroadcast) {
+    targetShape[0] = batch;
+  }
+  if (needHeadBroadcast) {
+    targetShape[2] = numHeads;
+  }
 
   auto broadcastType =
       utils::RankedTensorTypeFactory::create(maskType, targetShape);
