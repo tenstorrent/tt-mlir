@@ -34,9 +34,12 @@ def model_to_cpp_cmd(input_file, verbose):
 
         success = model_to_cpp(input_file)
 
+        if not success:
+            sys.exit(1)
+
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
-        return 1
+        sys.exit(1)
 
 
 @cli.command()
@@ -50,9 +53,12 @@ def model_to_python_cmd(input_file, verbose):
 
         success = model_to_python(input_file)
 
+        if not success:
+            sys.exit(1)
+
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
-        return 1
+        sys.exit(1)
 
 
 @cli.command()
@@ -101,13 +107,12 @@ def generate_cpp_cmd(input_file, output_dir, mode, pipeline_options, verbose):
         success = generate_cpp(input_file, output_dir, is_local, pipeline_options)
         if success:
             click.echo(f"Successfully generated {mode} solution in: {output_dir}")
-            return 0
         else:
             click.echo(f"Failed to generate {mode} solution in: {output_dir}")
-            return 1
+            sys.exit(1)
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
-        return 1
+        sys.exit(1)
 
 
 @cli.command()
@@ -156,13 +161,12 @@ def generate_python_cmd(input_file, output_dir, mode, pipeline_options, verbose)
         success = generate_python(input_file, output_dir, is_local, pipeline_options)
         if success:
             click.echo(f"Successfully generated {mode} solution in: {output_dir}")
-            return 0
         else:
             click.echo(f"Failed to generate {mode} solution in: {output_dir}")
-            return 1
+            sys.exit(1)
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)
-        return 1
+        sys.exit(1)
 
 
 if __name__ == "__main__":
