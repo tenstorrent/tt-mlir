@@ -585,12 +585,21 @@ def _compute_moe_gpt_valid_masks(
     act_row_stride: int,
     et_entry_size: int,
     et_row_elements: int,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    # moe_gpt writes structured int32 records; L1-alignment pads each record
-    # and leaves the buffer tail uninitialized. Build per-device {0,1} int32
-    # masks marking positions the op is required to write, so on-device
-    # `multiply(output, mask)` zeroes out don't-care bytes to match the golden
-    # (which initializes with zeros) before PCC.
+    num_worker_cores: int,
+    hidden_size: int,
+    height_shard_dim: int = 4,
+    width_shard_dim: int = 3,
+    tile_size: int = 32,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    # moe_gpt writes structured records and HEIGHT_SHARDED MLP outputs; the
+    # rest of each per-device buffer is uninitialized. Build per-device {0,1}
+    # masks over: (a) int32 routing outputs (token_counts, activation_records,
+    # token_indices), and (b) bf16 tilize outputs (tilize_out, tilize_out_rm).
+    # On-device `multiply(output, mask)` then zeroes the don't-care bytes so
+    # PCC compares like-with-like against the golden.
+    #
+    # The tilize-mask walk must stay in sync with the golden's tilize_out walk
+    # in tools/golden/mapping.py::moe_gpt_golden.
     mesh_rows, mesh_cols = mesh_shape
     D_total = mesh_rows * mesh_cols
     mapping_row = valid_mapping.reshape(-1, E_total)[0]
@@ -601,6 +610,16 @@ def _compute_moe_gpt_valid_masks(
     et_mask = torch.zeros(
         mesh_rows, mesh_cols, E_per_device, et_row_elements, dtype=torch.int32
     )
+    tile_mask = torch.zeros(
+        mesh_rows,
+        mesh_cols,
+        num_worker_cores,
+        2,
+        tile_size,
+        hidden_size,
+        dtype=torch.bfloat16,
+    )
+    combine_shard_width_tiles = hidden_size // tile_size // width_shard_dim
 
     for dev_id in range(D_total):
         r, c = dev_id // mesh_cols, dev_id % mesh_cols
@@ -635,7 +654,37 @@ def _compute_moe_gpt_valid_masks(
             if sp < et_row_elements:
                 et_mask[r, c, e, sp] = 1
 
-    return tc_mask, act_mask, et_mask
+        # Tilize-out mask — mirrors moe_gpt_golden's combine-core walk.
+        for le, active in enumerate(counts):
+            if active == 0:
+                continue
+            tps = active // height_shard_dim
+            rem = active % height_shard_dim
+            dhs, srow = 0, 0
+            for bt in range(active):
+                cap = tps + (1 if dhs < rem else 0)
+                if cap == 0:
+                    break
+                dst_row_flat = le * tile_size + srow
+                dim1 = dst_row_flat // tile_size
+                dim2 = dst_row_flat % tile_size
+                if dim1 >= 2:
+                    srow += 1
+                    if srow == cap:
+                        dhs += 1
+                        srow = 0
+                    continue
+                for dws in range(width_shard_dim):
+                    cc = dhs * width_shard_dim + dws
+                    col_lo = dws * combine_shard_width_tiles * tile_size
+                    col_hi = col_lo + combine_shard_width_tiles * tile_size
+                    tile_mask[r, c, cc, dim1, dim2, col_lo:col_hi] = 1.0
+                srow += 1
+                if srow == cap:
+                    dhs += 1
+                    srow = 0
+
+    return tc_mask, act_mask, et_mask, tile_mask
 
 
 # --- Chained MoE pipeline: dispatch_metadata → moe_gpt (GPT-OSS fused decode) ---
@@ -715,7 +764,12 @@ def test_moe_dispatch_metadata_moe_gpt(
     valid_scores = _build_expert_scores(1, tokens_global, K_sel)
 
     # Per-device masks to zero out structured-record padding before PCC.
-    tc_mask_full, act_mask_full, et_mask_full = _compute_moe_gpt_valid_masks(
+    (
+        tc_mask_full,
+        act_mask_full,
+        et_mask_full,
+        tile_mask_full,
+    ) = _compute_moe_gpt_valid_masks(
         valid_indices,
         valid_mapping,
         mesh_shape,
@@ -728,6 +782,8 @@ def test_moe_dispatch_metadata_moe_gpt(
         act_row_stride,
         et_entry_size,
         et_row_elements,
+        num_worker_cores,
+        H,
     )
 
     # moe_gpt expert mapping: same data as dispatch mapping, shape [D_total, E_total].
@@ -773,6 +829,8 @@ def test_moe_dispatch_metadata_moe_gpt(
                 (mesh_shape[0], mesh_shape[1], 1, tc_elements),
                 (mesh_shape[0], mesh_shape[1], 1, act_elements),
                 (mesh_shape[0], mesh_shape[1], E_per_device, et_row_elements),
+                # Per-device valid-position mask for bf16 tilize outputs
+                (mesh_shape[0], mesh_shape[1], num_worker_cores, 2, TILE_SIZE, H),
             ],
             [
                 torch.bfloat16,
@@ -785,6 +843,7 @@ def test_moe_dispatch_metadata_moe_gpt(
                 torch.int32,
                 torch.int32,
                 torch.int32,
+                torch.bfloat16,
             ],
         )
         def moe_pipeline(
@@ -798,6 +857,7 @@ def test_moe_dispatch_metadata_moe_gpt(
             tc_mask_in: Operand,
             act_mask_in: Operand,
             et_mask_in: Operand,
+            tile_mask_in: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
@@ -843,6 +903,10 @@ def test_moe_dispatch_metadata_moe_gpt(
             builder._set_golden_tensor(
                 et_mask_in,
                 GoldenMapTensor({0: et_mask_full}, mesh_shape=ms),
+            )
+            builder._set_golden_tensor(
+                tile_mask_in,
+                GoldenMapTensor({0: tile_mask_full}, mesh_shape=ms),
             )
 
             # Provide raw (unprepared) weights for the moe_gpt golden
@@ -928,6 +992,13 @@ def test_moe_dispatch_metadata_moe_gpt(
                 shard_shape=mask_shard_shape,
                 shard_dims=mask_shard_dims,
             )
+            tile_m = builder.mesh_shard(
+                tile_mask_in,
+                shard_type=MeshShardType.Devices,
+                shard_direction=MeshShardDirection.FullToShard,
+                shard_shape=[mesh_shape[0], mesh_shape[1], 1, 1, 1, 1],
+                shard_dims=[0, 1],
+            )
 
             # --- Step 1: all_to_all_dispatch_metadata ---
             dispatched, indices_out, scores_out = builder.all_to_all_dispatch_metadata(
@@ -980,20 +1051,25 @@ def test_moe_dispatch_metadata_moe_gpt(
                 unit_attrs=unit_attrs,
             )
 
-            # Zero out don't-care padding/tail in the structured int32 outputs
-            # so both sides match at those positions for a clean PCC compare.
+            # Zero out don't-care padding/tail in the structured outputs so
+            # both sides match at those positions for a clean PCC compare.
             tc_mask_2d = builder.reshape(tc_m, (1, tc_elements))
             act_mask_2d = builder.reshape(act_m, (1, act_elements))
             et_mask_2d = builder.reshape(et_m, (E_per_device, et_row_elements))
+            tile_mask_4d = builder.reshape(tile_m, (num_worker_cores, 2, TILE_SIZE, H))
             token_counts = builder.multiply(token_counts, tc_mask_2d)
             activation_records = builder.multiply(activation_records, act_mask_2d)
             token_indices = builder.multiply(token_indices, et_mask_2d)
+            tilize_out = builder.multiply(tilize_out, tile_mask_4d)
+            tilize_out_rm = builder.multiply(tilize_out_rm, tile_mask_4d)
 
-            # tilize_out / tilize_out_rm omitted: they share a HEIGHT_SHARDED
-            # buffer across all 72 workers but only the combine cores write;
-            # golden layout doesn't match the kernel's combine-core assignment,
-            # so validate them in moe_gpt's own unit test, not this chained E2E.
-            return token_counts, activation_records, token_indices
+            return (
+                token_counts,
+                activation_records,
+                token_indices,
+                tilize_out,
+                tilize_out_rm,
+            )
 
     compile_and_execute_ttir(
         module,
