@@ -37,6 +37,17 @@ static constexpr llvm::StringLiteral allToAllCombineTargetName =
 static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
     "tt.moe_expert_token_remap";
 
+static constexpr llvm::StringLiteral topkRouterGptTargetName =
+    "tt.topk_router_gpt";
+
+static constexpr llvm::StringLiteral allToAllDispatchMetadataTargetName =
+    "tt.all_to_all_dispatch_metadata";
+
+static constexpr llvm::StringLiteral moeGptTargetName = "tt.moe_gpt";
+
+static constexpr llvm::StringLiteral selectiveReduceCombineTargetName =
+    "tt.selective_reduce_combine";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -433,6 +444,115 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
   return mlir::sdy::OpShardingRuleAttr();
 }
 
+// Sharding rule for the decode-only GPT-OSS router.
+// hidden_states [B, S, H], router_weight [E, H], router_bias [E]
+//   -> indices [B, S, K], scores [B, S, K]
+static mlir::sdy::OpShardingRuleAttr
+getTopKRouterGPTShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 2 && op.getNumOperands() != 3) {
+    op.getOperation()->emitWarning()
+        << "topk_router_gpt expects 2 or 3 operands, got "
+        << op.getNumOperands();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto hiddenType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto weightType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  if (!hiddenType || hiddenType.getRank() != 3 || !weightType ||
+      weightType.getRank() != 2) {
+    op.getOperation()->emitWarning()
+        << "topk_router_gpt expects hidden_states [B, S, H] and "
+           "router_weight [E, H]";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  if (op.getNumOperands() == 3) {
+    auto biasType =
+        llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+    if (!biasType || biasType.getRank() != 1) {
+      op.getOperation()->emitWarning()
+          << "topk_router_gpt bias must be a 1D tensor [E]";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  }
+
+  SmallVector<Type> resultTypes;
+  if (op.getNumResults() == 2) {
+    for (auto type : op.getResultTypes()) {
+      resultTypes.push_back(type);
+    }
+  } else if (op.getNumResults() == 1) {
+    auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
+    if (!tupleType || tupleType.size() != 2) {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+    for (auto elemType : tupleType.getTypes()) {
+      resultTypes.push_back(elemType);
+    }
+  } else {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto indicesType = llvm::dyn_cast<RankedTensorType>(resultTypes[0]);
+  auto scoresType = llvm::dyn_cast<RankedTensorType>(resultTypes[1]);
+  if (!indicesType || !scoresType || indicesType.getRank() != 3 ||
+      scoresType.getRank() != 3) {
+    op.getOperation()->emitWarning()
+        << "topk_router_gpt results must be [B, S, K]";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t bDim = hiddenType.getShape()[0];
+  int64_t sDim = hiddenType.getShape()[1];
+  int64_t hDim = hiddenType.getShape()[2];
+  int64_t eDim = weightType.getShape()[0];
+  int64_t kDim = indicesType.getShape()[2];
+
+  if (hDim != weightType.getShape()[1]) {
+    op.getOperation()->emitWarning()
+        << "topk_router_gpt hidden_states H (" << hDim
+        << ") does not match router_weight H (" << weightType.getShape()[1]
+        << ")";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
+                                           TypeRange(resultTypes),
+                                           op.getContext(), std::nullopt);
+
+  SmallVector<int64_t> bFactor(op.getNumOperands(), mlir::sdy::kNullDim);
+  bFactor[0] = 0;
+  builder.addFactor(bFactor, {0, 0}, bDim, mlir::sdy::FactorType::kPassThrough);
+
+  SmallVector<int64_t> sFactor(op.getNumOperands(), mlir::sdy::kNullDim);
+  sFactor[0] = 1;
+  builder.addFactor(sFactor, {1, 1}, sDim, mlir::sdy::FactorType::kPassThrough);
+
+  SmallVector<int64_t> hFactor(op.getNumOperands(), mlir::sdy::kNullDim);
+  hFactor[0] = 2;
+  hFactor[1] = 1;
+  builder.addFactor(hFactor, {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, hDim,
+                    mlir::sdy::FactorType::kReduction);
+
+  SmallVector<int64_t> eFactor(op.getNumOperands(), mlir::sdy::kNullDim);
+  eFactor[1] = 0;
+  if (op.getNumOperands() == 3) {
+    eFactor[2] = 0;
+  }
+  builder.addFactor(eFactor, {mlir::sdy::kNullDim, mlir::sdy::kNullDim}, eDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  SmallVector<int64_t> kFactor(op.getNumOperands(), mlir::sdy::kNullDim);
+  builder.addFactor(kFactor, {2, 2}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  return builder.build();
+}
+
 // Sharding rule for sparse_matmul used in MoE (Mixture of Experts) models.
 // Supports both Expert Parallelism (EP) and Tensor Parallelism (TP).
 //
@@ -741,6 +861,100 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// all_to_all_dispatch_metadata sharding rule
+// Operands:
+//   [0] input [B, 1, S, H]
+//   [1] indices [B, 1, S, K]
+//   [2] scores [B, 1, S, K]
+//   [3] mapping [1, 1, E, D]
+// Results:
+//   [0] dispatched [1, B*D, S, H]
+//   [1] metadata_indices [1, B*D, S, K]
+//   [2] metadata_scores [1, B*D, S, K]
+static mlir::sdy::OpShardingRuleAttr
+getAllToAllDispatchMetadataShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 4) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch_metadata expects 4 operands, got "
+        << op.getNumOperands();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto indicesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto scoresType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto mappingType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
+
+  if (!inputType || inputType.getRank() != 4 || !indicesType ||
+      indicesType.getRank() != 4 || !scoresType || scoresType.getRank() != 4 ||
+      !mappingType || mappingType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch_metadata expects 4D operands";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  SmallVector<Type> resultTypes;
+  if (op.getNumResults() == 3) {
+    for (auto type : op.getResultTypes()) {
+      resultTypes.push_back(type);
+    }
+  } else if (op.getNumResults() == 1) {
+    auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
+    if (!tupleType || tupleType.size() != 3) {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+    for (auto elemType : tupleType.getTypes()) {
+      resultTypes.push_back(elemType);
+    }
+  } else {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t bDim = inputType.getShape()[0];
+  int64_t sDim = inputType.getShape()[2];
+  int64_t hDim = inputType.getShape()[3];
+  int64_t kDim = indicesType.getShape()[3];
+  int64_t eDim = mappingType.getShape()[2];
+  int64_t dDim = mappingType.getShape()[3];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
+                                           TypeRange(resultTypes),
+                                           op.getContext(), std::nullopt);
+
+  builder.addFactor(
+      {0, 0, 0, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, bDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+  builder.addFactor({2, 2, 2, mlir::sdy::kNullDim}, {2, 2, 2}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  builder.addFactor(
+      {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, hDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+  builder.addFactor({mlir::sdy::kNullDim, 3, 3, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, 3, 3}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, eDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, dDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  return builder.build();
+}
+
 // =====================================================================
 // all_to_all_combine sharding rule
 // =====================================================================
@@ -837,6 +1051,179 @@ getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
                     {mlir::sdy::kNullDim}, dDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
+
+  return builder.build();
+}
+
+// moe_gpt sharding rule
+// Input:
+//   [0] hidden [1, B*D, S, H]
+//   [1] indices [1, B*D, S, K]
+//   [2] scores [1, B*D, S, K]
+//   [3] mapping [1, 1, E, D]
+//   [4] gate_up_proj [E, H, 2I]
+//   [5] gate_up_bias [E, 2I]
+//   [6] down_proj [E, I, H]
+//   [7] down_proj_bias [E, H]
+// Results:
+//   [0] combine_metadata [1, 1, E, D]           (replicated metadata bundle)
+//   [1] bundled_indices [1, B*D, S, K]          (forwarded to combine)
+//   [2] bundled_scores [1, B*D, S, K]           (forwarded to combine)
+//   [3] auxiliary_scores [1, B*D, S, K]         (placeholder bundle slot)
+//   [4] expert_output [E, S, B*D, H]
+static mlir::sdy::OpShardingRuleAttr
+getMoeGptShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 8) {
+    op.getOperation()->emitWarning() << "moe_gpt expects 8 operands";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto hiddenType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto indicesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto scoresType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto mappingType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
+  auto gateUpType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(4).getType());
+  auto gateUpBiasType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(5).getType());
+  auto downType = llvm::dyn_cast<RankedTensorType>(op.getOperand(6).getType());
+  auto downBiasType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(7).getType());
+
+  SmallVector<Type> resultTypes;
+  if (op.getNumResults() == 5) {
+    for (auto type : op.getResultTypes()) {
+      resultTypes.push_back(type);
+    }
+  } else if (op.getNumResults() == 1) {
+    auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
+    if (!tupleType || tupleType.size() != 5) {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+    for (auto elemType : tupleType.getTypes()) {
+      resultTypes.push_back(elemType);
+    }
+  } else {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto combineMetadataType = llvm::dyn_cast<RankedTensorType>(resultTypes[0]);
+  auto bundledIndicesType = llvm::dyn_cast<RankedTensorType>(resultTypes[1]);
+  auto bundledScoresType = llvm::dyn_cast<RankedTensorType>(resultTypes[2]);
+  auto auxiliaryScoresType = llvm::dyn_cast<RankedTensorType>(resultTypes[3]);
+  auto expertOutputType = llvm::dyn_cast<RankedTensorType>(resultTypes[4]);
+
+  if (!hiddenType || hiddenType.getRank() != 4 || !indicesType ||
+      indicesType.getRank() != 4 || !scoresType || scoresType.getRank() != 4 ||
+      !mappingType || mappingType.getRank() != 4 || !gateUpType ||
+      gateUpType.getRank() != 3 || !gateUpBiasType ||
+      gateUpBiasType.getRank() != 2 || !downType || downType.getRank() != 3 ||
+      !downBiasType || downBiasType.getRank() != 2 || !combineMetadataType ||
+      combineMetadataType.getRank() != 4 || !bundledIndicesType ||
+      bundledIndicesType.getRank() != 4 || !bundledScoresType ||
+      bundledScoresType.getRank() != 4 || !auxiliaryScoresType ||
+      auxiliaryScoresType.getRank() != 4 || !expertOutputType ||
+      expertOutputType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "moe_gpt expects ranked decode tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t eDim = mappingType.getShape()[2];
+  int64_t bdDim = hiddenType.getShape()[1];
+  int64_t sDim = hiddenType.getShape()[2];
+  int64_t hiddenInputDim = hiddenType.getShape()[3];
+  int64_t kDim = indicesType.getShape()[3];
+  int64_t dDim = mappingType.getShape()[3];
+  int64_t gateIntermediateDim = gateUpType.getShape()[2];
+  int64_t intermediateDim = downType.getShape()[1];
+  int64_t hiddenOutputDim = downType.getShape()[2];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
+                                           TypeRange(resultTypes),
+                                           op.getContext(), std::nullopt);
+
+  // Expert sharding propagates through the expert weight tensors into the final
+  // expert-major activation output only. The mapping bundle remains replicated.
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim, 0, 0, 0, 0},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim, 0},
+                    eDim, mlir::sdy::FactorType::kPassThrough);
+
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, 2, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim},
+                    {2, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    eDim, mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor(
+      {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 1,
+       mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+       mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      hiddenInputDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2, 1},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+                    hiddenOutputDim, mlir::sdy::FactorType::kPassThrough);
+
+  builder.addFactor({1, 1, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, 1, 1, 1, 2}, bdDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor({2, 2, 2, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, 2, 2, 2, 1}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor({mlir::sdy::kNullDim, 3, 3, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, 3, 3, 3, mlir::sdy::kNullDim}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, 3, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim},
+                    {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    dDim, mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+       mlir::sdy::kNullDim, 2, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+       mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      gateIntermediateDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+       mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 1,
+       mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+       mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      intermediateDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
 
   return builder.build();
 }
@@ -1018,6 +1405,120 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// selective_reduce_combine sharding rule
+// Input:
+//   [0] expert_output [E, B*D, S, H] or [E, S, B*D, H]
+//   [1] metadata_indices [1, B*D, S, K]
+//   [2] metadata_scores [1, B*D, S, K]
+//   [3] combine_metadata [1, 1, E, D]
+// Result:
+//   [0] combined [K, B, S, H] or [K, S, B, H]
+static mlir::sdy::OpShardingRuleAttr
+getSelectiveReduceCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 4 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "selective_reduce_combine expects 4 operands and 1 result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto expertOutType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto metadataIndicesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto metadataScoresType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto combineMetadataType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (!expertOutType || expertOutType.getRank() != 4 || !metadataIndicesType ||
+      metadataIndicesType.getRank() != 4 || !metadataScoresType ||
+      metadataScoresType.getRank() != 4 || !combineMetadataType ||
+      combineMetadataType.getRank() != 4 || !resultType ||
+      resultType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "selective_reduce_combine expects 4D tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  mlir::DictionaryAttr frontendAttrs =
+      mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+          op->getDiscardableAttr("mhlo.frontend_attributes"));
+  int64_t outputShardDim = 2;
+  if (frontendAttrs) {
+    if (auto attr = frontendAttrs.getAs<mlir::StringAttr>("output_shard_dim")) {
+      if (attr.getValue().getAsInteger(10, outputShardDim)) {
+        return mlir::sdy::OpShardingRuleAttr();
+      }
+    }
+  }
+
+  if (outputShardDim != 1 && outputShardDim != 2) {
+    op.getOperation()->emitWarning()
+        << "selective_reduce_combine output_shard_dim must be 1 or 2, got "
+        << outputShardDim;
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t inputSDim = outputShardDim == 1 ? 2 : 1;
+  int64_t inputBDDim = outputShardDim == 1 ? 1 : 2;
+  int64_t resultSDim = outputShardDim == 1 ? 2 : 1;
+  int64_t resultBDDim = outputShardDim == 1 ? 1 : 2;
+
+  int64_t eDim = expertOutType.getShape()[0];
+  int64_t bdDim = expertOutType.getShape()[inputBDDim];
+  int64_t sDim = expertOutType.getShape()[inputSDim];
+  int64_t hDim = expertOutType.getShape()[3];
+  int64_t kDim = metadataIndicesType.getShape()[3];
+  int64_t dDim = combineMetadataType.getShape()[3];
+  int64_t eTotalDim = combineMetadataType.getShape()[2];
+  int64_t bDim = resultType.getShape()[resultBDDim];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  builder.addFactor(
+      {0, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim}, eDim, mlir::sdy::FactorType::kPassThrough);
+
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2},
+      {mlir::sdy::kNullDim}, eTotalDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  builder.addFactor(
+      {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, {3},
+      hDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  builder.addFactor({mlir::sdy::kNullDim, 3, 3, mlir::sdy::kNullDim}, {0}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor({inputSDim, 2, 2, mlir::sdy::kNullDim}, {resultSDim}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // BD (input) and B (result) are different sizes because the CCL combine
+  // reduces BD=B*D → B internally. Keep BD as input-only (replicated) and
+  // add a separate PassThrough factor for the result B dimension so SDY
+  // propagates the batch sharding without inserting an explicit all_slice.
+  builder.addFactor({inputBDDim, 1, 1, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim}, bdDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    {resultBDDim}, bDim, mlir::sdy::FactorType::kPassThrough);
+
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+      {mlir::sdy::kNullDim}, dDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -1058,10 +1559,16 @@ private:
           {pagedSdpaDecodeTargetName, getPagedAttentionShardingRule},
           {pagedUpdateCacheTargetName, getPagedAttentionShardingRule},
           {pagedFillCacheTargetName, getPagedAttentionShardingRule},
+          {topkRouterGptTargetName, getTopKRouterGPTShardingRule},
           {sparseMatmulTargetName, getSparseMatmulShardingRule},
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
+          {allToAllDispatchMetadataTargetName,
+           getAllToAllDispatchMetadataShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
+          {moeGptTargetName, getMoeGptShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
+          {selectiveReduceCombineTargetName,
+           getSelectiveReduceCombineShardingRule},
       };
 };
 
