@@ -669,9 +669,12 @@ void MemoryLayoutPropagation::applyInputLayoutFilter(
                      candidates.end());
     // Guarantee at least one interleaved candidate remains.
     if (candidates.empty()) {
+      auto tensorType =
+          mlir::cast<RankedTensorType>(op->getOperand(operandIdx).getType());
       InputCandidate ic;
       ic.layout = currentLayout.withBufferType(BufferType::DRAM)
-                      .withMemoryLayout(TensorMemoryLayout::Interleaved);
+                      .withMemoryLayout(TensorMemoryLayout::Interleaved)
+                      .withTensorShape(tensorType.getShape());
       ic.producerCandidateIndex = 0;
       ic.isReshard = true;
       candidates.push_back(ic);
@@ -1198,7 +1201,8 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
     return nullptr;
   }
   return currentLayout.withBufferType(BufferType::DRAM)
-      .withMemoryLayout(TensorMemoryLayout::Interleaved);
+      .withMemoryLayout(TensorMemoryLayout::Interleaved)
+      .withTensorShape(tensorType.getShape());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1226,7 +1230,8 @@ void MemoryLayoutPropagation::insertReturnDramSpills() {
 
       TTNNLayoutAttr dramLayout =
           layout.withBufferType(BufferType::DRAM)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved);
+              .withMemoryLayout(TensorMemoryLayout::Interleaved)
+              .withTensorShape(tensorType.getShape());
       insertReshardOp(returnOp, i, dramLayout);
 
       // insertReshardOp places the new op right before returnOp. Move it to
