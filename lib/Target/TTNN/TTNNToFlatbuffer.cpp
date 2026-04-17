@@ -1284,6 +1284,26 @@ createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
       static_cast<uint32_t>(op.getOutputShardDim()), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SelectiveReduceCombineOp>
+createOp(FlatbufferObjectCache &cache, SelectiveReduceCombineOp op) {
+  auto denseInputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseInputTensor()));
+  auto denseActivationsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseActivationsTensor()));
+  auto denseTokenMapsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenMapsTensor()));
+  auto denseTokenCountsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenCountsTensor()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  return ::tt::target::ttnn::CreateSelectiveReduceCombineOp(
+      *cache.fbb, denseInputTensor, denseActivationsTensor,
+      denseTokenMapsTensor, denseTokenCountsTensor, output, op.getHiddenSize(),
+      op.getBatchSize(), op.getSeqSize(), op.getSelectExpertsK(),
+      op.getExperts());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>
 createOp(FlatbufferObjectCache &cache, MoeExpertTokenRemapOp op) {
   auto topkTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2409,6 +2429,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, AsinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Asin;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AsinhOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Asinh;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SignOp>) {
@@ -4279,6 +4301,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, asinOp),
                            debugString, locInfo);
   }
+  if (auto asinhOp = dyn_cast<AsinhOp>(op); asinhOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, asinhOp),
+                           debugString, locInfo);
+  }
   if (auto acosOp = dyn_cast<AcosOp>(op); acosOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, acosOp),
                            debugString, locInfo);
@@ -4440,6 +4466,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);
       allToAllCombineOp) {
     return createOperation(cache, createOp(cache, allToAllCombineOp),
+                           debugString, locInfo);
+  }
+  if (auto selectiveReduceCombineOp = dyn_cast<SelectiveReduceCombineOp>(op);
+      selectiveReduceCombineOp) {
+    return createOperation(cache, createOp(cache, selectiveReduceCombineOp),
                            debugString, locInfo);
   }
   if (auto moeExpertTokenRemapOp = dyn_cast<MoeExpertTokenRemapOp>(op);

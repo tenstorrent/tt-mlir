@@ -27,13 +27,21 @@ public:
                   bool constEvalProgram = false);
 
   /**
-   * Executes pre and post operation callbacks if registered
+   * Executes pre/post operation callbacks if registered
    */
-  void
-  runCallback(std::optional<::tt::runtime::debug::Hooks::CallbackFn> callback,
-              Binary &executableHandle,
-              const ::tt::target::ttnn::Operation *opContext,
-              ProgramContext *programContext);
+  void runOpCallback(
+      const std::optional<::tt::runtime::debug::Hooks::OperationCallbackFn>
+          &callback,
+      Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
+      ProgramContext *programContext);
+
+  /**
+   * Executes pre/post program callback if registered
+   */
+  void runProgramCallback(
+      const std::optional<::tt::runtime::debug::Hooks::ProgramCallbackFn>
+          &callback,
+      Binary &executableHandle, ProgramContext *programContext);
 
   /**
    * Executes all operations in the program
