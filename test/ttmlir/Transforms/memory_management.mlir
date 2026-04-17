@@ -43,20 +43,20 @@ module {
   // sliceEltwise
   // CHECK: %[[LHS_SLICE:.*]] = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}>
   // CHECK: %[[RHS_SLICE:.*]] = "ttnn.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}>
-  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %[[RHS_SLICE]]) <{dtype = #ttcore.supportedDataTypes<f32>}>
+  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %[[RHS_SLICE]]) <{activations = [], dtype = #ttcore.supportedDataTypes<f32>, input_tensor_a_activations = [], input_tensor_b_activations = []}>
   // CHECK-NOT: "ttnn.slice_static"(%[[ADD]])
   func.func @slice_eltwise(%arg0: tensor<64x64xf32, #layout_64x64>, %arg1: tensor<64x64xf32, #layout_64x64>) -> tensor<32x32xf32, #layout_32x32> {
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x64xf32, #layout_64x64>, tensor<64x64xf32, #layout_64x64>) -> tensor<64x64xf32, #layout_64x64>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}> : (tensor<64x64xf32, #layout_64x64>, tensor<64x64xf32, #layout_64x64>) -> tensor<64x64xf32, #layout_64x64>
     %1 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}> : (tensor<64x64xf32, #layout_64x64>) -> tensor<32x32xf32, #layout_32x32>
     return %1 : tensor<32x32xf32, #layout_32x32>
   }
 
   // sliceEltwiseWithBroadcast
   // CHECK: %[[LHS_SLICE:.*]] = "ttnn.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}>
-  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}>
+  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[LHS_SLICE]], %arg1) <{activations = [], dtype = #ttcore.supportedDataTypes<f32>, input_tensor_a_activations = [], input_tensor_b_activations = []}>
   // CHECK-NOT: "ttnn.slice_static"(%[[ADD]])
   func.func @slice_eltwise_with_broadcast(%arg0: tensor<64x64xf32, #layout_64x64>, %arg1: tensor<1x1xf32, #layout_1x1>) -> tensor<32x32xf32, #layout_32x32> {
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<64x64xf32, #layout_64x64>, tensor<1x1xf32, #layout_1x1>) -> tensor<64x64xf32, #layout_64x64>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}> : (tensor<64x64xf32, #layout_64x64>, tensor<1x1xf32, #layout_1x1>) -> tensor<64x64xf32, #layout_64x64>
     %1 = "ttnn.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [32 : i32, 32 : i32], step = [1 : i32, 1 : i32]}> : (tensor<64x64xf32, #layout_64x64>) -> tensor<32x32xf32, #layout_32x32>
     return %1 : tensor<32x32xf32, #layout_32x32>
   }
@@ -84,10 +84,10 @@ module {
   // reshape-eltwise adjust
   // CHECK: %[[R0:.*]] = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}>
   // CHECK: %[[R1:.*]] = "ttnn.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}>
-  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[R0]], %[[R1]]) <{dtype = #ttcore.supportedDataTypes<f32>}>
+  // CHECK: %[[ADD:.*]] = "ttnn.add"(%[[R0]], %[[R1]]) <{activations = [], dtype = #ttcore.supportedDataTypes<f32>, input_tensor_a_activations = [], input_tensor_b_activations = []}>
   // CHECK-NOT: "ttnn.reshape"(%[[ADD]])
   func.func @reshape_eltwise(%arg0: tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>, %arg1: tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x32x32xf32, #layout_r_1x1x32x32> {
-    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>, tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>
+    %0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<f32>, input_tensor_a_activations = [], activations = [], input_tensor_b_activations = []}> : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>, tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>
     %1 = "ttnn.reshape"(%0) <{shape = [1 : i32, 1 : i32, 32 : i32, 32 : i32]}> : (tensor<1x1x1x1024xf32, #layout_r_1x1x1x1024>) -> tensor<1x1x32x32xf32, #layout_r_1x1x32x32>
     return %1 : tensor<1x1x32x32xf32, #layout_r_1x1x32x32>
   }
