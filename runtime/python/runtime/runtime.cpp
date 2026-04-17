@@ -350,6 +350,8 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("shutdown_distributed_runtime",
         &tt::runtime::shutdownDistributedRuntime,
         "Shutdown the distributed runtime");
+  m.def("get_worker_debug_stats", &tt::runtime::getWorkerDebugStats,
+        "Get per-worker runtime debug stats");
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,

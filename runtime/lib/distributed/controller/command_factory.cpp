@@ -59,6 +59,16 @@ uint64_t CommandFactory::buildSetMemoryLogLevelCommand(
   return commandId;
 }
 
+uint64_t CommandFactory::buildGetWorkerDebugStatsCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId = BUILD_COMMAND(GetWorkerDebugStats, fbb);
+
+  return commandId;
+}
+
 uint64_t CommandFactory::buildConfigureRuntimeContextCommand(
     ::flatbuffers::FlatBufferBuilder &fbb, const std::string &mlirHome,
     const std::string &metalHome,

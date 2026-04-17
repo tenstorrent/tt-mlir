@@ -48,6 +48,7 @@ SystemDesc getCurrentSystemDesc(
 
 void launchDistributedRuntime(const DistributedOptions &options = {});
 void shutdownDistributedRuntime();
+WorkerDebugStats getWorkerDebugStats();
 
 // Creates host tensor with a view of the input data (the buffer of the tensor
 // is on the host and it was borrowed from an external buffer which is
