@@ -225,9 +225,21 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             auto startIndexMap =
                 gatherOp.getDimensionNumbers().getStartIndexMap();
 
+            // 3b. Get operand_batching_dims — these are paired parallel dims
+            // whose slice_size is always 1 (per StableHLO spec) and must not
+            // be shrunk by the sharding factor.
+            auto operandBatchingDims =
+                gatherOp.getDimensionNumbers().getOperandBatchingDims();
+
             // 4. For each dimension, update slice size if not in
             // start_index_map.
             for (auto [index, sliceSize] : llvm::enumerate(newSliceSizes)) {
+              // Batching dims are parallel factors — slice_size stays 1.
+              if (llvm::is_contained(operandBatchingDims,
+                                     static_cast<int64_t>(index))) {
+                continue;
+              }
+
               // If this dimension is collapsed, it must be 1.
               if (llvm::is_contained(collapsedSliceDims, index)) {
                 if (sliceSize != 1) {
