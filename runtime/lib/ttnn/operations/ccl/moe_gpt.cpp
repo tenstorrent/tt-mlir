@@ -8,6 +8,7 @@
 #include "ttnn/operations/experimental/ccl/moe_gpt/moe_gpt.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
+
 void run(const ::tt::target::ttnn::MoeGptOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
