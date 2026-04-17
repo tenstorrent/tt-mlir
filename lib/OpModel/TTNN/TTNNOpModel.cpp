@@ -2592,6 +2592,111 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 // PagedScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+namespace {
+// Coarse per-element byte size used only for estimating per-core K/V
+// circular-buffer pressure below. BFP variants are reported as the closest
+// whole-byte approximation; that is accurate enough for the L1 budget
+// threshold decision (the boundary between the default TTNN schedule and the
+// k_chunk_size=32 override is not sensitive to sub-byte precision).
+uint64_t pagedSdpaDecodeDataTypeBytes(ttcore::DataType dt) {
+  switch (dt) {
+  case ttcore::DataType::Float32:
+  case ttcore::DataType::UInt32:
+  case ttcore::DataType::Int32:
+    return 4;
+  case ttcore::DataType::Float16:
+  case ttcore::DataType::BFloat16:
+  case ttcore::DataType::UInt16:
+    return 2;
+  case ttcore::DataType::UInt8:
+  case ttcore::DataType::BFP_Float8:
+  case ttcore::DataType::BFP_BFloat8:
+    return 1;
+  case ttcore::DataType::BFP_Float4:
+  case ttcore::DataType::BFP_BFloat4:
+  case ttcore::DataType::BFP_Float2:
+  case ttcore::DataType::BFP_BFloat2:
+  case ttcore::DataType::Bool:
+    return 1;
+  }
+  return 2;
+}
+
+// Build the SDPAProgramConfig used by the paged SDPA decode op.
+//
+// IMPORTANT: this helper MUST stay in sync with the runtime-side logic in
+//   runtime/lib/ttnn/operations/transformer/
+//   paged_scaled_dot_product_attention_decode.cpp
+// Both compile-time OpModel queries and the runtime executor must pick the
+// same program config; otherwise compile-time validation and execution
+// diverge. For example, on Blackhole the default TTNN schedule assigns one
+// core per head for each of the 10x11=110 compute cores, which violates
+// MAX_TREE_REDUCTION_ROUNDS (2^6 = 64 cores/head). The runtime caps
+// max_cores_per_head_batch to 64, and the constraint query must reflect that
+// cap to avoid a false-positive TTNNOperationValidationAndFallback failure.
+std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+buildPagedSdpaDecodeProgramConfig(
+    ::tt::tt_metal::distributed::MeshDevice *device, uint32_t headDim,
+    uint32_t pageTableBlocks, uint64_t queryElementSize, bool isCausal) {
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig;
+  const auto computeGrid = device->compute_with_storage_grid_size();
+
+  if (!isCausal) {
+    programConfig.emplace();
+    programConfig->k_chunk_size = 32; // Required for non-causal
+    programConfig->compute_with_storage_grid_size = computeGrid;
+    return programConfig;
+  }
+
+  const bool isBlackhole = device->arch() == ::tt::ARCH::BLACKHOLE;
+
+  // See runtime-side comments for the rationale of these heuristics.
+  constexpr uint32_t kMaxSdpaDecodeCoresPerHeadBatch = 64u;
+  constexpr uint32_t kPageTokens = 32u;
+  const uint64_t perPageKvBytes =
+      /*K+V*/ 2u * static_cast<uint64_t>(kPageTokens) *
+      static_cast<uint64_t>(headDim) * queryElementSize *
+      /*double buffer*/ 2u;
+  const uint64_t perCoreL1 = device->l1_size_per_core();
+  const uint64_t kvBudgetPerCore = perCoreL1 / 2u;
+  const bool needL1Override =
+      perPageKvBytes > 0 &&
+      perPageKvBytes * static_cast<uint64_t>(pageTableBlocks) >
+          kvBudgetPerCore;
+
+  const uint32_t totalCores = computeGrid.x * computeGrid.y;
+  const uint32_t coresCap =
+      std::min(totalCores, kMaxSdpaDecodeCoresPerHeadBatch);
+
+  if (needL1Override) {
+    programConfig.emplace();
+    programConfig->q_chunk_size = 0;
+    programConfig->k_chunk_size = kPageTokens;
+    programConfig->compute_with_storage_grid_size = computeGrid;
+    programConfig->max_cores_per_head_batch =
+        std::min(pageTableBlocks, coresCap);
+  } else if (isBlackhole) {
+    programConfig.emplace();
+    programConfig->q_chunk_size = 0;
+    programConfig->k_chunk_size = 0;
+    programConfig->compute_with_storage_grid_size = computeGrid;
+    programConfig->max_cores_per_head_batch = coresCap;
+  }
+
+  if (isBlackhole) {
+    if (!programConfig.has_value()) {
+      programConfig.emplace();
+      programConfig->compute_with_storage_grid_size = computeGrid;
+    }
+    // Approximate exponential path is unreliable on current BH silicon.
+    programConfig->exp_approx_mode = false;
+  }
+
+  return programConfig;
+}
+} // namespace
+
 llvm::Expected<OpConstraints>
 OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
@@ -2636,14 +2741,23 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
+  // Match the runtime-side program_config so validation mirrors what will
+  // actually execute (see helper above).
+  const uint64_t queryElementBytes =
+      pagedSdpaDecodeDataTypeBytes(queryLayout.getDataType());
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig = buildPagedSdpaDecodeProgramConfig(
+          device, /*headDim=*/static_cast<uint32_t>(queryShape.back()),
+          /*pageTableBlocks=*/static_cast<uint32_t>(pageTableShape.back()),
+          queryElementBytes, isCausal);
+
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout), programConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -2700,13 +2814,23 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
 
+  // Match the runtime-side program_config so runtime estimates mirror what
+  // will actually execute (see helper above).
+  const uint64_t queryElementBytes =
+      pagedSdpaDecodeDataTypeBytes(queryLayout.getDataType());
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig = buildPagedSdpaDecodeProgramConfig(
+          device, /*headDim=*/static_cast<uint32_t>(queryShape.back()),
+          /*pageTableBlocks=*/static_cast<uint32_t>(pageTableShape.back()),
+          queryElementBytes, isCausal);
+
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        programConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
