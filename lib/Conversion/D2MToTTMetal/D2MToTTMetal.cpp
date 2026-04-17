@@ -504,7 +504,6 @@ public:
 
     ArrayAttr gridRanges = op.getGridRanges();
     SpatialRemapTable remapTable;
-    SmallVector<ttmetal::EnqueueProgramOp> regionEnqueues;
     SmallVector<Value> mergedCbs;
     SmallVector<int64_t> mergedCbPorts;
     SmallVector<Attribute> mergedKernelConfigs;
@@ -524,7 +523,6 @@ public:
             op, "each spatial region must contain exactly one enqueue_program");
       }
       ttmetal::EnqueueProgramOp enqueueProgram = *maybeEnqueue;
-      regionEnqueues.push_back(enqueueProgram);
       remapTable.addEnqueueArgs(enqueueProgram);
 
       const size_t mergedCbSlotBase = mergedCbs.size();
@@ -562,10 +560,6 @@ public:
 
     for (Operation *operation : postEnqueueOps) {
       rewriter.moveOpBefore(operation, op);
-    }
-
-    for (ttmetal::EnqueueProgramOp enqueueProgram : regionEnqueues) {
-      rewriter.eraseOp(enqueueProgram);
     }
 
     rewriter.eraseOp(op);
