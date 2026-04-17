@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -155,11 +155,12 @@ public:
     getOperation().walk(
         [&](func::FuncOp funcOp) { changeCacheArgTypes(funcOp, dtype); });
 
-    // Insert typecast operations on the input operands of fill_cache and
-    // update_cache ops so written data matches the new cache dtype.
+    // Insert typecast operations on the input operands of all cache ops so
+    // written data matches the new cache dtype.
     mlir::RewritePatternSet patterns(&getContext());
     patterns.add<KVCacheDtypePattern<FillCacheOp>>(&getContext(), dtype);
     patterns.add<KVCacheDtypePattern<UpdateCacheOp>>(&getContext(), dtype);
+    patterns.add<KVCacheDtypePattern<PagedFillCacheOp>>(&getContext(), dtype);
 
     if (failed(
             mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
