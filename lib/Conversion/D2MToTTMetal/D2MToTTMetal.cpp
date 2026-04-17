@@ -18,6 +18,7 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -493,10 +494,9 @@ public:
   using OpConversionPattern<d2m::SpatialOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::SpatialOp op, d2m::SpatialOp::Adaptor adaptor,
+  matchAndRewrite(d2m::SpatialOp op,
+                  [[maybe_unused]] d2m::SpatialOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    (void)adaptor;
-
     if (op.getNumResults() != 0) {
       return rewriter.notifyMatchFailure(
           op, "SpatialOp with results is not supported in TTMetal lowering");
@@ -517,13 +517,13 @@ public:
           mlir::cast<ttcore::CoreRangeAttr>(gridRanges.getValue()[regionIndex]);
       CoreRangeAttr spatialMetalRange =
           ttCoreSpatialRangeToTtmetalCoreRange(rewriter, spatialCoreRange);
-      ttmetal::EnqueueProgramOp enqueueProgram = nullptr;
-      LogicalResult collectResult = collectRegionOps(
-          region, preEnqueueOps, postEnqueueOps, enqueueProgram);
-      if (failed(collectResult)) {
+      FailureOr<ttmetal::EnqueueProgramOp> maybeEnqueue =
+          collectRegionOps(region, preEnqueueOps, postEnqueueOps);
+      if (failed(maybeEnqueue)) {
         return rewriter.notifyMatchFailure(
             op, "each spatial region must contain exactly one enqueue_program");
       }
+      ttmetal::EnqueueProgramOp enqueueProgram = *maybeEnqueue;
       regionEnqueues.push_back(enqueueProgram);
       remapTable.addEnqueueArgs(enqueueProgram);
 
@@ -720,12 +720,11 @@ private:
            mergedFabricConfig != enqueueFabricConfig;
   }
 
-  static LogicalResult
+  static FailureOr<ttmetal::EnqueueProgramOp>
   collectRegionOps(Region &region, SmallVector<Operation *> &preEnqueueOps,
-                   SmallVector<Operation *> &postEnqueueOps,
-                   ttmetal::EnqueueProgramOp &regionEnqueueProgram) {
+                   SmallVector<Operation *> &postEnqueueOps) {
     Block &block = region.front();
-    unsigned enqueueCount = 0;
+    ttmetal::EnqueueProgramOp onlyEnqueue = nullptr;
 
     for (Operation &innerOperation : block) {
       if (isa<d2m::SpatialYieldOp>(innerOperation)) {
@@ -734,24 +733,23 @@ private:
 
       if (auto enqueueProgram =
               dyn_cast<ttmetal::EnqueueProgramOp>(&innerOperation)) {
-        ++enqueueCount;
-        if (enqueueCount > 1) {
+        if (onlyEnqueue) {
           return failure();
         }
-        regionEnqueueProgram = enqueueProgram;
+        onlyEnqueue = enqueueProgram;
         continue;
       }
 
-      if (enqueueCount == 0) {
+      if (!onlyEnqueue) {
         preEnqueueOps.push_back(&innerOperation);
       } else {
         postEnqueueOps.push_back(&innerOperation);
       }
     }
-    if (enqueueCount != 1) {
+    if (!onlyEnqueue) {
       return failure();
     }
-    return success();
+    return onlyEnqueue;
   }
 
   static CoreRangeAttr
