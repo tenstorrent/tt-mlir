@@ -1201,7 +1201,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
 
-    // Use square grid to simplify virtual grid bounce calculations
+    // Use square grid to simplify virtual grid bounce calculations.
     llvm::SmallVector<int64_t> targetGridShape =
         d2m::utils::getSquareTargetGrid(getTargetGridShape());
 
