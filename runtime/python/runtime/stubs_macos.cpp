@@ -256,14 +256,9 @@ void releaseTrace(Device meshDevice, std::uint64_t binaryId,
                   size_t mainProgramId) {
   __builtin_trap();
 }
-std::optional<Tensor>
+std::vector<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {
-  __builtin_trap();
-}
-std::vector<Tensor>
-retrieveTensorsFromPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, bool untilize) {
   __builtin_trap();
 }
 void setCompatibleDeviceRuntime(const Binary &binary) { __builtin_trap(); }
@@ -277,7 +272,8 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
 }
 std::vector<Tensor> getDeviceTensors(Tensor tensor) { __builtin_trap(); }
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor) {
+                        TensorRef tensorRef,
+                        std::vector<Tensor> srcTensors) {
   __builtin_trap();
 }
 void wait(Event event) { __builtin_trap(); }

@@ -1109,10 +1109,10 @@ getOpInputRefs(OpContext opContextHandle,
       });
 }
 
-std::optional<Tensor>
+std::vector<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {
-  using RetType = std::optional<Tensor>;
+  using RetType = std::vector<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
@@ -1129,38 +1129,19 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
       });
 }
 
-std::vector<Tensor>
-retrieveTensorsFromPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, bool untilize) {
-  using RetType = std::vector<Tensor>;
-  return DISPATCH_TO_CURRENT_RUNTIME(
-      RetType,
-      [&]() -> RetType {
-        return tt::runtime::ttnn::retrieveTensorsFromPool(
-            programContextHandle, tensorRef, untilize);
-      },
-      [&]() -> RetType {
-        return tt::runtime::ttmetal::retrieveTensorsFromPool(
-            programContextHandle, tensorRef, untilize);
-      },
-      [&]() -> RetType {
-        detail::fatalNotImplemented("retrieveTensorsFromPool",
-                                    HostRuntime::Distributed);
-      });
-}
-
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor) {
+                        TensorRef tensorRef,
+                        std::vector<Tensor> srcTensors) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::updateTensorInPool(programContextHandle,
-                                                       tensorRef, srcTensor);
+        return ::tt::runtime::ttnn::updateTensorInPool(
+            programContextHandle, tensorRef, srcTensors);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::updateTensorInPool(programContextHandle,
-                                                          tensorRef, srcTensor);
+        return ::tt::runtime::ttmetal::updateTensorInPool(
+            programContextHandle, tensorRef, srcTensors);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("updateTensorInPool",

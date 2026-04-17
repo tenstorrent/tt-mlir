@@ -543,34 +543,6 @@ void registerRuntimeBindings(nb::module_ &m) {
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
       nb::arg("untilize") = true,
       R"(
-    Returns tensor from tensor pool to which tensor_ref refers
-    For now only supports single device tensors
-
-    Parameters
-    ----------
-    program_context_handle : ttrt.runtime.CallbackContext
-    tensor_ref : ttrt.runtime.TensorRef
-        Reference to the tensor of interest (from get_op_output_ref/get_op_input_refs).
-    untilize : bool, default ``True``
-        If the tensor is stored in a tilized format, de-tilize it before returning. If the untilize flag is ``False``, tensor will be with padding so shape will be different from the original shape
-
-    Returns
-    -------
-    Optional[tt.runtime.Tensor]
-        The tensor corresponding to *tensor_ref*, or ``None`` if the
-        tensor is not present in the pool (e.g., it was deallocated).
-    )");
-
-  m.def(
-      "retrieve_tensors_from_pool",
-      [](tt::runtime::CallbackContext program_context_handle,
-         tt::runtime::TensorRef tensor_ref, bool untilize = true) {
-        return tt::runtime::retrieveTensorsFromPool(program_context_handle,
-                                                    tensor_ref, untilize);
-      },
-      nb::arg("program_context_handle"), nb::arg("tensor_ref"),
-      nb::arg("untilize") = true,
-      R"(
     Returns per-device tensors from tensor pool to which tensor_ref refers.
     Supports multi-device tensors, returning one tensor per device.
 
@@ -581,6 +553,8 @@ void registerRuntimeBindings(nb::module_ &m) {
         Reference to the tensor of interest (from get_op_output_ref/get_op_input_refs).
     untilize : bool, default ``True``
         If the tensor is stored in a tilized format, de-tilize it before returning.
+        If the untilize flag is ``False``, tensor will be with padding so shape
+        will be different from the original shape.
 
     Returns
     -------
@@ -593,23 +567,25 @@ void registerRuntimeBindings(nb::module_ &m) {
       "update_tensor_in_pool",
       [](tt::runtime::CallbackContext program_context_handle,
          tt::runtime::TensorRef tensor_ref_handle,
-         tt::runtime::Tensor tensor_handle) {
+         std::vector<tt::runtime::Tensor> tensor_handles) {
         tt::runtime::updateTensorInPool(program_context_handle,
-                                        tensor_ref_handle, tensor_handle);
+                                        tensor_ref_handle, tensor_handles);
       },
       nb::arg("program_context_handle"), nb::arg("tensor_ref_handle"),
-      nb::arg("tensor_handle"),
+      nb::arg("tensor_handles"),
       R"(
     Overwrite the data associated with an existing tensor reference.
-    Preferred to be owned tensor to avoid unexpected behavior in case of
-    deallocation.
+    Accepts one tensor per device shard. For single-device tensors pass
+    a list with one element. For multi-device tensors pass one tensor
+    per device in mesh order.
 
     Parameters
     ----------
     program_context_handle : ttrt.runtime.CallbackContext
     tensor_ref_handle : ttrt.runtime.TensorRef
-    tensor_handle : ttrt.runtime.Tensor
-        Source tensor which data will tensor_ref refer to.
+    tensor_handles : List[ttrt.runtime.Tensor]
+        Per-device source tensors whose data will replace the current
+        tensor_ref content.
 
     Returns
     -------

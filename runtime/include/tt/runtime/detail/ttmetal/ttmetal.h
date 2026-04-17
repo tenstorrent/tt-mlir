@@ -165,16 +165,13 @@ getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
-std::optional<Tensor>
+std::vector<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
 
-std::vector<Tensor>
-retrieveTensorsFromPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, bool untilize);
-
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor);
+                        TensorRef tensorRef,
+                        std::vector<Tensor> srcTensors);
 
 } // namespace tt::runtime::ttmetal
 
