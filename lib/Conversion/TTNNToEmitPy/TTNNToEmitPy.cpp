@@ -3815,6 +3815,49 @@ public:
 };
 } // namespace
 
+// MoeGptOp conversion pattern
+//
+namespace {
+class MoeGptOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::MoeGptOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.moe_gpt"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.moe_gpt";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MoeGptOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MoeGptOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MoeGptOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertIndices(), "expert_indices"),
+        emitter.emit(srcOp.getExpertScores(), "expert_scores"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
+        emitter.emit(srcOp.getW0W1Tensor(), "w0_w1_tensor"),
+        emitter.emit(srcOp.getW2Tensor(), "w2_tensor"),
+        emitter.emit(srcOp.getOutputHeightShardDim(),
+                     "output_height_shard_dim"),
+        emitter.emit(srcOp.getOutputWidthShardDim(), "output_width_shard_dim"),
+        emitter.emit(srcOp.getHiddenSize(), "hidden_size"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormOp conversion pattern
 //
 namespace {
@@ -4846,7 +4889,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                AllToAllDispatchOpConversionPattern,
                AllToAllDispatchMetadataOpConversionPattern,
                AllToAllCombineOpConversionPattern,
-               MoeExpertTokenRemapOpConversionPattern
+               MoeExpertTokenRemapOpConversionPattern,
+               MoeGptOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
 

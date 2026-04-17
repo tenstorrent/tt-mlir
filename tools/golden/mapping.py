@@ -1527,6 +1527,274 @@ def all_to_all_dispatch_metadata_golden(
     )
 
 
+def _swiglu_reference(gate, up, alpha=1.702, clamp_limit=7.0):
+    """SwiGLU activation matching tt-metal's SFPU implementation."""
+    gate_c = torch.clamp(gate, max=clamp_limit)
+    up_c = torch.clamp(up, min=-clamp_limit, max=clamp_limit)
+    return (up_c + 1.0) * gate_c * torch.sigmoid(alpha * gate_c)
+
+
+def moe_gpt_golden(
+    input_tensor: GoldenMapTensor,
+    expert_indices: GoldenMapTensor,
+    expert_scores: GoldenMapTensor,
+    expert_mapping: GoldenMapTensor,
+    raw_w0: torch.Tensor,
+    raw_w1: torch.Tensor,
+    raw_w2: torch.Tensor,
+    hidden_size: int,
+    cluster_axis: int = 0,
+    num_worker_cores: int = 72,
+    token_counts_shape: Tuple = None,
+    activation_records_shape: Tuple = None,
+    token_indices_shape: Tuple = None,
+    tilize_out_shape: Tuple = None,
+    tilize_out_rm_shape: Tuple = None,
+) -> Tuple:
+    """Cross-shard golden for moe_gpt.
+
+    Ports tt-metal's test_moe_gpt_e2e.py reference implementation:
+    - Outputs 0-2: routing metadata (token_counts, activation_records,
+      token_indices) computed from indices/scores/mapping.
+    - Outputs 3-4: MLP compute (W0/W1 -> SwiGLU -> W2) using raw weights.
+
+    raw_w0, raw_w1, raw_w2 are the unprepared weights [L, E_per_device, K, N]
+    (before interleave/shard/pad). These must be provided by the test since the
+    op inputs are the prepared tensors which are hard to unpack.
+    """
+    L1_ALIGN = 16  # l1_alignment on Wormhole
+
+    mesh_shape = input_tensor.mesh_shape
+    # expert_mapping is replicated — get from any device
+    mapping_tensor = list(expert_mapping._shard_map.values())[0]
+    mapping_2d = mapping_tensor.reshape(-1, mapping_tensor.shape[-1])
+    mapping_row = mapping_2d[0]  # [E_total]
+    E_total = mapping_row.shape[0]
+
+    # Group inputs by cluster axis (ring groups)
+    grouped_input = input_tensor.group_by_axis(cluster_axis)
+    grouped_indices = expert_indices.group_by_axis(cluster_axis)
+    grouped_scores = expert_scores.group_by_axis(cluster_axis)
+
+    out_tc = {}
+    out_act = {}
+    out_et = {}
+    out_tile = {}
+    out_tile_rm = {}
+
+    L = raw_w0.shape[0]  # layers (1)
+    E_per_device = raw_w0.shape[1]
+    K = hidden_size
+    N = raw_w0.shape[3]  # intermediate size
+
+    for ring_group_inp, ring_group_idx, ring_group_scr in zip(
+        grouped_input, grouped_indices, grouped_scores
+    ):
+        ring_device_ids = sorted(ring_group_inp.keys())
+        ring_devices = len(ring_device_ids)
+
+        # input_tensor per device: [total_tokens, H] (sparse buffer from dispatch)
+        sample = ring_group_inp[ring_device_ids[0]]
+        total_tokens = sample.reshape(-1, K).shape[0]
+        M = total_tokens // ring_devices  # tokens per device
+
+        # expert_indices/scores per device: [1, total_tokens, K_sel] (all-gathered)
+        K_sel = (
+            ring_group_idx[ring_device_ids[0]]
+            .reshape(-1, ring_group_idx[ring_device_ids[0]].shape[-1])
+            .shape[-1]
+        )
+
+        # Get full all-gathered indices/scores (same on all ring devices)
+        full_idx = ring_group_idx[ring_device_ids[0]].reshape(total_tokens, K_sel)
+        full_scr = ring_group_scr[ring_device_ids[0]].reshape(total_tokens, K_sel)
+
+        for ring_pos, dev_id in enumerate(ring_device_ids):
+            # Determine local expert global IDs for this device
+            local_expert_global_ids = []
+            for e in range(E_total):
+                if int(mapping_row[e].item()) == dev_id:
+                    local_expert_global_ids.append(e)
+            local_expert_global_ids = sorted(local_expert_global_ids)[:E_per_device]
+
+            # --- Output 0: token_counts ---
+            tc_elements = (E_per_device * 4 + L1_ALIGN - 1) // L1_ALIGN * L1_ALIGN // 4
+            token_counts = torch.zeros(1, tc_elements, dtype=torch.int32)
+
+            # --- Build per-expert token lists and routing metadata ---
+            # activation_records row: [token_id, k_idx_0..E-1, score_0..E-1, pad]
+            act_row_bytes = (2 * E_per_device + 1) * 4
+            act_row_bytes_aligned = (
+                (act_row_bytes + L1_ALIGN - 1) // L1_ALIGN * L1_ALIGN
+            )
+            act_row_stride = act_row_bytes_aligned // 4
+            act_total_elements = (total_tokens + 1) * act_row_stride
+            activation_records = torch.zeros(1, act_total_elements, dtype=torch.int32)
+
+            # e_t buffer
+            e_t_entry_size = (4 + L1_ALIGN - 1) // L1_ALIGN * L1_ALIGN // 4  # = 4
+            e_t_row_elements = (total_tokens + 1) * e_t_entry_size
+            token_indices = torch.zeros(
+                E_per_device, e_t_row_elements, dtype=torch.int32
+            )
+
+            counts = [0] * E_per_device
+            act_row_idx = 0
+
+            for t in range(total_tokens):
+                activated_for_any = False
+                # Check each local expert
+                row_data = torch.full((2 * E_per_device + 1,), 0, dtype=torch.int32)
+                row_data[0] = t  # token_id
+                for local_e_idx in range(E_per_device):
+                    row_data[1 + local_e_idx] = K_sel + 1  # sentinel: not selected
+
+                for local_e_idx, global_e in enumerate(local_expert_global_ids):
+                    for k in range(K_sel):
+                        if int(full_idx[t, k].item()) == global_e:
+                            row_data[1 + local_e_idx] = k
+                            # Score as uint32 bits
+                            score_bf16 = full_scr[t, k].to(torch.bfloat16)
+                            # bf16 → raw uint16 bits (numpy doesn't support bf16)
+                            score_bits = int.from_bytes(
+                                score_bf16.view(torch.int16).numpy().tobytes()[:2],
+                                "little",
+                            )
+                            row_data[1 + E_per_device + local_e_idx] = score_bits
+
+                            # Add to e_t buffer
+                            et_offset = (
+                                local_e_idx * e_t_row_elements
+                                + counts[local_e_idx] * e_t_entry_size
+                            )
+                            token_indices[
+                                local_e_idx, counts[local_e_idx] * e_t_entry_size
+                            ] = t
+
+                            counts[local_e_idx] += 1
+                            activated_for_any = True
+                            break  # each expert matches at most one k-slot
+
+                if activated_for_any:
+                    offset = act_row_idx * act_row_stride
+                    for j in range(2 * E_per_device + 1):
+                        activation_records[0, offset + j] = row_data[j]
+                    act_row_idx += 1
+
+            # Sentinel row
+            sentinel_offset = act_row_idx * act_row_stride
+            if sentinel_offset < act_total_elements:
+                activation_records[0, sentinel_offset] = -1  # 0xFFFFFFFF
+
+            # Write counts
+            for e in range(E_per_device):
+                token_counts[0, e] = counts[e]
+
+            # Sentinel in e_t buffer
+            for e in range(E_per_device):
+                sentinel_pos = counts[e] * e_t_entry_size
+                if sentinel_pos < e_t_row_elements:
+                    token_indices[e, sentinel_pos] = -1
+
+            out_tc[dev_id] = token_counts
+            out_act[dev_id] = activation_records
+            out_et[dev_id] = token_indices
+
+            # --- Outputs 3-4: MLP compute (W0/W1 -> SwiGLU -> W2) ---
+            # The kernel writes MLP results into an L1 HEIGHT_SHARDED buffer
+            # shape (num_worker_cores, 2, 32, K) where only the combine cores
+            # (first height_shard_dim * width_shard_dim slots, flat-indexed by
+            # dhs * width_shard_dim + dws) hold meaningful data; the remaining
+            # worker-core slots are uninitialized. We replicate the combine
+            # kernel's write pattern from dm1.cpp/moe_gpt_program_factory.cpp:
+            #   - Tokens for each expert are distributed across height_shard_dim
+            #     groups using floor+remainder.
+            #   - Each expert occupies 32 rows within a combine core's
+            #     [2, 32] = 64-row shard (so up to 2 experts fit per core
+            #     width-shard; with E_per_device=4 two rows layer into the
+            #     dim-1 axis).
+            #   - Each token's H-dimension values are split into width_shard_dim
+            #     column bands placed across width_shard_dim combine cores.
+            sparse_input = ring_group_inp[dev_id].reshape(total_tokens, K)
+
+            height_shard_dim = 4
+            width_shard_dim = 3
+            TILE = 32
+            combine_shard_width_tiles = K // TILE // width_shard_dim
+
+            tile_shape = tilize_out_shape or (num_worker_cores, 2, TILE, K)
+            tile_golden = torch.zeros(tile_shape, dtype=torch.bfloat16)
+
+            for local_e_idx, global_e in enumerate(local_expert_global_ids):
+                tokens_for_expert = []
+                for t in range(total_tokens):
+                    for k_slot in range(K_sel):
+                        if int(full_idx[t, k_slot].item()) == global_e:
+                            tokens_for_expert.append(sparse_input[t, :])
+                            break
+
+                if not tokens_for_expert:
+                    continue
+
+                x = torch.stack(tokens_for_expert, dim=0).float()
+                with torch.no_grad():
+                    w0 = raw_w0[0, local_e_idx].float()
+                    w1 = raw_w1[0, local_e_idx].float()
+                    w2 = raw_w2[0, local_e_idx].float()
+                    gate = x @ w0
+                    up = x @ w1
+                    activated = _swiglu_reference(gate, up)
+                    mlp = (activated @ w2).to(torch.bfloat16)  # [active, K]
+
+                active = mlp.shape[0]
+                tps = active // height_shard_dim
+                rem = active % height_shard_dim
+
+                dhs, srow = 0, 0
+                for bt in range(active):
+                    cap = tps + (1 if dhs < rem else 0)
+                    if cap == 0:
+                        break
+
+                    # Per-expert 32-row region. The [2, 32] axis only
+                    # accommodates 2 such regions per combine core (64 rows
+                    # total). For E_per_device > 2 the remaining experts
+                    # land in some layout we don't yet model, so skip them.
+                    dst_row_flat = local_e_idx * TILE + srow
+                    dim1 = dst_row_flat // TILE
+                    dim2 = dst_row_flat % TILE
+                    if dim1 >= tile_shape[1]:
+                        srow += 1
+                        if srow == cap:
+                            dhs += 1
+                            srow = 0
+                        continue
+
+                    for dws in range(width_shard_dim):
+                        cc = dhs * width_shard_dim + dws
+                        col_lo = dws * combine_shard_width_tiles * TILE
+                        col_hi = col_lo + combine_shard_width_tiles * TILE
+                        tile_golden[cc, dim1, dim2, col_lo:col_hi] = mlp[
+                            bt, col_lo:col_hi
+                        ]
+
+                    srow += 1
+                    if srow == cap:
+                        dhs += 1
+                        srow = 0
+
+            out_tile[dev_id] = tile_golden
+            out_tile_rm[dev_id] = tile_golden.clone()
+
+    return (
+        GoldenMapTensor(out_tc, mesh_shape),
+        GoldenMapTensor(out_act, mesh_shape),
+        GoldenMapTensor(out_et, mesh_shape),
+        GoldenMapTensor(out_tile, mesh_shape),
+        GoldenMapTensor(out_tile_rm, mesh_shape),
+    )
+
+
 def all_to_all_combine_golden(
     input_tensor: GoldenMapTensor,
     expert_metadata: GoldenMapTensor,
