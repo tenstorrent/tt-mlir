@@ -11,7 +11,8 @@ namespace mlir::tt::ttnn {
 // ConcatenateHeadsRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn ConcatenateHeadsRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn
+ConcatenateHeadsRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // ConcatenateHeads: cannot consume any sharded inputs.
   // https://github.com/tenstorrent/tt-mlir/issues/7145
   return layout_filter_utils::rejectAllSharded;
@@ -58,7 +59,8 @@ LayoutFilterFn SDPADecodeRuleBook::getInputLayoutFilter() const {
 // RotaryEmbeddingRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn RotaryEmbeddingRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn
+RotaryEmbeddingRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   return layout_filter_utils::allowOnlyShardingType(
       TensorMemoryLayout::HeightSharded);
 }

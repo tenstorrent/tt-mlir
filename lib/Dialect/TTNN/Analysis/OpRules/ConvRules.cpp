@@ -85,7 +85,7 @@ static uint32_t getActBlockHOverride(const BeamCandidate &c) {
   return UINT32_MAX;
 }
 
-bool Conv2dRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
+bool Conv2dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
                                      const BeamCandidate &b) const {
   // Prefer act_block_h_override=0 (auto, best), then higher over lower.
   // Ordering: 0 > 64 > 32 > ...
@@ -100,7 +100,7 @@ bool Conv2dRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
     }
     return abhA > abhB;
   }
-  return false;
+  return OpRuleBook::preferCandidate(op, a, b);
 }
 
 bool Conv2dRuleBook::isValidOutputHintForInputs(

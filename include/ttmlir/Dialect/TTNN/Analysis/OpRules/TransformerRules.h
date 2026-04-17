@@ -29,7 +29,7 @@ namespace mlir::tt::ttnn {
 /// ConcatenateHeads: reject all sharded inputs, non-sharded output, no
 /// reshards.
 struct ConcatenateHeadsRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter() const override;
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,
@@ -61,7 +61,7 @@ struct SDPADecodeRuleBook : SDPARuleBook {
 /// inputs (only height-sharded or interleaved accepted).
 /// Cache tensors are DRAM-interleaved; resharding them is wasteful.
 struct RotaryEmbeddingRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter() const override;
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,

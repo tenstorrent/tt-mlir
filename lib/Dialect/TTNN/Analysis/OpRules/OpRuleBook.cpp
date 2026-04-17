@@ -41,6 +41,22 @@ OpRuleBook::getOutputHints(Operation * /*op*/,
   return result;
 }
 
+bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
+                                 const BeamCandidate &b) const {
+  // Prefer more sharded inputs: fewer interleaved reads = less NOC traffic.
+  auto countShardedInputs = [](const BeamCandidate &c) {
+    unsigned count = 0;
+    for (const auto &layout : c.inputLayouts) {
+      auto ml = layout.getMemLayout();
+      if (ml && isShardedMemoryLayout(ml.getValue())) {
+        ++count;
+      }
+    }
+    return count;
+  };
+  return countShardedInputs(a) > countShardedInputs(b);
+}
+
 //===----------------------------------------------------------------------===//
 // Registry: maps OperationName -> OpRuleBook
 //===----------------------------------------------------------------------===//
@@ -76,6 +92,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SliceStaticOp::getOperationName(), &slice);
     reg(SliceDynamicOp::getOperationName(), &slice);
     reg(ReshapeOp::getOperationName(), &reshape);
+
+    // TODO(rpavlovicTT): split permute's from reshape's rule book
+    // https://github.com/tenstorrent/tt-mlir/issues/7988
     reg(PermuteOp::getOperationName(), &reshape);
     reg(PadOp::getOperationName(), &pad);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);

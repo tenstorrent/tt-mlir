@@ -41,7 +41,7 @@ public:
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
       size_t beamWidth = 8, size_t maxInputCandidatesPerOperand = 64,
-      size_t maxReshardCandidates = 8,
+      size_t maxReshardCandidatesPerType = 4,
       std::unique_ptr<LayoutPropagationObserver> observer = nullptr);
 
   /// Destructor defined in .cpp (observer is forward-declared).
@@ -79,7 +79,7 @@ private:
   size_t maxInputCandidatesPerOperand = 64;
 
   /// Max reshard candidates per tensor type.
-  size_t maxReshardCandidates = 8;
+  size_t maxReshardCandidatesPerType = 4;
 
   /// Final candidate choice per op (set by backward pass, used by applyToIR).
   /// Maps op -> index into beamState[op]. For K=1, always 0.
@@ -168,12 +168,14 @@ private:
   /// Apply per-op input layout filters, removing candidates that the op
   /// cannot consume efficiently.
   void applyInputLayoutFilter(std::vector<InputCandidate> &candidates,
-                              Operation *op, TTNNLayoutAttr currentLayout);
+                              Operation *op, unsigned operandIdx,
+                              TTNNLayoutAttr currentLayout);
 
   /// Generate and add reshard candidates for one operand.
   void addReshardCandidates(
-      std::vector<InputCandidate> &candidates, Operation *op, Value operand,
-      TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
+      std::vector<InputCandidate> &candidates, Operation *op,
+      unsigned operandIdx, Value operand, TTNNLayoutAttr currentLayout,
+      RankedTensorType tensorType,
       const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
       Operation *producerOp, size_t resultIdx, size_t maxCandidates);
 
