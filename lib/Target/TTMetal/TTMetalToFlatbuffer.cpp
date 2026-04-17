@@ -143,14 +143,22 @@ static target::Dim2dRange toFlatbuffer(CoreRangeAttr coreRange) {
                             target::Dim2d(size[0], size[1]));
 }
 
-static std::array<int32_t, 2> calculateCoreRangeSetShapeExtents(
-    const std::vector<target::Dim2dRange> &coreRangeSet) {
-  std::array<int32_t, 2> extents = {0, 0};
-  for (const auto &range : coreRangeSet) {
-    extents[0] = std::max(extents[0], range.loc().y() + range.size().y());
-    extents[1] = std::max(extents[1], range.loc().x() + range.size().x());
+// N-D shard grid [d0..dN-1] -> 2D shard counts (Y = product(d0..dN-2), X =
+// dN-1) for ShardSpecBuffer / ShardedBufferConfig sizing.
+static std::array<int32_t, 2>
+deriveShardGridYxCounts(llvm::ArrayRef<int64_t> memrefGridShape) {
+  if (memrefGridShape.empty()) {
+    return {1, 1};
   }
-  return extents;
+  if (memrefGridShape.size() == 1) {
+    return {static_cast<int32_t>(memrefGridShape[0]), 1};
+  }
+  int64_t y = 1;
+  for (size_t i = 0; i < memrefGridShape.size() - 1; ++i) {
+    y *= memrefGridShape[i];
+  }
+  const int64_t x = memrefGridShape.back();
+  return {static_cast<int32_t>(y), static_cast<int32_t>(x)};
 }
 
 static bool isMemrefDeviceDRAMMemspace(MemRefType memref) {
@@ -287,13 +295,14 @@ createShardedBufferConfigForL1Memref(
       shardLayout, device, memref, virtualGridInverseMapping);
 
   auto memrefShardShape = shardLayout.getShardShape(memref);
-  auto extendedMapping = extendMappingForHigherDimGrid(
+  AffineMap gridToPhysCore = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getVirtToPhysicalMap(), memrefGridShape.size());
 
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, extendedMapping);
-  std::array<int32_t, 2> gridShapeExtents =
-      calculateCoreRangeSetShapeExtents(coreRangeSet);
+      toFlatbuffer(cache, memrefGridShape, gridToPhysCore);
+
+  std::array<int32_t, 2> shardGridYxCounts =
+      deriveShardGridYxCounts(memrefGridShape);
 
   // Calculate ShardSpec.
   assert(stride[stride.size() - 1] % elementSize == 0);
@@ -311,8 +320,8 @@ createShardedBufferConfigForL1Memref(
 
   // Calculate ShardSpecBuffer.
   target::Dim2d pageShape(elementShape.y(), shardShape.x());
-  std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
-                                        gridShapeExtents[1] * shardShape.x()};
+  std::array<int32_t, 2> tensorShape = {shardGridYxCounts[0] * shardShape.y(),
+                                        shardGridYxCounts[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
   assert(tensorShape[1] % pageShape.x() == 0);
   target::Dim2d tensorShapeInPages(tensorShape[0] / pageShape.y(),
@@ -329,7 +338,7 @@ createShardedBufferConfigForL1Memref(
       pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
-  uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
+  uint64_t size = shardGridYxCounts[0] * shardGridYxCounts[1] * shardSize;
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
 }
@@ -536,19 +545,14 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       (meshName ? meshName.str().data() : nullptr));
 }
 
-static flatbuffers::Offset<target::metal::BufferRef>
-bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
-                        ttcore::SystemDescAttr systemDesc, uint64_t address) {
-  auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
-  assert(device);
+static flatbuffers::Offset<target::metal::BufferDesc>
+bufferDescValueToFlatbuffer(
+    FlatbufferObjectCache &cache, Value value, ttcore::DeviceAttr device,
+    ttcore::SystemDescAttr systemDesc,
+    std::optional<AffineMap> virtualGridInverseMapping) {
   auto memrefType = mlir::cast<MemRefType>(value.getType());
 
-  std::optional<AffineMap> virtualGridInverseMapping;
   if (auto createBufferOp = value.getDefiningOp<ttmetal::CreateBufferOp>()) {
-    if (auto mapAttr = createBufferOp.getVirtualGridInverseMappingAttr()) {
-      virtualGridInverseMapping = mapAttr.getValue();
-    }
-
     // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
     // Reconstruct a full [1x1 grid + shard] + ShardLayoutAttr memref type
     // so we fall through to the existing memrefTypeToFlatbuffer path.
@@ -566,9 +570,26 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
     }
   }
 
-  auto bufferDesc =
-      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device, systemDesc,
-                        virtualGridInverseMapping);
+  return memrefTypeToFlatbuffer(cache, memrefType, device, systemDesc,
+                                virtualGridInverseMapping);
+}
+
+static flatbuffers::Offset<target::metal::BufferRef>
+bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+                        ttcore::SystemDescAttr systemDesc, uint64_t address) {
+  auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
+  assert(device);
+
+  std::optional<AffineMap> virtualGridInverseMapping;
+  if (auto createBufferOp = value.getDefiningOp<ttmetal::CreateBufferOp>()) {
+    if (auto mapAttr = createBufferOp.getVirtualGridInverseMappingAttr()) {
+      virtualGridInverseMapping = mapAttr.getValue();
+    }
+  }
+
+  flatbuffers::Offset<target::metal::BufferDesc> bufferDesc =
+      bufferDescValueToFlatbuffer(cache, value, device, systemDesc,
+                                  virtualGridInverseMapping);
   return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
                                         address, bufferDesc);
 }
