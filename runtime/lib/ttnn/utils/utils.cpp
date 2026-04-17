@@ -386,12 +386,15 @@ fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
 
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
-  std::set<tt::tt_metal::CoreRange> coreRanges;
+  // Preserve the emitted order. std::set would sort by start_coord, which
+  // destroys intentional permutations (e.g. the moe_gpt ring-bank ordering).
+  std::vector<tt::tt_metal::CoreRange> coreRanges;
+  coreRanges.reserve(coreRangeSet.core_ranges()->size());
   for (const tt::target::ttnn::CoreRange *coreRange :
        *coreRangeSet.core_ranges()) {
-    coreRanges.emplace(toTTNNCoreRange(*coreRange));
+    coreRanges.emplace_back(toTTNNCoreRange(*coreRange));
   }
-  return tt::tt_metal::CoreRangeSet(coreRanges);
+  return tt::tt_metal::CoreRangeSet(std::move(coreRanges));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>

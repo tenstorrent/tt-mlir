@@ -764,11 +764,14 @@ def test_moe_dispatch_metadata_moe_gpt(
     valid_scores = _build_expert_scores(1, tokens_global, K_sel)
 
     # Per-device masks to zero out structured-record padding before PCC.
+    # tile_mask_full is intentionally ignored: tilize_out / tilize_out_rm are
+    # internal staging buffers whose layout is not directly modeled by the
+    # golden for E_per_device > 2.
     (
         tc_mask_full,
         act_mask_full,
         et_mask_full,
-        tile_mask_full,
+        _,
     ) = _compute_moe_gpt_valid_masks(
         valid_indices,
         valid_mapping,
@@ -829,8 +832,6 @@ def test_moe_dispatch_metadata_moe_gpt(
                 (mesh_shape[0], mesh_shape[1], 1, tc_elements),
                 (mesh_shape[0], mesh_shape[1], 1, act_elements),
                 (mesh_shape[0], mesh_shape[1], E_per_device, et_row_elements),
-                # Per-device valid-position mask for bf16 tilize outputs
-                (mesh_shape[0], mesh_shape[1], num_worker_cores, 2, TILE_SIZE, H),
             ],
             [
                 torch.bfloat16,
@@ -843,7 +844,6 @@ def test_moe_dispatch_metadata_moe_gpt(
                 torch.int32,
                 torch.int32,
                 torch.int32,
-                torch.bfloat16,
             ],
         )
         def moe_pipeline(
@@ -857,7 +857,6 @@ def test_moe_dispatch_metadata_moe_gpt(
             tc_mask_in: Operand,
             act_mask_in: Operand,
             et_mask_in: Operand,
-            tile_mask_in: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
@@ -903,10 +902,6 @@ def test_moe_dispatch_metadata_moe_gpt(
             builder._set_golden_tensor(
                 et_mask_in,
                 GoldenMapTensor({0: et_mask_full}, mesh_shape=ms),
-            )
-            builder._set_golden_tensor(
-                tile_mask_in,
-                GoldenMapTensor({0: tile_mask_full}, mesh_shape=ms),
             )
 
             # Provide raw (unprepared) weights for the moe_gpt golden
@@ -992,13 +987,6 @@ def test_moe_dispatch_metadata_moe_gpt(
                 shard_shape=mask_shard_shape,
                 shard_dims=mask_shard_dims,
             )
-            tile_m = builder.mesh_shard(
-                tile_mask_in,
-                shard_type=MeshShardType.Devices,
-                shard_direction=MeshShardDirection.FullToShard,
-                shard_shape=[mesh_shape[0], mesh_shape[1], 1, 1, 1, 1],
-                shard_dims=[0, 1],
-            )
 
             # --- Step 1: all_to_all_dispatch_metadata ---
             dispatched, indices_out, scores_out = builder.all_to_all_dispatch_metadata(
@@ -1023,12 +1011,17 @@ def test_moe_dispatch_metadata_moe_gpt(
             input_2d = builder.reshape(dispatched, (tokens_global, H))
 
             # --- Step 2: moe_gpt (fused expert compute) ---
+            # tilize_out / tilize_out_rm are internal staging buffers for
+            # selective_reduce_combine; tt-metal's own tests do not verify
+            # them directly (test_moe_gpt_e2e.py comments: "only combine
+            # cores have data ... Direct verification would read garbage").
+            # Drop them from the returned outputs.
             (
                 token_counts,
                 activation_records,
                 token_indices,
-                tilize_out,
-                tilize_out_rm,
+                _,
+                _,
             ) = builder.moe_gpt(
                 input_2d,
                 indices_out,
@@ -1051,24 +1044,20 @@ def test_moe_dispatch_metadata_moe_gpt(
                 unit_attrs=unit_attrs,
             )
 
-            # Zero out don't-care padding/tail in the structured outputs so
-            # both sides match at those positions for a clean PCC compare.
+            # Zero out don't-care padding/tail in the structured int32
+            # outputs so both sides match at those positions for a clean
+            # PCC compare.
             tc_mask_2d = builder.reshape(tc_m, (1, tc_elements))
             act_mask_2d = builder.reshape(act_m, (1, act_elements))
             et_mask_2d = builder.reshape(et_m, (E_per_device, et_row_elements))
-            tile_mask_4d = builder.reshape(tile_m, (num_worker_cores, 2, TILE_SIZE, H))
             token_counts = builder.multiply(token_counts, tc_mask_2d)
             activation_records = builder.multiply(activation_records, act_mask_2d)
             token_indices = builder.multiply(token_indices, et_mask_2d)
-            tilize_out = builder.multiply(tilize_out, tile_mask_4d)
-            tilize_out_rm = builder.multiply(tilize_out_rm, tile_mask_4d)
 
             return (
                 token_counts,
                 activation_records,
                 token_indices,
-                tilize_out,
-                tilize_out_rm,
             )
 
     compile_and_execute_ttir(
