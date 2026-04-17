@@ -235,6 +235,31 @@ uint64_t CommandFactory::buildCreateHostTensorCommand(
   return commandId;
 }
 
+uint64_t CommandFactory::buildCreateHostTensorCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Tensor &outputTensor, const void *data,
+    const std::vector<uint32_t> &shape, const std::vector<uint32_t> &stride,
+    uint32_t itemSize, ::tt::target::DataType dataType,
+    std::uint64_t logicalId) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  std::uint64_t numElements =
+      std::accumulate(shape.begin(), shape.end(), static_cast<std::uint64_t>(1),
+                      std::multiplies<std::uint64_t>());
+  std::uint64_t numBytes = numElements * itemSize;
+  auto dataVec =
+      fbb.CreateVector<uint8_t>(static_cast<const uint8_t *>(data), numBytes);
+  auto shapeVec = fbb.CreateVector<uint32_t>(shape.data(), shape.size());
+  auto strideVec = fbb.CreateVector<uint32_t>(stride.data(), stride.size());
+
+  uint64_t commandId =
+      BUILD_COMMAND(CreateHostTensor, fbb, outputTensor.getGlobalId(), dataVec,
+                    shapeVec, strideVec, itemSize, dataType, logicalId);
+
+  return commandId;
+}
+
 uint64_t CommandFactory::buildCreateMultiDeviceHostTensorFromShardsCommand(
     ::flatbuffers::FlatBufferBuilder &fbb,
     const std::vector<::tt::runtime::Tensor> &inputTensors,

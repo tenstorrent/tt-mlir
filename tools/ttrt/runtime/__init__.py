@@ -44,6 +44,7 @@ try:
         submit,
         create_borrowed_host_tensor,
         create_owned_host_tensor,
+        create_cached_owned_host_tensor,
         create_empty_tensor,
         create_multi_device_host_tensor,
         create_multi_device_borrowed_host_tensor,
