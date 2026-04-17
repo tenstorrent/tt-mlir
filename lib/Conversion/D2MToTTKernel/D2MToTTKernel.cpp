@@ -2367,7 +2367,7 @@ public:
         signatureConverter.remapInput(arg.getArgNumber(),
                                       semaphore.getResult());
         ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
-            ArgType::Semaphore, currentSemaphoreIndex++));
+            ArgType::LocalSemaphore, currentSemaphoreIndex++));
       } else {
         llvm_unreachable("unexpected block argument type");
       }

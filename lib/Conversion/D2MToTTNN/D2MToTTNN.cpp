@@ -155,7 +155,7 @@ static mlir::Attribute convertKernelArg(Builder &builder,
     return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
         arg.getOperandIndex());
   }
-  case ttkernel::ArgType::Semaphore: {
+  case ttkernel::ArgType::LocalSemaphore: {
     return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
         arg.getOperandIndex());
   }
@@ -192,7 +192,7 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
     }
 
     for (auto ctArg : kernelSpec.getCtArgs()) {
-      if (ctArg.getArgType() == ttkernel::ArgType::Semaphore) {
+      if (ctArg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
         seenSemaphoreIndices.insert(ctArg.getOperandIndex());
       }
     }
@@ -701,6 +701,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     } else if (isa<d2m::GlobalSemaphoreType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
       additionalArgs.push_back(mapped);
+    } else if (isa<d2m::LocalSemaphoreType>(arg.getType())) {
+      // Local semaphores are described via createSemaphoreDescriptors; skip.
     } else {
       return op.emitOpError(
                  "unexpected operand type in d2m.generic's additionalArgs: ")
@@ -1063,7 +1065,8 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
             d2m::ResetGlobalSemaphoreOp, d2m::CreateGlobalSemaphoreOp,
-            memref::DeallocOp, memref::AllocOp>(op)) {
+            d2m::CreateLocalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
+            op)) {
       opsToErase.push_back(op);
     }
   });

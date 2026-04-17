@@ -8,10 +8,16 @@ module {
     %view = d2m.view_layout %arg0 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x8x24x!ttcore.tile<32x32, f32>, #ttcore.shard<98304x4096, 1>, #l1_> -> memref<8x8x1x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     %view_1 = d2m.view_layout %arg1 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x24x32x!ttcore.tile<32x32, f32>, #ttcore.shard<131072x4096, 1>, #l1_> -> memref<8x8x3x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     // CHECK: "ttmetal.enqueue_program"
-    // CHECK-SAME: {{.*}}cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>, <cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>, <cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, true, false, false, [default]>]
+    // CHECK-SAME: {{.*}}cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<local_semaphore[0]>, <local_semaphore[1]>, <local_semaphore[2]>, <local_semaphore[3]>, <cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<local_semaphore[0]>, <local_semaphore[1]>, <local_semaphore[2]>, <local_semaphore[3]>, <cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, true, false, false, [default]>]
+    %0 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %1 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %2 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+    %3 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+
     d2m.generic {block_factors = [], grid = #ttcore.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0>, #d2m.thread<datamovement, @datamovement_kernel1>, #d2m.thread<compute, @compute_kernel2>]}
         ins(%view, %view_1 : memref<8x8x1x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>, memref<8x8x3x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
         outs(%alloc : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+    additionalArgs(%0, %1, %2, %3 : !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore)
     return %alloc  : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   }
 
