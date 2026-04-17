@@ -215,6 +215,7 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
   bool needsReblock = hasVirtualGrid;
   if (newTensorGrid.has_value()) {
     tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
+    needsReblock = needsReblock || reblockVirtualGridShapes;
   } else {
     tensorGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
     needsReblock =
