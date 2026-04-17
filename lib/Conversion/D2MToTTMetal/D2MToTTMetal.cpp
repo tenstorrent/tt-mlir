@@ -22,6 +22,7 @@
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <cstdint>
@@ -551,15 +552,17 @@ public:
 
       const size_t mergedCbSlotBase = mergedCbs.size();
       llvm::append_range(mergedCbs, enqueueProgram.getCbs());
-      for (int64_t ignored : enqueueProgram.getCbPorts()) {
-        (void)ignored;
-        if (mergedCbPorts.size() >= chipNumCbs) {
-          return rewriter.notifyMatchFailure(
-              op,
-              "merged spatial enqueue_program cb_ports exceed chip num_cbs");
-        }
-        mergedCbPorts.push_back(static_cast<int64_t>(mergedCbPorts.size()));
+      // Workaround: rebuild cb_ports as a contiguous global range when merging.
+      const size_t regionCbPortCount = enqueueProgram.getCbPorts().size();
+      if (mergedCbPorts.size() + regionCbPortCount > chipNumCbs) {
+        return rewriter.notifyMatchFailure(
+            op, "merged spatial enqueue_program cb_ports exceed chip num_cbs");
       }
+      const int64_t portBase = static_cast<int64_t>(mergedCbPorts.size());
+      llvm::append_range(
+          mergedCbPorts,
+          llvm::seq<int64_t>(
+              portBase, portBase + static_cast<int64_t>(regionCbPortCount)));
       for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
         mergedKernelConfigs.push_back(
             remapKernelConfig(kernelConfig, spatialMetalRange, enqueueProgram,
