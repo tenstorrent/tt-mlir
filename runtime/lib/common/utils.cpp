@@ -169,6 +169,39 @@ std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   }
 }
 
+bool isBlockFormatDataType(::tt::target::DataType dataType) {
+  switch (dataType) {
+  case ::tt::target::DataType::BFP_Float8:
+  case ::tt::target::DataType::BFP_BFloat8:
+  case ::tt::target::DataType::BFP_Float4:
+  case ::tt::target::DataType::BFP_BFloat4:
+  case ::tt::target::DataType::BFP_Float2:
+  case ::tt::target::DataType::BFP_BFloat2:
+    return true;
+  default:
+    return false;
+  }
+}
+
+uint64_t blockFormatTileSizeBytes(::tt::target::DataType dataType) {
+  // BFP formats are only valid for 32x32 tiles.
+  // Each tile: mantissa bytes + 1 shared exponent byte per 16 elements
+  switch (dataType) {
+  case ::tt::target::DataType::BFP_Float8:
+  case ::tt::target::DataType::BFP_BFloat8:
+    return 1088; // 1024 mantissa + 64 shared exponents
+  case ::tt::target::DataType::BFP_Float4:
+  case ::tt::target::DataType::BFP_BFloat4:
+    return 576; // 512 mantissa + 64 shared exponents
+  case ::tt::target::DataType::BFP_Float2:
+  case ::tt::target::DataType::BFP_BFloat2:
+    return 320; // 256 mantissa + 64 shared exponents
+  default:
+    LOG_FATAL("Not a block format data type");
+    return 0;
+  }
+}
+
 bool isSupportedDataType(::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:

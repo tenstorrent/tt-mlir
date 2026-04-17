@@ -348,6 +348,12 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
+    if (options.experimentalKVCacheDtype != BFPDtype::None) {
+      TTNNKVCacheDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalKVCacheDtype;
+      devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
+    }
+
     // Apply ComputeKernelConfig settings before analysis passes.
     // Create options struct and forward pipeline options.
     TTNNSetComputeKernelConfigOptions setConfigOptions;
