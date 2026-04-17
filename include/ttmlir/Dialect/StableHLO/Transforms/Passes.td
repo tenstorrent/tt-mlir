@@ -584,4 +584,45 @@ def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
   ];
 }
 
+def RewriteBatchParallelGatherPass
+    : Pass<"rewrite-batch-parallel-gather", "::mlir::ModuleOp"> {
+  let summary = "Rewrite batch-parallel axes of stablehlo.gather into "
+                "operand_batching_dims.";
+  let description = [{
+    For a `stablehlo.gather` inside a flattened composite body (carrying the
+    `reoutline.group` attribute) whose `start_indices` is a concatenation of
+    per-axis index columns, this pass detects axes whose column is a
+    `broadcast_in_dim(iota(dim = 0))` along the identity dim of the index
+    tensor (i.e. a "pass-through" axis that is not actually indexed) and moves
+    them from `start_index_map` / `collapsed_slice_dims` into
+    `operand_batching_dims` / `start_indices_batching_dims`.  The corresponding
+    slot is dropped from the index concatenation.
+
+    This keeps the operand sharding on the pass-through axis valid — Shardy
+    treats batching_dims as paired parallel factors — and prevents
+    `InsertExplicitReshardsPass` from inserting a reshard that would otherwise
+    lower to an `sdy.all_gather` and break `ReoutlineCompositePass`.
+
+    Example: `torch.gather(x, dim=1, index)` on a mesh that shards `x` along
+    batch dim 0 produces a 3-D point-gather decomposition whose slot 0 is
+    `iota([0..B-1]).broadcast(dims=[0])`.  After this pass the gather uses
+    `operand_batching_dims = [0]` instead, so no communication is needed.
+
+    Only rewrites when:
+      - The gather carries `reoutline.group` (composite-scoped).
+      - The operand has a non-trivial Shardy sharding on at least one
+        pass-through axis.
+      - `start_indices` is defined by `stablehlo.concatenate` along
+        `index_vector_dim` with one operand per entry in `start_index_map`.
+      - Each candidate axis is in `collapsed_slice_dims` with
+        `slice_sizes[axis] == 1`.
+      - `operand_batching_dims` is currently empty (idempotent).
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect",
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 #endif
