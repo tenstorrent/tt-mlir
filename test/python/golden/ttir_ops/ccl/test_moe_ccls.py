@@ -215,7 +215,6 @@ def _build_expert_scores(batch, S, K):
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.skip(reason="Temporarily disabled")
 @pytest.mark.parametrize("mesh_shape", [(4, 8)], ids=shape_str)
 @pytest.mark.parametrize(
     "fabric_config",
@@ -383,7 +382,7 @@ def test_moe_dispatch_metadata(
             mask_reshaped = builder.reshape(mask, (1, tokens_global, 1))
             masked_dispatched = builder.multiply(dispatched, mask_reshaped)
 
-            return masked_dispatched
+            return masked_dispatched, indices_out, scores_out
 
     compile_and_execute_ttir(
         module,
