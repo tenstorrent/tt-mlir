@@ -119,6 +119,7 @@
 #include "tracy/Tracy.hpp"
 
 #include <cstring>
+#include <fstream>
 
 namespace tt::runtime::ttnn {
 
@@ -177,9 +178,20 @@ void ProgramExecutor::execute() {
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+
+  std::ofstream logFile;
+  logFile.open("/localdev/sshon/tt-xla/runtime_log.log", std::ios::app);
+  if (logFile.is_open()) {
+    logFile << "=== Starting execution of program: "
+            << program->name()->c_str() << " ===" << std::endl;
+  }
+
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
+    if (logFile.is_open()) {
+      logFile << "Executing: " << op->debug_info()->c_str() << std::endl;
+    }
     // TODO(#7743): Remove these tracy messages.
     // Currently they are being used by `ttrt perf` for parsing the csv output.
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
@@ -196,6 +208,12 @@ void ProgramExecutor::execute() {
                 op, context.get());
     dumpPerfCountersIfNeeded();
   }
+
+  if (logFile.is_open()) {
+    logFile << "=== Finished execution of program: "
+            << program->name()->c_str() << " ===" << std::endl;
+  }
+
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }

@@ -50,15 +50,27 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     programConfig.emplace();
     programConfig->k_chunk_size = 32; // Required for non-causal
     programConfig->compute_with_storage_grid_size = computeGrid;
-  } else if (query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
-    // Preserve the existing causal decode scheduling while disabling the
-    // approximate exponential path on Blackhole.
+  } else {
     programConfig.emplace();
     programConfig->q_chunk_size = 0;
-    programConfig->k_chunk_size = 0;
+    // Use one page (32 tokens) per K/V chunk for causal paged decode. This
+    // keeps the static K/V circular buffers small while still allowing
+    // parallelism to scale with the number of resident page-table blocks.
+    programConfig->k_chunk_size = 32;
     programConfig->compute_with_storage_grid_size = computeGrid;
-    programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
-    programConfig->exp_approx_mode = false;
+    // Causal paged decode falls back to using every core per head when no
+    // program config is provided, which can over-allocate L1 for large head
+    // dimensions. With 32-token K/V chunks, the useful parallelism per head is
+    // bounded by the number of page-table blocks in the current request.
+    const uint32_t totalCores = computeGrid.x * computeGrid.y;
+    const uint32_t pageTableBlocks = pageTable.padded_shape()[-1];
+    programConfig->max_cores_per_head_batch =
+        pageTableBlocks < totalCores ? pageTableBlocks : totalCores;
+    if (query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
+      // Preserve the existing Blackhole workaround that disables the
+      // approximate exponential path for causal decode.
+      programConfig->exp_approx_mode = false;
+    }
   }
 
   ::ttnn::Tensor out =
