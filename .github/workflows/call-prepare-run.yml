@@ -178,7 +178,7 @@ jobs:
             ${{ vars.TEST_DURATIONS }}
           EOF
           cat << 'EOF' > _civ2_offload_config.json
-            ${{ vars.CIV2_OFFLOAD_CONFIG }}
+            []
           EOF
           TARGET_DURATION=${{ vars.TARGET_DURATION }}
           if [ -z "$TARGET_DURATION" ]; then
