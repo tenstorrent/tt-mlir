@@ -414,6 +414,22 @@ public:
       indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
     }
 
+    // tt-metal reshapes indices from (batch, seq_len) to (batch, 1, 1, seq_len)
+    // and asserts batch * seq_len == number of gradient vectors which are
+    // further embedded into the weight tensor. For 1D indices (N,) it takes
+    // first_dim == last_dim == N, producing (N, 1, 1, N) and the assert fails
+    // (N*N != N). Unsqueeze to 2D: (N,) -> (1, N) so tt-metal sees
+    // (1, 1, 1, N).
+    if (indicesType.getRank() == 1) {
+      llvm::SmallVector<int64_t, 2> unsqueezedShape{1,
+                                                    indicesType.getDimSize(0)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices),
+          unsqueezedShape, rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_unsqueeze_indices"));
+      indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+    }
+
     // Pad the sequence length to be divisible by TILE_WIDTH (32).
     constexpr int64_t TILE_WIDTH = 32;
     int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);

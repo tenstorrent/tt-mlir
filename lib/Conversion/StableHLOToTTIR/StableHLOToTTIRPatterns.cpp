@@ -5624,19 +5624,6 @@ public:
     int64_t indexVectorDim =
         adaptor.getScatterDimensionNumbers().getIndexVectorDim();
 
-    // tt-metal reshapes indices from (batch, seq_len) to (batch, 1, 1, seq_len)
-    // and asserts batch * seq_len == number of gradient vectors which are further
-    // embedded into the weight tensor. For 1D indices (N,) it takes first_dim ==
-    // last_dim == N, producing (N, 1, 1, N) and the assert fails (N*N != N).
-    // Unsqueeze to 2D: (N,) -> (1, N) so tt-metal sees (1, 1, 1, N).
-    if (scatterIndicesType.getRank() == 1) {
-      llvm::SmallVector<int64_t, 2> newShape{1,
-                                              scatterIndicesType.getDimSize(0)};
-      scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
-                                                    scatterIndices, newShape);
-      indexVectorDim = 0;
-    }
-
     // StableHLO uses vectorized indices for scatter.
     // TT-metal expects indices to be [B, N] for embedding_backward. If the
     // indices are 2D and the index vector dim is 1, reshape the indices to 3D.
