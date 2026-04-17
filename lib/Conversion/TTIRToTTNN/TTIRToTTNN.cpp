@@ -1800,6 +1800,27 @@ public:
 } // namespace
 
 namespace {
+class SelectiveReduceCombineOpConversionPattern
+    : public OpConversionPattern<ttir::SelectiveReduceCombineOp> {
+public:
+  using OpConversionPattern<
+      ttir::SelectiveReduceCombineOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SelectiveReduceCombineOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getDenseInputTensor(), adaptor.getDenseActivationsTensor(),
+        adaptor.getDenseTokenMapsTensor(), adaptor.getDenseTokenCountsTensor(),
+        op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
+        op.getSelectExpertsKAttr(), op.getExpertsAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class MoeExpertTokenRemapOpConversionPattern
     : public OpConversionPattern<ttir::MoeExpertTokenRemapOp> {
 public:
@@ -3786,6 +3807,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllDispatchOpConversionPattern,
            AllToAllDispatchMetadataOpConversionPattern,
            AllToAllCombineOpConversionPattern,
+           SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,

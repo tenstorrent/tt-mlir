@@ -6243,6 +6243,39 @@ def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine", [TTIR_CCL]> {
     let hasVerifier = 1;
 }
 
+def TTIR_SelectiveReduceCombineOp : TTIR_NamedOp<"selective_reduce_combine",
+    [TTIR_CCL]> {
+    let summary = "Reduce and combine phase of the MoE pipeline.";
+    let description = [{
+      Takes dense blocks of expert-computed tokens from the MoE compute kernel,
+      sparsifies them, and sends tokens back to their originating devices via
+      fabric.
+
+      Input shapes:
+      - dense_input_tensor: dense expert output
+      - dense_activations_tensor: activation metadata
+      - dense_token_maps_tensor: token routing maps
+      - dense_token_counts_tensor: token counts per expert
+
+      Output shape:
+      - result: combined expert contributions
+    }];
+
+    let arguments = (ins AnyRankedTensor:$dense_input_tensor,
+                         AnyRankedTensor:$dense_activations_tensor,
+                         AnyRankedTensor:$dense_token_maps_tensor,
+                         AnyRankedTensor:$dense_token_counts_tensor,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$batch_size,
+                         UI32Attr:$seq_size,
+                         UI32Attr:$select_experts_k,
+                         UI32Attr:$experts);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
     let summary = "Remap global expert routing to local device experts with sparsity.";
     let description = [{
