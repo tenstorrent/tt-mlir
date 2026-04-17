@@ -189,6 +189,7 @@ public:
   std::int64_t getStat(const std::string &stat) const;
   void removeStat(const std::string &stat);
   void clear();
+  DebugStatsMap getAllStats() const;
   std::string toString() const;
 #else
   static constexpr Stats get() { return Stats(); }
@@ -196,6 +197,7 @@ public:
   inline std::int64_t getStat(const std::string &) const { return 0; }
   inline void removeStat(const std::string &) const {}
   constexpr void clear() const {}
+  inline DebugStatsMap getAllStats() const { return {}; }
   inline std::string toString() const { return "DebugStats Disabled"; }
 #endif
 
