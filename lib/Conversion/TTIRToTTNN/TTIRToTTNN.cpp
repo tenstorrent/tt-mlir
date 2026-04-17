@@ -818,8 +818,33 @@ public:
           op, "FillCacheOp must have exactly one user");
     }
 
-    rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(),
-                                       adaptor.getInput(),
+    Value input = adaptor.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto cacheType = mlir::cast<RankedTensorType>(adaptor.getCache().getType());
+    int64_t seqLen = inputType.getShape()[2];
+    int64_t maxCacheLen = cacheType.getShape()[2];
+
+    // Workaround for fill_cache_multi_core_program_factory.cpp bug:
+    // when input_Ht != cache_Ht, core block ranges can span head boundaries,
+    // causing off-by-N corruption and skipped writes. Padding input to
+    // maxCacheLen ensures input_Ht == cache_Ht so no core crosses a boundary.
+    // Zeros are safe because prefill always starts on a zero-initialised cache
+    // and rows beyond seqLen are -inf masked in attention.
+    if (seqLen < maxCacheLen) {
+      int64_t padRows = maxCacheLen - seqLen;
+      llvm::SmallVector<int64_t> paddedShape(inputType.getShape());
+      paddedShape[2] = maxCacheLen;
+      auto paddedInputType =
+          ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedShape);
+      llvm::SmallVector<int32_t> padding(2 * inputType.getRank(), 0);
+      padding[2 * 2 + 1] = static_cast<int32_t>(padRows);
+      input = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_pad"),
+          paddedInputType, input, rewriter.getDenseI32ArrayAttr(padding),
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
+    }
+
+    rewriter.create<ttnn::FillCacheOp>(op.getLoc(), adaptor.getCache(), input,
                                        adaptor.getBatchOffset());
 
     rewriter.replaceOp(op, adaptor.getCache());
