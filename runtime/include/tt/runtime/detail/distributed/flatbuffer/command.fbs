@@ -20,6 +20,9 @@ table SetMemoryLogLevelCommand {
   memory_log_level: tt.runtime.flatbuffer.MemoryLogLevel;
 }
 
+table GetWorkerDebugStatsCommand {
+}
+
 table GetSystemDescCommand {
   device: tt.target.DeviceRef;
   dispatch_core_type: tt.runtime.flatbuffer.DispatchCoreType = null;
@@ -165,6 +168,7 @@ table ClearProgramCacheCommand{
 union CommandType {
   ConfigureRuntimeContextCommand,
   SetMemoryLogLevelCommand,
+  GetWorkerDebugStatsCommand,
   GetSystemDescCommand,
   SetFabricConfigCommand,
   GetNumAvailableDevicesCommand,

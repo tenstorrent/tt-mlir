@@ -11,6 +11,7 @@ namespace tt::runtime::distributed {
 
 void launchDistributedRuntime(const DistributedOptions &options = {});
 void shutdownDistributedRuntime();
+WorkerDebugStats getWorkerDebugStats();
 
 void setMemoryLogLevel(const MemoryLogLevel &logLevel);
 

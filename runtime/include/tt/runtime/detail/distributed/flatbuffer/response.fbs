@@ -16,6 +16,16 @@ table ConfigureRuntimeContextResponse {
 table SetMemoryLogLevelResponse {
 }
 
+table DebugStatEntry {
+  key: string;
+  value: int64;
+}
+
+table GetWorkerDebugStatsResponse {
+  hostname: string;
+  stats: [DebugStatEntry];
+}
+
 table GetSystemDescResponse {
   system_desc: [ubyte]; // size-prefixed SystemDescRoot buffer
 }
@@ -119,6 +129,7 @@ union ResponseType {
   ErrorResponse,
   ConfigureRuntimeContextResponse,
   SetMemoryLogLevelResponse,
+  GetWorkerDebugStatsResponse,
   GetSystemDescResponse,
   SetFabricConfigResponse,
   GetNumAvailableDevicesResponse,

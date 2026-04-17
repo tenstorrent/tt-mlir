@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "tt/runtime/detail/distributed/worker/command_executor.h"
+#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/common/socket.h"
@@ -11,7 +12,9 @@
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
+#include <array>
 #include <thread>
+#include <unistd.h>
 
 namespace tt::runtime::distributed::worker {
 
@@ -32,6 +35,16 @@ static const fb::Command *getCommand(const SizedBuffer &command) {
   bool isDistributedCommand = fb::CommandBufferHasIdentifier(command.data());
   LOG_ASSERT(isDistributedCommand, "Command is not a distributed command");
   return fb::GetCommand(command.data());
+}
+
+static std::string getWorkerHostname() {
+  std::array<char, 256> hostnameBuffer{};
+  if (gethostname(hostnameBuffer.data(), hostnameBuffer.size()) != 0) {
+    return {};
+  }
+
+  hostnameBuffer.back() = '\0';
+  return std::string(hostnameBuffer.data());
 }
 
 void CommandExecutor::connect(const std::string &host, uint16_t port) {
@@ -139,6 +152,19 @@ void CommandExecutor::execute(uint64_t commandId,
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildSetMemoryLogLevelResponse, commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetWorkerDebugStatsCommand *command) {
+  (void)command;
+  DebugStatsMap stats = ::tt::runtime::debug::Stats::get().getAllStats();
+  stats["__worker_pid"] = static_cast<std::int64_t>(getpid());
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetWorkerDebugStatsResponse, commandId,
+                    getWorkerHostname(), stats);
 
   responseQueue_.push(std::move(responseBuilder));
 }
@@ -708,6 +734,10 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::SetMemoryLogLevelCommand: {
     return execute(command->command_id(),
                    command->type_as_SetMemoryLogLevelCommand());
+  }
+  case fb::CommandType::GetWorkerDebugStatsCommand: {
+    return execute(command->command_id(),
+                   command->type_as_GetWorkerDebugStatsCommand());
   }
   case fb::CommandType::GetSystemDescCommand: {
     return execute(command->command_id(),

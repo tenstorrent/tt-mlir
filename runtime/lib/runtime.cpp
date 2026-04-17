@@ -279,6 +279,23 @@ void shutdownDistributedRuntime() {
       });
 }
 
+WorkerDebugStats getWorkerDebugStats() {
+  using RetType = WorkerDebugStats;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getWorkerDebugStats",
+                                    DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getWorkerDebugStats",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::getWorkerDebugStats();
+      });
+}
+
 Tensor createBorrowedHostTensor(void *data,
                                 const std::vector<std::uint32_t> &shape,
                                 const std::vector<std::uint32_t> &stride,

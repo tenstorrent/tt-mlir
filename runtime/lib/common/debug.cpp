@@ -69,6 +69,11 @@ void Stats::clear() {
   counters.clear();
 }
 
+DebugStatsMap Stats::getAllStats() const {
+  std::shared_lock<std::shared_mutex> lock(countersMutex);
+  return counters;
+}
+
 std::string Stats::toString() const {
   std::shared_lock<std::shared_mutex> lock(countersMutex);
 
