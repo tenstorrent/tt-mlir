@@ -1701,14 +1701,31 @@ def moe_gpt_golden(
             out_et[dev_id] = token_indices
 
             # --- Outputs 3-4: MLP compute (W0/W1 -> SwiGLU -> W2) ---
-            # Get the sparse input buffer for this device
+            # The kernel writes MLP results into an L1 HEIGHT_SHARDED buffer
+            # shape (num_worker_cores, 2, 32, K) where only the combine cores
+            # (first height_shard_dim * width_shard_dim slots, flat-indexed by
+            # dhs * width_shard_dim + dws) hold meaningful data; the remaining
+            # worker-core slots are uninitialized. We replicate the combine
+            # kernel's write pattern from dm1.cpp/moe_gpt_program_factory.cpp:
+            #   - Tokens for each expert are distributed across height_shard_dim
+            #     groups using floor+remainder.
+            #   - Each expert occupies 32 rows within a combine core's
+            #     [2, 32] = 64-row shard (so up to 2 experts fit per core
+            #     width-shard; with E_per_device=4 two rows layer into the
+            #     dim-1 axis).
+            #   - Each token's H-dimension values are split into width_shard_dim
+            #     column bands placed across width_shard_dim combine cores.
             sparse_input = ring_group_inp[dev_id].reshape(total_tokens, K)
 
-            # Compute per-expert MLP, store in flat [E*M, K] like tt-metal ref
-            device_result = torch.zeros(E_per_device, M, K, dtype=torch.bfloat16)
+            height_shard_dim = 4
+            width_shard_dim = 3
+            TILE = 32
+            combine_shard_width_tiles = K // TILE // width_shard_dim
+
+            tile_shape = tilize_out_shape or (num_worker_cores, 2, TILE, K)
+            tile_golden = torch.zeros(tile_shape, dtype=torch.bfloat16)
 
             for local_e_idx, global_e in enumerate(local_expert_global_ids):
-                # Gather tokens for this expert
                 tokens_for_expert = []
                 for t in range(total_tokens):
                     for k_slot in range(K_sel):
@@ -1719,46 +1736,55 @@ def moe_gpt_golden(
                 if not tokens_for_expert:
                     continue
 
-                all_tokens = torch.stack(tokens_for_expert, dim=0).float()
-                count = all_tokens.shape[0]
-
-                # Multi-chunk: use last chunk of M tokens (matches kernel)
-                num_chunks = (count + M - 1) // M
-                last_start = (num_chunks - 1) * M
-                last_count = min(count - last_start, M)
-
-                chunk = torch.zeros(M, K, dtype=torch.float32)
-                chunk[:last_count, :] = all_tokens[last_start : last_start + last_count]
-
+                x = torch.stack(tokens_for_expert, dim=0).float()
                 with torch.no_grad():
                     w0 = raw_w0[0, local_e_idx].float()
                     w1 = raw_w1[0, local_e_idx].float()
                     w2 = raw_w2[0, local_e_idx].float()
-                    gate = chunk @ w0
-                    up = chunk @ w1
+                    gate = x @ w0
+                    up = x @ w1
                     activated = _swiglu_reference(gate, up)
-                    w2_out = activated @ w2
+                    mlp = (activated @ w2).to(torch.bfloat16)  # [active, K]
 
-                device_result[local_e_idx, :, :] = w2_out.to(torch.bfloat16)
+                active = mlp.shape[0]
+                tps = active // height_shard_dim
+                rem = active % height_shard_dim
 
-            # Shape outputs 3/4 to match kernel: [num_worker_cores, 2, 32, H]
-            # The kernel distributes across all worker cores. Use the provided
-            # shapes and zero-pad the remainder.
-            tile_shape = tilize_out_shape or (num_worker_cores, 2, 32, K)
-            tile_golden = torch.zeros(tile_shape, dtype=torch.bfloat16)
-            tile_rm_golden = torch.zeros(tile_shape, dtype=torch.bfloat16)
+                dhs, srow = 0, 0
+                for bt in range(active):
+                    cap = tps + (1 if dhs < rem else 0)
+                    if cap == 0:
+                        break
 
-            # Pack the per-expert results into the output buffer.
-            # Each expert gets 2 tile-rows (2*32 = 64 rows) per core assignment.
-            flat_result = device_result.reshape(-1, K)  # [E*M, K]
-            rows_available = min(flat_result.shape[0], tile_shape[0] * 2 * 32)
-            flat_golden = tile_golden.reshape(-1, K)
-            flat_golden[:rows_available, :] = flat_result[:rows_available, :]
-            tile_golden = flat_golden.reshape(tile_shape)
-            tile_rm_golden = tile_golden.clone()
+                    # Per-expert 32-row region. The [2, 32] axis only
+                    # accommodates 2 such regions per combine core (64 rows
+                    # total). For E_per_device > 2 the remaining experts
+                    # land in some layout we don't yet model, so skip them.
+                    dst_row_flat = local_e_idx * TILE + srow
+                    dim1 = dst_row_flat // TILE
+                    dim2 = dst_row_flat % TILE
+                    if dim1 >= tile_shape[1]:
+                        srow += 1
+                        if srow == cap:
+                            dhs += 1
+                            srow = 0
+                        continue
+
+                    for dws in range(width_shard_dim):
+                        cc = dhs * width_shard_dim + dws
+                        col_lo = dws * combine_shard_width_tiles * TILE
+                        col_hi = col_lo + combine_shard_width_tiles * TILE
+                        tile_golden[cc, dim1, dim2, col_lo:col_hi] = mlp[
+                            bt, col_lo:col_hi
+                        ]
+
+                    srow += 1
+                    if srow == cap:
+                        dhs += 1
+                        srow = 0
 
             out_tile[dev_id] = tile_golden
-            out_tile_rm[dev_id] = tile_rm_golden
+            out_tile_rm[dev_id] = tile_golden.clone()
 
     return (
         GoldenMapTensor(out_tc, mesh_shape),

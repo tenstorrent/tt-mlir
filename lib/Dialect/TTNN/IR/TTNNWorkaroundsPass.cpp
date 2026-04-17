@@ -1206,20 +1206,30 @@ TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
 
   TTNNOperandWorkarounds noWorkaround;
 
-  // input_tensor: ROW_MAJOR — the moe_gpt kernel contains a fused tilize step
-  // that expects row-major input. Without this workaround, a preceding reshape
-  // may leave the tensor in TILE layout, causing the kernel to read garbage and
-  // deadlock the ring all-to-all.
-  TTNNOperandWorkarounds rowMajorWorkaround;
-  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  // input_tensor: ROW_MAJOR L1 INTERLEAVED — the moe_gpt kernel contains a
+  // fused tilize step that expects row-major input. L1 INTERLEAVED matches
+  // tt-metal's fused_decode.py path (tt_sparse_l1 = to_memory_config(dispatch,
+  // L1_MEMORY_CONFIG) before the op call). Without L1 INTERLEAVED the kernel
+  // hits wrong addresses (upstream dispatch output is L1 HEIGHT_SHARDED on a
+  // drain core).
+  auto interleaved = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  TTNNOperandWorkarounds rowMajorL1InterleavedWorkaround;
+  rowMajorL1InterleavedWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorL1InterleavedWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  rowMajorL1InterleavedWorkaround.tensorMemoryLayoutWorkaround = interleaved;
 
-  // expert_mapping: UINT16 ROW_MAJOR — the tilize_reader kernel casts the
+  // expert_mapping: UINT16 ROW_MAJOR L1 — the tilize_reader kernel casts the
   // mapping buffer to uint16_t* and iterates with 2-byte stride. If the data
   // is int32 or bfloat16, the stride mismatch produces garbage device IDs
-  // that deadlock the ring all-to-all.
-  TTNNOperandWorkarounds rowMajorUint16Workaround;
-  rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
-  rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+  // that deadlock the ring all-to-all. L1 is required so the reader hits L1
+  // instead of DRAM (matches tt_moe_gpt_mapping in GPT-OSS fused_decode.py,
+  // which is a separate L1-resident copy of tt_dispatch_mapping).
+  TTNNOperandWorkarounds l1RowMajorUint16Workaround;
+  l1RowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1RowMajorUint16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt16;
+  l1RowMajorUint16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
 
   // expert_indices: UINT16 ROW_MAJOR L1 HEIGHT_SHARDED — must match dispatch
   // output dtype to avoid host round-trip that destroys shard placement.
@@ -1253,16 +1263,18 @@ TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
   rowMajorL1ShardedWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
   rowMajorL1ShardedWorkaround.tensorMemoryLayoutWorkaround = heightSharded;
 
-  // Weight tensor layout (bfloat4_b, TILE, HEIGHT_SHARDED DRAM on 12 DRAM bank
-  // cores) is handled by MoeGptWeightLayoutRewritePattern in the decomposition
-  // workaround phase, which requires a custom DRAM grid.
+  // Weight input layout (bfloat4_b, TILE, HEIGHT_SHARDED DRAM on the DRAM-bank
+  // worker cores) and tilize output grids are handled by
+  // MoeGptLayoutRewritePattern in the decomposition workaround phase, which
+  // sets the non-default grids this framework cannot express.
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorWorkaround) // input_tensor
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedWorkaround) // input_tensor
       .addInputOperandWorkaround(
           l1ShardedUint16RowMajorWorkaround)                  // expert_indices
       .addInputOperandWorkaround(l1ShardedRowMajorWorkaround) // expert_scores
-      .addInputOperandWorkaround(rowMajorUint16Workaround)    // expert_mapping
+      .addInputOperandWorkaround(l1RowMajorUint16Workaround)  // expert_mapping
       .addInputOperandWorkaround(noWorkaround)                // w0_w1_tensor
       .addInputOperandWorkaround(noWorkaround)                // w2_tensor
       .addOutputOperandWorkaround(rowMajorUint32L1Workaround) // token_counts
