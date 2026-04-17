@@ -37,15 +37,14 @@ static const fb::Command *getCommand(const SizedBuffer &command) {
   return fb::GetCommand(command.data());
 }
 
-static std::int64_t getHostnameHash() {
+static std::string getWorkerHostname() {
   std::array<char, 256> hostnameBuffer{};
   if (gethostname(hostnameBuffer.data(), hostnameBuffer.size()) != 0) {
-    return 0;
+    return {};
   }
 
   hostnameBuffer.back() = '\0';
-  return static_cast<std::int64_t>(
-      std::hash<std::string>{}(std::string(hostnameBuffer.data())));
+  return std::string(hostnameBuffer.data());
 }
 
 void CommandExecutor::connect(const std::string &host, uint16_t port) {
@@ -161,12 +160,11 @@ void CommandExecutor::execute(uint64_t commandId,
                               const fb::GetWorkerDebugStatsCommand *command) {
   (void)command;
   DebugStatsMap stats = ::tt::runtime::debug::Stats::get().getAllStats();
-  stats["__worker_hostname_hash"] = getHostnameHash();
   stats["__worker_pid"] = static_cast<std::int64_t>(getpid());
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildGetWorkerDebugStatsResponse, commandId,
-                    stats);
+                    getWorkerHostname(), stats);
 
   responseQueue_.push(std::move(responseBuilder));
 }
