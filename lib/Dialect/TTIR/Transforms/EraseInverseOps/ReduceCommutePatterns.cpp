@@ -408,6 +408,29 @@ private:
 
   bool isCommuteUpwardsViable(ReduceOpType op,
                               ReshapeOp reshapeUser) const override {
+    // The upwards rewrite creates a reshape from the reduce input directly to
+    // the original reshape's output shape, then reduces it in place. For that
+    // to produce valid IR (matching element count AND matching result type
+    // for the replaced reshape) the reduce must preserve both element count
+    // and rank — i.e. keep_dim must be true and every reduce dim must have
+    // size 1 in the reduce input. Without this guard the rewrite can build
+    // an invalid reshape or a result-type mismatch when reductionLength > 1.
+    if (!op.getKeepDim()) {
+      return false;
+    }
+    auto reduceInputShape =
+        cast<RankedTensorType>(op.getInput().getType()).getShape();
+    if (!op.getDimArg()) {
+      return llvm::all_of(reduceInputShape, [](int64_t d) { return d == 1; });
+    }
+    int64_t rank = reduceInputShape.size();
+    for (Attribute attr : op.getDimArg()->getValue()) {
+      int64_t d = cast<IntegerAttr>(attr).getInt();
+      d = d < 0 ? d + rank : d;
+      if (reduceInputShape[d] != 1) {
+        return false;
+      }
+    }
     return true;
   }
 
