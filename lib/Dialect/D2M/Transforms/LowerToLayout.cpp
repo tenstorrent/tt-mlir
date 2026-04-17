@@ -340,6 +340,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       bool needsReblock = hasVirtualGrid;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
+        needsReblock = needsReblock || reblockVirtualGridShapes;
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
         tensorGrid = currentGrid;
@@ -1167,10 +1168,12 @@ public:
       if (needsVirtualGridCollapse && currentInfo.isL1()) {
         auto existingRemapping =
             utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
+        auto physicalGridShape = utils::getPhysicalGridShape(currentValue);
         auto reblocked = typeBuilder.modifyDeviceType(
             currentInfo.type, *currentInfo.layout, targetGridShape,
             existingRemapping, ttcore::MemorySpace::DeviceL1,
-            /*newTensorGrid=*/{}, /*newElementType=*/{},
+            /*newTensorGrid=*/llvm::ArrayRef<int64_t>(physicalGridShape),
+            /*newElementType=*/{},
             /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
         auto reblockedEmpty = createEmpty(reblocked);
         currentValue = lowerMappingChange(rewriter, currentValue,
