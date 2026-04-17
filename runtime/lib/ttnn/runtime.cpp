@@ -1557,11 +1557,6 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_TopKRouterGptOp()->bias()};
     break;
   }
-  case ::tt::target::ttnn::OpType::GatherOp: {
-    tensorRefs = {opContext.type_as_GatherOp()->input(),
-                  opContext.type_as_GatherOp()->index()};
-    break;
-  }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
     tensorRefs = {opContext.type_as_EmbeddingOp()->input(),
                   opContext.type_as_EmbeddingOp()->weight()};

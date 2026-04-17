@@ -5271,7 +5271,7 @@ public:
     }
 
     // Step 3: Create gather_dim with the appropriate dimension.
-    rewriter.replaceOpWithNewOp<ttir::GatherDimOp>(
+    rewriter.replaceOpWithNewOp<ttir::GatherOp>(
         srcOp, outputType, operand, indices,
         rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim)));
 
