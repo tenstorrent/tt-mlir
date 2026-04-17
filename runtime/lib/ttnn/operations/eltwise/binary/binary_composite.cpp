@@ -28,11 +28,20 @@ toTTNNUnaryWithParamVector(
   return converted;
 }
 
-template <typename Fn>
-static void runEltwiseBinaryCompositeOp(
-    const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
-    ProgramTensorPool &tensorPool, Fn &&ttnnOp) {
+struct EltwiseBinaryCompositeOpSetup {
+  ::ttnn::Tensor *lhs;
+  ::ttnn::Tensor *rhs;
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> activations;
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>
+      inputTensorAActivations;
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>
+      inputTensorBActivations;
+};
 
+static EltwiseBinaryCompositeOpSetup setupEltwiseBinaryCompositeOp(
+    const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
+    ProgramTensorPool &tensorPool) {
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
 
@@ -43,7 +52,21 @@ static void runEltwiseBinaryCompositeOp(
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
+  return {lhs,
+          rhs,
+          outputMemoryConfig,
+          toTTNNUnaryWithParamVector(op->activations()),
+          toTTNNUnaryWithParamVector(op->input_tensor_a_activations()),
+          toTTNNUnaryWithParamVector(op->input_tensor_b_activations())};
+}
+
+template <typename Fn>
+static void runEltwiseBinaryCompositeOp(
+    const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
+    ProgramTensorPool &tensorPool, Fn &&ttnnOp) {
+  auto setup = setupEltwiseBinaryCompositeOp(op, tensorPool);
+
+  ::ttnn::Tensor out = ttnnOp(*setup.lhs, *setup.rhs, setup.outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -52,26 +75,26 @@ template <typename Fn>
 static void runEltwiseBinaryCompositeOpWithActivations(
     const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     ProgramTensorPool &tensorPool, Fn &&ttnnOp) {
+  auto setup = setupEltwiseBinaryCompositeOp(op, tensorPool);
 
-  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
-  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
+  ::ttnn::Tensor out =
+      ttnnOp(*setup.lhs, *setup.rhs, std::nullopt, setup.outputMemoryConfig,
+             std::nullopt, setup.activations, setup.inputTensorAActivations,
+             setup.inputTensorBActivations, std::nullopt);
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
 
-  auto activations = toTTNNUnaryWithParamVector(op->activations());
-  auto inputTensorAActivations =
-      toTTNNUnaryWithParamVector(op->input_tensor_a_activations());
-  auto inputTensorBActivations =
-      toTTNNUnaryWithParamVector(op->input_tensor_b_activations());
+template <typename Fn>
+static void runEltwiseBinaryCompositeBitwiseOpWithActivations(
+    const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
+    ProgramTensorPool &tensorPool, Fn &&ttnnOp) {
+  auto setup = setupEltwiseBinaryCompositeOp(op, tensorPool);
 
-  ::ttnn::Tensor out = ttnnOp(
-      *lhs, *rhs, std::nullopt, outputMemoryConfig, std::nullopt, activations,
-      inputTensorAActivations, inputTensorBActivations, std::nullopt);
+  ::ttnn::Tensor out =
+      ttnnOp(*setup.lhs, *setup.rhs, setup.outputMemoryConfig, std::nullopt,
+             setup.activations, setup.inputTensorAActivations,
+             setup.inputTensorBActivations, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -114,9 +137,11 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::LogicalLeftShift: {
-    runEltwiseBinaryCompositeOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::logical_left_shift(std::forward<decltype(args)>(args)...);
-    });
+    runEltwiseBinaryCompositeBitwiseOpWithActivations(
+        op, tensorPool, [](auto &&...args) {
+          return ::ttnn::logical_left_shift(
+              std::forward<decltype(args)>(args)...);
+        });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryCompositeOpType::Remainder: {
