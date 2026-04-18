@@ -9,20 +9,20 @@ namespace experimental {
 
 FORCE_INLINE
 void semaphore_wait(volatile tt_l1_ptr uint32_t *sem_addr, uint32_t val) {
-  uint32_t sem_val;
+  WAYPOINT("NSW");
   do {
     invalidate_l1_cache();
-    sem_val = *sem_addr;
-  } while (sem_val != val);
+  } while (*sem_addr < val);
+  WAYPOINT("NSD");
 }
 
 FORCE_INLINE
 void semaphore_wait_min(volatile tt_l1_ptr uint32_t *sem_addr, uint32_t val) {
-  uint32_t sem_val;
+  WAYPOINT("NSMW");
   do {
     invalidate_l1_cache();
-    sem_val = *sem_addr;
-  } while (sem_val < val);
+  } while (*sem_addr < val);
+  WAYPOINT("NSMD");
 }
 
 } // namespace experimental
