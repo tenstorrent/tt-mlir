@@ -423,8 +423,7 @@ class ModelRunner:
                 )
 
             # Get module from file
-            with open(ttnn_ir_file, "r") as f:
-                ttnn_module = utils.parse_mlir_str(f.read())
+            ttnn_module = utils.parse_mlir_file(ttnn_ir_file)
 
             self.log("Running TTNN to Flatbuffer File")
 
