@@ -49,7 +49,8 @@ enum class QKVRole { Query, Key, Value };
 struct SliceReshapeMatch {
   SliceStaticOp sliceOp;
   ReshapeOp reshapeOp;
-  PermuteOp permuteOp; // nullptr if absent
+  PermuteOp permuteOp;                 // nullptr if absent
+  bool isTransposedKeyPermute = false; // true for [0,2,3,1] (BSHD→BHDS)
 
   Operation *getFinalOp() {
     return permuteOp ? permuteOp.getOperation() : reshapeOp.getOperation();
@@ -58,6 +59,15 @@ struct SliceReshapeMatch {
   RankedTensorType getFinalType() {
     return permuteOp ? permuteOp.getType() : reshapeOp.getType();
   }
+
+  // Logical num_heads — same position in both layouts.
+  int64_t getNumHeads() { return getFinalType().getShape()[O_NUM_HEADS]; }
+
+  // Logical head_dim — accounts for transposed key where dims 2/3 are swapped.
+  int64_t getHeadDim() {
+    return isTransposedKeyPermute ? getFinalType().getShape()[O_SEQ_LEN]
+                                  : getFinalType().getShape()[O_HEAD_DIM];
+  }
 };
 
 // Structural match enriched with Q/K/V role after forward tracing to SDPA.
@@ -65,9 +75,13 @@ struct QKVHead {
   SliceReshapeMatch match;
   QKVRole role;
 
-  int64_t numHeads() { return match.getFinalType().getShape()[O_NUM_HEADS]; }
-  int64_t headDim() { return match.getFinalType().getShape()[O_HEAD_DIM]; }
-  int64_t seqLen() { return match.getFinalType().getShape()[O_SEQ_LEN]; }
+  int64_t numHeads() { return match.getNumHeads(); }
+  int64_t headDim() { return match.getHeadDim(); }
+  int64_t seqLen() {
+    return match.isTransposedKeyPermute
+               ? match.getFinalType().getShape()[O_HEAD_DIM]
+               : match.getFinalType().getShape()[O_SEQ_LEN];
+  }
 };
 
 QKVHead *findByRole(SmallVector<QKVHead> &heads, QKVRole role) {
@@ -232,10 +246,10 @@ inferQKVRolesFromSliceSizes(SmallVector<SliceReshapeMatch> &matches) {
     return std::nullopt;
   }
 
-  // Extract num_heads from each match's final shape.
+  // Extract num_heads from each match's logical shape.
   SmallVector<int64_t> numHeads;
   for (auto &m : matches) {
-    numHeads.push_back(m.getFinalType().getShape()[O_NUM_HEADS]);
+    numHeads.push_back(m.getNumHeads());
   }
 
   // Find the one with the most heads — that's Q.
@@ -254,8 +268,8 @@ inferQKVRolesFromSliceSizes(SmallVector<SliceReshapeMatch> &matches) {
     return std::nullopt;
   }
 
-  int64_t kvHeadDim0 = matches[kvIdx0].getFinalType().getShape()[O_HEAD_DIM];
-  int64_t kvHeadDim1 = matches[kvIdx1].getFinalType().getShape()[O_HEAD_DIM];
+  int64_t kvHeadDim0 = matches[kvIdx0].getHeadDim();
+  int64_t kvHeadDim1 = matches[kvIdx1].getHeadDim();
   if (kvHeadDim0 != kvHeadDim1) {
     return std::nullopt;
   }
@@ -438,17 +452,21 @@ matchSliceReshapeChains(MatMulOpType matmulOp) {
     }
 
     PermuteOp permuteOp = nullptr;
+    bool isTransposedKeyPermute = false;
     if (auto *singleUser = lookThroughTypecasts(reshapeOp.getResult())) {
       if (auto p = dyn_cast<PermuteOp>(singleUser)) {
         if (p.getPermutation() == ArrayRef<int64_t>{0, 2, 1, 3}) {
-          permuteOp = p; // Prefill: capture and consume.
+          permuteOp = p; // Prefill: BSHD → BHSD.
+        } else if (p.getPermutation() == ArrayRef<int64_t>{0, 2, 3, 1}) {
+          permuteOp = p; // Transposed key: BSHD → BHDS.
+          isTransposedKeyPermute = true;
         }
         // Decode [2,0,1,3] or others: don't capture, don't reject.
         // The permute stays in IR for NLPCreateQKVHeadsDecodeFusing.
       }
     }
 
-    matches.push_back({sliceOp, reshapeOp, permuteOp});
+    matches.push_back({sliceOp, reshapeOp, permuteOp, isTransposedKeyPermute});
   }
 
   return matches;
@@ -645,7 +663,7 @@ createFusedOp(mlir::PatternRewriter &rewriter, MatMulOpType matmulOp,
   auto numHeadsAttr = rewriter.getUI32IntegerAttr(q.numHeads());
   auto numKVHeadsAttr =
       isGQA ? rewriter.getUI32IntegerAttr(k.numHeads()) : IntegerAttr();
-  auto transposeKeyAttr = rewriter.getBoolAttr(false);
+  auto transposeKeyAttr = rewriter.getBoolAttr(k.match.isTransposedKeyPermute);
 
   auto validationResult =
       validator.validateFusion<SplitQueryKeyValueAndSplitHeadsOp>(
@@ -763,6 +781,11 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
   QKVHead *k = findByRole(*heads, QKVRole::Key);
   QKVHead *v = findByRole(*heads, QKVRole::Value);
   if (!q || !k || !v || !validateQKVDimensions(*q, *k, *v)) {
+    return mlir::failure();
+  }
+
+  // Only the key branch may use the transposed permute [0,2,3,1].
+  if (q->match.isTransposedKeyPermute || v->match.isTransposedKeyPermute) {
     return mlir::failure();
   }
 
