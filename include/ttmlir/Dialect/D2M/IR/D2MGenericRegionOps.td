@@ -1864,7 +1864,7 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
       ```
     }];
 
-    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
+    let arguments = (ins AnyTypeOf<[D2M_LocalSemaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value,
                          Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape,
                          Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape);
 
@@ -1904,7 +1904,7 @@ def D2M_SemaphoreWaitOp : D2M_GenericRegionOp<"semaphore_wait", [MemoryEffects<[
       ```
     }];
 
-    let arguments = (ins AnyTypeOf<[D2M_Semaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
+    let arguments = (ins AnyTypeOf<[D2M_LocalSemaphore, D2M_GlobalSemaphore]>:$semaphore, Index:$value, Optional<Index>:$resetValue);
 
     let assemblyFormat = [{ $semaphore `,` $value (`reset` $resetValue^)? attr-dict `:` type($semaphore) }];
 
@@ -2735,6 +2735,38 @@ def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
     I32Attr:$numReceivers,
     Variadic<Index>:$coreIndices
   );
+}
+
+def D2M_PrintOp : D2M_GenericRegionOp<"print", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Print values from a kernel thread.";
+    let description = [{
+        std::format-style format string with `{}` placeholders, lowered to
+        ttkernel.dprint. Zero or more values may be interpolated.
+
+        Example:
+        ```
+        d2m.print("semaphore addr = {}\n", %sem) : (!d2m.local_semaphore)
+        d2m.print("x={} y={}\n", %x, %y) : (ui32, ui32)
+        d2m.print("done\n") : ()
+        ```
+
+        Notes:
+          - Only the trivial `{}` format specifier is currently supported.
+          - Must double-escape newlines and other special characters.
+    }];
+
+    let arguments = (ins StrAttr:$fmt, Variadic<AnyType>:$argv);
+
+    let assemblyFormat = "`(` $fmt (`,` $argv^)? `)` attr-dict `:` functional-type($argv, results)";
+
+    let extraClassDeclaration = [{
+      template <typename... Args>
+      static void build(::mlir::OpBuilder &b, ::mlir::OperationState &state,
+                        const char *fmt, Args &&...argv) {
+        return build(b, state, ::mlir::StringRef(fmt),
+                     ::mlir::ValueRange{std::forward<Args>(argv)...});
+      }
+    }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD
