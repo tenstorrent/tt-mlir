@@ -1246,11 +1246,15 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
       ttcore::getBufferType(result.getType(), /*isView=*/false);
 
   // Create a new RemoteStoreOp with bufferized operands and result
-  mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
-      rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
-      localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
-      getSemaphore(), getSemaphoreIndices());
-
+  rewriter.create<RemoteStoreOp>(
+    getLoc(), resultBufferType, *memrefBuffer, getIndices(),
+    localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
+    getSemaphore(), getSemaphoreIndices());
+  
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *memrefBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)

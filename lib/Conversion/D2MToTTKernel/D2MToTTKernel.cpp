@@ -1750,16 +1750,16 @@ public:
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
 
     // Only insert automatic release if there's no explicit push/pop
-    if (!hasExplicitRelease(op)) {
-      Block *block = op->getBlock();
-      auto release = rewriter.create<TTKernelReleaseOp>(
-          op.getLoc(), adaptor.getCb(), numPages);
-      if (block->mightHaveTerminator()) {
-        rewriter.moveOpBefore(release, block->getTerminator());
-      } else {
-        rewriter.moveOpAfter(release, &block->back());
-      }
-    }
+    //if (!hasExplicitRelease(op)) {
+    //  Block *block = op->getBlock();
+    //  auto release = rewriter.create<TTKernelReleaseOp>(
+    //      op.getLoc(), adaptor.getCb(), numPages);
+    //  if (block->mightHaveTerminator()) {
+    //    rewriter.moveOpBefore(release, block->getTerminator());
+    //  } else {
+    //    rewriter.moveOpAfter(release, &block->back());
+    //  }
+    //}
 
     rewriter.replaceOp(op, adaptor.getCb());
 

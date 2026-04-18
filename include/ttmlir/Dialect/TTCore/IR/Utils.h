@@ -146,14 +146,27 @@ inline bool hasDeviceLayout(Value value) {
   return hasDeviceLayout(mlir::cast<ShapedType>(value.getType()));
 }
 
+// Static helper to extract the grid shape (first half of rank) from a shaped
+// type.  Does not require a DeviceLayoutInterface instance.
+inline ArrayRef<int64_t> getGridShape(ShapedType shapedType) {
+  assert(shapedType.getRank() % 2 == 0 && "rank must be even");
+  return shapedType.getShape().take_front(shapedType.getRank() / 2);
+}
+
+// Static helper to extract the shard shape (second half of rank) from a shaped
+// type.  Does not require a DeviceLayoutInterface instance.
+inline ArrayRef<int64_t> getShardShape(ShapedType shapedType) {
+  assert(shapedType.getRank() % 2 == 0 && "rank must be even");
+  return shapedType.getShape().drop_front(shapedType.getRank() / 2);
+}
+
 // Helper function to derive grid shape from tensor OR memref using underlying
 // layout attr.
 inline ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
   TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
               mlir::isa<MemRefType>(tensorOrMemref.getType())),
              "Expected a tensor or memref type");
-  return ttcore::getDeviceLayout(tensorOrMemref)
-      .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
+  return getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
 // Helper function to derive shard shape from tensor OR memref using underlying
@@ -162,8 +175,7 @@ inline ArrayRef<int64_t> getShardShape(Value tensorOrMemref) {
   TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
               mlir::isa<MemRefType>(tensorOrMemref.getType())),
              "Expected a tensor or memref type");
-  return ttcore::getDeviceLayout(tensorOrMemref)
-      .getShardShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
+  return getShardShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
 Type getOperandInnerElementType(const mlir::Value operand);
