@@ -5,7 +5,6 @@
                                   memref<1x1x!ttcore.tile<32x32, bf16>, #dram>,
                                   <interleaved>>
 
-// Intermediate result has its ttnn_layout stripped; args/return-feeder preserved.
 // CHECK-LABEL: func.func @strip_single_intermediate
 func.func @strip_single_intermediate(
     %arg0: tensor<32x32xbf16, #ttnn_layout>,
@@ -27,7 +26,6 @@ func.func @strip_single_intermediate(
   return %1 : tensor<32x32xbf16, #ttnn_layout>
 }
 
-// Five-op unary chain: every intermediate is stripped; only the return-feeder keeps its encoding.
 // CHECK-LABEL: func.func @strip_eltwise_unary_chain
 func.func @strip_eltwise_unary_chain(%arg0: tensor<32x32xbf16, #ttnn_layout>)
     -> tensor<32x32xbf16, #ttnn_layout> {
