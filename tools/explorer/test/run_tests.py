@@ -167,6 +167,7 @@ def test_load_model(model_path):
     convert_command_and_assert(model_path)
 
 
+@pytest.mark.skip("This functionality is deprecated")
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
 def test_execute_model(model_path):
     execute_command_and_wait(
@@ -175,6 +176,7 @@ def test_execute_model(model_path):
     convert_command_and_assert(model_path)
 
 
+@pytest.mark.skip("This functionality is deprecated")
 def test_execute_mnist_df_sharding():
     # Optimizer disabled because these tests are run with tracy build in CI, and tracy
     # build doesn't have op_model (optimizer) support.
@@ -190,6 +192,7 @@ def test_load_stablehlo_model():
     convert_command_and_assert(MNIST_STABLEHLO_PATH)
 
 
+@pytest.mark.skip("This functionality is deprecated")
 def test_execute_mnist_stablehlo():
     execute_command_and_wait(
         MNIST_STABLEHLO_PATH,
@@ -199,6 +202,7 @@ def test_execute_mnist_stablehlo():
     convert_command_and_assert(MNIST_STABLEHLO_PATH)
 
 
+@pytest.mark.skip("This functionality is deprecated")
 def test_execute_mnist_with_overrides():
     overrides = {
         'loc("relu_3"("MNISTLinear":4294967295:6))': {
@@ -219,6 +223,7 @@ def test_execute_mnist_with_overrides():
     convert_command_and_assert(MNIST_SHARDING_PATH)
 
 
+@pytest.mark.skip("This functionality is deprecated")
 def test_execute_and_check_perf_data_exists():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
@@ -229,6 +234,7 @@ def test_execute_and_check_perf_data_exists():
     assert "perf_data" in result["graphs"][0]["overlays"]
 
 
+@pytest.mark.skip("This functionality is deprecated")
 def test_execute_model_invalid_policy():
     with pytest.raises(AssertionError):
         execute_command_and_wait(
@@ -238,6 +244,7 @@ def test_execute_model_invalid_policy():
         )
 
 
+@pytest.mark.skip("This functionality is deprecated")
 def test_execute_and_check_memory_data_exists():
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
@@ -261,10 +268,7 @@ def test_get_emitc_cpp_code():
     assert "cppCode" in result["graphs"][0]
 
 
-# TODO: figure out if this should be deleted, or adapted with new tests
-@pytest.mark.skip(
-    "This is now handled by tests under `test/python/golden/test_ttir_models.py`"
-)
+@pytest.mark.skip("This functionality is deprecated")
 def test_execute_and_check_accuracy_data_exists():
     # Get the test_mnist path
     test_mnist_path = GET_TTNN_TEST()
