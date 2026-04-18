@@ -19,6 +19,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp
         RankNormalization.cpp
+        StripIntermediateTTNNLayouts.cpp
         Transforms.cpp
         TTIRFusing.cpp
         MultiDeviceTensorAnnotation.cpp
