@@ -19,6 +19,7 @@ module @jit_eltwise_where {
 
   func.func public @where_predicate_different_than_input(%arg0: tensor<13x37xf32>, %arg1: tensor<13x37xbf16>, %arg2: tensor<13x37xbf16>) -> tensor<13x37xbf16> {
     %0 = ttir.empty() : tensor<13x37xbf16>
+    // Predicate (f32) differs from float input (bf16) — typecast predicate.
     // CHECK: "ttnn.typecast"{{.*}}{dtype = #ttcore.supportedDataTypes<bf16>}
     // CHECK: "ttnn.where"{{.*}}
     %1 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<13x37xf32>, tensor<13x37xbf16>, tensor<13x37xbf16>) -> tensor<13x37xbf16>
@@ -27,6 +28,7 @@ module @jit_eltwise_where {
 
   func.func public @where_predicate_integer(%arg0: tensor<13x37xsi32>, %arg1: tensor<13x37xbf16>, %arg2: tensor<13x37xbf16>) -> tensor<13x37xbf16> {
     %0 = ttir.empty() : tensor<13x37xbf16>
+    // Predicate (si32) differs from float input (bf16) — typecast predicate.
     // CHECK: "ttnn.typecast"{{.*}}{dtype = #ttcore.supportedDataTypes<bf16>}
     // CHECK: "ttnn.where"{{.*}}
     %1 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<13x37xsi32>, tensor<13x37xbf16>, tensor<13x37xbf16>) -> tensor<13x37xbf16>
@@ -34,9 +36,8 @@ module @jit_eltwise_where {
   }
 
   func.func public @where_all_operands_integer(%arg0: tensor<13x37xsi32>, %arg1: tensor<13x37xsi32>, %arg2: tensor<13x37xsi32>) -> tensor<13x37xsi32> {
-    // CHECK: "ttnn.typecast"{{.*}}{dtype = #ttcore.supportedDataTypes<f32>}
-    // CHECK: "ttnn.typecast"{{.*}}{dtype = #ttcore.supportedDataTypes<f32>}
-    // CHECK: "ttnn.typecast"{{.*}}{dtype = #ttcore.supportedDataTypes<f32>}
+    // No typecasts needed — tt-metal supports integer where natively.
+    // CHECK-NOT: "ttnn.typecast"
     // CHECK: "ttnn.where"{{.*}}
     %1 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<13x37xsi32>, tensor<13x37xsi32>, tensor<13x37xsi32>) -> tensor<13x37xsi32>
     return %1 : tensor<13x37xsi32>
