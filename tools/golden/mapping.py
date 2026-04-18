@@ -1390,12 +1390,18 @@ def sparse_matmul_golden(
     a: GoldenMapTensor,
     b: GoldenMapTensor,
     sparsity: GoldenMapTensor,
-    is_input_a_sparse=False,
-    is_input_b_sparse=True,
-    nnz=None,
+    is_input_a_sparse_attr,
+    is_input_b_sparse_attr,
+    nnz_attr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     """Golden function for sparse_matmul. On CPU, performs dense matmul (sparsity
     is applied at runtime on device)."""
+    # Unpack MLIR attributes
+    is_input_a_sparse = unpack_mlir_attr(is_input_a_sparse_attr)
+    is_input_b_sparse = unpack_mlir_attr(is_input_b_sparse_attr)
+    nnz = unpack_mlir_attr(nnz_attr) if nnz_attr is not None else None
+
     # For golden: ignore sparsity mask, compute dense batched matmul.
     # a: [..., M, K], b: [1, E, K, N] -> output depends on mode.
     if is_input_b_sparse and not is_input_a_sparse:
@@ -1415,10 +1421,16 @@ def all_to_all_dispatch_golden(
     input_tensor: GoldenMapTensor,
     expert_indices: GoldenMapTensor,
     expert_mapping: GoldenMapTensor,
-    num_devices=2,
-    cluster_axis=0,
-) -> GoldenMapTensor:
+    num_devices_attr,
+    cluster_axis_attr,
+    dispatched_type_mlir: Type,
+    metadata_type_mlir: Type,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor]:
     """Golden for dispatch with layout-aware token expansion."""
+    # Unpack MLIR attributes
+    num_devices = unpack_mlir_attr(num_devices_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+
     D = num_devices if isinstance(num_devices, int) else 2
 
     def _to_dispatch_layout(tensor):
@@ -1439,8 +1451,11 @@ def all_to_all_dispatch_metadata_golden(
     expert_indices: GoldenMapTensor,
     expert_scores: GoldenMapTensor,
     expert_mapping: GoldenMapTensor,
-    num_devices=2,
-    cluster_axis=0,
+    num_devices_attr,
+    cluster_axis_attr,
+    dispatched_type_mlir: Type,
+    indices_type_mlir: Type,
+    scores_type_mlir: Type,
 ) -> Tuple:
     """Cross-shard golden for all_to_all_dispatch_metadata.
 
@@ -1455,6 +1470,10 @@ def all_to_all_dispatch_metadata_golden(
     expert_mapping has new format [1, 1, D, E] where entry [0, 0, d, e] is
     the linearized device ID that owns expert e (same for all d).
     """
+    # Unpack MLIR attributes
+    num_devices = unpack_mlir_attr(num_devices_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+
     num_devs = num_devices if isinstance(num_devices, int) else 2
     mesh_shape = input_tensor.mesh_shape
     grouped_inputs = input_tensor.group_by_axis(cluster_axis)
@@ -1531,9 +1550,10 @@ def all_to_all_combine_golden(
     input_tensor: GoldenMapTensor,
     expert_metadata: GoldenMapTensor,
     expert_mapping: GoldenMapTensor,
-    num_devices=2,
-    cluster_axis=0,
-    num_experts_per_tok=4,
+    num_devices_attr,
+    cluster_axis_attr,
+    num_experts_per_tok_attr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     """
     Metadata-aware golden for combine.
@@ -1541,6 +1561,11 @@ def all_to_all_combine_golden(
     The combine output is routed by `expert_metadata` slots and ownership in
     `expert_mapping`. If a mapping is invalid/ambiguous, unmatched slots remain zero.
     """
+    # Unpack MLIR attributes
+    num_devices = unpack_mlir_attr(num_devices_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    num_experts_per_tok = unpack_mlir_attr(num_experts_per_tok_attr)
+
     if not isinstance(input_tensor, GoldenMapTensor):
         D = num_devices if isinstance(num_devices, int) else 2
         B = max(1, input_tensor.shape[1] // D)
@@ -1664,31 +1689,14 @@ def moe_expert_token_remap_golden(
 def matmul_golden(
     a: GoldenMapTensor,
     b: GoldenMapTensor,
-    transpose_a=False,
-    transpose_b=False,
+    transpose_a: bool,
+    transpose_b: bool,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    """
-    Custom golden function for matrix multiplication.
-
-    Parameters
-    ----------
-    a : GoldenMapTensor
-        First input tensor
-    b : GoldenMapTensor
-        Second input tensor
-    transpose_a : bool, optional
-        Whether to transpose tensor a (default: False)
-    transpose_b : bool, optional
-        Whether to transpose tensor b (default: False)
-
-    Returns
-    -------
-    GoldenMapTensor
-        Result of matrix multiplication
-    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     a = torch.transpose(a, -2, -1) if transpose_a else a
     b = torch.transpose(b, -2, -1) if transpose_b else b
-    return torch.matmul(a, b)
+    return torch.matmul(a, b).to(output_dtype)
 
 
 def linear_golden(
@@ -6695,6 +6703,42 @@ def ttnn_all_gather_golden(
     )
 
 
+def ttnn_gather_dim_golden(
+    input_tensor: GoldenMapTensor,
+    index: GoldenMapTensor,
+    dim: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_value = unpack_mlir_attr(dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    index_copy = index.clone()
+    index_copy = index_copy.to(torch.int64)
+    out_tensor = torch.gather(input_tensor, dim_value, index_copy)
+    return out_tensor.to(output_dtype)
+
+
+def ttnn_all_reduce_async_golden(
+    input: GoldenMapTensor,
+    reduce_type_attr: ttcore.ir.ReduceTypeAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(reduce_type_attr).value
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        group_tensors = list(group.values())
+        reduced_tensor = reduce_mapping[reduce_type](group_tensors)
+        for id in group.keys():
+            output_shards[id] = reduced_tensor.clone().to(output_dtype)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
 def ttnn_reduce_scatter_golden(
     input: GoldenMapTensor,
     reduce_type_attr: ttcore.ir.ReduceTypeAttr,
@@ -7451,8 +7495,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
-    ttnn.GatherOp: ttir_gather_dim_golden,
-    ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
+    ttnn.GatherOp: ttnn_gather_dim_golden,
+    ttnn.AllReduceAsyncOp: ttnn_all_reduce_async_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----
     debug.AnnotateOp: debug_annotate_golden,
