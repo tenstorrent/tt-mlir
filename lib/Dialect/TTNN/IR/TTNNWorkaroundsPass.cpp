@@ -372,8 +372,8 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   if (predicateElementType != inputElementType &&
       !inputElementType.isInteger()) {
     // Mixed types with float input: cast predicate to match input type.
-    predicateTypeWorkaround = TTNNOperandWorkarounds(
-        ttcore::elementTypeToDataType(inputElementType));
+    predicateTypeWorkaround =
+        TTNNOperandWorkarounds(ttcore::elementTypeToDataType(inputElementType));
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
