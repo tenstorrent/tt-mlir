@@ -595,9 +595,8 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
 }
 
 void createTTNNPipelineD2MPass(OpPassManager &pm) {
-  // TODO(vtang): pass to strip intermediate layouts.
   pm.addPass(tt::createConvertTTNNToTTIRPass());
-  // pm.addPass(strip layouts pass)
+  pm.addPass(mlir::tt::ttir::createTTIRStripIntermediateTTNNLayouts());
 
   // Can't use createTTIRToTTMetalPipeline because TTCoreWrapDeviceModulePass
   // only works on top-level modules (doesn't run module has a parent op).
