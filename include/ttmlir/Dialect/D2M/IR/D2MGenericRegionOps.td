@@ -2737,4 +2737,36 @@ def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
   );
 }
 
+def D2M_PrintOp : D2M_GenericRegionOp<"print", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Print values from a kernel thread.";
+    let description = [{
+        std::format-style format string with `{}` placeholders, lowered to
+        ttkernel.dprint. Zero or more values may be interpolated.
+
+        Example:
+        ```
+        d2m.print("semaphore addr = {}\n", %sem) : (!d2m.local_semaphore)
+        d2m.print("x={} y={}\n", %x, %y) : (ui32, ui32)
+        d2m.print("done\n") : ()
+        ```
+
+        Notes:
+          - Only the trivial `{}` format specifier is currently supported.
+          - Must double-escape newlines and other special characters.
+    }];
+
+    let arguments = (ins StrAttr:$fmt, Variadic<AnyType>:$argv);
+
+    let assemblyFormat = "`(` $fmt (`,` $argv^)? `)` attr-dict `:` functional-type($argv, results)";
+
+    let extraClassDeclaration = [{
+      template <typename... Args>
+      static void build(::mlir::OpBuilder &b, ::mlir::OperationState &state,
+                        const char *fmt, Args &&...argv) {
+        return build(b, state, ::mlir::StringRef(fmt),
+                     ::mlir::ValueRange{std::forward<Args>(argv)...});
+      }
+    }];
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

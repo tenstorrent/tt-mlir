@@ -2594,6 +2594,21 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MPrintOpRewriter : public OpConversionPattern<d2m::PrintOp> {
+public:
+  using OpConversionPattern<d2m::PrintOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::PrintOp op, d2m::PrintOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::DPrintOp>(op, op.getFmt(),
+                                                    adaptor.getArgv());
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttkernel
 
 namespace mlir::tt {
@@ -2702,6 +2717,9 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
+
+  // Debug op patterns.
+  patterns.add<ttkernel::D2MPrintOpRewriter>(typeConverter, ctx);
 
   // This is needed to lower affine apply ops that may be generated when
   // `d2m.core_index` is used with a `phys_to_virt_map`.
