@@ -122,12 +122,19 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
   LOG_FATAL("Unsupported UnaryOpType");
 }
 
+::ttnn::operations::unary::UnaryWithParam toTTNNUnaryWithParam(
+    const ::tt::target::ttnn::UnaryWithParamT &unaryWithParam) {
+  return ::ttnn::operations::unary::UnaryWithParam(
+      toTTNNUnaryOpType(unaryWithParam.op_type),
+      std::vector<float>(unaryWithParam.params.begin(),
+                         unaryWithParam.params.end()));
+}
+
 ::ttnn::operations::unary::UnaryWithParam
 toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParam &unaryWithParam) {
-  return ::ttnn::operations::unary::UnaryWithParam(
-      toTTNNUnaryOpType(unaryWithParam.op_type()),
-      std::vector<float>(unaryWithParam.params()->begin(),
-                         unaryWithParam.params()->end()));
+  ::tt::target::ttnn::UnaryWithParamT unaryWithParamT;
+  unaryWithParam.UnPackTo(&unaryWithParamT);
+  return toTTNNUnaryWithParam(unaryWithParamT);
 }
 
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
@@ -323,83 +330,90 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op) {
 }
 
 ::ttnn::Conv2dConfig
-createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
+createConv2dConfig(const ::tt::target::ttnn::Conv2dConfigT &config) {
   ::ttnn::Conv2dConfig conv2dConfig;
 
-  if (config->weights_dtype()) {
+  if (config.weights_dtype) {
     conv2dConfig.weights_dtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*config.weights_dtype);
   }
 
-  if (config->activation()) {
+  if (config.activation) {
     conv2dConfig.activation =
         std::optional<::ttnn::operations::unary::UnaryWithParam>(
-            toTTNNUnaryWithParam(*config->activation()));
+            toTTNNUnaryWithParam(*config.activation));
   }
 
-  if (config->deallocate_activation()) {
-    conv2dConfig.deallocate_activation = *config->deallocate_activation();
+  if (config.deallocate_activation) {
+    conv2dConfig.deallocate_activation = *config.deallocate_activation;
   }
 
-  if (config->reallocate_halo_output()) {
-    conv2dConfig.reallocate_halo_output = *config->reallocate_halo_output();
+  if (config.reallocate_halo_output) {
+    conv2dConfig.reallocate_halo_output = *config.reallocate_halo_output;
   }
 
-  if (config->act_block_h_override()) {
-    conv2dConfig.act_block_h_override = *config->act_block_h_override();
+  if (config.act_block_h_override) {
+    conv2dConfig.act_block_h_override = *config.act_block_h_override;
   }
 
-  if (config->act_block_w_div()) {
-    conv2dConfig.act_block_w_div = *config->act_block_w_div();
+  if (config.act_block_w_div) {
+    conv2dConfig.act_block_w_div = *config.act_block_w_div;
   }
 
-  if (config->reshard_if_not_optimal()) {
-    conv2dConfig.reshard_if_not_optimal = *config->reshard_if_not_optimal();
+  if (config.reshard_if_not_optimal) {
+    conv2dConfig.reshard_if_not_optimal = *config.reshard_if_not_optimal;
   }
 
-  if (config->override_sharding_config()) {
-    conv2dConfig.override_sharding_config = *config->override_sharding_config();
+  if (config.override_sharding_config) {
+    conv2dConfig.override_sharding_config = *config.override_sharding_config;
   }
 
-  if (config->shard_layout()) {
+  if (config.shard_layout) {
     conv2dConfig.shard_layout =
         ::tt::runtime::ttnn::utils::toTTNNTensorMemoryLayout(
-            *config->shard_layout());
+            *config.shard_layout);
   }
 
-  if (config->core_grid()) {
+  if (config.core_grid) {
     conv2dConfig.core_grid = std::make_optional(
-        ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*config->core_grid()));
+        ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*config.core_grid));
   }
 
-  if (config->transpose_shards()) {
-    conv2dConfig.transpose_shards = *config->transpose_shards();
+  if (config.transpose_shards) {
+    conv2dConfig.transpose_shards = *config.transpose_shards;
   }
 
-  if (config->output_layout()) {
+  if (config.output_layout) {
     conv2dConfig.output_layout =
-        ::tt::runtime::ttnn::utils::toTTNNLayout(*config->output_layout());
+        ::tt::runtime::ttnn::utils::toTTNNLayout(*config.output_layout);
   }
 
-  if (config->enable_act_double_buffer()) {
-    conv2dConfig.enable_act_double_buffer = *config->enable_act_double_buffer();
+  if (config.enable_act_double_buffer) {
+    conv2dConfig.enable_act_double_buffer = *config.enable_act_double_buffer;
   }
 
-  if (config->enable_weights_double_buffer()) {
+  if (config.enable_weights_double_buffer) {
     conv2dConfig.enable_weights_double_buffer =
-        *config->enable_weights_double_buffer();
+        *config.enable_weights_double_buffer;
   }
 
-  if (config->enable_kernel_stride_folding()) {
+  if (config.enable_kernel_stride_folding) {
     conv2dConfig.enable_kernel_stride_folding =
-        *config->enable_kernel_stride_folding();
+        *config.enable_kernel_stride_folding;
   }
 
-  if (config->config_tensors_in_dram()) {
-    conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
+  if (config.config_tensors_in_dram) {
+    conv2dConfig.config_tensors_in_dram = *config.config_tensors_in_dram;
   }
 
   return conv2dConfig;
+}
+
+::ttnn::Conv2dConfig
+createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
+  ::tt::target::ttnn::Conv2dConfigT conv2dConfigT;
+  config->UnPackTo(&conv2dConfigT);
+  return createConv2dConfig(conv2dConfigT);
 }
 
 ::ttnn::Conv2dSliceConfig::SliceType
@@ -425,32 +439,38 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
 }
 
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
-    const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
+    const ::tt::target::ttnn::DeviceComputeKernelConfigT &config) {
   ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
 
-  if (config->math_fidelity()) {
+  if (config.math_fidelity) {
     computeKernelConfig.math_fidelity =
-        ::tt::runtime::ttnn::utils::toTTNNMathFidelity(
-            *config->math_fidelity());
+        tt::runtime::ttnn::utils::toTTNNMathFidelity(*config.math_fidelity);
   }
 
-  if (config->math_approx_mode()) {
-    computeKernelConfig.math_approx_mode = *config->math_approx_mode();
+  if (config.math_approx_mode) {
+    computeKernelConfig.math_approx_mode = *config.math_approx_mode;
   }
 
-  if (config->fp32_dest_acc_en()) {
-    computeKernelConfig.fp32_dest_acc_en = *config->fp32_dest_acc_en();
+  if (config.fp32_dest_acc_en) {
+    computeKernelConfig.fp32_dest_acc_en = *config.fp32_dest_acc_en;
   }
 
-  if (config->packer_l1_acc()) {
-    computeKernelConfig.packer_l1_acc = *config->packer_l1_acc();
+  if (config.packer_l1_acc) {
+    computeKernelConfig.packer_l1_acc = *config.packer_l1_acc;
   }
 
-  if (config->dst_full_sync_en()) {
-    computeKernelConfig.dst_full_sync_en = *config->dst_full_sync_en();
+  if (config.dst_full_sync_en) {
+    computeKernelConfig.dst_full_sync_en = *config.dst_full_sync_en;
   }
 
   return computeKernelConfig;
+}
+
+::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
+    const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
+  ::tt::target::ttnn::DeviceComputeKernelConfigT deviceComputeKernelConfigT;
+  config->UnPackTo(&deviceComputeKernelConfigT);
+  return createDeviceComputeKernelConfig(deviceComputeKernelConfigT);
 }
 
 ::ttnn::operations::transformer::SDPAProgramConfig
