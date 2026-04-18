@@ -1505,6 +1505,22 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SliceWriteOp : TTNN_InplaceOp<"slice_write"> {
+    let summary = "Write a tensor into a slice of another tensor.";
+    let description = [{
+      Writes the `input` tensor into a sub-region of the `operand` tensor in-place.
+      The write region is specified by `begins` and `ends` tensors.
+      Maps to ttnn::experimental::slice_write.
+    }];
+
+    let arguments = (ins Arg<AnyRankedTensor, "operand tensor", [MemWrite]>:$operand,
+                         AnyRankedTensor:$input,
+                         AnyRankedTensor:$begins,
+                         AnyRankedTensor:$ends);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Linear transformation of inputs.";
 

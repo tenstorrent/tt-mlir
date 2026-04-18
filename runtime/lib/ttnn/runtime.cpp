@@ -1294,6 +1294,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpdateCacheOp()->cache();
     break;
   }
+  case ::tt::target::ttnn::OpType::SliceWriteOp: {
+    tensorRef = opContext.type_as_SliceWriteOp()->operand();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
     tensorRef = opContext.type_as_PagedUpdateCacheOp()->cache();
     break;
@@ -1837,6 +1841,13 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_PagedUpdateCacheOp()->input(),
                   opContext.type_as_PagedUpdateCacheOp()->update_index(),
                   opContext.type_as_PagedUpdateCacheOp()->page_table()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SliceWriteOp: {
+    tensorRefs = {opContext.type_as_SliceWriteOp()->operand(),
+                  opContext.type_as_SliceWriteOp()->input(),
+                  opContext.type_as_SliceWriteOp()->begins(),
+                  opContext.type_as_SliceWriteOp()->ends()};
     break;
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {

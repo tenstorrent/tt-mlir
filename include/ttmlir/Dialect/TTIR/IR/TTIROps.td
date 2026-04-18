@@ -4352,6 +4352,50 @@ def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
     let hasVerifier = 1;
 }
 
+def TTIR_SliceWriteOp: TTIR_NamedOp<"slice_write"> {
+    let summary = "Write a tensor into a slice of another tensor.";
+    let description = [{
+      The `slice_write` operation writes the `input` tensor into a sub-region of the `operand` tensor,
+      producing a new result tensor. The write region is specified by `begins` and `ends` tensors.
+
+      This operation implements the semantics of StableHLO's `dynamic_update_slice`:
+        result[i] = input[i - begins] if begins <= i < ends
+        result[i] = operand[i]       otherwise
+
+      Example:
+      ```mlir
+      %operand = ... : tensor<4x4xf32>
+      %input = ... : tensor<2x2xf32>
+      %begins = ... : tensor<2xi32>  // e.g. [1, 1]
+      %ends = ... : tensor<2xi32>    // e.g. [3, 3]
+      %result = ttir.slice_write(%operand, %input, %begins, %ends)
+          : (tensor<4x4xf32>, tensor<2x2xf32>, tensor<2xi32>, tensor<2xi32>) -> tensor<4x4xf32>
+      ```
+
+      Inputs:
+      - `operand` (Tensor): The destination tensor to write into.
+      - `input` (Tensor): The source tensor containing values to write.
+      - `begins` (Tensor): The starting indices for the write region in each dimension.
+      - `ends` (Tensor): The ending indices (exclusive) for the write region in each dimension.
+
+      Output:
+      - `result` (Tensor): The result tensor with the same shape as `operand`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$operand,
+                         AnyRankedTensor:$input,
+                         AnyRankedTensor:$begins,
+                         AnyRankedTensor:$ends);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+        MutableOperandRange getDpsInitsMutable() { return getOperandMutable(); }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
     let summary = "Tensor selection operation.";
     let description = [{

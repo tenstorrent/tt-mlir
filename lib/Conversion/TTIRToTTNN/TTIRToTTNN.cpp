@@ -921,6 +921,28 @@ public:
 } // namespace
 
 namespace {
+class SliceWriteOpConversionPattern
+    : public OpConversionPattern<ttir::SliceWriteOp> {
+public:
+  using OpConversionPattern<ttir::SliceWriteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceWriteOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // SliceWriteOp is in-place in TTNN: it modifies the operand tensor.
+    // We create the TTNN op and replace uses of the TTIR result with the
+    // operand, following the same pattern as UpdateCacheOp.
+    rewriter.create<ttnn::SliceWriteOp>(op.getLoc(), adaptor.getOperand(),
+                                        adaptor.getInput(), adaptor.getBegins(),
+                                        adaptor.getEnds());
+
+    rewriter.replaceOp(op, adaptor.getOperand());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class SqueezeOpConversionPattern : public OpConversionPattern<ttir::SqueezeOp> {
 public:
   using OpConversionPattern<ttir::SqueezeOp>::OpConversionPattern;
@@ -3807,6 +3829,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ReshapeOpConversionPattern,
            SliceOpConversionPattern<ttir::SliceStaticOp, ttnn::SliceStaticOp>,
            SliceOpConversionPattern<ttir::SliceDynamicOp, ttnn::SliceDynamicOp>,
+           SliceWriteOpConversionPattern,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,

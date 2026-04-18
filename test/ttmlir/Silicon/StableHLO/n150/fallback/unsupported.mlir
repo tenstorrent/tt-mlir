@@ -27,26 +27,9 @@ module {
         return %2 : tensor<32x48xf32>
     }
 
-    // CHECK-LABEL: func.func @test_dynamic_update_slice
-    func.func @test_dynamic_update_slice() -> tensor<4xi32> {
-        %base = stablehlo.constant dense<[0, 0, 0, 0]> : tensor<4xi32>
-        %update = stablehlo.constant dense<[9, 9]> : tensor<2xi32>
-        %start = stablehlo.constant dense<1> : tensor<i32>
-
-
-        // CHECK: %[[DYNAMIC_UPDATE_SLICE:.*]] = call @cpu_hoisted_stablehlo_dynamic_update_slice_{{.*}}
-        %result = stablehlo.dynamic_update_slice %base, %update, %start
-            : (tensor<4xi32>, tensor<2xi32>, tensor<i32>) -> tensor<4xi32>
-
-        return %result : tensor<4xi32>
-    }
-
-
     // CHECK: func.func private @cpu_hoisted_stablehlo_einsum_{{.*}}
-    // CHECK: func.func private @cpu_hoisted_stablehlo_dynamic_update_slice_{{.*}}
 
     // CHECK: ttcore.cpu_module {
     // CHECK: builtin.module {
     // CHECK: func.func @cpu_hoisted_stablehlo_einsum
-    // CHECK: func.func @cpu_hoisted_stablehlo_dynamic_update_slice
 }
