@@ -20,6 +20,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ReductionForceKeepDim.cpp
         RMSNormDecomposition.cpp
         RankNormalization.cpp
+        StripIntermediateTTNNLayouts.cpp
         Transforms.cpp
         TTIRFusing.cpp
         MultiDeviceTensorAnnotation.cpp
