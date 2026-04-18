@@ -400,6 +400,14 @@ def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not"> {
             %result = "ttnn.bitwise_not"(%operand) : (tensor<2x2xi32>) -> tensor<2x2xi32>
             // %result: [[-2, -3], [-4, -5]]
     }];
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createUnaryBitwiseOpOperandsWorkarounds(
+              this->getOperation());
+      }
+    }];
 }
 
 def TTNN_NegOp : TTNN_ElementwiseUnaryOp<"neg"> {
@@ -1366,6 +1374,13 @@ def TTNN_ConcatOp : TTNN_Op<"concat", [TTNN_MemoryConfigOpInterface]> {
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createConcatOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
 
     let hasVerifier = 1;
 }

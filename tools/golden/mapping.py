@@ -3505,6 +3505,27 @@ def ttir_bitwise_and_golden(
     return torch.bitwise_and(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttir_bitwise_or_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_or(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_xor_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_not(input_tensor).to(output_dtype)
+
+
 def ttir_minimum_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -3552,6 +3573,33 @@ def ttir_slice_golden(
         start = begins[i] if i < len(begins) else 0
         end = ends[i] if i < len(ends) else input_tensor.size(i)
         step_val = step[i] if i < len(step) else 1
+        slices.append(slice(start, end, step_val))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[tuple(slices)]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape).to(output_dtype)
+
+
+def ttir_slice_dynamic_golden(
+    input_tensor: GoldenMapTensor,
+    begins_tensor: GoldenMapTensor,
+    ends_tensor: GoldenMapTensor,
+    step: ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """Golden computation for ttir.slice_dynamic with runtime begin/end tensors."""
+    begins = begins_tensor.shard_map[0].flatten().tolist()
+    ends = ends_tensor.shard_map[0].flatten().tolist()
+    step_vals = unpack_mlir_attr(step) if step is not None else [1] * len(begins)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    slices = []
+    for i in range(len(begins)):
+        start = int(begins[i])
+        end = int(ends[i])
+        step_val = int(step_vals[i]) if i < len(step_vals) else 1
         slices.append(slice(start, end, step_val))
 
     shard_map = {}
@@ -7179,9 +7227,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.WhereOp: ttir_where_golden,
     # Bitwise operations
     ttir.BitwiseAndOp: ttir_bitwise_and_golden,
-    ttir.BitwiseOrOp: torch.bitwise_or,
-    ttir.BitwiseXorOp: torch.bitwise_xor,
-    ttir.BitwiseNotOp: torch.bitwise_not,
+    ttir.BitwiseOrOp: ttir_bitwise_or_golden,
+    ttir.BitwiseXorOp: ttir_bitwise_xor_golden,
+    ttir.BitwiseNotOp: ttir_bitwise_not_golden,
     # Reduction operations
     ttir.SumOp: ttir_sum_golden,
     ttir.MeanOp: mean_golden,
@@ -7212,6 +7260,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.IndexSelectOp: select_golden,
     ttir.IndexOp: index_golden,
     ttir.SliceStaticOp: ttir_slice_golden,
+    ttir.SliceDynamicOp: ttir_slice_dynamic_golden,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: matmul_golden,

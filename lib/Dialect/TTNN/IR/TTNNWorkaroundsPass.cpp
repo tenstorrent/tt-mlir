@@ -307,7 +307,11 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
     ttnn::SliceDynamicOp op) {
+  // The tt-metal slice with tensor args (dynamic) requires ROW_MAJOR layout
+  // for the input tensor. The device-only TILE path needs slice_dim and
+  // num_devices which are not provided by the TTIR→TTNN lowering.
   TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   Type inputType = op.getInput().getType().getElementType();
   uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
   if (inputType.isUnsignedInteger() && bitWidth < 32) {
@@ -316,11 +320,17 @@ TTNNOperandsWorkaroundsFactory::createSliceDynamicOpOperandsWorkarounds(
   TTNNOperandWorkarounds uInt32Workaround;
   uInt32Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
 
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  if (inputType.isUnsignedInteger() && bitWidth < 32) {
+    outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+  }
+
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(inputWorkaround)
       .addInputOperandWorkaround(uInt32Workaround)
       .addInputOperandWorkaround(uInt32Workaround)
-      .addOutputOperandWorkaround(inputWorkaround);
+      .addOutputOperandWorkaround(outputWorkaround);
 }
 
 // ConstantOp is not a TTNN (lib) operation, but it is used to create TTNN
@@ -338,13 +348,10 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for where op operands.
-// tt-metal uses predicate type for where op operation. If the predicate data
-// type does not match with inputs/output data type; tt-metal can generate
-// incorrect results or other failures. Add a data type workaround if predicate
-// type does not match with input. Also, if predicate is integer, force it to
-// match input data type, unless both are integers, then force both to
-// float32.
-// tt-metal issues to track mixed data types ops bug.
+// tt-metal requires the predicate type to match the input type for where op.
+// Boolean predicates are lowered to bfloat16 by tt-mlir, which can mismatch
+// with float32 inputs. Cast the predicate to match the input type.
+// tt-metal issues:
 // https://github.com/tenstorrent/tt-metal/issues/17998
 // https://github.com/tenstorrent/tt-metal/issues/24511
 TTNNOperandsWorkarounds
@@ -362,21 +369,11 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   TTNNOperandWorkarounds inputTypeWorkaround;
   TTNNOperandWorkarounds outputTypeWorkaround;
 
-  if (predicateElementType.isInteger() ||
-      predicateElementType != inputElementType) {
-    if (inputElementType.isInteger()) {
-      // In an unlikely scenario, we could potentially upcast to float32, if
-      // input is integer and predicate is for example bf16.
-      // More importantly, if both are integers, we force both to float32.
-      predicateTypeWorkaround =
-          TTNNOperandWorkarounds(ttcore::DataType::Float32);
-      inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
-      outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Float32);
-    } else {
-      // Otherwise, we just force the predicate type to match the input type.
-      predicateTypeWorkaround = TTNNOperandWorkarounds(
-          ttcore::elementTypeToDataType(inputElementType));
-    }
+  if (predicateElementType != inputElementType &&
+      !inputElementType.isInteger()) {
+    // Mixed types with float input: cast predicate to match input type.
+    predicateTypeWorkaround =
+        TTNNOperandWorkarounds(ttcore::elementTypeToDataType(inputElementType));
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
@@ -404,6 +401,30 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(typeWorkarounds)
       .addOutputOperandWorkaround(typeWorkarounds);
+}
+
+// Factory method to create a set of workarounds for concat operation operands.
+// Tilize (used internally by concat) doesn't support ui8/i8 tensors.
+// Promote to Int32, same as the reshape workaround.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  TTNNOperandWorkarounds typeWorkarounds;
+  if (op->getNumOperands() > 0) {
+    auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+    mlir::Type elemType = inputType.getElementType();
+    mlir::tt::ttcore::DataType dataType =
+        mlir::tt::ttcore::elementTypeToDataType(elemType);
+    if (dataType == mlir::tt::ttcore::DataType::UInt8) {
+      typeWorkarounds.tensorDataTypeWorkaround =
+          mlir::tt::ttcore::DataType::Int32;
+    }
+  }
+  auto wa = TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+    wa = wa.addInputOperandWorkaround(typeWorkarounds);
+  }
+  return wa.addOutputOperandWorkaround(typeWorkarounds);
 }
 
 // Factory method to create a set of workarounds for UpdateCache operation
@@ -532,6 +553,12 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
       return {};
     }
     return mlir::tt::ttcore::DataType::Float32;
+  }
+
+  // UInt8 arithmetic ops (add, subtract, multiply, etc.) produce incorrect
+  // results on Tenstorrent hardware. Cast to Int32 for correct behavior.
+  if (dType == mlir::tt::ttcore::DataType::UInt8) {
+    return mlir::tt::ttcore::DataType::Int32;
   }
 
   return {};
@@ -683,6 +710,47 @@ TTNNOperandsWorkaroundsFactory::createGroupNormOpOperandsWorkarounds(
   }
 
   return workarounds;
+}
+
+// Helper function to determine if data type workaround is required for a unary
+// bitwise op. Set the workaround data type based on the unary bitwise op.
+static std::optional<mlir::tt::ttcore::DataType>
+unaryBitwiseOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
+  mlir::tt::ttcore::DataType dType =
+      mlir::tt::ttcore::elementTypeToDataType(elementType);
+
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/31373
+  if (isa<ttnn::BitwiseNotOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::UInt8 ||
+        dType == mlir::tt::ttcore::DataType::UInt16 ||
+        dType == mlir::tt::ttcore::DataType::UInt32) {
+      return mlir::tt::ttcore::DataType::Int32;
+    }
+  }
+  return {};
+}
+
+// Factory method to create a set of workarounds for unary bitwise operation
+// (BitwiseNotOp) operands.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createUnaryBitwiseOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  assert(op->getNumOperands() == 1 && "expected unary op");
+  auto inputType =
+      mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
+
+  TTNNOperandWorkarounds operandWorkaround;
+  if (auto dtype =
+          unaryBitwiseOpDTypeWorkaround(op, inputType.getElementType())) {
+    operandWorkaround.tensorDataTypeWorkaround = *dtype;
+  }
+  if (!mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding()).isTiled()) {
+    operandWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  }
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
 }
 
 // Factory method to create a set of workarounds for ArgMax op operands.

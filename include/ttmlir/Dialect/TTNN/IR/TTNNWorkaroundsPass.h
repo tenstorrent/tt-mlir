@@ -273,12 +273,16 @@ public:
   // dialect.
   static TTNNOperandsWorkarounds createConstantOpOperandsWorkarounds();
 
-  // Create workarounds for WhereOp operands.
+  // Create workarounds for WhereOp operands — cast predicate to match input
+  // type when they differ and input is floating point.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 
   static TTNNOperandsWorkarounds
   createReshapeOpOperandsWorkarounds(RankedTensorType inputType);
+
+  static TTNNOperandsWorkarounds
+  createConcatOpOperandsWorkarounds(mlir::Operation *op);
 
   static TTNNOperandsWorkarounds createDropoutOpOperandsWorkarounds();
 
@@ -303,6 +307,10 @@ public:
   // Create workarounds for group norm op operands.
   static TTNNOperandsWorkarounds
   createGroupNormOpOperandsWorkarounds(mlir::Operation *op);
+
+  // Create workarounds for unary bitwise op (bitwise_not) operands.
+  static TTNNOperandsWorkarounds
+  createUnaryBitwiseOpOperandsWorkarounds(mlir::Operation *op);
 
   // Create workarounds for ArgMax op operands.
   static TTNNOperandsWorkarounds createArgMaxOpOperandsWorkarounds();
