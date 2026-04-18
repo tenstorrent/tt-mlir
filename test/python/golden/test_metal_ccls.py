@@ -164,7 +164,7 @@ def test_all_gather(
     ], 
     ids=shape_str
 )
-@pytest.mark.parametrize("scatter_dim", [0]) #, 1, 2, 3
+@pytest.mark.parametrize("scatter_dim", range(4)) #, 1, 2, 3
 @pytest.mark.parametrize("cluster_axis", [1]) # 0, 1
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"]) # , torch.float32
 @pytest.mark.parametrize("target", ["ttmetal"])
