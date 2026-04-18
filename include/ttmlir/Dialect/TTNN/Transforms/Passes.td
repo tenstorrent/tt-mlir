@@ -457,8 +457,8 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     The metrics are serialized to JSON format for debugging, profiling, and external analysis.
 
     Usage:
-    Enable performance metrics collection in the TTIR to TTNN backend pipeline using:
-    --ttir-to-ttnn-backend-pipeline="ttnn-perf-metrics-enabled=true"
+    Enable performance metrics collection in the TTIR to TTNN runtime pipeline using:
+    --ttir-to-ttnn-runtime-pipeline="ttnn-perf-metrics-enabled=true"
 
     Output file naming:
     - If --ttnn-perf-metrics-output-file is not specified or is the default, files are automatically

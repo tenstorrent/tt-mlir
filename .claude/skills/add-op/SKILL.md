@@ -761,7 +761,7 @@ Test that the TTIR op converts to TTNN correctly. Cover all operand combinations
 weight, with/without bias).
 
 ```mlir
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-runtime-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
@@ -788,12 +788,15 @@ Test that the StableHLO composite converts to TTIR.
 
 **File:** `test/ttmlir/EmitC/TTNN/<op_name>/<op_name>.mlir` (new file)
 
-Test the full pipeline: TTIR → TTNN → Flatbuffer, and TTNN → EmitC → C++.
+Test the full pipeline: TTIR → TTNN common, then branch into Runtime (Flatbuffer) and EmitC (C++).
 
 ```mlir
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
-// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t.mlir
-// RUN: ttmlir-opt --ttnn-to-emitc-device-pipeline -o %t2.mlir %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-common-pipeline="system-desc-path=%system_desc_path%" -o %t.mlir %s
+
+// RUN: ttmlir-opt --ttnn-common-to-runtime-pipeline -o %t_rt.mlir %t.mlir
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t_rt.mlir
+
+// RUN: ttmlir-opt --ttnn-common-to-emitc-pipeline -o %t2.mlir %t.mlir
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 ```
 

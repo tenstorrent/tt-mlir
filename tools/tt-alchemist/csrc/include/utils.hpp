@@ -7,6 +7,7 @@
 
 #include <dlfcn.h>
 #include <filesystem>
+#include <llvm/Support/Error.h>
 
 namespace mlir {
 class ModuleOp;
@@ -75,7 +76,8 @@ inline std::filesystem::path get_templates_dir() {
 
 enum class CodeGenerationTarget { Cpp, Python };
 
-std::string getPipelineName(mlir::ModuleOp module, CodeGenerationTarget target);
+llvm::Expected<std::string> getPipelineName(mlir::ModuleOp module,
+                                            CodeGenerationTarget target);
 
 bool runPipeline(mlir::PassManager &pm, mlir::ModuleOp module,
                  const std::string &pipelineName,
