@@ -361,9 +361,9 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for where op operands.
-// tt-metal requires the predicate type to match the input type for where op.
-// Boolean predicates are lowered to bfloat16 by tt-mlir, which can mismatch
-// with float32 inputs. Cast the predicate to match the input type.
+// tt-metal where only supports si32 and float types natively.
+// Integer operands (i8, ui8, ui32) are cast to si32.
+// Float predicate mismatches are cast to match input type.
 // tt-metal issues:
 // https://github.com/tenstorrent/tt-metal/issues/17998
 // https://github.com/tenstorrent/tt-metal/issues/24511
@@ -382,11 +382,20 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   TTNNOperandWorkarounds inputTypeWorkaround;
   TTNNOperandWorkarounds outputTypeWorkaround;
 
-  if (predicateElementType != inputElementType &&
-      !inputElementType.isInteger()) {
-    // Mixed types with float input: cast predicate to match input type.
-    predicateTypeWorkaround = TTNNOperandWorkarounds(
-        ttcore::elementTypeToDataType(inputElementType));
+  if (predicateElementType.isInteger() ||
+      predicateElementType != inputElementType) {
+    if (inputElementType.isInteger()) {
+      // tt-metal where only works with si32 among integer types.
+      // Cast all operands to si32 (lossless round-trip for i8/ui8/ui32).
+      predicateTypeWorkaround =
+          TTNNOperandWorkarounds(ttcore::DataType::Int32);
+      inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
+      outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
+    } else {
+      // Float input: cast predicate to match input type.
+      predicateTypeWorkaround = TTNNOperandWorkarounds(
+          ttcore::elementTypeToDataType(inputElementType));
+    }
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()

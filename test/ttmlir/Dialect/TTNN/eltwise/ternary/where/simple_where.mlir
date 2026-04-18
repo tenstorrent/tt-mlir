@@ -36,10 +36,19 @@ module @jit_eltwise_where {
   }
 
   func.func public @where_all_operands_integer(%arg0: tensor<13x37xsi32>, %arg1: tensor<13x37xsi32>, %arg2: tensor<13x37xsi32>) -> tensor<13x37xsi32> {
-    // No typecasts needed — tt-metal supports integer where natively.
+    // si32 is natively supported — no typecast needed (si32→si32 is no-op).
     // CHECK-NOT: "ttnn.typecast"
     // CHECK: "ttnn.where"{{.*}}
     %1 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<13x37xsi32>, tensor<13x37xsi32>, tensor<13x37xsi32>) -> tensor<13x37xsi32>
     return %1 : tensor<13x37xsi32>
+  }
+
+  func.func public @where_all_i8(%arg0: tensor<13x37xi8>, %arg1: tensor<13x37xi8>, %arg2: tensor<13x37xi8>) -> tensor<13x37xi8> {
+    // i8 not natively supported — cast to si32, result cast back.
+    // CHECK: "ttnn.typecast"{{.*}}{dtype = #ttcore.supportedDataTypes<si32>}
+    // CHECK: "ttnn.where"
+    // CHECK: "ttnn.typecast"
+    %1 = "ttir.where"(%arg0, %arg1, %arg2) : (tensor<13x37xi8>, tensor<13x37xi8>, tensor<13x37xi8>) -> tensor<13x37xi8>
+    return %1 : tensor<13x37xi8>
   }
 }
