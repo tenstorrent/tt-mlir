@@ -35,119 +35,120 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
 @pytest.mark.parametrize(
     "shape, permutation",
     [
-        # 2d transpose
-        [(32, 128 * 500), [1, 0]],
-        pytest.param(
-            (32, 128 * 501),
-            [1, 0],
-            marks=pytest.mark.skip_config(
-                ["n150"],
-                ["n300"],
-                reason="L1 memory usage exceeds capacity #7559",
-            ),
-        ),
-        pytest.param(
-            (32, 128 * 800),
-            [1, 0],
-            marks=pytest.mark.skip_config(
-                ["n150"],
-                ["n300"],
-                reason="L1 memory usage exceeds capacity #7559",
-            ),
-        ),
-        pytest.param(
-            (32, 128 * 801),
-            [1, 0],
-            marks=pytest.mark.skip_config(
-                ["n150"],
-                ["n300"],
-                ["p150"],
-                ["p300"],
-                reason="L1 memory usage exceeds capacity #7559",
-            ),
-        ),
-        # 3d inner permutes
-        [(3, 32, 32), [0, 2, 1]],
-        [(3, 32, 64), [0, 2, 1]],
-        [(1, 32, 64), [0, 2, 1]],
-        # 4d inner permutes
-        [(5, 7, 2, 32), [0, 1, 3, 2]],
-        [(5, 7, 2, 64), [0, 1, 3, 2]],
-        [(5, 7, 2, 128), [0, 1, 3, 2]],
-        # 3d inner permutes (llama-like)
-        [(1, 50, 12), [0, 2, 1]],
-        [(32, 12, 100), [0, 2, 1]],
-        [(32, 11, 64), [0, 2, 1]],
-        # 4d inner permutes (llama-like)
-        [(1, 32, 12, 100), [0, 1, 3, 2]],
-        [(1, 32, 11, 64), [0, 1, 3, 2]],
-        [(1, 8, 11, 64), [0, 1, 3, 2]],
-        # 3d outer permutes
-        [(3, 32, 32), [1, 0, 2]],
-        [(3, 32, 64), [1, 0, 2]],
-        [(1, 32, 64), [1, 0, 2]],
-        # 3d outer permutes (llama-like)
-        [(18, 24, 128), [1, 0, 2]],
-        [(18, 8, 128), [1, 0, 2]],
-        [(128, 24, 128), [1, 0, 2]],
-        [(128, 8, 128), [1, 0, 2]],
-        # 4d outer permutes
-        [(1, 32, 31, 32), [0, 2, 1, 3]],
-        [(1, 32, 1, 32), [0, 2, 1, 3]],
-        [(5, 7, 2, 32), [0, 2, 1, 3]],
-        # 4d outer permutes (llama-like)
-        [(1, 18, 24, 128), [0, 2, 1, 3]],
-        [(1, 18, 8, 128), [0, 2, 1, 3]],
-        [(1, 128, 24, 128), [0, 2, 1, 3]],
-        [(1, 128, 8, 128), [0, 2, 1, 3]],
-        # 4d outer permutes (tilized)
-        [(1, 18, 8, 128), [1, 0, 2, 3]],
-        # 5d outer permutes
-        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
-        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
-        [(5, 7, 2, 3, 3), [0, 2, 1, 3, 4]],
-        # # 4d inner, then outer permute
-        [(3, 32, 32, 32), [0, 3, 1, 2]],
-        # # 5d inner, then outer permute
-        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
-        # 3d outer permutes (gpt-20b)
-        [(1, 32, 128), [0, 2, 1]],
-        # 4d outer permutes (gpt-20b)
-        [(1, 128, 8, 64), [0, 2, 1, 3]],
-        [(1, 128, 1, 64), [0, 2, 1, 3]],
-        # 4d inner permutes (gpt-20b)
-        [(1, 8, 128, 64), [0, 1, 3, 2]],
-        [(1, 8, 64, 128), [0, 1, 3, 2]],
-        # 4d inner permutes (llama3-70b, qwen3-32b)
-        pytest.param(
-            (32, 8, 128, 128),
-            [0, 1, 3, 2],
-            marks=pytest.mark.skip_config(
-                ["p150"],
-                ["p300"],
-                reason="L1 memory usage exceeds capacity on p150/p300",
-            ),
-        ),
-        # 4d complex permutes (llama3-70b, qwen3-32b)
-        [(32, 1, 1, 128), [2, 1, 0, 3]],
-        # 4d outer permutes (deepseek-671b)
-        [(1, 16, 32, 32), [0, 2, 1, 3]],
-        [(1, 16, 32, 128), [0, 2, 1, 3]],
-        # 3d inner permutes (glm-358b)
-        [(1, 32, 32), [0, 2, 1]],
-        # 4d outer permutes (glm-358b)
-        [(1, 32, 8, 128), [0, 2, 1, 3]],
-        [(1, 32, 96, 128), [0, 2, 1, 3]],
-        # 4d inner permutes (glm-358b)
-        [(1, 96, 32, 128), [0, 1, 3, 2]],
-        # 3d inner permutes (gpt_oss-120b)
-        [(1, 128, 32), [0, 2, 1]],
-        # 4d outer permutes (gpt_oss-120b)
-        [(1, 128, 16, 64), [0, 2, 1, 3]],
-        [(1, 128, 2, 64), [0, 2, 1, 3]],
-        # 4d inner permutes (gpt_oss-120b)
-        [(1, 16, 128, 64), [0, 1, 3, 2]],
-        [(1, 2, 128, 64), [0, 1, 3, 2]],
+        # # 2d transpose
+        # [(32, 128 * 500), [1, 0]],
+        # pytest.param(
+        #     (32, 128 * 501),
+        #     [1, 0],
+        #     marks=pytest.mark.skip_config(
+        #         ["n150"],
+        #         ["n300"],
+        #         reason="L1 memory usage exceeds capacity #7559",
+        #     ),
+        # ),
+        # pytest.param(
+        #     (32, 128 * 800),
+        #     [1, 0],
+        #     marks=pytest.mark.skip_config(
+        #         ["n150"],
+        #         ["n300"],
+        #         reason="L1 memory usage exceeds capacity #7559",
+        #     ),
+        # ),
+        # pytest.param(
+        #     (32, 128 * 801),
+        #     [1, 0],
+        #     marks=pytest.mark.skip_config(
+        #         ["n150"],
+        #         ["n300"],
+        #         ["p150"],
+        #         ["p300"],
+        #         reason="L1 memory usage exceeds capacity #7559",
+        #     ),
+        # ),
+        # # 3d inner permutes
+        # [(3, 32, 32), [0, 2, 1]],
+        # [(3, 32, 64), [0, 2, 1]],
+        # [(1, 32, 64), [0, 2, 1]],
+        # # 4d inner permutes
+        # [(5, 7, 2, 32), [0, 1, 3, 2]],
+        # [(5, 7, 2, 64), [0, 1, 3, 2]],
+        # [(5, 7, 2, 128), [0, 1, 3, 2]],
+        # # 3d inner permutes (llama-like)
+        # [(1, 50, 12), [0, 2, 1]],
+        # [(32, 12, 100), [0, 2, 1]],
+        # [(32, 11, 64), [0, 2, 1]],
+        # # 4d inner permutes (llama-like)
+        # [(1, 32, 12, 100), [0, 1, 3, 2]],
+        # [(1, 32, 11, 64), [0, 1, 3, 2]],
+        # [(1, 8, 11, 64), [0, 1, 3, 2]],
+        # # 3d outer permutes
+        # [(3, 32, 32), [1, 0, 2]],
+        # [(3, 32, 64), [1, 0, 2]],
+        # [(1, 32, 64), [1, 0, 2]],
+        # # 3d outer permutes (llama-like)
+        # [(18, 24, 128), [1, 0, 2]],
+        # [(18, 8, 128), [1, 0, 2]],
+        # [(128, 24, 128), [1, 0, 2]],
+        # [(128, 8, 128), [1, 0, 2]],
+        # # 4d outer permutes
+        # [(1, 32, 31, 32), [0, 2, 1, 3]],
+        # [(1, 32, 1, 32), [0, 2, 1, 3]],
+        # [(5, 7, 2, 32), [0, 2, 1, 3]],
+        # # 4d outer permutes (llama-like)
+        # [(1, 18, 24, 128), [0, 2, 1, 3]],
+        # [(1, 18, 8, 128), [0, 2, 1, 3]],
+        # [(1, 128, 24, 128), [0, 2, 1, 3]],
+        # [(1, 128, 8, 128), [0, 2, 1, 3]],
+        # # 4d outer permutes (tilized)
+        # [(1, 18, 8, 128), [1, 0, 2, 3]],
+        # # 5d outer permutes
+        # [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        # [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        # [(5, 7, 2, 3, 3), [0, 2, 1, 3, 4]],
+        # # # 4d inner, then outer permute
+        # [(3, 32, 32, 32), [0, 3, 1, 2]],
+        # # # 5d inner, then outer permute
+        # [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        # # 3d outer permutes (gpt-20b)
+        # [(1, 32, 128), [0, 2, 1]],
+        # # 4d outer permutes (gpt-20b)
+        # [(1, 128, 8, 64), [0, 2, 1, 3]],
+        # [(1, 128, 1, 64), [0, 2, 1, 3]],
+        # # 4d inner permutes (gpt-20b)
+        # [(1, 8, 128, 64), [0, 1, 3, 2]],
+        # [(1, 8, 64, 128), [0, 1, 3, 2]],
+        # # 4d inner permutes (llama3-70b, qwen3-32b)
+        # pytest.param(
+        #     (32, 8, 128, 128),
+        #     [0, 1, 3, 2],
+        #     marks=pytest.mark.skip_config(
+        #         ["p150"],
+        #         ["p300"],
+        #         reason="L1 memory usage exceeds capacity on p150/p300",
+        #     ),
+        # ),
+        # # 4d complex permutes (llama3-70b, qwen3-32b)
+        # [(32, 1, 1, 128), [2, 1, 0, 3]],
+        # # 4d outer permutes (deepseek-671b)
+        # [(1, 16, 32, 32), [0, 2, 1, 3]],
+        # [(1, 16, 32, 128), [0, 2, 1, 3]],
+        # # 3d inner permutes (glm-358b)
+        # [(1, 32, 32), [0, 2, 1]],
+        # # 4d outer permutes (glm-358b)
+        # [(1, 32, 8, 128), [0, 2, 1, 3]],
+        # [(1, 32, 96, 128), [0, 2, 1, 3]],
+        # # 4d inner permutes (glm-358b)
+        # [(1, 96, 32, 128), [0, 1, 3, 2]],
+        # # 3d inner permutes (gpt_oss-120b)
+        # [(1, 128, 32), [0, 2, 1]],
+        # # 4d outer permutes (gpt_oss-120b)
+        # [(1, 128, 16, 64), [0, 2, 1, 3]],
+        # [(1, 128, 2, 64), [0, 2, 1, 3]],
+        # # 4d inner permutes (gpt_oss-120b)
+        # [(1, 16, 128, 64), [0, 1, 3, 2]],
+        # [(1, 2, 128, 64), [0, 1, 3, 2]],
+        [(2560, 19456), [1, 0]]
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])

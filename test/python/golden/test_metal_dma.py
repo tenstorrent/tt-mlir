@@ -237,6 +237,145 @@ def test_roundtrip_dma_rowmajor(
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "shape",
+    # [(256, 256), (2560, 256), (2560, 2560)],
+    [(19456, 2560)],
+)
+def test_host_dram_roundtrip(
+    shape: Shape,
+    target: str,
+    request,
+    device,
+):
+    """Tests host -> DRAM -> host round-trip for tensors that may exceed L1."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def dram_roundtrip(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            to_dram = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=False,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            system_out = builder.to_layout(
+                to_dram,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+            return system_out
+
+    compile_dma_test(module, shape, request, device=device)
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("shape", [(2560, 256)])
+@pytest.mark.parametrize("start_grid", [(8, 8)])
+@pytest.mark.parametrize("end_grid", [(8, 8)])
+def test_dram_to_dram_dma_tiled(
+    shape: Shape,
+    start_grid: tuple[int, int],
+    end_grid: tuple[int, int],
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def dram_to_dram(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            assert (shape[0] % start_grid[0] == 0) and (
+                shape[1] % start_grid[1] == 0
+            ), "shape must be divisible by start_grid"
+            assert (shape[0] % end_grid[0] == 0) and (
+                shape[1] % end_grid[1] == 0
+            ), "shape must be divisible by end_grid"
+
+            # Host -> DRAM (untiled, single bank, bypasses L1)
+            to_dram = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=False,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            # DRAM -> L1 tiled (scatter + tilize)
+            tilized_l1 = builder.tilize(
+                to_dram,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceL1,
+                    grid=start_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            # L1 -> DRAM (start_grid sharding)
+            dram_layoutA = builder.to_layout(
+                tilized_l1,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                    grid=start_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            # DRAM -> DRAM (end_grid sharding)
+            dram_layoutB = builder.to_layout(
+                dram_layoutA,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceDRAM,
+                    grid=end_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            # DRAM -> L1 (read back, sharded for L1 capacity)
+            to_l1 = builder.to_layout(
+                dram_layoutB,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    tiled=True,
+                    memorySpace=ttcore.MemorySpace.DeviceL1,
+                    grid=end_grid,
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            # L1 tiled -> Host (untilize + gather)
+            untilize_out = builder.untilize(
+                to_l1,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+            )
+
+            return untilize_out
+
+    compile_dma_test(module, shape, request, device=device)
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("shape", [(64, 64), (64, 128), (128, 64), (128, 128)])
 @pytest.mark.parametrize("end_grid", [(1, 1), (2, 2), (1, 2), (2, 1)])
 def test_interleaved_dma(
