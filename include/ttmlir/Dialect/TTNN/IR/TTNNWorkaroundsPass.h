@@ -273,7 +273,8 @@ public:
   // dialect.
   static TTNNOperandsWorkarounds createConstantOpOperandsWorkarounds();
 
-  // Create workarounds for WhereOp operands.
+  // Create workarounds for WhereOp operands — cast predicate to match input
+  // type when they differ and input is floating point.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 

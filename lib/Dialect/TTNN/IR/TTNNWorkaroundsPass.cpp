@@ -348,13 +348,10 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for where op operands.
-// tt-metal uses predicate type for where op operation. If the predicate data
-// type does not match with inputs/output data type; tt-metal can generate
-// incorrect results or other failures. Add a data type workaround if predicate
-// type does not match with input. Also, if predicate is integer, force it to
-// match input data type, unless both are integers, then force both to
-// float32.
-// tt-metal issues to track mixed data types ops bug.
+// tt-metal requires the predicate type to match the input type for where op.
+// Boolean predicates are lowered to bfloat16 by tt-mlir, which can mismatch
+// with float32 inputs. Cast the predicate to match the input type.
+// tt-metal issues:
 // https://github.com/tenstorrent/tt-metal/issues/17998
 // https://github.com/tenstorrent/tt-metal/issues/24511
 TTNNOperandsWorkarounds
@@ -372,19 +369,11 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
   TTNNOperandWorkarounds inputTypeWorkaround;
   TTNNOperandWorkarounds outputTypeWorkaround;
 
-  if (predicateElementType.isInteger() ||
-      predicateElementType != inputElementType) {
-    if (inputElementType.isInteger()) {
-      // Both are integers. Use INT32 to preserve integer precision.
-      // Float32 would lose lower bits for values > 2^24.
-      predicateTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
-      inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
-      outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
-    } else {
-      // Otherwise, we just force the predicate type to match the input type.
-      predicateTypeWorkaround = TTNNOperandWorkarounds(
-          ttcore::elementTypeToDataType(inputElementType));
-    }
+  if (predicateElementType != inputElementType &&
+      !inputElementType.isInteger()) {
+    // Mixed types with float input: cast predicate to match input type.
+    predicateTypeWorkaround = TTNNOperandWorkarounds(
+        ttcore::elementTypeToDataType(inputElementType));
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
