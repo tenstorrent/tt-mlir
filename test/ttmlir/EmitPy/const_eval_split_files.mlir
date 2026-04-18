@@ -5,7 +5,7 @@
 // Verify the Python output when split-files is enabled (default):
 // 1. Two file sections are emitted: "main" and "consteval"
 // 2. Imports appear under each file label
-// 3. Main file: forward() calls consteval_forward(), uses _cached_forward global
+// 3. Main file: forward() calls consteval_forward(), uses ce_cache_forward global
 // 4. Consteval file: cpu_hoisted_const_eval, forward_const_eval_0() and
 //    consteval_forward() with caching
 // 5. consteval_forward() contains the caching if-guard and its dict argument is named "ce_cache"
@@ -14,10 +14,10 @@
 // CHECK: import ttnn
 // CHECK: import utils
 // CHECK: from consteval import consteval_forward
-// CHECK: _cached_forward = {}
-// CHECK: def forward(input
-// CHECK:   global _cached_forward
-// CHECK:   _cached_forward = consteval_forward(_cached_forward
+// CHECK: ce_cache_forward = {}
+// CHECK-LABEL: def forward(activations, weights)
+// CHECK:   global ce_cache_forward
+// CHECK:   ce_cache_forward = consteval_forward(ce_cache_forward, weights)
 // CHECK:   ttnn.add(
 // CHECK:   ttnn.add(
 // CHECK-LABEL: # File: "consteval"
@@ -28,7 +28,7 @@
 // CHECK:   ttir_cpu.add(
 // CHECK-LABEL: def forward_const_eval_0(input):
 // CHECK:   cpu_hoisted_const_eval_{{.*}}(
-// CHECK: def consteval_forward(ce_cache, input_1
+// CHECK: def consteval_forward(ce_cache, weights)
 // CHECK:   if not ce_cache:
 // CHECK:     forward_const_eval_0(
 // CHECK:   return ce_cache

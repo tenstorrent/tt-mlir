@@ -6,19 +6,27 @@
 // RUN: ttmlir-translate --mlir-to-python -o %t.py %t.mlir
 // RUN: FileCheck %s --input-file=%t.py
 
-// Verify that the EmitPyFormExpressions pass produces compact Python output:
-// 1. Dict GET: string constant is inlined into subscript: dict["key"]
-// 2. List-into-call: util_create_list is inlined into callee: f([x])
-// 3. Dict SET: string key and list creation are inlined: dict["key"] = [v[0]]
+// Verify that the EmitPyFormExpressions pass produces compact Python output
+// by inlining single-use PyExpressionInterface ops into ExpressionOps:
+//
+// 1. Dict GET: string constant is inlined into subscript — dict["key"]
+// 2. List wrapping: util_create_list is inlined — return [x]
+// 3. Dict SET: string key is inlined into subscript assignment — dict["key"] = val
 
+// forward() — dict GET for weight access and const-eval cache lookup.
+//
 // CHECK-LABEL: def forward(
-// CHECK:   _cached_forward["forward_const_eval_0"]
+// CHECK:   weights["weight_0"]
+// CHECK:   ce_cache_forward["forward_const_eval_0"]
 // CHECK-NOT: const{{.*}} = "forward_const_eval_0"
+// CHECK:   return [{{.*}}]
 
-// CHECK-LABEL: def consteval_forward(ce_cache, input_1):
+// consteval_forward() — dict GET for weight keys, dict SET for cache entry.
+//
+// CHECK-LABEL: def consteval_forward(ce_cache, weights
 // CHECK:   if not ce_cache:
-// CHECK:     forward_const_eval_0_0 = forward_const_eval_0([
-// CHECK:     ce_cache["forward_const_eval_0"] = [forward_const_eval_0_0[0]]
+// CHECK:     forward_const_eval_0([weights["weight_0"], weights["weight_1"]])
+// CHECK:     ce_cache["forward_const_eval_0"] =
 // CHECK:   return ce_cache
 
 module {
