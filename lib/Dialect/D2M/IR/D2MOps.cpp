@@ -393,6 +393,75 @@ static bool layoutsMatchExceptOOB(ttcore::MetalLayoutAttr a,
          a.getMemoryLayout() == b.getMemoryLayout();
 }
 
+static bool changesOnlyOOB(Type srcType, Type dstType,
+                           bool requireUndefEndpoint = false) {
+  auto srcTensor = mlir::dyn_cast<RankedTensorType>(srcType);
+  auto dstTensor = mlir::dyn_cast<RankedTensorType>(dstType);
+  if (!srcTensor || !dstTensor) {
+    return false;
+  }
+
+  auto srcLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+      srcTensor.getEncoding());
+  auto dstLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+      dstTensor.getEncoding());
+  if (!srcLayout || !dstLayout) {
+    return false;
+  }
+
+  if (srcLayout.getOobVal() == dstLayout.getOobVal()) {
+    return false;
+  }
+
+  if (requireUndefEndpoint && srcLayout.getOobVal() != ttcore::OOBVal::Undef &&
+      dstLayout.getOobVal() != ttcore::OOBVal::Undef) {
+    return false;
+  }
+
+  return srcTensor.getShape() == dstTensor.getShape() &&
+         srcTensor.getElementType() == dstTensor.getElementType() &&
+         layoutsMatchExceptOOB(srcLayout, dstLayout);
+}
+
+static bool layoutHasPadding(RankedTensorType tensorType,
+                             ttcore::MetalLayoutAttr layout) {
+  if (!ttcore::isTiled(tensorType)) {
+    return false;
+  }
+
+  ArrayRef<int64_t> logicalShape = layout.getLogicalShape();
+  ArrayRef<int64_t> dimAlignments = layout.getDimAlignments();
+  for (auto [logicalDim, alignment] :
+       llvm::zip_equal(logicalShape, dimAlignments)) {
+    int64_t alignedDim = ((logicalDim + alignment - 1) / alignment) * alignment;
+    if (alignedDim != logicalDim) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool hasUsersThatObserveOOB(Value value) {
+  return llvm::any_of(value.getUsers(), [](Operation *user) {
+    return mlir::isa<ViewLayoutOp>(user);
+  });
+}
+
+static bool canEraseOOBOnlyTransition(Type srcType, Type dstType,
+                                      Value resultValue) {
+  if (!changesOnlyOOB(srcType, dstType, /*requireUndefEndpoint=*/true)) {
+    return false;
+  }
+
+  if (hasUsersThatObserveOOB(resultValue)) {
+    return false;
+  }
+
+  auto srcTensor = mlir::cast<RankedTensorType>(srcType);
+  auto srcLayout = mlir::cast<ttcore::MetalLayoutAttr>(srcTensor.getEncoding());
+  return !layoutHasPadding(srcTensor, srcLayout);
+}
+
 // Fold away a to_layout whose only effect is changing the OOB fill value.
 // OOB is metadata that controls padding behaviour during LowerToLayout; when
 // two layouts are otherwise identical a to_layout between them is a no-op
@@ -407,34 +476,12 @@ struct ToLayoutFoldOOBUndefPattern : public OpRewritePattern<ToLayoutOp> {
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    auto inputType = mlir::dyn_cast<RankedTensorType>(op.getInput().getType());
-    auto outputType =
-        mlir::dyn_cast<RankedTensorType>(op.getOutput().getType());
-    if (!inputType || !outputType) {
+    if (op->getNumResults() != 1) {
       return failure();
     }
 
-    auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-        inputType.getEncoding());
-    auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-        outputType.getEncoding());
-    if (!inputLayout || !outputLayout) {
-      return failure();
-    }
-
-    // OOB must actually differ (same OOB is handled by identity fold),
-    // and at least one side must be undef.
-    if (inputLayout.getOobVal() == outputLayout.getOobVal()) {
-      return failure();
-    }
-    if (inputLayout.getOobVal() != ttcore::OOBVal::Undef &&
-        outputLayout.getOobVal() != ttcore::OOBVal::Undef) {
-      return failure();
-    }
-
-    if (inputType.getShape() != outputType.getShape() ||
-        inputType.getElementType() != outputType.getElementType() ||
-        !layoutsMatchExceptOOB(inputLayout, outputLayout)) {
+    if (!canEraseOOBOnlyTransition(op.getInput().getType(),
+                                   op.getOutput().getType(), op.getResult(0))) {
       return failure();
     }
 
@@ -459,6 +506,16 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     if (!producerLayoutOp) {
       return failure();
     }
+
+    // Only collapse host bridges across an OOB-only transition when the
+    // resulting device-side retag is itself erasable.
+    if (changesOnlyOOB(producerLayoutOp.getInput().getType(),
+                       op.getOutput().getType()) &&
+        !canEraseOOBOnlyTransition(producerLayoutOp.getInput().getType(),
+                                   op.getOutput().getType(), op.getResult(0))) {
+      return failure();
+    }
+
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
                                             op.getOutput());
     return success();

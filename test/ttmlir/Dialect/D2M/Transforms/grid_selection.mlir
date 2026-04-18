@@ -68,8 +68,8 @@ module {
      // Verify that after grid selection, the view output and generic use
      // aligned shapes (no 288) with matching grids.
      // CHECK-AFTER-NOT: 288
-     // CHECK-AFTER: d2m.view_layout{{.*}} -> tensor<1x8x32x64xf32
-     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<1x8>
+     // CHECK-AFTER: d2m.view_layout{{.*}} -> tensor<1x16x32x32xf32
+     // CHECK-AFTER: d2m.generic {{{.*}}grid = #ttcore.grid<1x16
      %device_storage = d2m.empty() : tensor<1x1x1x33x32x32xf32, #layout_tm_device_input>
      %device_input = d2m.to_layout %arg0, %device_storage : tensor<33x2x8xf32> into tensor<1x1x1x33x32x32xf32, #layout_tm_device_input> -> tensor<1x1x1x33x32x32xf32, #layout_tm_device_input>
      %view = d2m.view_layout %device_input remapping = affine_map<(d0, d1, d2, d3) -> (0, d0, d1, d3 floordiv 8, d2, d3 mod 8)> : tensor<1x1x1x33x32x32xf32, #layout_tm_device_input> -> tensor<1x1x32x288xf32, #layout_tm_stream_map>
