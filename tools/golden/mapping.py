@@ -6914,8 +6914,9 @@ def ttir_sdpa_golden(
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float())
 
-    if scale is not None:
-        qk = torch.mul(qk, scale)
+    if scale is None:
+        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+    qk = torch.mul(qk, scale)
 
     attn_weights = torch.softmax(qk, dim=-1)
     output = torch.matmul(attn_weights, value.float())
