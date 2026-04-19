@@ -13,7 +13,7 @@ module {
         "ttnn.generic"(%arg0, %1) <{program = #ttnn.program<kernels = [#ttnn.read_kernel<symbol_ref = @datamovement_kernel0, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>], common_rt_args = [], rt_args = []>, #ttnn.write_kernel<symbol_ref = @datamovement_kernel1, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>], common_rt_args = [], rt_args = []>, #ttnn.compute_kernel<symbol_ref = @compute_kernel2, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, math_fidelity = hifi4, fp32_dest_acc_en = false, dst_full_sync_en = false, unpack_to_dest_modes = [default], bfp8_pack_precise = false, math_approx_mode = false, ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>], common_rt_args = [], rt_args = []>], cbs = [<total_size = 2048, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 0, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<0>>, <total_size = 2048, core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>, formats = [<buffer_index = 1, dtype = bf16, page_size = 2048>], buffer = #ttnn.kernel_cb_global_buffer_address_of_tensor<1>>], semaphores = []>, operandSegmentSizes = array<i32: 2, 0>}> : (tensor<1x32x32xbf16, #layout>, tensor<1x32x32xbf16, #layout>) -> ()
         return %1 : tensor<1x32x32xbf16, #layout>
     }
-    func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
         %0 = emitc.expression  : () -> i32 {
             %2 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
             yield %2 : i32
@@ -23,7 +23,7 @@ module {
         emitc.call_opaque "cb_push_back"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
         return
     }
-    func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
         %0 = emitc.expression  : () -> i32 {
             %2 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
             yield %2 : i32
@@ -33,7 +33,7 @@ module {
         emitc.call_opaque "cb_pop_front"(%1, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
         return
     }
-    func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
         return
     }
 

@@ -138,6 +138,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MAddScratchInputs());
+  pm.addPass(d2m::createD2MMarkSynchronizedOpBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -236,6 +237,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  pm.addPass(d2m::createD2MInsertCBOps());
 
   createOptimizationPasses(pm, options);
 

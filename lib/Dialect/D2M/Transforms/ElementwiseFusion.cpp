@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
@@ -261,6 +262,152 @@ getFusedOperands(OpOperand *fusedOperand, GenericOp producer,
                          std::move(fusedMaps));
 }
 
+struct LocalBufferAssociation {
+  LocalBufferAssociation() = default;
+  LocalBufferAssociation(Value operand, bool hasRemoteUse)
+      : operand(operand), hasRemoteUse(hasRemoteUse) {}
+
+  Value operand;
+  bool hasRemoteUse = false;
+};
+
+// TODO: this code is pretty bad, the check on buffer conflict is also not
+// needed now that getCBUsage can check for conflicts too
+static LocalBufferAssociation
+analyzeLocalBufferAssociation(Value localBuffer,
+                              Value fallbackOperand = Value()) {
+  Value loadOperand;
+  Value storeOperand;
+  bool hasConflictingLoadOperands = false;
+  bool hasConflictingStoreOperands = false;
+
+  auto noteOperand = [](Value &slot, bool &hasConflict, Value operand) {
+    if (!operand) {
+      return;
+    }
+    if (!slot) {
+      slot = operand;
+      return;
+    }
+    if (slot != operand) {
+      hasConflict = true;
+    }
+  };
+
+  bool hasRemoteUse = false;
+  for (Operation *userOp : localBuffer.getUsers()) {
+    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
+      if (loadOp.getLocalBuffer() == localBuffer) {
+        hasRemoteUse = true;
+        noteOperand(loadOperand, hasConflictingLoadOperands,
+                    loadOp.getMemref());
+      }
+      continue;
+    }
+    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
+      if (storeOp.getLocalBuffer() == localBuffer) {
+        hasRemoteUse = true;
+        noteOperand(storeOperand, hasConflictingStoreOperands,
+                    storeOp.getMemref());
+      }
+    }
+  }
+
+  if (storeOperand && !hasConflictingStoreOperands && loadOperand &&
+      loadOperand != storeOperand) {
+    // A buffer shared between different load/store operands must follow the
+    // store-side operand so Allocate can treat it as an output buffer.
+    return LocalBufferAssociation(storeOperand, hasRemoteUse);
+  }
+  if (storeOperand && !hasConflictingStoreOperands) {
+    return LocalBufferAssociation(storeOperand, hasRemoteUse);
+  }
+  if (loadOperand && !hasConflictingLoadOperands) {
+    return LocalBufferAssociation(loadOperand, hasRemoteUse);
+  }
+  if (!hasRemoteUse) {
+    return LocalBufferAssociation(fallbackOperand, false);
+  }
+
+  return LocalBufferAssociation(Value(), true);
+}
+
+// Get the allocation (tensor.empty or memref.alloc) op result at
+// position `operandIndex` from the region's first block using
+// positional counting.  Returns null if not found.
+Value getOperandAlloc(Region &region, unsigned operandIndex) {
+  if (region.empty()) {
+    return Value();
+  }
+
+  GenericOp generic = region.getParentOfType<GenericOp>();
+
+  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
+  // stepping into blocking loops only. Do NOT walk into compute loops
+  // (scf.for without d2m.blocking_loop) — allocs inside those are local
+  // working buffers, not operand allocations.
+  //
+  // d2m.get_cb ops are matched by operand_index when present, otherwise by
+  // their remote_load/remote_store binding. tensor.empty/memref.alloc ops are
+  // matched by positional order.
+  Value result;
+  unsigned idx = 0;
+  std::function<void(Block &)> scanBlock = [&](Block &block) {
+    for (Operation &op : block) {
+      if (result) {
+        return;
+      }
+      if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
+        LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
+            emptyOp.getResult(),
+            generic ? generic.getOutputs().front() : Value());
+        if (assoc.hasRemoteUse || assoc.operand) {
+          if (generic && assoc.operand &&
+              generic.getOperandIndex(assoc.operand) ==
+                  static_cast<int64_t>(operandIndex)) {
+            result = emptyOp.getResult();
+            return;
+          }
+        } else {
+          if (idx == operandIndex) {
+            result = emptyOp.getResult();
+            return;
+          }
+          ++idx;
+        }
+      } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&op)) {
+        LocalBufferAssociation assoc =
+            analyzeLocalBufferAssociation(allocOp.getResult());
+        if (assoc.hasRemoteUse) {
+          if (generic && assoc.operand &&
+              generic.getOperandIndex(assoc.operand) ==
+                  static_cast<int64_t>(operandIndex)) {
+            result = allocOp.getResult();
+            return;
+          }
+        } else {
+          if (idx == operandIndex) {
+            result = allocOp.getResult();
+            return;
+          }
+          ++idx;
+        }
+      } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
+        if (forOp->hasAttr("d2m.blocking_loop")) {
+          scanBlock(*forOp.getBody());
+        }
+      } else if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
+        if (forOp->hasAttr("d2m.blocking_loop")) {
+          scanBlock(*forOp.getBody());
+        }
+      }
+    }
+  };
+  scanBlock(region.front());
+
+  return result;
+}
+
 static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
                                     GenericOp consumer,
                                     SmallVector<Value> &fusedInputs,
@@ -296,7 +443,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     argSources.emplace_back(op, operandNumber);
     Region &srcRegion = (op == producer.getOperation()) ? producer.getRegion(0)
                                                         : consumer.getRegion(0);
-    Value operandAlloc = GenericOp::getOperandAlloc(srcRegion, operandNumber);
+    Value operandAlloc = getOperandAlloc(srcRegion, operandNumber);
     assert(operandAlloc && "Expected alloc op for operand in region");
     fusedEmptyTypes.push_back(operandAlloc.getType());
   };
@@ -322,6 +469,10 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     appendSource(consumer.getOperation(), co.getOperandNumber());
   }
 
+  // TODO: use helper create buffer for tensor load/store (same as that used in
+  // TTIRToD2M) we just need to pass it the operands of then generic which we
+  // have
+
   // Create tensor.empty ops in the fused block for each fused operand.
   rewriter.setInsertionPointToStart(&fusedBlock);
   SmallVector<Value> fusedTensorEmpties;
@@ -341,7 +492,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // Map consumer tensor.empty values to fused tensor.empty values.
   auto mapConsRegionEmpties = [&](GenericOp generic, Block &orig) {
     for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-      Value origEmpty = GenericOp::getOperandAlloc(*orig.getParent(), i);
+      Value origEmpty = getOperandAlloc(*orig.getParent(), i);
       unsigned fusedIndex = sourceToFusedIdx[{generic.getOperation(), i}];
       irMap.map(origEmpty, fusedTensorEmpties[fusedIndex]);
     }
@@ -352,7 +503,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     unsigned prodInitArgNum =
         prodGeneric.getDpsInitOperand(0)->getOperandNumber();
     for (unsigned i = 0; i < prodGeneric->getNumOperands(); ++i) {
-      Value origEmpty = GenericOp::getOperandAlloc(*orig.getParent(), i);
+      Value origEmpty = getOperandAlloc(*orig.getParent(), i);
       if (i != prodInitArgNum) {
         unsigned fusedIndex = sourceToFusedIdx[{prodGeneric.getOperation(), i}];
         irMap.map(origEmpty, fusedTensorEmpties[fusedIndex]);
@@ -363,8 +514,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     // operands, but we need to ensure it's mapped so that any operations in
     // the producer that reference it can be cloned properly. Map it to the
     // consumer's first output tensor.empty.
-    Value prodOutputEmpty =
-        GenericOp::getOperandAlloc(*orig.getParent(), prodInitArgNum);
+    Value prodOutputEmpty = getOperandAlloc(*orig.getParent(), prodInitArgNum);
     unsigned consumerFirstOutputArgNum =
         consumer.getDpsInitOperand(0)->getOperandNumber();
     unsigned consumerOutputFusedIdx =

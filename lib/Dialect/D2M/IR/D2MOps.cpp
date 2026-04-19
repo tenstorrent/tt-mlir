@@ -1621,6 +1621,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 }
 
 // GenericOp verification
+// TODO: check all top level ops touching tensors/memrefs are synchronized
 ::mlir::LogicalResult d2m::GenericOp::verify() {
   if (hasPureTensorSemantics()) {
     if (this->getNumRegions() != 1 && !isExplicitDatamovementForm()) {
@@ -2044,7 +2045,11 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
           }
 
           // Find the output alloc by positional counting.
-          Value outputAlloc = GenericOp::getOperandAlloc(region, dpsIOBoundary);
+          Value outputAlloc = nullptr;
+          // TODO: fix if needed, there are checks to get the right cb result,
+          // make sure to move this
+          // GenericOp::getOperandAlloc(region, dpsIOBoundary);
+          // perhaps there is a way to make sure linalg does not do this
 
           if (!outputAlloc || outputAlloc.use_empty()) {
             return false;
@@ -2301,95 +2306,86 @@ static Block *cloneParallelizedRegion(d2m::GenericOp thisOp,
   return newBlock;
 }
 
-// Use operand_index or remote_load/remote_store binding to find the associated
-// operand for a get_cb op.
-static Value findAssocOperandForGetCB(d2m::GetCBOp getCbOp) {
-  GenericOp genericOp = getCbOp->getParentOfType<GenericOp>();
-  if (!genericOp) {
-    return Value();
-  }
-
-  if (std::optional<int64_t> operandIndex = getCbOp.getOperandIndex()) {
-    if (*operandIndex >= 0 && static_cast<size_t>(*operandIndex) <
-                                  genericOp.getInputsAndOutputs().size()) {
-      return genericOp.getInputsAndOutputs()[*operandIndex];
-    }
-    return Value();
-  }
-
-  Value cb = getCbOp.getResult();
-  for (Operation *userOp : cb.getUsers()) {
-    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
-      if (loadOp.isExplicitCBForm() && loadOp.getCb() == cb) {
-        return loadOp.getMemref();
-      }
-    }
-    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
-      if (storeOp.isExplicitCBForm() && storeOp.getCb() == cb) {
-        return storeOp.getMemref();
-      }
-    }
-  }
-
-  return Value();
-}
-
 // Repair cloned ops whose result types depend on reblocked operand types.
 static void repairParallelizedRegionTypes(Block *newBlock) {
-  for (Operation &clonedOp : *newBlock) {
-    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
-      Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
-      if (associatedOperand) {
-        Type newAllocType = d2m::utils::cloneWithShardShape(associatedOperand,
-                                                            allocOp.getType());
-        if (newAllocType != allocOp.getType()) {
-          auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
-          TT_assert(newMemRefType);
-          allocOp.getResult().setType(newMemRefType);
-        }
-      }
-    } else if (auto tensorEmptyOp =
-                   mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
-      Value associatedOperand = d2m::GenericOp::findAssocOperand(tensorEmptyOp);
-      if (associatedOperand) {
-        Type newEmptyType = d2m::utils::cloneWithShardShape(
-            associatedOperand, tensorEmptyOp.getType());
-        if (newEmptyType != tensorEmptyOp.getType()) {
-          tensorEmptyOp.getResult().setType(
-              cast<RankedTensorType>(newEmptyType));
-        }
-      }
-    } else if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&clonedOp)) {
-      Value associatedOperand = findAssocOperandForGetCB(getCbOp);
-      if (associatedOperand) {
-        auto oldCbType = mlir::cast<d2m::CBType>(getCbOp.getResult().getType());
-        Type newUnderlyingType = d2m::utils::cloneWithShardShape(
-            associatedOperand, oldCbType.getUnderlying());
-        if (newUnderlyingType != oldCbType.getUnderlying()) {
-          getCbOp.getResult().setType(d2m::CBType::get(
-              getCbOp.getContext(), mlir::cast<ShapedType>(newUnderlyingType)));
-        }
-      }
-    } else if (auto remoteLoadOp =
-                   mlir::dyn_cast<d2m::RemoteLoadOp>(&clonedOp)) {
-      if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
-        remoteLoadOp.getResult().setType(localBuffer.getType());
+  // update the local buffers first
+  newBlock->walk([&](Operation *clonedOp) {
+    llvm::errs() << "repairing cloned op " << clonedOp->getName() << "\n";
+    if (auto remoteLoadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
+      llvm::errs() << "repairing remote load op " << remoteLoadOp->getName()
+                   << "\n";
+      // update the associated alloc/empty first
+      Value newMemref = remoteLoadOp.getMemref();
+      auto localBufferDefiningOp =
+          remoteLoadOp.getLocalBuffer().getDefiningOp();
+      assert((mlir::isa<memref::AllocOp>(localBufferDefiningOp) ||
+              mlir::isa<tensor::EmptyOp>(localBufferDefiningOp)) &&
+             "local buffer defining op must be a memref::AllocOp or "
+             "tensor::EmptyOp");
+      Type newLocalBufferType = d2m::utils::cloneWithShardShape(
+          newMemref, localBufferDefiningOp->getResult(0).getType());
+      llvm::errs() << "updating localbuffer type to " << newLocalBufferType
+                   << "\n";
+      if (newLocalBufferType != localBufferDefiningOp->getResult(0).getType()) {
+        localBufferDefiningOp->getResult(0).setType(newLocalBufferType);
+        llvm::errs() << "updated remote load alloc completely " << "\n";
       }
     } else if (auto remoteStoreOp =
-                   mlir::dyn_cast<d2m::RemoteStoreOp>(&clonedOp)) {
+                   mlir::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
+      // update the associated alloc/empty first
+      Value newMemref = remoteStoreOp.getMemref();
+      auto localBufferDefiningOp =
+          remoteStoreOp.getLocalBuffer().getDefiningOp();
+      // If dps op output, trace to dps init until we reach
+      while (auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(
+                 localBufferDefiningOp)) {
+        localBufferDefiningOp = dpsOp.getDpsInits()[0].getDefiningOp();
+      }
+      assert((mlir::isa<memref::AllocOp>(localBufferDefiningOp) ||
+              mlir::isa<tensor::EmptyOp>(localBufferDefiningOp)) &&
+             "local buffer defining op must be a memref::AllocOp or "
+             "tensor::EmptyOp");
+      Type newLocalBufferType = d2m::utils::cloneWithShardShape(
+          newMemref, localBufferDefiningOp->getResult(0).getType());
+      if (newLocalBufferType != localBufferDefiningOp->getResult(0).getType()) {
+        localBufferDefiningOp->getResult(0).setType(newLocalBufferType);
+      }
+    }
+  });
+
+  // then update the result types of the ops
+  newBlock->walk([&](Operation *clonedOp) {
+    llvm::errs() << "repairing cloned op " << clonedOp->getName() << "\n";
+    if (auto remoteLoadOp = mlir::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
+      // then update the result type
+      if (Value localBuffer = remoteLoadOp.getLocalBuffer()) {
+        remoteLoadOp.getResult().setType(localBuffer.getType());
+        llvm::errs() << "updated remote load result completely " << "\n";
+      }
+    } else if (auto remoteStoreOp =
+                   mlir::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
       if (remoteStoreOp.hasResultForm()) {
         remoteStoreOp.getResult().setType(remoteStoreOp.getMemref().getType());
       }
     } else if (auto dstOp =
-                   mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
+                   mlir::dyn_cast<DestinationStyleOpInterface>(clonedOp)) {
       unsigned numIns = dstOp.getNumDpsInputs();
-      unsigned numOuts = clonedOp.getNumResults();
+      unsigned numOuts = clonedOp->getNumResults();
       for (unsigned i = 0; i < numOuts; ++i) {
-        clonedOp.getResult(i).setType(
-            clonedOp.getOperand(numIns + i).getType());
+        clonedOp->getResult(i).setType(
+            clonedOp->getOperand(numIns + i).getType());
       }
     }
-  }
+
+    // TODO: remove this hack
+    // repair block arguments of synchronized region ops
+    if (auto synchronizedOp = mlir::dyn_cast<SynchronizedRegionOp>(clonedOp)) {
+      for (BlockArgument arg :
+           synchronizedOp.getRegion().front().getArguments()) {
+        arg.setType(clonedOp->getOperand(arg.getArgNumber()).getType());
+      }
+    }
+  });
 }
 
 // Build a return view for the rebuilt generic when the caller requests one.
@@ -2951,241 +2947,6 @@ bool d2m::GenericOp::isNontriviallyEltwiseFused() {
   }
 
   return true;
-}
-
-namespace {
-
-struct LocalBufferAssociation {
-  LocalBufferAssociation() = default;
-  LocalBufferAssociation(Value operand, bool hasRemoteUse)
-      : operand(operand), hasRemoteUse(hasRemoteUse) {}
-
-  Value operand;
-  bool hasRemoteUse = false;
-};
-
-static LocalBufferAssociation
-analyzeLocalBufferAssociation(Value localBuffer,
-                              Value fallbackOperand = Value()) {
-  Value loadOperand;
-  Value storeOperand;
-  bool hasConflictingLoadOperands = false;
-  bool hasConflictingStoreOperands = false;
-
-  auto noteOperand = [](Value &slot, bool &hasConflict, Value operand) {
-    if (!operand) {
-      return;
-    }
-    if (!slot) {
-      slot = operand;
-      return;
-    }
-    if (slot != operand) {
-      hasConflict = true;
-    }
-  };
-
-  bool hasRemoteUse = false;
-  for (Operation *userOp : localBuffer.getUsers()) {
-    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
-      if (loadOp.getLocalBuffer() == localBuffer) {
-        hasRemoteUse = true;
-        noteOperand(loadOperand, hasConflictingLoadOperands,
-                    loadOp.getMemref());
-      }
-      continue;
-    }
-    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
-      if (storeOp.getLocalBuffer() == localBuffer) {
-        hasRemoteUse = true;
-        noteOperand(storeOperand, hasConflictingStoreOperands,
-                    storeOp.getMemref());
-      }
-    }
-  }
-
-  if (storeOperand && !hasConflictingStoreOperands && loadOperand &&
-      loadOperand != storeOperand) {
-    // A buffer shared between different load/store operands must follow the
-    // store-side operand so Allocate can treat it as an output buffer.
-    return LocalBufferAssociation(storeOperand, hasRemoteUse);
-  }
-  if (storeOperand && !hasConflictingStoreOperands) {
-    return LocalBufferAssociation(storeOperand, hasRemoteUse);
-  }
-  if (loadOperand && !hasConflictingLoadOperands) {
-    return LocalBufferAssociation(loadOperand, hasRemoteUse);
-  }
-  if (!hasRemoteUse) {
-    return LocalBufferAssociation(fallbackOperand, false);
-  }
-
-  return LocalBufferAssociation(Value(), true);
-}
-
-} // namespace
-
-Value d2m::GenericOp::findAssocOperand(memref::AllocOp allocOp) {
-  // First check that the memref.alloc is within a generic op
-  GenericOp genericOp = allocOp->getParentOfType<GenericOp>();
-  if (!genericOp) {
-    return Value();
-  }
-
-  return analyzeLocalBufferAssociation(allocOp.getResult()).operand;
-}
-
-Value d2m::GenericOp::findAssocOperand(mlir::tensor::EmptyOp emptyOp) {
-  // First check that the tensor.empty is within a generic op
-  GenericOp genericOp = emptyOp->getParentOfType<GenericOp>();
-  if (!genericOp) {
-    return Value();
-  }
-
-  // Assert that the parent GenericOp has a single output
-  int64_t numOutputs = static_cast<int64_t>(genericOp.getOutputs().size());
-  TT_assertv(numOutputs == 1,
-             "tensor.empty within generic op with multiple outputs - "
-             "cannot determine associated operand");
-
-  // By default, assume the associated operand is the sole output operand.
-  return analyzeLocalBufferAssociation(emptyOp.getResult(),
-                                       genericOp.getOutputs()[0])
-      .operand;
-}
-
-Value d2m::GenericOp::findAssocCBByOperandIndex(Operation *op,
-                                                unsigned operandIndex) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find the generic op's thread region that contains this operation
-  Region *genericRegion = nullptr;
-  if (generic.getNumRegions() == 1) {
-    genericRegion = &generic.getRegion(0);
-  } else {
-    genericRegion = ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
-  }
-
-  if (!genericRegion || genericRegion->empty()) {
-    return Value();
-  }
-
-  return getOperandAlloc(*genericRegion, operandIndex);
-}
-
-Value d2m::GenericOp::findAssocCBByOperand(Operation *op, Value operand) {
-  GenericOp generic = op->getParentOfType<GenericOp>();
-  if (!generic) {
-    return Value();
-  }
-
-  // Find which operand index this corresponds to.
-  unsigned operandIndex = UINT_MAX;
-  for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
-    if (generic->getOperand(i) == operand) {
-      operandIndex = i;
-      break;
-    }
-  }
-
-  if (operandIndex == UINT_MAX) {
-    return Value();
-  }
-
-  return findAssocCBByOperandIndex(op, operandIndex);
-}
-
-Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
-  if (region.empty()) {
-    return Value();
-  }
-
-  GenericOp generic = region.getParentOfType<GenericOp>();
-
-  // Walk the region looking for tensor.empty/memref.alloc/d2m.get_cb ops,
-  // stepping into blocking loops only. Do NOT walk into compute loops
-  // (scf.for without d2m.blocking_loop) — allocs inside those are local
-  // working buffers, not operand allocations.
-  //
-  // d2m.get_cb ops are matched by operand_index when present, otherwise by
-  // their remote_load/remote_store binding. tensor.empty/memref.alloc ops are
-  // matched by positional order.
-  Value result;
-  unsigned idx = 0;
-  std::function<void(Block &)> scanBlock = [&](Block &block) {
-    for (Operation &op : block) {
-      if (result) {
-        return;
-      }
-      if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
-        if (std::optional<int64_t> assocOperandIndex =
-                getCbOp.getOperandIndex()) {
-          if (*assocOperandIndex >= 0 &&
-              static_cast<unsigned>(*assocOperandIndex) == operandIndex) {
-            result = getCbOp.getResult();
-            return;
-          }
-        } else if (Value associatedOperand =
-                       findAssocOperandForGetCB(getCbOp)) {
-          GenericOp generic = getCbOp->getParentOfType<GenericOp>();
-          if (generic && generic.getOperandIndex(associatedOperand) ==
-                             static_cast<int64_t>(operandIndex)) {
-            result = getCbOp.getResult();
-            return;
-          }
-        }
-      } else if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
-        LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
-            emptyOp.getResult(),
-            generic ? generic.getOutputs().front() : Value());
-        if (assoc.hasRemoteUse || assoc.operand) {
-          if (generic && assoc.operand &&
-              generic.getOperandIndex(assoc.operand) ==
-                  static_cast<int64_t>(operandIndex)) {
-            result = emptyOp.getResult();
-            return;
-          }
-        } else {
-          if (idx == operandIndex) {
-            result = emptyOp.getResult();
-            return;
-          }
-          ++idx;
-        }
-      } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&op)) {
-        LocalBufferAssociation assoc =
-            analyzeLocalBufferAssociation(allocOp.getResult());
-        if (assoc.hasRemoteUse) {
-          if (generic && assoc.operand &&
-              generic.getOperandIndex(assoc.operand) ==
-                  static_cast<int64_t>(operandIndex)) {
-            result = allocOp.getResult();
-            return;
-          }
-        } else {
-          if (idx == operandIndex) {
-            result = allocOp.getResult();
-            return;
-          }
-          ++idx;
-        }
-      } else if (auto forOp = mlir::dyn_cast<mlir::affine::AffineForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
-      } else if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(&op)) {
-        if (forOp->hasAttr("d2m.blocking_loop")) {
-          scanBlock(*forOp.getBody());
-        }
-      }
-    }
-  };
-  scanBlock(region.front());
-
-  return result;
 }
 
 bool d2m::SpatialOp::bufferizesToMemoryRead(

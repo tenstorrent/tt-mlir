@@ -29,40 +29,10 @@ static std::optional<unsigned> getCapturedOperandIndex(GenericOp op,
   return std::nullopt;
 }
 
-static void rewriteOperand(OpBuilder &builder, DMAOpInterface dma,
-                           OpOperand &dmaOperand, unsigned operandIndex) {
-  MemRefType memref = mlir::cast<MemRefType>(dmaOperand.get().getType());
-  AffineMap affineMapView = builder.getMultiDimIdentityMap(memref.getRank());
-  if (dmaOperand.get().getDefiningOp()) {
-    std::tie(memref, affineMapView) =
-        applyViews(dmaOperand.get().getDefiningOp());
-  }
-  Operation *globalOperand =
-      builder.create<GetGlobalOperandOp>(dma.getLoc(), memref, operandIndex);
-  dmaOperand.set(globalOperand->getResult(0));
-}
-
-static void rewriteCapturedDMAOperands(OpBuilder &builder, GenericOp generic,
-                                       DMAOpInterface dma) {
-
-  auto srcIndex = getCapturedOperandIndex(generic, dma.getSrc());
-  auto dstIndex = getCapturedOperandIndex(generic, dma.getDst());
-
-  builder.setInsertionPoint(dma);
-  if (srcIndex) {
-    rewriteOperand(builder, dma, dma.getSrcMutable(), *srcIndex);
-  }
-
-  if (dstIndex) {
-    rewriteOperand(builder, dma, dma.getDstMutable(), *dstIndex);
-  }
-}
-
-static void rewriteAdditionalArgOperands(OpBuilder &builder,
-                                         GenericOp generic) {
-  //  Get all uses of additional arg
-  //  operands that are not the generic operation itself.
-  for (auto [idx, operand] : llvm::enumerate(generic.getAdditionalArgs())) {
+// Get all uses of additional arg operands that inside the generic op itself and
+// insert a get_global_operand op to obtain the operand
+static void rewriteGenericOperands(OpBuilder &builder, GenericOp generic) {
+  for (auto [idx, operand] : llvm::enumerate(generic->getOperands())) {
     unsigned capturedOperandIndex = *getCapturedOperandIndex(generic, operand);
     for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
       if (use.getOwner() != generic.getOperation() &&
@@ -89,10 +59,7 @@ public:
     OpBuilder builder(&getContext());
     int unique = 0;
     moduleOp->walk([&](GenericOp generic) {
-      generic.walk([&](DMAOpInterface dma) {
-        rewriteCapturedDMAOperands(builder, generic, dma);
-      });
-      rewriteAdditionalArgOperands(builder, generic);
+      rewriteGenericOperands(builder, generic);
 
       SmallVector<Attribute> threads;
       auto origThreads = generic.getThreadsAttr().getValue();

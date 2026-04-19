@@ -162,7 +162,11 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
-  llvm_unreachable("Expected load or subview op");
+  if (dyn_cast<d2m::WaitOp>(cb.getDefiningOp()) ||
+      dyn_cast<d2m::ReserveOp>(cb.getDefiningOp())) {
+    return rewriter.getRemappedValue(cb);
+  }
+  llvm_unreachable("Expected load, subview, or d2m.wait/reserve op");
 }
 
 // Get DST index from where a compute op result is stored.
@@ -860,15 +864,15 @@ public:
       Value aTileIndex = adaptor.getA();
       Value bTileIndex = adaptor.getB();
 
-      // If the input didn't come from a subview, we'll expect the CB directly
-      // which implicitly comes from an unrealized conversion cast.  This is a
-      // special case where we're reading from offset 0.
-      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
-              aTileIndex.getDefiningOp())) {
+      // TODO: check correctness
+      // If the input didn't come from a subview, we'll expect the CB directly.
+      // This can happen when the value comes from an unrealized conversion cast
+      // or from a get_compile_time_arg_val op. In either case, if the type is
+      // a CB, we're reading from offset 0.
+      if (mlir::isa<ttkernel::CBType>(aTileIndex.getType())) {
         aTileIndex = index(rewriter, op.getLoc(), 0);
       }
-      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
-              bTileIndex.getDefiningOp())) {
+      if (mlir::isa<ttkernel::CBType>(bTileIndex.getType())) {
         bTileIndex = index(rewriter, op.getLoc(), 0);
       }
 
@@ -2198,19 +2202,13 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
-
-    assert(op.getOperandIndex() &&
-           "d2m.get_cb must have an operand_index by the time it reaches "
-           "D2MToTTKernel lowering");
-    int64_t operandIndex = *op.getOperandIndex();
-
     // Append a CBPort entry to the parent function's ArgSpec so that
     // D2MToTTNN can generate the corresponding cb_buffer_index in the
     // kernel descriptor's ct_args.  The operand index tells the runtime
     // which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, operandIndex);
+    ArgAttr cbArg =
+        rewriter.getAttr<ArgAttr>(ArgType::CB, op.getCbOperandIdx());
     size_t ctArgIndex;
     rewriter.modifyOpInPlace(entry, [&]() {
       ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);
@@ -2219,6 +2217,7 @@ public:
     // Emit a get_compile_time_arg_val that reads the port from ct_args at
     // runtime. This allows the spatial op to remap CB ports per grid range
     // by overriding compile-time arguments.
+    Type cbType = getTypeConverter()->convertType(op.getResult().getType());
     rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
         op, cbType, static_cast<int32_t>(ctArgIndex));
     return success();
