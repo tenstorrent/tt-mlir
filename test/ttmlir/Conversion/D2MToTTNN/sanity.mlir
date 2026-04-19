@@ -93,7 +93,7 @@ module {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       rt_args = [<arg_type = buffer_address, operand_index = 0>]
       ct_args = [
-        <arg_type = cb_port, operand_index = 0>,
+        <arg_type = cb, operand_index = 0>,
         <arg_type = semaphore, operand_index = 0>,
         <arg_type = semaphore, operand_index = 1>
       ]
@@ -105,8 +105,8 @@ module {
   func.func private @compute_kernel0() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       ct_args = [
-        <arg_type = cb_port, operand_index = 0>,
-        <arg_type = cb_port, operand_index = 1>
+        <arg_type = cb, operand_index = 0>,
+        <arg_type = cb, operand_index = 1>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<compute>
@@ -117,7 +117,7 @@ module {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       rt_args = [<arg_type = buffer_address, operand_index = 1>]
       ct_args = [
-        <arg_type = cb_port, operand_index = 1>,
+        <arg_type = cb, operand_index = 1>,
         <arg_type = semaphore, operand_index = 2>,
         <arg_type = semaphore, operand_index = 3>
       ]

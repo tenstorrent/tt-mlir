@@ -81,7 +81,7 @@ private:
 
     // hoist aliased CBs
     genericOp->walk([&](d2m::OperandAliasOp aliasOp) {
-      llvm::errs() << "hoisting aliased CB: " << aliasOp.getMemref() << "\n";
+      // llvm::errs() << "hoisting aliased CB: " << aliasOp.getMemref() << "\n";
       rewriter.setInsertionPoint(genericOp);
       auto externalAlias = rewriter.create<d2m::OperandAliasOp>(
           genericOp.getLoc(), aliasOp.getResult().getType(),

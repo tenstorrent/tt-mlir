@@ -169,6 +169,19 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<GenericOp> {
       return failure();
     }
 
+    // Wrap in a synchronized region first before generating compute loops
+    for (linalg::GenericOp &linalgOp : linalgOps) {
+      auto [clonedLinalgGenericOp, synchronizedRegionOp] =
+          wrapInSynchronizedRegion(
+              rewriter,
+              mlir::cast<SynchronizableOpInterface>(linalgOp.getOperation()));
+      if (clonedLinalgGenericOp == nullptr || synchronizedRegionOp == nullptr) {
+        return rewriter.notifyMatchFailure(
+            linalgOp, "failed to wrap linalg.generic in a synchronized region");
+      }
+      linalgOp = mlir::cast<linalg::GenericOp>(clonedLinalgGenericOp);
+    }
+
     // Insert unpack_stall_on_pack before any linalg op that reads from an L1
     // buffer written by a preceding linalg op's PACK output. This ensures the
     // UNPACK thread waits for PACK to commit its write before reading.
