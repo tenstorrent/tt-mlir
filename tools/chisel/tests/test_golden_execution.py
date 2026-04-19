@@ -50,67 +50,34 @@ def _iterate_programs(binary):
         yield i, binary.get_program_name(i)
 
 
-def test_golden_execution(ir_module, binary):
+def test_golden_execution(subtests, ir_module, binary):
     """Execute each TTNN op on the meta device; verify output shape and dtype."""
-    executed = 0
-    skipped = 0
-    failed = []
-
     for _prog_idx, prog_name in _iterate_programs(binary):
         asm_state = ir_module.get_asm_state(prog_name)
 
         for op in ir_module.get_function_ops(prog_name):
-            inputs = {}
-            for operand in get_op_inputs(op):
-                name = operand.get_name(asm_state)
-                shape = list(operand.type.shape)
-                dtype = _element_type_to_torch_dtype(operand.type.element_type)
-                inputs[name] = torch.empty(shape, dtype=dtype, device="meta")
+            with subtests.test(prog=prog_name, op=op.name):
+                inputs = {}
+                for operand in get_op_inputs(op):
+                    name = operand.get_name(asm_state)
+                    shape = list(operand.type.shape)
+                    dtype = _element_type_to_torch_dtype(operand.type.element_type)
+                    inputs[name] = torch.empty(shape, dtype=dtype, device="meta")
 
-            try:
-                result = execute_golden(op, ir_module, prog_name, inputs)
-            except RuntimeError:
-                skipped += 1
-                continue
-            except Exception as e:
-                failed.append((prog_name, op.name, str(e)))
-                continue
+                try:
+                    result = execute_golden(op, ir_module, prog_name, inputs)
+                except RuntimeError:
+                    pytest.skip("no golden implementation")
 
-            op_outputs = get_op_outputs(op)
-            if op_outputs:
-                expected_shape = list(op_outputs[0].type.shape)
-                expected_dtype = _element_type_to_torch_dtype(
-                    op_outputs[0].type.element_type
-                )
-                if list(result.shape) != expected_shape:
-                    failed.append(
-                        (
-                            prog_name,
-                            op.name,
-                            f"shape mismatch: got {list(result.shape)}, expected {expected_shape}",
-                        )
+                op_outputs = get_op_outputs(op)
+                if op_outputs:
+                    expected_shape = list(op_outputs[0].type.shape)
+                    expected_dtype = _element_type_to_torch_dtype(
+                        op_outputs[0].type.element_type
                     )
-                    continue
-                if result.dtype != expected_dtype:
-                    failed.append(
-                        (
-                            prog_name,
-                            op.name,
-                            f"dtype mismatch: got {result.dtype}, expected {expected_dtype}",
-                        )
+                    assert list(result.shape) == expected_shape, (
+                        f"shape mismatch: got {list(result.shape)}, expected {expected_shape}"
                     )
-                    continue
-
-            executed += 1
-
-    total = executed + skipped + len(failed)
-    print(
-        f"\nGolden execution: {executed} executed, {skipped} skipped, "
-        f"{len(failed)} failed (total {total})"
-    )
-
-    if failed:
-        details = "\n".join(
-            f"  [{prog}/{op_name}]: {err}" for prog, op_name, err in failed
-        )
-        pytest.fail(f"{len(failed)} op(s) raised unexpected errors:\n{details}")
+                    assert result.dtype == expected_dtype, (
+                        f"dtype mismatch: got {result.dtype}, expected {expected_dtype}"
+                    )
