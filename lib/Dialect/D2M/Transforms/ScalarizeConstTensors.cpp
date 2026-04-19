@@ -225,48 +225,6 @@ static IRMapping buildBlockArgMappingWithoutScalarizedIndices(
   return mapping;
 }
 
-static void updateTensorEmptyResultType(
-    Operation *originalOp, Operation *clonedOp, GenericOp oldGenericOp,
-    GenericOp newGenericOp,
-    const llvm::DenseMap<uint64_t, uint64_t> &operandIndexRemap) {
-  auto tensorEmptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(clonedOp);
-  auto originalEmptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(originalOp);
-  if (!tensorEmptyOp || !originalEmptyOp) {
-    return;
-  }
-
-  Value associatedOperand = oldGenericOp.findAssocOperand(originalEmptyOp);
-  if (!associatedOperand) {
-    return;
-  }
-
-  auto operands = oldGenericOp->getOperands();
-  auto opIt = llvm::find(operands, associatedOperand);
-  if (opIt == operands.end()) {
-    return;
-  }
-  unsigned oldOperandIdx = opIt - operands.begin();
-
-  auto it = operandIndexRemap.find(oldOperandIdx);
-  if (it == operandIndexRemap.end()) {
-    return;
-  }
-
-  Value newCB = newGenericOp.findAssocCBByOperandIndex(clonedOp, it->second);
-  if (!newCB) {
-    return;
-  }
-  auto cbType = mlir::dyn_cast<d2m::CBType>(newCB.getType());
-  if (!cbType) {
-    return;
-  }
-
-  auto tensorType = mlir::dyn_cast<RankedTensorType>(cbType.getUnderlying());
-  if (tensorType) {
-    tensorEmptyOp.getResult().setType(tensorType);
-  }
-}
-
 static linalg::GenericOp rebuildLinalgGenericWithoutScalarizedInputs(
     linalg::GenericOp linalgOp, ArrayRef<unsigned> scalarizedInputIndices,
     PatternRewriter &rewriter) {
@@ -377,10 +335,7 @@ static GenericOp rebuildD2MGenericWithoutScalarizedInputs(
 
     rewriter.setInsertionPointToStart(newBlock);
     for (Operation &op : oldBlock->without_terminator()) {
-      Operation *clonedOp = rewriter.clone(op, mapping);
-      // Keep tensor.empty result types aligned with remapped CB operand types.
-      updateTensorEmptyResultType(&op, clonedOp, genericOp, newGenericOp,
-                                  operandIndexRemap);
+      rewriter.clone(op, mapping);
     }
     if (oldBlock->mightHaveTerminator()) {
       rewriter.clone(*oldBlock->getTerminator(), mapping);

@@ -237,6 +237,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  pm.addPass(d2m::createD2MInsertCBOps());
 
   createOptimizationPasses(pm, options);
 

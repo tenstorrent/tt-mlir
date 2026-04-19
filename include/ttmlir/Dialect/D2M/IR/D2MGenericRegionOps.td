@@ -740,6 +740,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Tile Tilize Block Op";
     let description = [{
@@ -752,6 +753,13 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getOutput();
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getInput();
+      }
     }];
 
     let hasVerifier = 1;
@@ -766,6 +774,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
@@ -778,6 +787,13 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getOutput();
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getInput();
+      }
     }];
 
     let hasVerifier = 1;

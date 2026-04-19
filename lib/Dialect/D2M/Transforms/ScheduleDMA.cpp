@@ -33,14 +33,13 @@ struct DMAThreadAssignment {
   int32_t nocIndex = -1;
 };
 
-// Get the CB port number from a remote_load or remote_store operation.
-static unsigned getCBPort(Operation *dmaOp,
-                          const llvm::DenseMap<Value, unsigned> &cbPortMap) {
+// Get the CB operand index from a remote_load or remote_store operation.
+static unsigned getCBOperandIndex(Operation *dmaOp) {
   if (auto load = mlir::dyn_cast<RemoteLoadOp>(dmaOp)) {
-    return cbPortMap.at(load.getCb());
+    return load.getCb().getDefiningOp<GetCBOp>().getCbOperandIdx();
   }
   if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
-    return cbPortMap.at(store.getCb());
+    return store.getCb().getDefiningOp<GetCBOp>().getCbOperandIdx();
   }
   llvm_unreachable("getCb called on non-DMA op");
 }
@@ -58,7 +57,7 @@ collectDMAOps(Block *block,
     }
 
     if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
-      dmaOps.push_back({&op, getCBPort(&op, cbPortMap)});
+      dmaOps.push_back({&op, getCBOperandIndex(&op)});
     }
   }
 }
@@ -164,7 +163,7 @@ static bool
 shouldKeepOpForThread(Operation *op, const DenseSet<unsigned> &assignedCBs,
                       const llvm::DenseMap<Value, unsigned> &cbPortMap) {
   if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(op)) {
-    return assignedCBs.contains(getCBPort(op, cbPortMap));
+    return assignedCBs.contains(getCBOperandIndex(op));
   }
   return false;
 }

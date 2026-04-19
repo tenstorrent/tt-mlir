@@ -15,7 +15,15 @@ struct CBUsageInfo {
   SmallVector<Operation *> consumers;
 };
 
-llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &region);
+llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion);
+
+LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter,
+                                        d2m::GenericOp genericOp);
+
+std::pair<Operation *, Operation *>
+wrapInSynchronizedRegion(PatternRewriter &rewriter,
+                         SynchronizableOpInterface synchronizedOp);
+
 } // namespace mlir::tt::d2m
 
 #endif

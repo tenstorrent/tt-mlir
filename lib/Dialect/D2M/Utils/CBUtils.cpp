@@ -40,9 +40,9 @@ Value getCB(Operation *opUsingCB, Value cbGenericOperand,
                             mlir::cast<ShapedType>(cbGenericOperand.getType()));
   auto getCBOp =
       rewriter.create<GetCBOp>(generic.getLoc(), cbType, *operandIndex);
-  llvm::errs() << "getting cb for operand: " << *operandIndex
-               << " in generic position: " << generic.getLoc()
-               << " with result: " << getCBOp.getResult() << "\n";
+  // llvm::errs() << "getting cb for operand: " << *operandIndex
+  //              << " in generic position: " << generic.getLoc()
+  //              << " with result: " << getCBOp.getResult() << "\n";
   return getCBOp.getResult();
 }
 
