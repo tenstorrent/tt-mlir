@@ -12,7 +12,7 @@
 //
 // Communication cost: walks the lowered module, identifies stablehlo CCL ops
 // (all_gather, reduce_scatter, etc.), and sums a per-op cost of
-// (fixed_latency + weight * volume_fraction). This penalizes configs that
+// (fixed_latency + weight * volume_factor). This penalizes configs that
 // introduce many or large collective operations.
 //
 // Memory benefit: estimates how much memory is saved by sharding argument
@@ -53,8 +53,13 @@ static int64_t computeMaxElements(func::FuncOp funcOp) {
 //   A graph with zero CCLs incurs zero latency. This is a heuristic constant
 //   (experimentally estimated, not measured).
 // - cclWeight: reflects op complexity (see getCCLWeight).
-// - volumeFactor: fraction of data communicated relative to the largest tensor,
-//   approximating bandwidth cost.
+// - volumeFactor: ratio of data communicated to the largest *argument* tensor,
+//   approximating bandwidth cost. This can exceed 1.0 when CCL ops operate on
+//   intermediate tensors larger than any input (e.g. attention scores
+//   [B,NH,S,S] vs argument tensors [B,NH,S,HD] when S > HD). This is
+//   intentional: larger intermediates should incur proportionally higher cost.
+//   The factor is consistent across configs (same maxElements denominator), so
+//   relative ranking is preserved.
 //
 // Total communication cost is the sum over all CCL ops in the module.
 static double evaluateCommunicationCost(ModuleOp module, int64_t maxElements) {

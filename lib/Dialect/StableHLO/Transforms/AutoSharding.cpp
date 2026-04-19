@@ -35,9 +35,9 @@
 //
 // Algorithm overview:
 //   1. Extract the mesh from the module and identify the sharding axis.
-//   2. Enumerate all valid per-argument sharding configurations (each argument
-//      dimension can be sharded or replicated, with at most one sharded dim per
-//      tensor).
+//   2. Enumerate all valid per-argument sharding configurations. Each argument
+//      of rank r has (r+1) choices (shard on one dim or replicate), giving
+//      ∏(rank_i + 1) total configs.
 //   3. For each configuration: clone the module, apply sharding hints, run the
 //      full remaining StableHLO pipeline (propagation, reshard-to-collectives,
 //      canonicalization), and score the result using a cost model.
@@ -50,8 +50,7 @@
 //
 // Known limitations:
 //   - Only searches single-axis sharding (first mesh axis with size > 1).
-//   - Compile time scales with the number of configs (exponential in total
-//     argument dimensions, capped at 2^20).
+//   - Compile time scales with ∏(rank_i + 1) configs, capped at 2^20.
 //   - Cost model uses heuristic weights — not calibrated to specific hardware.
 //   - Does not consider operator-level sharding, only argument-level.
 //
@@ -144,8 +143,12 @@ static bool extractShardableAxis(ModuleOp &module, std::string &meshName,
 
 // Enumerate all valid per-argument sharding configurations.
 // Constraint: at most one dimension per tensor can be sharded (we only have a
-// single shardable mesh axis). Capped at 2^20 bit patterns to bound compile
-// time.
+// single shardable mesh axis).
+//
+// Each argument of rank r has (r + 1) valid choices: shard on exactly one of
+// the r dimensions, or replicate (no sharding). The total search space is
+// ∏(rank_i + 1), which is much smaller than 2^totalDims because invalid
+// multi-shard-per-tensor configs are never generated.
 static llvm::SmallVector<ArgDimSharded>
 enumerateArgShardings(ModuleOp &module) {
   llvm::SmallVector<ArgDimSharded> configs;
@@ -164,44 +167,37 @@ enumerateArgShardings(ModuleOp &module) {
     argRanks.push_back(tensorType.getRank());
   }
 
-  int64_t totalDims = 0;
+  // Compute total number of valid configs: ∏(rank_i + 1).
+  // Each factor is (rank + 1) choices: shard on one dim, or replicate.
+  int64_t numConfigs = 1;
   for (auto rank : argRanks) {
-    totalDims += rank;
+    numConfigs *= (rank + 1);
+    if (numConfigs > (1LL << 20)) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "AutoSharding: search space exceeds 2^20, capping\n");
+      numConfigs = 1LL << 20;
+      break;
+    }
   }
 
-  if (totalDims > 20) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "AutoSharding: totalDims=" << totalDims
-               << " too large, capping enumeration at 2^20 bit patterns\n");
-  }
-
-  int64_t numConfigs = 1LL << std::min(totalDims, static_cast<int64_t>(20));
-
-  for (int64_t bits = 0; bits < numConfigs; ++bits) {
+  // Enumerate configs using mixed-radix indexing.
+  // For each config index, decompose it into per-arg choices where
+  // choice == rank means replicate, and choice < rank means shard that dim.
+  for (int64_t idx = 0; idx < numConfigs; ++idx) {
     ArgDimSharded config;
-    int64_t bitIdx = 0;
-    bool valid = true;
+    int64_t remainder = idx;
     for (size_t argIdx = 0; argIdx < argRanks.size(); ++argIdx) {
-      llvm::SmallVector<bool> dimChoices;
-      int shardedCount = 0;
-      for (int64_t d = 0; d < argRanks[argIdx]; ++d) {
-        bool sharded = (bits >> bitIdx) & 1;
-        dimChoices.push_back(sharded);
-        if (sharded) {
-          ++shardedCount;
-        }
-        ++bitIdx;
-      }
-      // With a single shardable axis, at most one dim per tensor can use it.
-      if (shardedCount > 1) {
-        valid = false;
-        break;
+      int64_t base = argRanks[argIdx] + 1;
+      int64_t choice = remainder % base;
+      remainder /= base;
+
+      llvm::SmallVector<bool> dimChoices(argRanks[argIdx], false);
+      if (choice < argRanks[argIdx]) {
+        dimChoices[choice] = true;
       }
       config.push_back(std::move(dimChoices));
     }
-    if (valid) {
-      configs.push_back(std::move(config));
-    }
+    configs.push_back(std::move(config));
   }
   return configs;
 }
