@@ -227,7 +227,20 @@ OutputHints ReshapeRuleBook::getOutputHints(
     // upgrading DRAM→L1 and breaking the zero-cost view path.
     return layout_filter_utils::nullHintOnly();
   }
-  // Non-view reshape: sharded output not beneficial, use non-sharded configs.
+  // Non-view reshape: emit interleaved, block-sharded, and height-sharded
+  // output candidates so sharded producers can preserve their layout into
+  // sharding-gated downstream consumers. Exclude width-sharded because
+  // tt-metal's reshape_tiled round-trips width-sharded outputs through
+  // interleaved internally.
+  // https://github.com/tenstorrent/tt-mlir/issues/7681
+  //
+  // Scoped to ReshapeOp only: PermuteOp shares this rule book
+  // (https://github.com/tenstorrent/tt-mlir/issues/7988) but its interleaved
+  // writer kernel (writer_permute_interleaved_tiled_generic) does not accept
+  // sharded TensorAccessors and fails brisc compilation.
+  if (mlir::isa<ReshapeOp>(op)) {
+    return layout_filter_utils::nonWidthShardedOutputHints(legalConfigs);
+  }
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 

@@ -54,10 +54,30 @@ filterNonSharded(const std::vector<OpConfig> &legalConfigs) {
   return result;
 }
 
+/// Filter legalConfigs to exclude only width-sharded layouts (keeps
+/// interleaved, block-sharded, and height-sharded).
+inline std::vector<OpConfig>
+filterNonWidthSharded(const std::vector<OpConfig> &legalConfigs) {
+  std::vector<OpConfig> result;
+  for (const auto &config : legalConfigs) {
+    if (!config.outputLayout || rejectWidthSharded(config.outputLayout)) {
+      result.push_back(config);
+    }
+  }
+  return result;
+}
+
 /// Non-sharded output hints (common pattern for many ops).
 inline OutputHints
 nonShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
   return OutputHints{filterNonSharded(legalConfigs), {}};
+}
+
+/// Non-width-sharded output hints: allow interleaved, block-sharded, and
+/// height-sharded candidates; exclude only width-sharded.
+inline OutputHints
+nonWidthShardedOutputHints(const std::vector<OpConfig> &legalConfigs) {
+  return OutputHints{filterNonWidthSharded(legalConfigs), {}};
 }
 
 /// NULL-hint-only output (backend decides from inputs, no fallbacks).
