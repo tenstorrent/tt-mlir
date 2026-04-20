@@ -29,6 +29,7 @@ class ChiselContext:
         self._stashed_inputs: Optional[dict] = None
         self._current_binary_id: Optional[int] = None
         self._current_program_index: Optional[int] = None
+        self.strict: bool = False
 
     def ensure_ir_module(self, binary, program_context) -> None:
         """Lazily create IRModule from the binary's MLIR source on first preOp."""

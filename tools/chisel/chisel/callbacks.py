@@ -8,6 +8,7 @@ DebugHooks callbacks for per-op isolation testing.
 Two plain functions compatible with DebugHooks op-level callbacks.
 No program-level callbacks in this PR.
 """
+import functools
 import logging
 
 from .context import ChiselContext
@@ -79,12 +80,42 @@ def chisel_post_op_callback(binary, program_context, op_context):
         name = mlir_output.get_name(asm_state)
         expected_shape = tuple(mlir_output.type.shape)
         actual_shape = tuple(device_torch.shape)
+        passed = expected_shape == actual_shape
 
-        if expected_shape == actual_shape:
+        if passed:
             logger.info(f"{op_name} {name}: shape OK {actual_shape}")
         else:
-            logger.warning(
-                f"{op_name} {name}: shape MISMATCH expected={expected_shape} actual={actual_shape}"
-            )
+            msg = f"{op_name} {name}: shape MISMATCH expected={expected_shape} actual={actual_shape}"
+            if ctx.strict:
+                ctx._stashed_inputs = None
+                raise AssertionError(msg)
+            logger.warning(msg)
 
     ctx._stashed_inputs = None
+
+
+def with_pytest_subtests(subtests):
+    """Decorator that wraps a post_op callback so each op runs as a pytest subtest.
+
+    Pairs with ctx.strict=True: the subtest fixture catches the AssertionError
+    raised on mismatch, records the failure, and continues to the next op.
+
+    Usage:
+        ctx.strict = True
+        tt_runtime.runtime.DebugHooks.get(
+            chisel_pre_op_callback,
+            with_pytest_subtests(subtests)(chisel_post_op_callback),
+        )
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(binary, program_context, op_context):
+            ctx = ChiselContext.get_instance()
+            op_name = ctx._current_op.name if ctx._current_op else "unknown"
+            with subtests.test(op=op_name):
+                fn(binary, program_context, op_context)
+
+        return wrapper
+
+    return decorator

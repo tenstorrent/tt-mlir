@@ -14,7 +14,7 @@ def bind():
     """Initialize ChiselContext and register op callbacks with DebugHooks."""
     import _ttmlir_runtime as tt_runtime
 
-    ChiselContext()
+    ChiselContext.get_instance()
     tt_runtime.runtime.DebugHooks.get(
         chisel_pre_op_callback,
         chisel_post_op_callback,
