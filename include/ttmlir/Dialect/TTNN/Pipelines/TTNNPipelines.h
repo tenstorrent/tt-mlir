@@ -5,11 +5,13 @@
 #ifndef TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
+#include "ttmlir/Dialect/TTCore/IR/TopologyParser.h"
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassOptions.h"
@@ -212,6 +214,15 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, OptionNames::meshShape,
       llvm::cl::desc("Set the multi-device mesh shape.")};
 
+  ListOption<ttcore::Topology> meshTopology{
+      *this, OptionNames::meshTopology,
+      llvm::cl::desc("Set the per-axis topology for the mesh."),
+      llvm::cl::values(
+          clEnumValN(ttcore::Topology::Ring, "ring", "Ring topology"),
+          clEnumValN(ttcore::Topology::Linear, "linear", "Linear topology"),
+          clEnumValN(ttcore::Topology::Disabled, "disabled",
+                     "Disabled topology"))};
+
   Option<bool> rowMajorEnabled{
       *this, "row-major-enabled",
       llvm::cl::desc(
@@ -253,6 +264,11 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc("Enable implicit broadcast folding pass."),
       llvm::cl::init(true)};
 
+  Option<bool> dramSpaceSavingOptimizationEnabled{
+      *this, "enable-dram-space-saving-optimization-pass",
+      llvm::cl::desc("Enable DRAM space saving optimization pass."),
+      llvm::cl::init(false)};
+
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
       llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
@@ -282,7 +298,7 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, "enable-permute-matmul-fusion",
       llvm::cl::desc(
           "Fuse permute ops into matmul/linear transpose attributes."),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
@@ -319,7 +335,7 @@ struct TTIRToTTNNDevicePipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
@@ -340,25 +356,26 @@ struct TTIRToTTNNDevicePipelineOptions
           "Leave empty to disable the pass."),
       llvm::cl::init(32)};
 
-  Option<bool> enableBfp8Conversion{
-      *this, "enable-bfp8-conversion",
-      llvm::cl::desc("Enables conversion from bfloat16 to bfp8_b."),
-      llvm::cl::init(false)};
-
-  Option<bool> experimentalBfp8Weights{
-      *this, "experimental-bfp8-weights",
-      llvm::cl::desc(
-          "Experimental: Enables conversion of weight tensors in "
-          "matrix multiplication and convolution operations to bfp8_b."),
-      llvm::cl::init(false)};
+  Option<WeightDtype> experimentalWeightDtype{
+      *this, "experimental-weight-dtype",
+      llvm::cl::desc("Experimental: Target dtype for weight conversion in "
+                     "matrix multiplication and linear operations."),
+      llvm::cl::values(
+          clEnumValN(WeightDtype::None, "none", "Disabled"),
+          clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
+                     "BFP BFloat4 format")),
+      llvm::cl::init(WeightDtype::None)};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
   // And computeCfgFp32DestAccEn default value is true.
   // This is done as part of generality effort,
   // to boost accuracy on all operations exposing compute kernel config by
-  // default.
-  Option<OptionalMathFidelity> computeCfgMathFidelity{
+  // default. At optimization levels > 0, these are overridden to
+  // Undefined/false to defer to runtime defaults (see
+  // resolveOptimizationLevelOptions).
+  mutable Option<OptionalMathFidelity> computeCfgMathFidelity{
       *this, "compute-cfg-math-fidelity",
       llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
                      "compute kernel config."),
@@ -371,7 +388,7 @@ struct TTIRToTTNNDevicePipelineOptions
                      "Undefined math fidelity")),
       llvm::cl::init(OptionalMathFidelity::HiFi4)};
 
-  Option<bool> computeCfgFp32DestAccEn{
+  mutable Option<bool> computeCfgFp32DestAccEn{
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
                      "operations exposing compute kernel config."),
@@ -408,6 +425,35 @@ struct TTIRToTTNNDevicePipelineOptions
   // This allows frontends to pass in an active device without closing it.
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
+  // Enable the greedy optimizer (GreedyLayoutPropagation + L1SpillManagement)
+  // instead of the chain-based TTNNOptimizer. Enabled by default when
+  // optimization level >= 1.
+  mutable Option<bool> enableGreedyOptimizer{
+      *this, "enable-greedy-optimizer",
+      llvm::cl::desc(
+          "Use the greedy layout propagation optimizer instead of the "
+          "chain-based TTNNOptimizer. If not explicitly set, enabled when "
+          "optimization level >= 1."),
+      llvm::cl::init(false)};
+
+  // Enable decision trace JSON output from the greedy optimizer passes.
+  Option<bool> enableDecisionTrace{
+      *this, "enable-decision-trace",
+      llvm::cl::desc("Enable greedy optimizer decision trace output."),
+      llvm::cl::init(false)};
+
+  // Output directory for decision trace JSON files.
+  Option<std::string> decisionTraceDir{
+      *this, "decision-trace-dir",
+      llvm::cl::desc("Output directory for decision trace JSON files."),
+      llvm::cl::init("ttrt-artifacts/decision_trace")};
+
+  // Enable per-op compile-time statistics from the greedy optimizer.
+  Option<bool> enableCompileTimeStats{
+      *this, "enable-compile-time-stats",
+      llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
@@ -427,6 +473,17 @@ struct TTIRToTTNNDevicePipelineOptions
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
+    }
+    if (enableGreedyOptimizer.getNumOccurrences() == 0) {
+      enableGreedyOptimizer = (optimizationLevel >= 1);
+    }
+    if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
+        optimizationLevel > 0) {
+      computeCfgMathFidelity = OptionalMathFidelity::Undefined;
+    }
+    if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
+        optimizationLevel > 0) {
+      computeCfgFp32DestAccEn = false;
     }
   }
 };
@@ -502,6 +559,18 @@ struct TTNNToEmitPyDevicePipelineOptions
           "Enable pipelines and passes that try to recover structure of the "
           "original IR/code. Highly experimental; please file issues at "
           "https://github.com/tenstorrent/tt-mlir/issues"),
+      llvm::cl::init(false)};
+
+  Option<bool> splitFiles{*this, "split-files",
+                          llvm::cl::desc("Enables TTNNFileSplit pass"),
+                          llvm::cl::init(true)};
+
+  Option<bool> createMainForTest{
+      *this, "create-main-for-test",
+      llvm::cl::desc(
+          "Create main_for_test wrapper for frontend-driven execution "
+          "(e.g. PythonModelRunner). Injects device as an explicit "
+          "argument into the forward function."),
       llvm::cl::init(false)};
 };
 

@@ -191,13 +191,6 @@ class Run:
             help="disable read update index for kv cache workaround",
         )
         Run.register_arg(
-            name="--disable-trace-implicit-from-device",
-            type=bool,
-            default=False,
-            choices=[True, False],
-            help="disable trace from implicitly bouncing tensors off of host",
-        )
-        Run.register_arg(
             name="--disable-blackhole-workarounds",
             type=bool,
             default=False,
@@ -258,7 +251,7 @@ class Run:
             type=bool,
             default=False,
             choices=[True, False],
-            help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
+            help="disable putting dispatch on ethernet cores - place it on worker cores instead",
         )
         Run.register_arg(
             name="--ignore-version",
@@ -543,7 +536,6 @@ class Run:
             workaround_env = ttrt.runtime.WorkaroundEnv.get(
                 not self["--disable-swap-binary-operands"],
                 not self["--disable-read-update-index-for-kv-cache"],
-                not self["--disable-trace-implicit-from-device"],
                 not self["--disable-blackhole-workarounds"],
             )
             self.logging.debug(f"setting tt runtime workaround env={workaround_env}")
@@ -563,19 +555,17 @@ class Run:
             ttrt.runtime.set_compatible_device_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_device_runtime()
             self.logging.debug(f"opening devices={self.query.device_ids}")
-            dispatch_core_type = ttrt.runtime.DispatchCoreType.ETH
-
-            if self["--disable-eth-dispatch"]:
-                dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             if "--init" in sys.argv:
                 self["--enable-golden"] = False
 
             num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
-            mesh_options.dispatch_core_type = dispatch_core_type
             mesh_options.enable_program_cache = self["--enable-program-cache"]
             mesh_options.trace_region_size = self["--trace-region-size"]
+
+            if self["--disable-eth-dispatch"]:
+                mesh_options.dispatch_core_type = ttrt.runtime.DispatchCoreType.WORKER
 
             # Initialize `device` to `None` for error handling in case device opening fails
             device = None
@@ -630,8 +620,12 @@ class Run:
 
                     if not self["--disable-ttrt-callbacks"]:
                         callback_env = ttrt.runtime.DebugHooks.get(
-                            pre_op_get_callback_fn(pre_op_callback_runtime_config),
-                            post_op_get_callback_fn(post_op_callback_runtime_config),
+                            pre_op=pre_op_get_callback_fn(
+                                pre_op_callback_runtime_config
+                            ),
+                            post_op=post_op_get_callback_fn(
+                                post_op_callback_runtime_config
+                            ),
                         )
 
                     if self["--save-artifacts"]:
@@ -828,20 +822,28 @@ class Run:
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
-                                )[0]
+                                )
+                                if bin.extension != ".ttm":
+                                    mesh = (
+                                        fb_mesh_shape
+                                        if len(output_host) > 1
+                                        else (1, 1)
+                                    )
+                                    outputs[
+                                        i
+                                    ] = ttrt.runtime.create_multi_device_host_tensor_from_shards(
+                                        output_host, {}, mesh
+                                    )
+                                    program.output_tensors[i] = [
+                                        convert_runtime_to_torch_tensor(shard)
+                                        for shard in output_host
+                                    ]
+                                else:
+                                    ttrt.runtime.memcpy(outputs[i], output_host[0])
+
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
-                                )
-
-                                combined_output_tensor = output_host
-                                if bin.extension != ".ttm":
-                                    combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(
-                                        [output_host], {}, (1, 1)
-                                    )
-                                ttrt.runtime.memcpy(
-                                    outputs[i],
-                                    combined_output_tensor,
                                 )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True

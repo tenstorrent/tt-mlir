@@ -70,6 +70,7 @@ class CMakeBuild(build_ext):
             "-DTTMLIR_ENABLE_STABLEHLO=OFF",
             "-DTTMLIR_ENABLE_OPMODEL=OFF",
             "-DTTMLIR_ENABLE_EXPLORER=OFF",
+            "-DTT_USE_SYSTEM_SFPI=ON",
         ]
 
         # Set source
@@ -126,9 +127,8 @@ setup(
     name="pykernel",
     version=version,
     install_requires=[],
-    # Include pykernel as top-level packages
-    packages=["pykernel"],
-    package_dir={"pykernel": ""},
+    packages=["pykernel", "pykernel._src"],
+    package_dir={"pykernel": "", "pykernel._src": "_src"},
     ext_modules=[pykernel_c],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,

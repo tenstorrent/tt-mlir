@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -22,15 +23,18 @@ namespace {
 // Represents the assignment of DMA operations to a hardware thread.
 // Each thread is responsible for a set of circular buffers (CBs).
 struct DMAThreadAssignment {
-  // Set of CB indices (block argument indices) assigned to this thread.
+  // Set of CB indices (generic operand indices) assigned to this thread.
   DenseSet<unsigned> assignedCBs;
 
   // Estimated workload for this thread (number of DMA ops).
   size_t workload = 0;
+
+  // Assigned NoC index for this thread (0 = DRAM reader, 1 = DRAM writer).
+  int32_t nocIndex = -1;
 };
 
-// Collect all remote_load and remote_store operations from a block,
-// recursively walking into nested scf.for loops.
+// Collect all DMA ops from a block, recursively walking into nested scf.for
+// loops.
 static void
 collectDMAOps(Block *block,
               SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
@@ -40,19 +44,71 @@ collectDMAOps(Block *block,
       continue;
     }
 
-    if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&op)) {
-      // Get the CB operand and find which block argument it corresponds to.
-      Value cb = remoteLoad.getCb();
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
-        dmaOps.push_back({&op, blockArg.getArgNumber()});
+    if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(&op)) {
+      dmaOps.push_back({&op, dmaOp.getCBPort()});
+    }
+  }
+}
+
+// Score for deciding which thread gets which NoC.
+// Priority is given to the thread that has the larger mcast shards.
+// Unicast reads take priority over unicast writes.
+struct NocScore {
+  int64_t mcastShardSize = 0;
+  int64_t unicastBias = 0;
+
+  bool operator>(const NocScore &other) const {
+    if (mcastShardSize != other.mcastShardSize) {
+      return mcastShardSize > other.mcastShardSize;
+    }
+    return unicastBias > other.unicastBias;
+  }
+};
+
+// The thread with the higher NocScore gets NoC0.
+// Default is thread0 gets NoC0, thread1 gets NoC1.
+static void assignNocIndices(
+    SmallVectorImpl<DMAThreadAssignment> &assignments,
+    const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
+  TT_assertv(int(assignments.size()) == 2, "Expect exactly 2 DM threads");
+  auto deviceAttr = ttcore::lookupDevice(dmaOps.front().first);
+
+  NocScore scores[2];
+  for (const auto &[op, cbIdx] : dmaOps) {
+    for (int t = 0; t < 2; ++t) {
+      if (!assignments[t].assignedCBs.contains(cbIdx)) {
+        continue;
       }
-    } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(&op)) {
-      Value cb = remoteStore.getCb();
-      if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
-        dmaOps.push_back({&op, blockArg.getArgNumber()});
+
+      if (auto load = mlir::dyn_cast_or_null<RemoteLoadOp>(op)) {
+        if (ttcore::getMemorySpace(load.getMemref()) !=
+            ttcore::MemorySpace::DeviceDRAM) {
+          continue;
+        }
+        if (load.isMcast()) {
+          TT_assertv(scores[t].mcastShardSize == 0,
+                     "There can only be one mcast load per thread.");
+          auto layout = ttcore::getDeviceLayout(load.getMemref());
+          if (layout) {
+            auto memrefType =
+                mlir::cast<MemRefType>(load.getMemref().getType());
+            scores[t].mcastShardSize =
+                deviceAttr.getShardSizeInBytes(memrefType, 1, false);
+          }
+        } else {
+          scores[t].unicastBias += 2;
+        }
+      } else if (auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(op)) {
+        if (ttcore::getMemorySpace(store.getMemref()) ==
+            ttcore::MemorySpace::DeviceDRAM) {
+          scores[t].unicastBias -= 1;
+        }
       }
     }
   }
+  bool swap = scores[1] > scores[0];
+  assignments[0].nocIndex = swap ? 1 : 0;
+  assignments[1].nocIndex = swap ? 0 : 1;
 }
 
 // Assign CBs to threads to balance workload.
@@ -93,16 +149,8 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 // Returns true if the operation uses a CB assigned to this thread.
 static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
-  if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
-    Value cb = remoteLoad.getCb();
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
-      return assignedCBs.contains(blockArg.getArgNumber());
-    }
-  } else if (auto remoteStore = mlir::dyn_cast<RemoteStoreOp>(op)) {
-    Value cb = remoteStore.getCb();
-    if (auto blockArg = mlir::dyn_cast<BlockArgument>(cb)) {
-      return assignedCBs.contains(blockArg.getArgNumber());
-    }
+  if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(op)) {
+    return assignedCBs.contains(dmaOp.getCBPort());
   }
   return false;
 }
@@ -128,7 +176,7 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
       }
 
       // Check if this is a DMA op.
-      if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+      if (mlir::isa<ShardDMAOpInterface>(&op)) {
         if (!shouldKeepOpForThread(&op, assignedCBs)) {
           if (op.use_empty()) {
             toErase.push_back(&op);
@@ -171,6 +219,13 @@ public:
     }
     Block *dmBlock = &dmRegion.front();
 
+    // Check that there are no illegal semaphore ops in the datamovement region.
+    // Replicating these across multiple threads would create a race condition
+    // on the shared semaphore.
+    if (failed(utils::checkForIllegalSemaphoreOps(dmBlock))) {
+      return failure();
+    }
+
     // Collect all DMA operations and their CB associations.
     SmallVector<std::pair<Operation *, unsigned>> dmaOps;
     collectDMAOps(dmBlock, dmaOps);
@@ -186,17 +241,23 @@ public:
       cbWorkloads[cbIdx]++;
     }
 
-    // If only one CB has work, no need to split.
-    if (cbWorkloads.size() <= 1) {
-      return failure();
-    }
-
     // Determine number of threads to use.
     unsigned numThreadsToUse = std::min(
         static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
-    // If we'd only have one thread, no split needed.
-    if (numThreadsToUse <= 1) {
+    // Not enough CBs to warrant splitting but still need to assign nocIndex on
+    // the existing single DM thread before returning failure.
+    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
+      bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
+        auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
+        return store && ttcore::getMemorySpace(store.getMemref()) ==
+                            ttcore::MemorySpace::DeviceDRAM;
+      });
+      int nocIndex = writesDRAM ? 1 : 0;
+      generic.setThreadsAttr(rewriter.getArrayAttr(
+          {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
+                                        nocIndex),
+           generic.getThreadsAttr().getValue()[1]}));
       return failure();
     }
 
@@ -204,19 +265,24 @@ public:
     SmallVector<DMAThreadAssignment> assignments =
         assignCBsToThreads(cbWorkloads, numThreadsToUse);
 
+    assignNocIndices(assignments, dmaOps);
+
     // Create new thread attributes: N datamovement threads + 1 compute thread.
     SmallVector<Attribute> threads;
     for (unsigned i = 0; i < numThreadsToUse; ++i) {
-      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+      threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement,
+                                                     /*kernelSymbol=*/nullptr,
+                                                     assignments[i].nocIndex));
     }
     threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
     // Create new generic op with N+1 regions.
     auto newGeneric = rewriter.create<GenericOp>(
         generic.getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-        generic.getIndexingMaps(), generic.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), generic.getScratchInputsAttr(),
+        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+        generic.getBlockFactors(), generic.getIndexingMaps(),
+        generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
+        generic.getFabricConnectionConfigAttr(),
         /*numRegions*/ numThreadsToUse + 1);
 
     // Get the original DM block's argument types.

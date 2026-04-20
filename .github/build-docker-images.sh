@@ -16,10 +16,10 @@ CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.tx
 echo "Current tt-metal version: $CURRENT_TT_METAL_VERSION"
 
 REPO=tenstorrent/tt-mlir
-BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-22-04
-CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-22-04
-BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-22-04
-IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-22-04
+BASE_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ubuntu-24-04
+CI_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ci-ubuntu-24-04
+BASE_IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-base-ird-ubuntu-24-04
+IRD_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-ird-ubuntu-24-04
 CIBW_IMAGE_NAME=ghcr.io/$REPO/tt-mlir-manylinux-2-34
 
 # Compute the hash of the Dockerfile
@@ -52,8 +52,6 @@ build_and_push() {
         if [ -n "$3" ]; then
             target="--target $3"
         fi
-        # Toolchain build causes the OOM error if parallel level is not limited
-        export CMAKE_BUILD_PARALLEL_LEVEL=32
 
         echo "Building image $image_name:$DOCKER_TAG"
         docker build \

@@ -28,26 +28,34 @@ mlir::tt::d2m::applyViews(mlir::Operation *op) {
         resultMemref, mlir::AffineMap::getMultiDimIdentityMap(
                           resultMemref.getRank(), resultMemref.getContext()));
   }
+  // applyViews is meant to be 1-1, composite views should have been expanded
+  // before reaching this point (assuming no nested composite views).
+  assert(!viewOp.isComposite());
 
-  auto viewAttr = mlir::cast<ttcore::ViewLayoutAttr>(resultMemref.getLayout());
-  auto map = viewAttr.getAffineMap();
+  mlir::AffineMap map;
+  if (auto viewLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ViewLayoutOp>(op)) {
+    map = viewLayoutOp.getRemapping();
+  } else {
+    // Fallback to identity if no remapping is present.
+    map = mlir::AffineMap::getMultiDimIdentityMap(resultMemref.getRank(),
+                                                  resultMemref.getContext());
+  }
 
   Value input = viewOp.getInput();
   auto inputMemref = mlir::cast<mlir::MemRefType>(input.getType());
 
   // Recursively apply view composition if the input is also a view. This
   // handles nested view chains by composing affine maps.
-  if (mlir::isa<ttcore::ViewLayoutAttr>(inputMemref.getLayout())) {
-    if (auto *inputOp = input.getDefiningOp()) {
+  if (auto *inputOp = input.getDefiningOp()) {
+    if (mlir::isa<ViewOpInterface>(inputOp)) {
       auto [baseMemref, inputMap] = applyViews(inputOp);
       return std::make_pair(baseMemref, inputMap.compose(map));
     }
   }
 
-  auto devLayout = mlir::dyn_cast_or_null<ttcore::DeviceLayoutInterface>(
-      inputMemref.getLayout());
-  assert(devLayout && devLayout.isPhysical() &&
-         "Expected physical layout attr");
+  assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
+             inputMemref.getLayout())) &&
+         "Expected physical layout attr (shard or interleaved)");
 
   return std::make_pair(inputMemref, map);
 }

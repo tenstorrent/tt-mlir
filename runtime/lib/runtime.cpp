@@ -4,7 +4,9 @@
 
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/common/mesh_fabric_config.h"
 #include "tt/runtime/detail/common/runtime_context.h"
+#include "tt/runtime/detail/common/system_mesh.h"
 #include "tt/runtime/types.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Version.h"
@@ -103,9 +105,7 @@ uint32_t getNumShards(Tensor tensor) {
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType { return ::tt::runtime::ttnn::getNumShards(tensor); },
-      [&]() -> RetType {
-        fatalNotImplemented("getNumShards", DeviceRuntime::TTMetal);
-      },
+      [&]() -> RetType { return ::tt::runtime::ttmetal::getNumShards(tensor); },
       [&]() -> RetType {
         fatalNotImplemented("getNumShards", HostRuntime::Distributed);
       });
@@ -683,6 +683,23 @@ std::vector<int> getDeviceIds(Device meshDevice) {
       [&]() -> RetType {
         detail::fatalNotImplemented("getDeviceIds", HostRuntime::Distributed);
       });
+}
+
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return ::tt::runtime::common::getMappedDeviceIds(meshShape);
+#endif
+  LOG_FATAL("Runtime is not enabled");
+}
+
+MeshFabricConfig
+computeMeshFabricConfig(const SystemDesc &systemDesc,
+                        const std::vector<uint32_t> &meshShape) {
+#if defined(DEVICE_RUNTIME_ENABLED)
+  return ::tt::runtime::common::computeMeshFabricConfig(systemDesc.get(),
+                                                        meshShape);
+#endif
+  LOG_FATAL("Runtime is not enabled");
 }
 
 size_t getNumHwCqs(Device meshDevice) {

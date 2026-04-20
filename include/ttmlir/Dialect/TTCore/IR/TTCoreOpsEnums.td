@@ -224,10 +224,23 @@ def TTCore_ShardStatus : I32EnumAttr<"ShardStatus", "Shard Status Type",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
+def TTCore_NocIndexNoc0 : I32EnumAttrCase<"Noc0", 0, "noc0">;
+def TTCore_NocIndexNoc1 : I32EnumAttrCase<"Noc1", 1, "noc1">;
+
+def TTCore_NocIndex : I32EnumAttr<"NocIndex", "TT NocIndex",
+                           [
+                            TTCore_NocIndexNoc0,
+                            TTCore_NocIndexNoc1,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 def TTCore_Topology_Ring  : I32EnumAttrCase<"Ring",  0, "ring">;
 def TTCore_Topology_Linear : I32EnumAttrCase<"Linear",  1, "linear">;
 def TTCore_Topology_Mesh : I32EnumAttrCase<"Mesh",  2, "mesh">;
 def TTCore_Topology_Torus : I32EnumAttrCase<"Torus",  3, "torus">;
+def TTCore_Topology_Disabled : I32EnumAttrCase<"Disabled",  4, "disabled">;
 
 def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
                           [
@@ -235,8 +248,33 @@ def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
                            TTCore_Topology_Linear,
                            TTCore_Topology_Mesh,
                            TTCore_Topology_Torus,
+                           TTCore_Topology_Disabled,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttcore";
 }
+
+// Routing mode for fabric connections. This is used in D2M to decide how we want to route
+// in the given topology, as well as which links a core should connect to.
+// In line/mesh topologies, we need to connect to all links to ensure reachability, and there is
+// only one way to route to get to the given device.
+// In ring/torus topologies, we can split the two directions along each axis and
+// connect each core to only a single direction per axis which ensures reachability.
+// The core will then only route in the selected direction (e.g. always routes East
+// to destination on a ring) which allows for better link saturation.
+// See usages of RoutingMode and RoutingDirection in the LLKs for implementation details.
+// (include/ttmlir/Target/TTKernel/LLKs/experimental_fabric_1d_routing.h and
+// include/ttmlir/Target/TTKernel/LLKs/experimental_fabric_2d_routing.h)
+def TTCore_RoutingModeBidirLineMesh : I32EnumAttrCase<"BidirLineMesh", 0, "bidir_line_mesh">;
+def TTCore_RoutingModeUnidirRingTorus : I32EnumAttrCase<"UnidirRingTorus", 1, "unidir_ring_torus">;
+
+def TTCore_RoutingMode : I32EnumAttr<"RoutingMode", "TT RoutingMode",
+                           [
+                            TTCore_RoutingModeBidirLineMesh,
+                            TTCore_RoutingModeUnidirRingTorus,
+                           ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 #endif // TTMLIR_DIALECT_TTCORE_IR_TTCOREOPSENUMS_TD

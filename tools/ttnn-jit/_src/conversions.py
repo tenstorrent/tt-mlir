@@ -14,9 +14,36 @@ This includes:
 - Buffer type conversions (string -> TTNN enum)
 - Memory layout conversions (string -> TTNN enum)
 """
-from ttmlir.ir import BF16Type, F32Type, IntegerType
-from ttmlir.dialects import ttcore
+from ttnn_jit.ttmlir.ir import BF16Type, F32Type, IntegerType
+from ttnn_jit.ttmlir.dialects import ttcore
 import ttnn
+
+
+def ttnn_dtype_from_mlir_element_type(element_type):
+    """
+    Convert MLIR element type to TTNN dtype.
+
+    Args:
+        element_type: MLIR element type (e.g., bf16, f32, i32)
+
+    Returns:
+        TTNN dtype enum (from ttnn library)
+    """
+    type_str = str(element_type)
+    if "bf16" in type_str:
+        return ttnn.bfloat16
+    elif "f32" in type_str:
+        return ttnn.float32
+    elif "i32" in type_str:
+        return ttnn.int32
+    elif "ui32" in type_str:
+        return ttnn.uint32
+    elif "ui16" in type_str:
+        return ttnn.uint16
+    elif "ui8" in type_str:
+        return ttnn.uint8
+    else:
+        return ttnn.bfloat16  # Default fallback
 
 
 def mlir_dtype_from_ttnn_dtype(dtype, ctx):
@@ -122,45 +149,6 @@ def ttnn_dtype_from_mlir_dtype(dtype):
             return ttnn.DataType.INT32
         case _:
             raise ValueError(f"Unsupported MLIR dtype for TTNN: {dtype}")
-
-
-def buffer_type_from_string(buffer_type_str: str):
-    """
-    Convert buffer type string to TTNN BufferType enum.
-
-    Args:
-        buffer_type_str: Buffer type as string ("L1" or "DRAM")
-
-    Returns:
-        TTNN BufferType enum
-    """
-
-    if buffer_type_str == "L1":
-        return ttnn.BufferType.L1
-    else:
-        return ttnn.BufferType.DRAM
-
-
-def memory_layout_from_string(memory_layout_str: str):
-    """
-    Convert memory layout string to TTNN TensorMemoryLayout enum.
-
-    Args:
-        memory_layout_str: Memory layout as string
-            ("BLOCK_SHARDED", "HEIGHT_SHARDED", "WIDTH_SHARDED", or "INTERLEAVED")
-
-    Returns:
-        TTNN TensorMemoryLayout enum
-    """
-
-    if memory_layout_str == "BLOCK_SHARDED":
-        return ttnn.TensorMemoryLayout.BlockSharded
-    elif memory_layout_str == "HEIGHT_SHARDED":
-        return ttnn.TensorMemoryLayout.HeightSharded
-    elif memory_layout_str == "WIDTH_SHARDED":
-        return ttnn.TensorMemoryLayout.WidthSharded
-    else:
-        return ttnn.TensorMemoryLayout.Interleaved
 
 
 def mlir_memory_layout_from_ttnn_memory_layout(memory_layout):

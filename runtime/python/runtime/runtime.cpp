@@ -13,6 +13,7 @@
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
 namespace nb = nanobind;
+using namespace nb::literals;
 
 namespace tt::runtime::python {
 void registerRuntimeBindings(nb::module_ &m) {
@@ -443,6 +444,8 @@ void registerRuntimeBindings(nb::module_ &m) {
         "Copy the tensor to host");
   m.def("get_device_tensors", &tt::runtime::getDeviceTensors, nb::arg("tensor"),
         "Returns vector of device tensors.");
+  m.def("get_num_shards", detail::getNumShards, nb::arg("tensor"),
+        "Get the number of shards for a tensor");
   m.def("to_layout", &tt::runtime::toLayout, nb::arg("tensor"),
         nb::arg("device"), nb::arg("layout"), nb::arg("retain") = nb::none(),
         "Create a copy of the tensor with the specified layout");
@@ -570,7 +573,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       nb::arg("tensor_handle"),
       R"(
     Overwrite the data associated with an existing tensor reference.
-    Prefered to be owned tensor to avoid unexpected behavior in case of
+    Preferred to be owned tensor to avoid unexpected behavior in case of
     deallocation.
 
     Parameters
@@ -622,7 +625,11 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Load tensor from file");
 
   nb::class_<tt::runtime::debug::Env>(m, "DebugEnv")
-      .def_static("get", &tt::runtime::debug::Env::get)
+      .def_static(
+          "get", &tt::runtime::debug::Env::get, "dump_kernels"_a = false,
+          "load_kernels"_a = false, "use_loc_for_kernel_name"_a = false,
+          "kernel_source_dir"_a = "", "device_address_validation"_a = false,
+          "blocking_cq"_a = false)
       .def("__str__", [](const tt::runtime::debug::Env &env) {
         std::stringstream os;
         os << env;
@@ -630,7 +637,9 @@ void registerRuntimeBindings(nb::module_ &m) {
       });
 
   nb::class_<tt::runtime::perf::Env>(m, "PerfEnv")
-      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference)
+      .def_static("get", &tt::runtime::perf::Env::get, nb::rv_policy::reference,
+                  "dump_device_rate"_a = 1000, "enable_perf_trace"_a = false,
+                  "tracy_program_metadata"_a = "")
       .def("set_program_metadata", &tt::runtime::perf::Env::setProgramMetadata)
       .def("tracy_log_op_location", &tt::runtime::perf::Env::tracyLogOpLocation)
       .def("tracy_log_input_layout_conversion",
@@ -648,24 +657,63 @@ void registerRuntimeBindings(nb::module_ &m) {
   nb::class_<tt::runtime::debug::Hooks>(m, "DebugHooks")
       .def_static(
           "get",
-          [](nb::callable pre_op_func, nb::callable post_op_func) {
+          [](std::optional<nb::callable> pre_op_func,
+             std::optional<nb::callable> post_op_func,
+             std::optional<nb::callable> pre_program_func,
+             std::optional<nb::callable> post_program_func) {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                pre_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::OperationCallbackFn>
+                post_op_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ProgramCallbackFn>
+                pre_program_cb = std::nullopt;
+            std::optional<tt::runtime::debug::Hooks::ProgramCallbackFn>
+                post_program_cb = std::nullopt;
+
+            if (pre_op_func.has_value()) {
+              pre_op_cb =
+                  [pre_op_func](tt::runtime::Binary Binary,
+                                tt::runtime::CallbackContext programContext,
+                                tt::runtime::OpContext opContext) {
+                    (*pre_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (post_op_func.has_value()) {
+              post_op_cb =
+                  [post_op_func](tt::runtime::Binary Binary,
+                                 tt::runtime::CallbackContext programContext,
+                                 tt::runtime::OpContext opContext) {
+                    (*post_op_func)(Binary, programContext, opContext);
+                  };
+            }
+            if (pre_program_func.has_value()) {
+              pre_program_cb =
+                  [pre_program_func](
+                      tt::runtime::Binary Binary,
+                      tt::runtime::CallbackContext programContext) {
+                    (*pre_program_func)(Binary, programContext);
+                  };
+            }
+            if (post_program_func.has_value()) {
+              post_program_cb =
+                  [post_program_func](
+                      tt::runtime::Binary Binary,
+                      tt::runtime::CallbackContext programContext) {
+                    (*post_program_func)(Binary, programContext);
+                  };
+            }
+
             return tt::runtime::debug::Hooks::get(
-                [pre_op_func](tt::runtime::Binary Binary,
-                              tt::runtime::CallbackContext programContext,
-                              tt::runtime::OpContext opContext) {
-                  pre_op_func(Binary, programContext, opContext);
-                },
-                [post_op_func](tt::runtime::Binary Binary,
-                               tt::runtime::CallbackContext programContext,
-                               tt::runtime::OpContext opContext) {
-                  post_op_func(Binary, programContext, opContext);
-                });
+                pre_op_cb, post_op_cb, pre_program_cb, post_program_cb);
 #else
             tt::runtime::debug::Hooks::get();
             return std::nullopt;
 #endif
-          })
+          },
+          nb::arg("pre_op") = std::nullopt, nb::arg("post_op") = std::nullopt,
+          nb::arg("pre_program") = std::nullopt,
+          nb::arg("post_program") = std::nullopt)
       .def("__str__", [](const tt::runtime::debug::Hooks &hooks) {
         std::stringstream os;
         os << hooks;

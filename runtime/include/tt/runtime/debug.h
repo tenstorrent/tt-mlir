@@ -75,28 +75,55 @@ inline std::ostream &operator<<(std::ostream &os, const Env &env) {
 }
 
 struct Hooks {
-  using CallbackFn = std::function<void(Binary, CallbackContext, OpContext)>;
+  using OperationCallbackFn =
+      std::function<void(Binary, CallbackContext, OpContext)>;
+  using ProgramCallbackFn = std::function<void(Binary, CallbackContext)>;
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   static const Hooks &
-  get(std::optional<CallbackFn> preOperatorCallback = std::nullopt,
-      std::optional<CallbackFn> postOperatorCallback = std::nullopt);
+  get(const std::optional<OperationCallbackFn> &preOperatorCallback =
+          std::nullopt,
+      const std::optional<OperationCallbackFn> &postOperatorCallback =
+          std::nullopt,
+      const std::optional<ProgramCallbackFn> &preProgramCallback = std::nullopt,
+      const std::optional<ProgramCallbackFn> &postProgramCallback =
+          std::nullopt);
 #else
   constexpr static Hooks get() { return Hooks(); }
 #endif
 
-  std::optional<CallbackFn> getPreOperatorCallback() const {
+  const std::optional<OperationCallbackFn> &getPreOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return preOperatorCallback;
 #else
-    return std::nullopt;
+    static const std::optional<OperationCallbackFn> empty = std::nullopt;
+    return empty;
 #endif
   }
 
-  std::optional<CallbackFn> getPostOperatorCallback() const {
+  const std::optional<OperationCallbackFn> &getPostOperatorCallback() const {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     return postOperatorCallback;
 #else
-    return std::nullopt;
+    static const std::optional<OperationCallbackFn> empty = std::nullopt;
+    return empty;
+#endif
+  }
+
+  const std::optional<ProgramCallbackFn> &getpreProgramCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return preProgramCallback;
+#else
+    static const std::optional<ProgramCallbackFn> empty = std::nullopt;
+    return empty;
+#endif
+  }
+
+  const std::optional<ProgramCallbackFn> &getpostProgramCallback() const {
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    return postProgramCallback;
+#else
+    static const std::optional<ProgramCallbackFn> empty = std::nullopt;
+    return empty;
 #endif
   }
 
@@ -104,18 +131,26 @@ struct Hooks {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     preOperatorCallback = std::nullopt;
     postOperatorCallback = std::nullopt;
+    preProgramCallback = std::nullopt;
+    postProgramCallback = std::nullopt;
 #endif
   }
 
 private:
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
-  Hooks(std::optional<CallbackFn> preOperatorCallback,
-        std::optional<CallbackFn> postOperatorCallback)
+  Hooks(const std::optional<OperationCallbackFn> &preOperatorCallback,
+        const std::optional<OperationCallbackFn> &postOperatorCallback,
+        const std::optional<ProgramCallbackFn> &preProgramCallback,
+        const std::optional<ProgramCallbackFn> &postProgramCallback)
       : preOperatorCallback(preOperatorCallback),
-        postOperatorCallback(postOperatorCallback) {}
+        postOperatorCallback(postOperatorCallback),
+        preProgramCallback(preProgramCallback),
+        postProgramCallback(postProgramCallback) {}
 
-  mutable std::optional<CallbackFn> preOperatorCallback;
-  mutable std::optional<CallbackFn> postOperatorCallback;
+  mutable std::optional<OperationCallbackFn> preOperatorCallback;
+  mutable std::optional<OperationCallbackFn> postOperatorCallback;
+  mutable std::optional<ProgramCallbackFn> preProgramCallback;
+  mutable std::optional<ProgramCallbackFn> postProgramCallback;
 
 #else
   constexpr Hooks() = default;
@@ -126,9 +161,16 @@ inline std::ostream &operator<<(std::ostream &os, const Hooks &hooks) {
   os << "debug::Hooks{\n"
      << "\t"
      << "preOperatorCallback: "
-     << static_cast<bool>(hooks.getPreOperatorCallback())
+     << static_cast<bool>(hooks.getPreOperatorCallback()) << ",\n"
+     << "\t"
      << "postOperatorCallback: "
      << static_cast<bool>(hooks.getPostOperatorCallback()) << ",\n"
+     << "\t"
+     << "preProgramCallback: "
+     << static_cast<bool>(hooks.getpreProgramCallback()) << ",\n"
+     << "\t"
+     << "postProgramCallback: "
+     << static_cast<bool>(hooks.getpostProgramCallback()) << "\n"
      << "}";
   return os;
 }

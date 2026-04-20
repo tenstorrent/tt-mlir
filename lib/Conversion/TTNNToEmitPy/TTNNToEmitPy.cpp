@@ -8,10 +8,14 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/SetVector.h"
 
 #include <optional>
 #include <string>
@@ -31,17 +35,10 @@ public:
   using Adaptor = typename SourceOp::Adaptor;
 
   TTNNToEmitPyBaseOpConversionPattern(TypeConverter &typeConverter,
-                                      MLIRContext *context,
-                                      bool enableGoldenMode)
-      : BaseConstructor(typeConverter, context),
-        enableGoldenMode(enableGoldenMode) {}
-
-protected:
-  bool isGoldenModeEnabled() const { return enableGoldenMode; }
+                                      MLIRContext *context)
+      : BaseConstructor(typeConverter, context) {}
 
 private:
-  bool enableGoldenMode;
-
   virtual std::string getPrefixSearchPattern() const { return "ttnn."; }
   virtual std::string getPrefixSwapPattern() const { return "ttnn."; }
 
@@ -96,16 +93,38 @@ public:
   matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getMin()),
-        emitter.emit(srcOp.getMax()),
-        emitter.emit(srcOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(srcOp.getResult()),
-                     "memory_config"),
-    };
+    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(srcOp, adaptor,
+                                                        rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args;
+    args.push_back(emitter.emit(srcOp.getInput()));
+
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::ClampScalarOp>) {
+      // Emit int or float attribute based on output element type
+      auto outputType =
+          mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+      auto elementType = outputType.getElementType();
+
+      if (mlir::isa<mlir::IntegerType>(elementType)) {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMin()).getInt()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::IntegerAttr>(srcOp.getMax()).getInt()));
+      } else {
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMin()).getValueAsDouble()));
+        args.push_back(emitter.emit(
+            mlir::cast<mlir::FloatAttr>(srcOp.getMax()).getValueAsDouble()));
+      }
+    } else {
+      // ClampTensorOp uses tensor values
+      args.push_back(emitter.emit(srcOp.getMin()));
+      args.push_back(emitter.emit(srcOp.getMax()));
+    }
+
+    args.push_back(emitter.emit(srcOp.getMemoryConfig() |
+                                    emitter.getMemoryConfig(srcOp.getResult()),
+                                "memory_config"));
 
     emitter.replaceOp(*this, args);
 
@@ -128,8 +147,8 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseUnaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(
-        eltwiseUnaryOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseUnaryOp, adaptor,
+                                                        rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseUnaryOp.getInput()),
@@ -166,7 +185,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GeluBackwardOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
@@ -198,8 +217,8 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseUnaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(
-        eltwiseUnaryOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseUnaryOp, adaptor,
+                                                        rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseUnaryOp.getInput()),
@@ -230,14 +249,14 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseUnaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(
-        eltwiseUnaryOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseUnaryOp, adaptor,
+                                                        rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseUnaryOp.getInput()),
         emitter.emit(static_cast<int>(::ttnn::operations::unary::VecMode::RC),
                      "vector_mode"),
-        /*parameter=*/emitter.emit(false, "fast_and_approximate_mode"),
+        emitter.emitExpression("ttnn.SigmoidMode.Accurate", "mode"),
         emitter.emit(eltwiseUnaryOp.getMemoryConfig() |
                          emitter.getMemoryConfig(eltwiseUnaryOp.getResult()),
                      "memory_config"),
@@ -266,8 +285,8 @@ public:
   matchAndRewrite(SourceOp srcOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(srcOp, adaptor,
+                                                        rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -297,8 +316,8 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseBinaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(
-        eltwiseBinaryOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseBinaryOp,
+                                                        adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseBinaryOp.getLhs()),
@@ -330,8 +349,8 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseBinaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(
-        eltwiseBinaryOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseBinaryOp,
+                                                        adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseBinaryOp.getLhs()),
@@ -379,8 +398,8 @@ public:
   matchAndRewrite(TTNNOpTy eltwiseBinaryOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(
-        eltwiseBinaryOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<TTNNOpTy> emitter(eltwiseBinaryOp,
+                                                        adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(eltwiseBinaryOp.getLhs()),
@@ -422,7 +441,7 @@ private:
                   "ExponentT must be float or uint32_t");
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PowScalarOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
@@ -473,8 +492,8 @@ public:
   matchAndRewrite(SourceOp ternaryOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(
-        ternaryOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(ternaryOp, adaptor,
+                                                        rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(ternaryOp.getFirst()),
@@ -511,7 +530,7 @@ public:
   matchAndRewrite(mlir::tt::ttnn::ConstantOp constantOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ConstantOp> emitter(
-        constantOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        constantOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(constantOp.getValue()),
@@ -522,7 +541,10 @@ public:
 
     if (constantOp.getDevice()) {
       args.push_back(emitter.emit(constantOp.getDevice()));
-      args.push_back(emitter.emit(constantOp.getMemoryConfig()));
+      args.push_back(
+          emitter.emit(constantOp.getMemoryConfig() |
+                           emitter.getMemoryConfig(constantOp.getResult()),
+                       "memory_config"));
     }
 
     emitter.replaceOp(*this, args);
@@ -546,7 +568,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
-        matmulOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        matmulOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(matmulOp.getA()),
@@ -556,10 +578,48 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
-        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(emitter.getOutputDtype(matmulOp.getResult()), "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             matmulOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(matmulOp.getActivation(), "activation"),
+        emitter.emit(matmulOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// SparseMatmulOp conversion pattern
+//
+namespace {
+class SparseMatmulOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SparseMatmulOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SparseMatmulOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SparseMatmulOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SparseMatmulOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getA(), "input_tensor_a"),
+        emitter.emit(srcOp.getB(), "input_tensor_b"),
+        emitter.emit(srcOp.getSparsity(), "sparsity"),
+        emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
+            srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getNnz(), "nnz"),
+        emitter.emit(srcOp.getIsInputASparse(), "is_input_a_sparse"),
+        emitter.emit(srcOp.getIsInputBSparse(), "is_input_b_sparse"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getDtype(), "dtype"),
     };
 
     emitter.replaceOp(*this, args);
@@ -585,7 +645,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LinearOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
@@ -595,10 +655,11 @@ public:
         emitter.emit(srcOp.getTransposeB(), "transpose_b"),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-        emitter.emit(std::nullopt, "dtype"),
+        emitter.emit(emitter.getOutputDtype(srcOp.getResult()), "dtype"),
         emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
             srcOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(srcOp.getActivation(), "activation"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -623,7 +684,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AvgPool2dOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     SmallVector<int32_t> padding;
     if (srcOp.getPadding().size() == 2) {
@@ -682,7 +743,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MaxPool2dOp> emitter(
-        maxPool2dOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        maxPool2dOp, adaptor, rewriter);
 
     SmallVector<int32_t> padding;
     if (maxPool2dOp.getPadding().size() == 2) {
@@ -711,7 +772,8 @@ public:
         emitter.template emit<std::vector<uint32_t>>(
             maxPool2dOp.getDilationAttr()),
         emitter.emit(maxPool2dOp.getCeilMode(), "ceil_mode"),
-        emitter.emit(emitter.getMemoryConfig(maxPool2dOp.getResult()),
+        emitter.emit(maxPool2dOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(maxPool2dOp.getResult()),
                      "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
                      "applied_shard_scheme"),
@@ -752,8 +814,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MaxPool2dWithIndicesOp>
-        emitter(maxPool2dWithIndicesOp, adaptor, rewriter,
-                this->isGoldenModeEnabled());
+        emitter(maxPool2dWithIndicesOp, adaptor, rewriter);
 
     SmallVector<int32_t> padding;
     if (maxPool2dWithIndicesOp.getPadding().size() == 2) {
@@ -824,7 +885,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::UpsampleOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     Attribute scaleFactorAttr;
     if (mlir::isa<mlir::IntegerAttr>(srcOp.getScaleFactor())) {
@@ -849,28 +910,28 @@ public:
 };
 } // namespace
 
-// Moreh CumSum op conversion pattern
+// CumSum op conversion pattern
 //
 namespace {
-class MorehCumSumOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<
-          mlir::tt::ttnn::MorehCumSumOp> {
+class CumSumOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::CumSumOp> {
 
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::MorehCumSumOp>::TTNNToEmitPyBaseOpConversionPattern;
+      mlir::tt::ttnn::CumSumOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::MorehCumSumOp srcOp,
-                  mlir::tt::ttnn::MorehCumSumOp::Adaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::CumSumOp srcOp,
+                  mlir::tt::ttnn::CumSumOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MorehCumSumOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::CumSumOp> emitter(
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -894,7 +955,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SoftmaxOp> emitter(
-        softmaxOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        softmaxOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(softmaxOp.getInput()),
@@ -902,6 +963,8 @@ public:
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(softmaxOp.getResult()),
                      "memory_config"),
+        emitter.emit(softmaxOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(softmaxOp.getNumericStable(), "numeric_stable"),
     };
 
     emitter.replaceOp(*this, args);
@@ -950,7 +1013,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DeallocateOp> emitter(
-        deallocateOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        deallocateOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(deallocateOp.getInput()),
@@ -1003,7 +1066,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GetDeviceOp> emitter(
-        getDeviceOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        getDeviceOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(getDeviceOp.getMeshShapeAttr()),
@@ -1031,7 +1094,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToDeviceOp> emitter(
-        toDeviceOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        toDeviceOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(toDeviceOp.getInput()),
@@ -1063,7 +1126,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FromDeviceOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -1091,42 +1154,13 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::TypecastOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getDtype()),
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
-    };
-
-    emitter.replaceOp(*this, args);
-
-    return success();
-  }
-};
-} // namespace
-
-// ToDTypeOp conversion pattern
-//
-namespace {
-class ToDTypeOpConversionPattern
-    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::ToDTypeOp> {
-
-public:
-  using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::ToDTypeOp>::TTNNToEmitPyBaseOpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::ToDTypeOp srcOp, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToDTypeOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
-
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDtype()),
     };
 
     emitter.replaceOp(*this, args);
@@ -1151,15 +1185,16 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToLayoutOp> emitter(
-        toLayoutOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        toLayoutOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(toLayoutOp.getInput()),
         emitter.emit(toLayoutOp.getLayout()),
         emitter.emit(toLayoutOp.getDtype()),
-        emitter.emit(toLayoutOp.getMemoryConfig() |
-                         emitter.getMemoryConfig(toLayoutOp.getResult()),
-                     "memory_config"),
+        // Emit MemoryConfig only if it exists as an argument to the op.
+        // Most other ops will read the TTNNLayout object on the output tensor
+        // as well, but we are skipping that here as runtime skips it as well.
+        emitter.emit(toLayoutOp.getMemoryConfig(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1185,7 +1220,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToMemoryConfigOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -1215,7 +1250,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ArangeOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getStart()),
@@ -1251,7 +1286,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::EmptyOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getShape()),
@@ -1303,7 +1338,7 @@ private:
                                     FillValueT fillValue, OpAdaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const {
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FullOp> emitter(
-        fullOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        fullOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(fullOp.getShape(), "shape"),
@@ -1339,8 +1374,8 @@ public:
   matchAndRewrite(SourceOp namedFullOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(
-        namedFullOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<SourceOp> emitter(namedFullOp, adaptor,
+                                                        rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(namedFullOp.getShape(), "shape"),
@@ -1372,8 +1407,8 @@ public:
   matchAndRewrite(tt::ttnn::RandOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::RandOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::RandOp> emitter(srcOp, adaptor,
+                                                                rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getSize()),
@@ -1413,7 +1448,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::DropoutOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -1445,7 +1480,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ProdOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -1479,8 +1514,8 @@ public:
   matchAndRewrite(ReductionOp reductionOp, Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<ReductionOp> emitter(
-        reductionOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<ReductionOp> emitter(reductionOp, adaptor,
+                                                           rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(reductionOp.getInput()),
@@ -1489,7 +1524,9 @@ public:
         emitter.emit(reductionOp.getKeepDim()),
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(reductionOp.getResult()),
-                     "memory_config")};
+                     "memory_config"),
+        emitter.emit(reductionOp.getComputeConfig(), "compute_kernel_config"),
+    };
 
     emitter.replaceOp(*this, args);
 
@@ -1514,7 +1551,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ArgMaxOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -1550,7 +1587,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::Conv2dOp> emitter(
-        conv2dOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        conv2dOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(conv2dOp.getInput(), "input_tensor"),
@@ -1572,11 +1609,70 @@ public:
         emitter.emit(conv2dOp.getGroups(), "groups"),
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
         emitter.emit(conv2dOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(conv2dOp.getComputeConfig(), "compute_config"),
         emitter.emit(conv2dOp.getConv2dSliceConfig(), "slice_config"),
         emitter.emit(std::nullopt |
                          emitter.getMemoryConfig(conv2dOp.getResult()),
                      "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// Conv3d op conversion pattern
+//
+namespace {
+class Conv3dOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::Conv3dOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.conv3d"; }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.conv3d";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv3dOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv3dOp srcOp,
+                  mlir::tt::ttnn::Conv3dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::Conv3dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Default output dtype follows runtime conv3d behavior.
+    auto dtypeAttr = srcOp.getDtypeAttr();
+    auto outputDtype =
+        dtypeAttr ? dtypeAttr.getValue() : ttcore::DataType::BFloat16;
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getWeight(), "weight_tensor"),
+        emitter.emit(srcOp.getDevice(), "device"),
+        emitter.emit(srcOp.getBias(), "bias_tensor"),
+        emitter.emit(srcOp.getConv3dConfigAttr(), "config"),
+        emitter.emit(outputDtype, "dtype"),
+        emitter.emit(srcOp.getOutChannels(), "output_channels"),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getKernelSizeAttr(),
+                                              "kernel_size"),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getStrideAttr(), "stride"),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getPaddingAttr(),
+                                              "padding"),
+        emitter.emit<std::array<uint32_t, 3>>(
+            rewriter.getDenseI32ArrayAttr({1, 1, 1}), "dilation"),
+        emitter.emit(srcOp.getPaddingMode(), "padding_mode"),
+        emitter.emit(srcOp.getGroups(), "groups"),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1603,8 +1699,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GlobalAvgPool2dOp>
-        emitter(globalAvgPool2dOp, adaptor, rewriter,
-                this->isGoldenModeEnabled());
+        emitter(globalAvgPool2dOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(globalAvgPool2dOp.getInput(), "input_tensor"),
@@ -1638,7 +1733,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ConvTranspose2dOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
@@ -1662,7 +1757,7 @@ public:
         emitter.emit(srcOp.getDtype(), "dtype"),
         emitter.emit(srcOp.getBias(), "bias_tensor"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
@@ -1702,7 +1797,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PrepareConv2dWeightsOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getWeightTensor(), "weight_tensor"),
@@ -1728,7 +1823,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(std::nullopt, "slice_config"),
     };
 
@@ -1764,7 +1859,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PrepareConv2dBiasOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getBiasTensor(), "bias_tensor"),
@@ -1788,7 +1883,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -1825,7 +1920,7 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<
         mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getWeightTensor(), "weight_tensor"),
@@ -1851,7 +1946,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(srcOp.getMirrorKernel(), "mirror_kernel"),
         emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
@@ -1890,7 +1985,7 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<
         mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getBiasTensor(), "bias_tensor"),
@@ -1914,7 +2009,7 @@ public:
         emitter.emit(srcOp.getInputDtype(), "input_dtype"),
         emitter.emit(srcOp.getOutputDtype(), "output_dtype"),
         emitter.emit(srcOp.getConv2dConfig(), "conv_config"),
-        emitter.emit(std::nullopt, "compute_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_config"),
         emitter.emit(srcOp.getConv2dSliceConfig(), "slice_config"),
     };
 
@@ -1938,7 +2033,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PadOp> emitter(
-        padOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        padOp, adaptor, rewriter);
 
     // Convert padding from flat array to ArrayAttr of DenseI32ArrayAttr pairs
     auto paddingArray = padOp.getPadding();
@@ -1987,7 +2082,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ReshapeOp> emitter(
-        reshapeOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        reshapeOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(reshapeOp.getInput()),
@@ -2019,11 +2114,14 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RepeatOp> emitter(
-        repeatOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        repeatOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(repeatOp.getInput()),
         emitter.emit(repeatOp.getRepeatDims()),
+        emitter.emit(repeatOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(repeatOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2049,7 +2147,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RepeatInterleaveOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2081,14 +2179,49 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input"),
         emitter.emit(srcOp.getDim(), "dim"),
         emitter.emit(srcOp.getIndex(), "index"),
         emitter.emit(srcOp.getSource(), "src"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// GatherOp
+//
+namespace {
+class GatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::GatherOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GatherOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GatherOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GatherOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getIndex()),
+        emitter.emit(/*sparse_grad=*/false, "sparse_grad"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2111,8 +2244,8 @@ public:
   matchAndRewrite(tt::ttnn::SortOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::SortOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::SortOp> emitter(srcOp, adaptor,
+                                                                rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2145,7 +2278,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::TransposeOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2176,7 +2309,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ConcatOp> emitter(
-        concatOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        concatOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(concatOp.getInputs()),
@@ -2207,7 +2340,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PermuteOp> emitter(
-        permuteOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        permuteOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(permuteOp.getInput()),
@@ -2239,8 +2372,9 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::EmbeddingOp> emitter(
-        embeddingOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        embeddingOp, adaptor, rewriter);
 
+    // Get LayoutAttr (Tile/RowMajor)
     mlir::RankedTensorType resultType =
         mlir::cast<mlir::RankedTensorType>(embeddingOp.getResult().getType());
     auto resultLayoutAttr =
@@ -2253,7 +2387,12 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
+        emitter.emit(std::nullopt, "padding_idx"),
         emitter.emit(layoutAttr, "layout"),
+        emitter.emit(emitter.getOutputDtype(embeddingOp.getResult()), "dtype"),
+        emitter.emit(std::nullopt |
+                         emitter.getMemoryConfig(embeddingOp.getResult()),
+                     "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2278,7 +2417,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::EmbeddingBackwardOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2318,7 +2457,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SliceDynamicOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2357,7 +2496,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SliceStaticOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2395,7 +2534,7 @@ public:
   matchAndRewrite(mlir::tt::ttnn::ConcatenateHeadsOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ConcatenateHeadsOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2424,7 +2563,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FillCacheOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
@@ -2452,7 +2591,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::UpdateCacheOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     // The `update_index` is modeled as a tensor in the IR, but the
     // `ttnn.update_cache` expects a `int` scalar.
@@ -2500,7 +2639,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PagedUpdateCacheOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
@@ -2532,36 +2671,17 @@ public:
     auto resultType =
         this->getTypeConverter()->convertType(getTupleElementOp.getType());
 
-    // Create an expression op to inline the subscript operation
     auto loc = getTupleElementOp->getLoc();
-    auto exprOp = rewriter.create<emitpy::ExpressionOp>(
-        loc, resultType, ValueRange{adaptor.getOperand()});
 
-    // Setup the expression body
-    {
-      OpBuilder::InsertionGuard guard(rewriter);
-      Block *bodyBlock = &exprOp.getBody().emplaceBlock();
+    // Create literal for the index
+    Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
+        loc, rewriter.getIndexType(), std::to_string(adaptor.getIndex()));
 
-      // Add block argument for the tuple operand
-      auto tupleArg =
-          bodyBlock->addArgument(adaptor.getOperand().getType(), loc);
+    // Create subscript operation
+    Value subscriptResult = rewriter.create<emitpy::SubscriptOp>(
+        loc, resultType, adaptor.getOperand(), indexAsVal);
 
-      rewriter.setInsertionPointToStart(bodyBlock);
-
-      // Create literal for the index
-      Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
-          loc, rewriter.getIndexType(), std::to_string(adaptor.getIndex()));
-
-      // Create subscript operation inside the expression
-      Value subscriptResult = rewriter.create<emitpy::SubscriptOp>(
-          loc, resultType, tupleArg, indexAsVal);
-
-      // Yield the result
-      rewriter.create<emitpy::YieldOp>(loc, subscriptResult);
-    }
-
-    // Replace the original op with the expression op
-    rewriter.replaceOp(getTupleElementOp, exprOp.getResult());
+    rewriter.replaceOp(getTupleElementOp, subscriptResult);
 
     return success();
   }
@@ -2589,7 +2709,12 @@ public:
 };
 } // namespace
 
-// LoadCached Op conversion pattern
+// LoadCachedOp conversion pattern
+//
+// Converts ttcore.load_cached to a plain function call. The caching
+// infrastructure (globals, if-guards) is handled by the
+// TTNNPrepareConstEvalCaching pass (pre-split) and the
+// EmitPyConstEvalCaching pass (post-conversion).
 //
 namespace {
 class LoadCachedOpConversionPattern
@@ -2603,149 +2728,236 @@ public:
   matchAndRewrite(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
                   mlir::tt::ttcore::LoadCachedOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    const char *globalDictName = "_CONST_EVAL_CACHE";
-    auto strType = emitpy::OpaqueType::get(rewriter.getContext(), "str");
-    auto tensorListType =
-        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
-    auto dictType =
-        emitpy::DictType::get(rewriter.getContext(), strType, tensorListType);
+    auto *ctx = rewriter.getContext();
+    auto loc = loadCachedOp.getLoc();
+    auto tensorType = emitpy::OpaqueType::get(ctx, "ttnn.Tensor");
+    auto tensorListType = emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]");
 
+    llvm::StringRef calleeName = loadCachedOp.getCallee();
+
+    // Pack inputs into a list if present.
+    llvm::SmallVector<Value> callOperands;
+    if (!adaptor.getInputs().empty()) {
+      auto inputList = rewriter.create<emitpy::CallOpaqueOp>(
+          loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
+          adaptor.getInputs());
+      callOperands.push_back(inputList.getResult(0));
+    }
+
+    // Check for device argument (target-module mode).
     auto funcOp = loadCachedOp->getParentOfType<func::FuncOp>();
-    Block &entryBlock = funcOp.getBody().front();
+    auto deviceType = mlir::tt::ttnn::DeviceType::get(ctx);
 
-    // If the enclosing function has a device argument (module-export path),
-    // pass it into the const-eval wrapper so it can invoke const-eval functions
-    // that take `device` as an explicit parameter.
-    //
-    // Type-based detection:
-    // - Before/during signature conversion: `mlir::tt::ttnn::DeviceType`
-    // - After signature conversion: whatever `TypeConverter` converts
-    //   `mlir::tt::ttnn::DeviceType` into (today: `!emitpy.opaque<"...">`).
-    //
-    Value deviceArg = nullptr;
-    mlir::tt::ttnn::DeviceType deviceType =
-        mlir::tt::ttnn::DeviceType::get(rewriter.getContext());
     Type convertedDeviceType = nullptr;
     if (auto *typeConverter = this->getTypeConverter()) {
       convertedDeviceType = typeConverter->convertType(deviceType);
     }
-    for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
-      Type argTy = funcOp.getArgumentTypes()[i];
-      bool isDevice = (argTy == deviceType) ||
-                      (convertedDeviceType && argTy == convertedDeviceType);
-      if (isDevice) {
-        deviceArg = entryBlock.getArgument(i);
-        break;
-      }
-    }
-
-    // Find or create a global statement for the global cache dictionary at the
-    // beginning of the function body.
-    //
-    emitpy::GlobalStatementOp global = nullptr;
-    for (auto &op : entryBlock) {
-      if (auto globalStmt = dyn_cast<emitpy::GlobalStatementOp>(op)) {
-        if (globalStmt.getName() == globalDictName) {
-          global = globalStmt;
-          break;
-        }
-      }
-    }
-    if (!global) {
-      auto currentInsertionPoint = rewriter.saveInsertionPoint();
-      rewriter.setInsertionPointToStart(&entryBlock);
-      global = rewriter.create<emitpy::GlobalStatementOp>(
-          loadCachedOp.getLoc(), dictType, globalDictName);
-      rewriter.restoreInsertionPoint(currentInsertionPoint);
-    }
-    auto globalDict = global.getResult();
-
-    llvm::StringRef calleeName = loadCachedOp.getCallee();
-
-    // Create a function variable.
-    //
-    const bool isZeroArgWrapper = adaptor.getInputs().size() == 0;
-    emitpy::OpaqueType calleeType =
-        isZeroArgWrapper
-            ? emitpy::OpaqueType::get(rewriter.getContext(),
-                                      "() -> [ttnn.Tensor]")
-            : emitpy::OpaqueType::get(rewriter.getContext(),
-                                      "([ttnn.Tensor]) -> [ttnn.Tensor]");
-    mlir::Value callee =
-        rewriter
-            .create<emitpy::ConstantOp>(
-                loadCachedOp.getLoc(), calleeType,
-                emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName))
-            ->getResult(0);
-
-    llvm::SmallVector<Value> operands;
-    operands.push_back(callee);
-
-    // Create list of tensors.
-    //
-    if (loadCachedOp.getInputs().size() > 0) {
-      mlir::Value tensorsInList =
-          rewriter
-              .create<emitpy::CallOpaqueOp>(
-                  loadCachedOp.getLoc(), tensorListType,
-                  ttnn_to_emitpy::kCreateListFunctionName,
-                  adaptor.getOperands(), nullptr)
-              ->getResult(0);
-      operands.push_back(tensorsInList);
-    }
-
-    operands.push_back(globalDict);
-
-    mlir::Value keyValue =
-        rewriter
-            .create<emitpy::ConstantOp>(
-                loadCachedOp.getLoc(), strType,
-                emitpy::OpaqueAttr::get(rewriter.getContext(),
-                                        "\"" + calleeName.str() + "\""))
-            ->getResult(0);
-    operands.push_back(keyValue);
-
+    auto deviceArg = findDeviceArg(funcOp, deviceType, convertedDeviceType);
     if (deviceArg) {
-      operands.push_back(deviceArg);
+      callOperands.push_back(deviceArg);
     }
 
-    // Call into the callee.
-    //
-    static constexpr StringRef constEvalFuncWrapperZeroArg =
-        "utils.constEvalFuncWrapperZeroArg";
-    static constexpr StringRef constEvalFuncWrapper =
-        "utils.constEvalFuncWrapper";
-    llvm::StringRef wrapperFuncName =
-        isZeroArgWrapper ? constEvalFuncWrapperZeroArg : constEvalFuncWrapper;
+    // Call the const-eval function. Add discardable attribute to easily
+    // identify that the result is a const-eval in the caching pass afterwards.
+    auto callOp = rewriter.create<emitpy::CallOpaqueOp>(
+        loc, tensorListType, calleeName.str(), callOperands);
+    callOp->setDiscardableAttr(ttnn_to_emitpy::kConstEvaledAttr,
+                               rewriter.getUnitAttr());
 
-    auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
-        loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
-    mlir::Value cacheResult = cacheOp->getResult(0);
-
-    // Unpack the result list of tensors.
-    //
+    // Subscript individual results from the returned tensor list.
     llvm::SmallVector<Value> results;
     for (unsigned i = 0; i < loadCachedOp.getNumResults(); ++i) {
-      // Create index value.
-      //
-      auto indexType = rewriter.getIndexType();
-      auto indexOp = rewriter.create<emitpy::LiteralOp>(
-          loadCachedOp.getLoc(), indexType, std::to_string(i));
-      Value indexVal = indexOp.getResult();
+      auto index = rewriter.create<emitpy::LiteralOp>(
+          loc, rewriter.getIndexType(), std::to_string(i));
+      auto sub = rewriter.create<emitpy::SubscriptOp>(
+          loc, tensorType, callOp.getResult(0), index.getResult());
+      results.push_back(sub.getResult());
+    }
+    rewriter.replaceOp(loadCachedOp, results);
+    return success();
+  }
 
-      // Get reference to the i-th element in the result.
-      //
-      auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
-          loadCachedOp.getLoc(),
-          emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor"),
-          cacheResult, indexVal);
+private:
+  static Value findDeviceArg(func::FuncOp funcOp, Type deviceType,
+                             Type convertedDeviceType) {
+    if (funcOp.getNumArguments() == 0) {
+      return nullptr;
+    }
+    Block &entryBlock = funcOp.getBody().front();
+    unsigned lastIdx = funcOp.getNumArguments() - 1;
+    Type lastArgTy = funcOp.getArgumentTypes()[lastIdx];
+    if (lastArgTy == deviceType ||
+        (convertedDeviceType && lastArgTy == convertedDeviceType)) {
+      return entryBlock.getArgument(lastIdx);
+    }
+    return nullptr;
+  }
+};
+} // namespace
 
-      results.push_back(subscriptOp.getResult());
+// ttcore::GlobalOp conversion pattern
+//
+namespace {
+class TTCoreGlobalOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttcore::GlobalOp> {
+public:
+  using OpConversionPattern<mlir::tt::ttcore::GlobalOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttcore::GlobalOp globalOp,
+                  mlir::tt::ttcore::GlobalOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringRef initStr =
+        isa<ttcore::DictType>(globalOp.getType()) ? "{}" : "None";
+    auto initValue = emitpy::OpaqueAttr::get(rewriter.getContext(), initStr);
+    rewriter.replaceOpWithNewOp<emitpy::GlobalOp>(
+        globalOp, globalOp.getSymName(), initValue);
+    return success();
+  }
+};
+} // namespace
+
+// ttcore::GetGlobalOp conversion pattern
+//
+namespace {
+class TTCoreGetGlobalOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttcore::GetGlobalOp> {
+public:
+  using OpConversionPattern<mlir::tt::ttcore::GetGlobalOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttcore::GetGlobalOp getGlobalOp,
+                  mlir::tt::ttcore::GetGlobalOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto dictType =
+        emitpy::DictType::get(rewriter.getContext(), /*keyType=*/nullptr,
+                              /*valueType=*/nullptr);
+    auto discardableAttrs = getGlobalOp->getDiscardableAttrDictionary();
+    auto newOp = rewriter.replaceOpWithNewOp<emitpy::GlobalStatementOp>(
+        getGlobalOp, dictType,
+        rewriter.getStringAttr(getGlobalOp.getSymName()));
+    newOp->setDiscardableAttrs(discardableAttrs);
+    return success();
+  }
+};
+} // namespace
+
+// Helper to emit an EmitPy SSA value for a ttcore dict key attribute.
+static Value emitDictKey(ConversionPatternRewriter &rewriter, Location loc,
+                         Attribute keyAttr) {
+  auto *ctx = rewriter.getContext();
+  if (auto strAttr = dyn_cast<StringAttr>(keyAttr)) {
+    return rewriter
+        .create<emitpy::ConstantOp>(
+            loc, emitpy::StringType::get(ctx),
+            emitpy::OpaqueAttr::get(ctx, "\"" + strAttr.str() + "\""))
+        .getResult();
+  }
+  auto intAttr = cast<IntegerAttr>(keyAttr);
+  return rewriter
+      .create<emitpy::LiteralOp>(loc, rewriter.getIndexType(),
+                                 std::to_string(intAttr.getInt()))
+      .getResult();
+}
+
+// ttcore::SetKeyValueOp conversion pattern
+//
+// For multiple result values, packs them into a list first:
+//   %val = emitpy.call_opaque "util_create_list"(%v0, %v1, ...) ->
+//   [ttnn.Tensor]
+//
+// Then lowers to:
+//   %sub = emitpy.expression(%dict, %key) {
+//     %s = emitpy.subscript %dict[%key]
+//     emitpy.yield %s
+//   }
+//   emitpy.assign %sub = %val
+//
+namespace {
+class TTCoreSetKeyValueOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttcore::SetKeyValueOp> {
+public:
+  using OpConversionPattern<
+      mlir::tt::ttcore::SetKeyValueOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttcore::SetKeyValueOp setKVOp,
+                  mlir::tt::ttcore::SetKeyValueOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = setKVOp.getLoc();
+    Value key = emitDictKey(rewriter, loc, setKVOp.getKey());
+
+    // Pack values to set into a list.
+    auto tensorListType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
+    auto tensorListOp = rewriter.create<emitpy::CallOpaqueOp>(
+        loc, tensorListType, ttnn_to_emitpy::kCreateListFunctionName,
+        adaptor.getValues());
+    auto value = tensorListOp.getResult(0);
+
+    // Build an expression that computes the subscript lvalue.
+    SmallVector<Value> exprOperands = {adaptor.getDict(), key};
+    auto exprOp = rewriter.create<emitpy::ExpressionOp>(loc, value.getType(),
+                                                        exprOperands);
+    Block *body = rewriter.createBlock(&exprOp.getBody());
+    body->addArguments(adaptor.getDict().getType(), adaptor.getDict().getLoc());
+    body->addArguments(key.getType(), key.getLoc());
+
+    rewriter.setInsertionPointToStart(body);
+    auto dictArg = body->getArgument(0);
+    auto keyArg = body->getArgument(1);
+
+    auto subOp = rewriter.create<emitpy::SubscriptOp>(loc, value.getType(),
+                                                      dictArg, keyArg);
+    rewriter.create<emitpy::YieldOp>(loc, subOp.getResult());
+
+    // Place the assign outside the expression.
+    rewriter.setInsertionPointAfter(exprOp);
+    rewriter.create<emitpy::AssignOp>(loc, exprOp.getResult(), value);
+
+    rewriter.eraseOp(setKVOp);
+    return success();
+  }
+};
+} // namespace
+
+// ttcore::GetKeyValueOp conversion pattern
+//
+//
+namespace {
+class TTCoreGetKeyValueOpConversionPattern
+    : public OpConversionPattern<mlir::tt::ttcore::GetKeyValueOp> {
+public:
+  using OpConversionPattern<
+      mlir::tt::ttcore::GetKeyValueOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttcore::GetKeyValueOp getKVOp,
+                  mlir::tt::ttcore::GetKeyValueOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = getKVOp.getLoc();
+    Value key = emitDictKey(rewriter, loc, getKVOp.getKey());
+
+    auto tensorListType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]");
+    llvm::SmallVector<Type> convertedTypes;
+    for (auto resultType : getKVOp.getResultTypes()) {
+      convertedTypes.push_back(getTypeConverter()->convertType(resultType));
     }
 
-    // Replace the original op with the extracted results.
-    //
-    rewriter.replaceOp(loadCachedOp, results);
+    llvm::SmallVector<Value> results;
+    auto value = rewriter
+                     .create<emitpy::SubscriptOp>(loc, tensorListType,
+                                                  adaptor.getDict(), key)
+                     .getResult();
+    for (unsigned i = 0; i < getKVOp.getNumResults(); ++i) {
+      auto index = rewriter.create<emitpy::LiteralOp>(
+          loc, rewriter.getIndexType(), std::to_string(i));
+      auto sub = rewriter.create<emitpy::SubscriptOp>(loc, convertedTypes[i],
+                                                      value, index.getResult());
+      results.push_back(sub.getResult());
+    }
+    rewriter.replaceOp(getKVOp, results);
 
     return success();
   }
@@ -2798,7 +3010,7 @@ public:
       // attributes.
       SmallVector<Attribute> emitPyNames;
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
-        emitPyNames.push_back(funcOp.getArgAttr(i, "emitpy.name"));
+        emitPyNames.push_back(funcOp.getArgAttr(i, ttnn_to_emitpy::kNameAttr));
       }
 
       funcOp.removeArgAttrsAttr();
@@ -2806,7 +3018,7 @@ public:
       // Restore emitpy.name attributes.
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
         if (emitPyNames[i]) {
-          funcOp.setArgAttr(i, "emitpy.name", emitPyNames[i]);
+          funcOp.setArgAttr(i, ttnn_to_emitpy::kNameAttr, emitPyNames[i]);
         }
       }
     });
@@ -2828,7 +3040,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DumpTensorOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2862,7 +3074,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LoadTensorOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     RankedTensorType resultType = srcOp.getResult().getType();
     mlir::tt::ttnn::TTNNLayoutAttr layoutAttr =
@@ -2907,7 +3119,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::NLPConcatHeadsOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2948,7 +3160,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -2988,7 +3200,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::BatchNormInferenceOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     // For inference BatchNormInferenceOp, training is false and momentum is 0.1
     llvm::SmallVector<mlir::Attribute> args{
@@ -3003,6 +3215,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3036,7 +3249,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::BatchNormTrainingOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     // For training BatchNormTrainingOp, training is true
     llvm::SmallVector<mlir::Attribute> args{
@@ -3050,6 +3263,40 @@ public:
         emitter.emit(srcOp.getBias(), "bias"),
         emitter.emit(srcOp.getMemoryConfig() |
 
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MeshPartitionOp conversion pattern
+//
+namespace {
+class MeshPartitionOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MeshPartitionOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MeshPartitionOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MeshPartitionOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshPartitionOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getDim(), "dim"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
     };
@@ -3106,7 +3353,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributeTensorOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     auto mapperConfigAttr = srcOp.getMapperConfig();
 
@@ -3181,7 +3428,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AggregateTensorOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     auto composerConfigAttr = srcOp.getComposerConfig();
 
@@ -3247,14 +3494,16 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllGatherOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getAllGatherDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3281,16 +3530,19 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ReduceScatterOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getScatterDim(), "dim"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3314,13 +3566,60 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllReduceOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input_tensor"),
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getNumLinks(), "num_links"),
+        emitter.emit(srcOp.getTopology(), "topology"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// AllReduceAsyncOp
+//
+namespace {
+class AllReduceAsyncOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllReduceAsyncOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_reduce_async";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.all_reduce_async";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllReduceAsyncOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllReduceAsyncOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllReduceAsyncOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input_tensor"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getReduceType(), "math_op"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
         emitter.emit(srcOp.getNumLinks(), "num_links"),
         emitter.emit(srcOp.getTopology(), "topology"),
     };
@@ -3348,7 +3647,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PointToPointOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3356,6 +3655,157 @@ public:
         emitter.emitMeshCoordinate(srcOp.getReceiverCoord(), "receiver_coord"),
         emitter.emit(mlir::tt::ttcore::Topology::Linear, "topology"),
         emitter.emit(srcOp.getOptionalOutputTensor(), "output_tensor"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// AllToAllDispatchOp conversion pattern
+//
+namespace {
+class AllToAllDispatchOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor(), "input_tensor"),
+        emitter.emit(srcOp.getExpertIndices(), "expert_indices_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// AllToAllDispatchMetadataOp conversion pattern
+//
+namespace {
+class AllToAllDispatchMetadataOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllDispatchMetadataOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.all_to_all_dispatch_metadata";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.all_to_all_dispatch_metadata";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllDispatchMetadataOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllDispatchMetadataOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::AllToAllDispatchMetadataOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor(), "input_tensor"),
+        emitter.emit(srcOp.getExpertIndices(), "expert_indices_tensor"),
+        emitter.emit(srcOp.getExpertScores(), "expert_scores_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+    };
+
+    // Emit drain_sync_tilizer_core as a Python tuple if present.
+    if (auto drainCore = srcOp.getDrainCore()) {
+      std::string buf;
+      llvm::raw_string_ostream rso(buf);
+      rso << "(" << drainCore->getX() << ", " << drainCore->getY() << ")";
+      args.push_back(
+          emitter.emitExpression(rso.str(), "drain_sync_tilizer_core"));
+    }
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// AllToAllCombineOp conversion pattern
+//
+namespace {
+class AllToAllCombineOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AllToAllCombineOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AllToAllCombineOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AllToAllCombineOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AllToAllCombineOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor(), "input_tensor"),
+        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping_tensor"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+        emitter.emit(srcOp.getOutputShardDim(), "output_shard_dim"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// MoeExpertTokenRemapOp conversion pattern
+//
+namespace {
+class MoeExpertTokenRemapOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::MoeExpertTokenRemapOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MoeExpertTokenRemapOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MoeExpertTokenRemapOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MoeExpertTokenRemapOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getTopkTensor(), "topk_tensor"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
+        emitter.emit(srcOp.getExpertMetadata(), "expert_metadata"),
+        emitter.emit(srcOp.getReductionSize(), "reduction_size"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3379,7 +3829,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RMSNormOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3392,6 +3842,104 @@ public:
                      "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// RMSNormPreAllGatherOp conversion pattern
+//
+namespace {
+class RMSNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::RMSNormPreAllGatherOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.rms_norm_pre_all_gather";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::RMSNormPreAllGatherOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::RMSNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RMSNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getUse_2dCoreGrid(), "use_2d_core_grid"),
+    };
+
+    return success();
+  }
+};
+} // namespace
+
+// DistributedRMSNormOp conversion pattern
+//
+namespace {
+class DistributedRMSNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::DistributedRMSNormOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.distributed_rms_norm";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.fused_rms_minimal";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DistributedRMSNormOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DistributedRMSNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    auto opaqueType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor");
+
+    auto globalSemaphoreOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(), opaqueType, "utils.create_global_semaphore",
+        llvm::SmallVector<mlir::Value>{adaptor.getInput()});
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getClusterAxis()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(globalSemaphoreOp.getResult(0), "", 2),
+        emitter.emit(srcOp.getStats(), "stats"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId(), "subdevice_id"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getWeight(), "weight"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3415,7 +3963,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LayerNormOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3427,6 +3975,136 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// LayerNormPreAllGatherOp conversion pattern
+//
+namespace {
+class LayerNormPreAllGatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormPreAllGatherOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormPreAllGatherOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormPreAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LayerNormPreAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // Args match tt-metal invoke parameter order with named kwargs.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getResidualInput(), "residual_input_tensor"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getRecip(), "recip_tensor"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// LayerNormPostAllGatherOp conversion pattern
+//
+namespace {
+class LayerNormPostAllGatherOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormPostAllGatherOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormPostAllGatherOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormPostAllGatherOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LayerNormPostAllGatherOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getStats(), "stats"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
+        emitter.emit(srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// GroupNormOp conversion pattern
+//
+namespace {
+class GroupNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::GroupNormOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GroupNormOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GroupNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // ttnn::group_norm requires core_grid to be explicitly specified.
+    // If the op doesn't have it set, derive it from the device's worker grid.
+    mlir::tt::ttnn::CoreCoordAttr coreGridValue;
+    if (srcOp.getCoreGrid()) {
+      coreGridValue = *srcOp.getCoreGrid();
+    } else {
+      ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
+      auto gridShape = deviceAttr.getWorkerGrid().getShape();
+      // GridAttr shape is [y, x], CoreCoordAttr takes (x, y).
+      coreGridValue = mlir::tt::ttnn::CoreCoordAttr::get(
+          rewriter.getContext(), gridShape[1], gridShape[0]);
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getInputMask(), "input_mask"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getNumGroups(), "num_groups"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+        emitter.emit<::ttnn::CoreGrid>(coreGridValue, "core_grid"),
+        emitter.emit(false, "inplace"),
+        emitter.emit(-1, "num_out_blocks"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3460,7 +4138,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3469,7 +4147,9 @@ public:
         emitter.emit(srcOp.getOverlapQkCoregrid(), "overlap_qk_coregrid"),
         emitter.emit(srcOp.getBatchOffset(), "batch_offset"),
         emitter.emit(srcOp.getSliceSize(), "slice_size"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult(0)),
+                     "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3503,7 +4183,7 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<
         mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
@@ -3511,7 +4191,9 @@ public:
         emitter.emit(srcOp.getNumHeads(), "num_heads"),
         emitter.emit(srcOp.getNumKvHeads(), "num_kv_heads"),
         emitter.emit(srcOp.getTransposeKey(), "transpose_key"),
-        emitter.emit(srcOp.getMemoryConfig(), "memory_config")};
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult(0)),
+                     "memory_config")};
 
     emitter.replaceOp(*this, args);
 
@@ -3545,7 +4227,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3556,6 +4238,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3588,7 +4271,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RotaryEmbeddingOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3598,6 +4281,7 @@ public:
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3634,7 +4318,7 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<
         mlir::tt::ttnn::ScaledDotProductAttentionOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
@@ -3683,13 +4367,68 @@ public:
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<
         mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
-        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        emitter(srcOp, adaptor, rewriter);
 
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
         emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getIsCausal(), "is_causal"),
+        emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
+        emitter.emit(srcOp.getCurPosTensor(), "cur_pos_tensor"),
+        emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
+        emitter.emit(srcOp.getScale(), "scale"),
+        emitter.emit(std::nullopt, "sliding_window_size"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PagedFlashMultiLatentAttentionDecodeOp conversion pattern
+//
+namespace {
+class PagedFlashMultiLatentAttentionDecodeOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_flash_multi_latent_attention_decode";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.paged_flash_multi_latent_attention_decode";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getHeadDimV(), "head_dim_v"),
+        emitter.emit(srcOp.getPageTable(), "page_table_tensor"),
         emitter.emit(srcOp.getIsCausal(), "is_causal"),
         emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
         emitter.emit(srcOp.getCurPosTensor(), "cur_pos_tensor"),
@@ -3721,8 +4460,7 @@ public:
   LogicalResult
   matchAndRewrite(OpType srcOp, typename OpType::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    ttnn_to_emitpy::EmitPyTTNNEmitter<OpType> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+    ttnn_to_emitpy::EmitPyTTNNEmitter<OpType> emitter(srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3754,7 +4492,7 @@ public:
                   mlir::tt::ttnn::RequantizeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RequantizeOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3789,7 +4527,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::AssignOp> emitter(
-        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+        srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3804,17 +4542,84 @@ public:
 };
 } // namespace
 
+// TopKRouterGpt op conversion pattern
+//
+namespace {
+class TopKRouterGptOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKRouterGptOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.topk_router_gpt";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.topk_router_gpt";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKRouterGptOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKRouterGptOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKRouterGptOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight(), "weight_tensor"),
+        emitter.emit(srcOp.getBias(), "bias_tensor"),
+        emitter.emit(srcOp.getK(), "k"),
+        emitter.emit(srcOp.getNumExperts(), "num_experts"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// TopK op conversion pattern
+//
+namespace {
+class TopKOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::TopKOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::TopKOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::TopKOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::TopKOp> emitter(srcOp, adaptor,
+                                                                rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getK()),
+        emitter.template emit<int32_t>(srcOp.getDim()),
+        emitter.emit(srcOp.getLargest()),
+        emitter.emit(srcOp.getSorted()),
+        emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getValues()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace mlir::tt {
 
 void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                                  TypeConverter &typeConverter,
-                                  bool enableGoldenMode) {
+                                  TypeConverter &typeConverter) {
   // Device ops
   //
   // clang-format off
   patterns.add<GetDeviceOpConversionPattern,
                TTDeviceOpConversionPattern
-              >(typeConverter, ctx, enableGoldenMode);
+              >(typeConverter, ctx);
   // clang-format on
 
   // Tensor ops
@@ -3825,7 +4630,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                FullOpConversionPattern,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
-               RandOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+               RandOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Arith ops
@@ -3837,7 +4642,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Matmul ops
   //
   // clang-format off
-  patterns.add<MatmulOpConversionPattern, LinearOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+  patterns.add<MatmulOpConversionPattern, LinearOpConversionPattern,
+               SparseMatmulOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Reduction ops
@@ -3848,7 +4654,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ReductionOpConversionPattern<mlir::tt::ttnn::MeanOp>,
                ReductionOpConversionPattern<mlir::tt::ttnn::MinOp>,
                ReductionOpConversionPattern<mlir::tt::ttnn::SumOp>,
-               ArgMaxOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+               ArgMaxOpConversionPattern,
+               TopKRouterGptOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise unary ops
@@ -3857,6 +4664,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ClampOpConversionPattern<::mlir::tt::ttnn::ClampScalarOp>,
                ClampOpConversionPattern<mlir::tt::ttnn::ClampTensorOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AbsOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AcosOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AsinOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AsinhOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AtanOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::BitwiseNotOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CbrtOp>,
@@ -3870,6 +4680,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReciprocalOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ReluOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::Relu6Op>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::HardsigmoidOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::RsqrtOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SignOp>,
                EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SiluOp>,
@@ -3885,7 +4696,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::Log1pOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::TanhOp>,
                EltwiseUnaryWithFloatParameterOpConversionPattern<mlir::tt::ttnn::LeakyReluOp>,
-               EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::SigmoidOp>>(typeConverter, ctx, enableGoldenMode);
+               EltwiseUnaryWithVectorAndFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::SigmoidOp>>(typeConverter, ctx);
   // clang-format on
 
   // Eltwise binary ops
@@ -3909,22 +4720,21 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::BitwiseXorOp>,
                EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::LogicalLeftShiftOp>,
                EltwiseBinaryOpConversionPattern<mlir::tt::ttnn::LogicalRightShiftOp>,
-               EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
+               EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
                EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MinimumOp>,
                EltwiseBinaryCompositeWithDTypeOpConversionPattern<mlir::tt::ttnn::MaximumOp>,
                PowScalarOpConversionPattern,
-               GeluBackwardOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+               GeluBackwardOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Experimental dropout op
   //
-  patterns.add<DropoutOpConversionPattern>(typeConverter, ctx,
-                                           enableGoldenMode);
+  patterns.add<DropoutOpConversionPattern>(typeConverter, ctx);
 
-  patterns.add<EltwiseTernaryOpConversionPattern<ttnn::WhereOp>>(
-      typeConverter, ctx, enableGoldenMode);
+  patterns.add<EltwiseTernaryOpConversionPattern<ttnn::WhereOp>>(typeConverter,
+                                                                 ctx);
 
   // Tensor manipulation ops
   //
@@ -3936,12 +4746,13 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                RepeatInterleaveOpConversionPattern,
                RepeatOpConversionPattern,
                ScatterOpConversionPattern,
+               GatherOpConversionPattern,
                SliceDynamicOpConversionPattern,
                SliceStaticOpConversionPattern,
                SortOpConversionPattern,
                TransposeOpConversionPattern,
                AssignOpConversionPattern
-              >(typeConverter, ctx, enableGoldenMode);
+              >(typeConverter, ctx);
   // clang-format on
 
   // Memory ops
@@ -3950,11 +4761,10 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<DeallocateOpConversionPattern,
                FromDeviceOpConversionPattern,
                ToDeviceOpConversionPattern,
-               ToDTypeOpConversionPattern,
                ToLayoutOpConversionPattern,
                ToMemoryConfigOpConversionPattern,
                TypecastOpConversionPattern
-              >(typeConverter, ctx, enableGoldenMode);
+              >(typeConverter, ctx);
   // clang-format on
 
   // Pooling ops
@@ -3965,7 +4775,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                MaxPool2dOpConversionPattern,
                MaxPool2dWithIndicesOpConversionPattern,
                UpsampleOpConversionPattern
-              >(typeConverter, ctx, enableGoldenMode);
+              >(typeConverter, ctx);
   // clang-format on
 
   // Convolution ops
@@ -3974,44 +4784,51 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                PrepareConv2dWeightsOpConversionPattern,
                PrepareConv2dBiasOpConversionPattern,
                PrepareConvTranspose2dWeightsOpConversionPattern,
-               PrepareConvTranspose2dBiasOpConversionPattern>(
-      typeConverter, ctx, enableGoldenMode);
+               PrepareConvTranspose2dBiasOpConversionPattern,
+               Conv3dOpConversionPattern>(typeConverter, ctx);
 
   // Normalization ops
   //
-  patterns.add<BatchNormInferenceOpConversionPattern,
-               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern>(typeConverter, ctx,
-                                             enableGoldenMode);
+  patterns
+      .add<BatchNormInferenceOpConversionPattern,
+           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           DistributedRMSNormOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
+           LayerNormPreAllGatherOpConversionPattern,
+           LayerNormPostAllGatherOpConversionPattern,
+           GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // Transformers ops
   //
-  patterns.add<ConcatenateHeadsOpConversionPattern>(typeConverter, ctx,
-                                                    enableGoldenMode);
+  patterns.add<ConcatenateHeadsOpConversionPattern>(typeConverter, ctx);
   // Other ops
   //
   // clang-format off
-  patterns.add<EmbeddingOpConversionPattern, EmbeddingBackwardOpConversionPattern, MorehCumSumOpConversionPattern, SoftmaxOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+  patterns.add<EmbeddingOpConversionPattern,
+               EmbeddingBackwardOpConversionPattern,
+               CumSumOpConversionPattern,
+               SoftmaxOpConversionPattern
+              >(typeConverter, ctx);
   // clang-format on
 
   // Tensor serialization ops
   //
   // clang-format off
   patterns.add<DumpTensorOpConversionPattern,
-               LoadTensorOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+               LoadTensorOpConversionPattern
+              >(typeConverter, ctx);
   // clang-format on
 
   // Tuple ops
   //
   // clang-format off
   patterns.add<GetTupleElementOpConversionPattern,
-               TupleOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+               TupleOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // Constant op
   //
-  patterns.add<ConstantOpConversionPattern>(typeConverter, ctx,
-                                            enableGoldenMode);
+  patterns.add<ConstantOpConversionPattern>(typeConverter, ctx);
 
   // CCL ops
   //
@@ -4019,61 +4836,66 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<AllGatherOpConversionPattern,
                ReduceScatterOpConversionPattern,
                AllReduceOpConversionPattern,
+               AllReduceAsyncOpConversionPattern,
                PointToPointOpConversionPattern,
+               MeshPartitionOpConversionPattern,
                MeshShardOpConversionPattern,
                DistributeTensorOpConversionPattern,
-               AggregateTensorOpConversionPattern
-              >(typeConverter, ctx, enableGoldenMode);
+               AggregateTensorOpConversionPattern,
+               TopKOpConversionPattern,
+               AllToAllDispatchOpConversionPattern,
+               AllToAllDispatchMetadataOpConversionPattern,
+               AllToAllCombineOpConversionPattern,
+               MoeExpertTokenRemapOpConversionPattern
+              >(typeConverter, ctx);
   // clang-format on
 
   // KV Cache ops
   //
-  patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx,
-                                             enableGoldenMode);
-  patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx,
-                                               enableGoldenMode);
-  patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx,
-                                                    enableGoldenMode);
+  patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
 
   // Quantization ops.
   //
   patterns.add<QuantizationOpConversionPattern<mlir::tt::ttnn::QuantizeOp>,
                QuantizationOpConversionPattern<mlir::tt::ttnn::DequantizeOp>,
-               RequantizeOpConversionPattern>(typeConverter, ctx,
-                                              enableGoldenMode);
+               RequantizeOpConversionPattern>(typeConverter, ctx);
 
   // Consteval ops
-  patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx,
-                                              enableGoldenMode);
+  patterns.add<LoadCachedOpConversionPattern>(typeConverter, ctx);
+
+  // TTCore dict ops
+  patterns.add<TTCoreGlobalOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTCoreGetGlobalOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTCoreSetKeyValueOpConversionPattern>(typeConverter, ctx);
+  patterns.add<TTCoreGetKeyValueOpConversionPattern>(typeConverter, ctx);
 
   // Module op
   //
   // clang-format off
-  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+  patterns.add<ModuleOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
   // FuncOp
   //
   // clang-format off
-  patterns.add<FuncOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+  patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
   // clang-format on
 
-  patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx,
-                                                  enableGoldenMode);
-  patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx,
-                                                        enableGoldenMode);
-  patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx,
-                                                           enableGoldenMode);
+  patterns.add<NLPConcatHeadsOpConversionPattern>(typeConverter, ctx);
+  patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
+  patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<SplitQueryKeyValueAndSplitHeadsOpConversionPattern>(
-      typeConverter, ctx, enableGoldenMode);
-  patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx,
-                                                        enableGoldenMode);
-  patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx,
-                                                   enableGoldenMode);
-  patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter, ctx,
-                                                             enableGoldenMode);
+      typeConverter, ctx);
+  patterns.add<RotaryEmbeddingLlamaOpConversionPattern>(typeConverter, ctx);
+  patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
+                                                             ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
-      typeConverter, ctx, enableGoldenMode);
+      typeConverter, ctx);
+  patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
 }
 
 } // namespace mlir::tt

@@ -11,7 +11,7 @@
 //
 
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s | FileCheck %s
 module {
 
   // CHECK: "ttnn.scaled_dot_product_attention"
@@ -210,5 +210,28 @@ module {
     %35 = "ttir.matmul"(%33, %34) <{transpose_a = false, transpose_b = false}> : (tensor<1x32x512x512xf32>, tensor<1x32x512x64xf32>) -> tensor<1x32x512x64xf32>
     %36 = "ttir.typecast"(%35) <{conservative_folding = false}> : (tensor<1x32x512x64xf32>) -> tensor<1x32x512x64xbf16>
     return %36 : tensor<1x32x512x64xbf16>
+  }
+
+  // 3D single-head attention: Q/K/V shaped [B, S, D] with H=1 squeezed.
+  // CHECK: "ttnn.scaled_dot_product_attention"
+  func.func @sdpa_simple_softmax_3d_single_head(%arg0: tensor<1x128x64xbf16>, %arg1: tensor<1x128x64xbf16>, %arg2: tensor<1x128x64xbf16>, %arg3: tensor<1x128x128xbf16>) -> tensor<1x128x64xbf16> {
+    %0 = "ttir.transpose"(%arg1) <{dim0 = -2 : si32, dim1 = -1 : si32}> : (tensor<1x128x64xbf16>) -> tensor<1x64x128xbf16>
+    %1 = "ttir.matmul"(%arg0, %0) <{transpose_a = false, transpose_b = false}> : (tensor<1x128x64xbf16>, tensor<1x64x128xbf16>) -> tensor<1x128x128xbf16>
+    %2 = "ttir.full"() <{fill_value = 1.250000e-01 : f32, shape = array<i32: 1, 1, 1>}> : () -> tensor<1x1x1xbf16>
+    %3 = "ttir.multiply"(%1, %2) : (tensor<1x128x128xbf16>, tensor<1x1x1xbf16>) -> tensor<1x128x128xbf16>
+    %4 = "ttir.add"(%3, %arg3) : (tensor<1x128x128xbf16>, tensor<1x128x128xbf16>) -> tensor<1x128x128xbf16>
+    %5 = "ttir.typecast"(%4) <{conservative_folding = false}> : (tensor<1x128x128xbf16>) -> tensor<1x128x128xf32>
+    %6 = "ttir.max"(%5) <{dim_arg = [-1 : i32], keep_dim = false}> : (tensor<1x128x128xf32>) -> tensor<1x128xf32>
+    %7 = "ttir.reshape"(%6) <{shape = [1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x128xf32>) -> tensor<1x128x1xf32>
+    %8 = "ttir.broadcast"(%7) <{broadcast_dimensions = array<i64: 1, 1, 128>}> : (tensor<1x128x1xf32>) -> tensor<1x128x128xf32>
+    %9 = "ttir.subtract"(%5, %8) : (tensor<1x128x128xf32>, tensor<1x128x128xf32>) -> tensor<1x128x128xf32>
+    %10 = "ttir.exp"(%9) : (tensor<1x128x128xf32>) -> tensor<1x128x128xf32>
+    %11 = "ttir.sum"(%10) <{dim_arg = [-1 : i32], keep_dim = false}> : (tensor<1x128x128xf32>) -> tensor<1x128xf32>
+    %12 = "ttir.reshape"(%11) <{shape = [1 : i32, 128 : i32, 1 : i32]}> : (tensor<1x128xf32>) -> tensor<1x128x1xf32>
+    %13 = "ttir.broadcast"(%12) <{broadcast_dimensions = array<i64: 1, 1, 128>}> : (tensor<1x128x1xf32>) -> tensor<1x128x128xf32>
+    %14 = "ttir.div"(%10, %13) : (tensor<1x128x128xf32>, tensor<1x128x128xf32>) -> tensor<1x128x128xf32>
+    %15 = "ttir.typecast"(%14) <{conservative_folding = false}> : (tensor<1x128x128xf32>) -> tensor<1x128x128xbf16>
+    %16 = "ttir.matmul"(%15, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1x128x128xbf16>, tensor<1x128x64xbf16>) -> tensor<1x128x64xbf16>
+    return %16 : tensor<1x128x64xbf16>
   }
 }

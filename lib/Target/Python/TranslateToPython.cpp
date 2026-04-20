@@ -19,6 +19,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <optional>
 #include <regex>
 #include <stack>
 #include <string>
@@ -89,6 +90,7 @@ public:
 private:
   /// Build expression for specific operation types
   FailureOr<std::string> buildCallOpaqueExpr(CallOpaqueOp op);
+  FailureOr<std::string> buildConstantExpr(ConstantOp op);
   FailureOr<std::string> buildLiteralExpr(LiteralOp op);
   FailureOr<std::string> buildSubscriptExpr(SubscriptOp op);
   FailureOr<std::string> buildGetAttrExpr(GetAttrOp op);
@@ -102,7 +104,8 @@ private:
 
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
-  explicit PythonEmitter(raw_ostream &os) : os(os) {
+  explicit PythonEmitter(raw_ostream &os, std::optional<std::string> fileId)
+      : os(os), fileId(std::move(fileId)) {
     valueInScopeCount.push(0);
     usedNames.push(std::set<std::string>());
   }
@@ -142,11 +145,21 @@ struct PythonEmitter {
   /// Return the existing or a new name for a Value.
   StringRef getOrCreateName(Value value, std::string name);
 
-  // Return the textual representation of a subscript operation.
+  /// Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
   /// Register a value with a name so it can be referenced later.
   void registerDeferredValue(Value value, StringRef str);
+
+  /// Decides whether the file should be emitted. If fileId is set, only
+  /// the ops of the file with the matching id are emitted.
+  bool shouldEmitFile(FileOp fileOp);
+
+  /// Returns true if we're emitting multiple files (fileId is not set).
+  bool isEmittingMultipleFiles() const { return !fileId.has_value(); }
+
+  /// Emits a comment label for the file to separate outputs.
+  void emitFileLabel(FileOp fileOp);
 
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
@@ -208,6 +221,10 @@ private:
   std::stack<std::set<std::string>> usedNames;
 
   int classDepth = 0;
+
+  /// The id of the current file. Only files with this id are emitted. If
+  /// not set, all files are emitted as one.
+  std::optional<std::string> fileId;
 };
 } // namespace
 
@@ -233,6 +250,8 @@ FailureOr<std::string> ExpressionBuilder::buildExpression(Value value) {
   FailureOr<std::string> result;
   if (auto callOp = dyn_cast<CallOpaqueOp>(defOp)) {
     result = buildCallOpaqueExpr(callOp);
+  } else if (auto constantOp = dyn_cast<ConstantOp>(defOp)) {
+    result = buildConstantExpr(constantOp);
   } else if (auto literalOp = dyn_cast<LiteralOp>(defOp)) {
     result = buildLiteralExpr(literalOp);
   } else if (auto subscriptOp = dyn_cast<SubscriptOp>(defOp)) {
@@ -254,7 +273,8 @@ FailureOr<std::string> ExpressionBuilder::buildCallOpaqueExpr(CallOpaqueOp op) {
   std::string expr;
   llvm::raw_string_ostream os(expr);
 
-  os << op.getCallee() << "(";
+  bool isList = (op.getCallee() == "util_create_list");
+  os << (isList ? "[" : op.getCallee().str() + "(");
 
   bool first = true;
   for (Value operand : op.getOperands()) {
@@ -270,8 +290,41 @@ FailureOr<std::string> ExpressionBuilder::buildCallOpaqueExpr(CallOpaqueOp op) {
     os << *operandExpr;
   }
 
-  os << ")";
+  os << (isList ? "]" : ")");
   return expr;
+}
+
+FailureOr<std::string> ExpressionBuilder::buildConstantExpr(ConstantOp op) {
+  Attribute attr = op.getValue();
+  if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
+    return oAttr.getValue().str();
+  }
+  if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
+    SmallString<128> strValue;
+    bool isSigned = true;
+    if (auto intType = dyn_cast<IntegerType>(iAttr.getType())) {
+      // Treat signless integers as signed.
+      isSigned = !intType.isUnsigned();
+    }
+    iAttr.getValue().toString(strValue, 10, isSigned);
+    return std::string{strValue.begin(), strValue.end()};
+  }
+  if (auto fAttr = dyn_cast<FloatAttr>(attr)) {
+    APFloat value = fAttr.getValue();
+    if (value.isInfinity()) {
+      return std::string(value.isNegative() ? "float('-inf')" : "float('inf')");
+    }
+    if (value.isNaN()) {
+      return std::string("float('nan')");
+    }
+    SmallString<128> strValue;
+    value.toString(strValue);
+    return std::string{strValue.begin(), strValue.end()};
+  }
+  if (auto sAttr = dyn_cast<StringAttr>(attr)) {
+    return ("\"" + sAttr.getValue() + "\"").str();
+  }
+  return op.emitOpError("unsupported constant attribute type in expression");
 }
 
 FailureOr<std::string> ExpressionBuilder::buildLiteralExpr(LiteralOp op) {
@@ -282,7 +335,7 @@ FailureOr<std::string> ExpressionBuilder::buildSubscriptExpr(SubscriptOp op) {
   std::string expr;
   llvm::raw_string_ostream os(expr);
 
-  auto valueExpr = buildExpression(op.getValue());
+  auto valueExpr = buildExpression(op.getContainer());
   if (failed(valueExpr)) {
     return failure();
   }
@@ -333,7 +386,13 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   std::string name;
   llvm::raw_string_ostream ss(name);
   auto index = op.getIndex();
-  std::string indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+
+  // Only generate a new name if index doesn't already have one
+  std::string indexName;
+  if (!valueMapper.count(index)) {
+    indexName = "index_" + std::to_string(valueInScopeCount.top()++);
+  }
+
   ss << "[" << getOrCreateName(index, indexName) << "]";
   return name;
 }
@@ -342,6 +401,14 @@ void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
   if (!valueMapper.count(value)) {
     valueMapper.insert(value, str.str());
   }
+}
+
+bool PythonEmitter::shouldEmitFile(FileOp fileOp) {
+  return isEmittingMultipleFiles() || *fileId == fileOp.getId();
+}
+
+void PythonEmitter::emitFileLabel(FileOp fileOp) {
+  os << "# File: " << fileOp.getId() << "\n";
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
@@ -454,6 +521,26 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 static LogicalResult printOperation(PythonEmitter &emitter, ModuleOp moduleOp) {
   PythonEmitter::Scope scope(emitter);
 
+  // When file ops exist, emit the content of a specified file if the fileId
+  // is present, otherwise emit each file's contents with a label separator.
+  bool hasFileOps =
+      llvm::any_of(moduleOp.getOps<FileOp>(), [](FileOp) { return true; });
+
+  if (hasFileOps) {
+    for (auto fileOp : moduleOp.getOps<FileOp>()) {
+      if (!emitter.shouldEmitFile(fileOp)) {
+        continue;
+      }
+      if (emitter.isEmittingMultipleFiles()) {
+        emitter.emitFileLabel(fileOp);
+      }
+      if (failed(emitter.emitOperation(*fileOp))) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
   for (Operation &op : moduleOp) {
     if (failed(emitter.emitOperation(op))) {
       return failure();
@@ -501,6 +588,9 @@ static LogicalResult printFunctionBody(PythonEmitter &emitter, Operation &op,
 
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     func::FuncOp functionOp) {
+  if (functionOp.isDeclaration()) {
+    return success();
+  }
   PythonEmitter::Scope scope(emitter);
   Operation &op = *functionOp.getOperation();
   raw_indented_ostream &os = emitter.ostream();
@@ -577,14 +667,6 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   os << emitter.getSubscriptName(subscriptOp);
 
   return success();
-}
-
-static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
-  if (failed(emitter.emitAssignPrefix(*assignOp))) {
-    return failure();
-  }
-
-  return emitter.emitOperands(*assignOp);
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
@@ -741,43 +823,18 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    SetValueForDictKeyOp op) {
+static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+  if (failed(emitter.emitOperand(op.getTarget(), "target"))) {
     return failure();
   }
 
-  os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
+  os << " = ";
+
+  if (failed(emitter.emitOperand(op.getValue(), "value"))) {
     return failure();
   }
-  os << "] = ";
-
-  if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
-    return failure();
-  }
-  return success();
-}
-
-static LogicalResult printOperation(PythonEmitter &emitter,
-                                    GetValueForDictKeyOp op) {
-  if (failed(emitter.emitAssignPrefix(*op))) {
-    return failure();
-  }
-
-  raw_indented_ostream &os = emitter.ostream();
-
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
-    return failure();
-  }
-
-  os << "[";
-  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
-    return failure();
-  }
-  os << "]";
 
   return success();
 }
@@ -811,10 +868,77 @@ static FailureOr<std::string> buildExpressionString(ExpressionOp expressionOp,
   return builder.buildExpression(yieldValue);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, IfOp ifOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  auto emitConditionAndThenBody = [&](IfOp op,
+                                      StringRef keyword) -> LogicalResult {
+    os << keyword;
+
+    auto items = op.parseFormatString();
+    if (failed(items)) {
+      return failure();
+    }
+
+    size_t idx = 0;
+    for (auto &item : *items) {
+      if (auto *str = std::get_if<StringRef>(&item)) {
+        os << *str;
+      } else {
+        if (failed(emitter.emitOperand(op.getCondArgs()[idx++], ""))) {
+          return failure();
+        }
+      }
+    }
+
+    os << ":\n";
+
+    os.indent();
+    for (Operation &bodyOp : op.getThenRegion().front().getOperations()) {
+      if (failed(emitter.emitOperation(bodyOp))) {
+        return failure();
+      }
+    }
+    os.unindent();
+
+    return success();
+  };
+
+  if (failed(emitConditionAndThenBody(ifOp, "if "))) {
+    return failure();
+  }
+
+  while (!ifOp.getElseRegion().empty()) {
+    Block &elseBlock = ifOp.getElseRegion().front();
+    auto *firstOp = &elseBlock.front();
+    if (auto nestedIf = dyn_cast<IfOp>(firstOp);
+        nestedIf && elseBlock.getOperations().size() == 1 &&
+        nestedIf.getElseRegion().empty()) {
+      if (failed(emitConditionAndThenBody(nestedIf, "elif "))) {
+        return failure();
+      }
+      ifOp = nestedIf;
+      continue;
+    }
+    os << "else:\n";
+    os.indent();
+    for (Operation &bodyOp : elseBlock.getOperations()) {
+      if (failed(emitter.emitOperation(bodyOp))) {
+        return failure();
+      }
+    }
+    os.unindent();
+    break;
+  }
+
+  return success();
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     ExpressionOp expressionOp) {
 
-  // Check if we should emit inline or not
+  Block *bodyBlock = expressionOp.getBodyBlock();
+
   bool shouldInline = !expressionOp.getDoNotInline();
 
   if (shouldInline) {
@@ -834,7 +958,6 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     PythonEmitter::Scope scope(emitter);
 
     // Map block arguments to operands
-    Block *bodyBlock = expressionOp.getBodyBlock();
     for (auto [blockArg, operand] :
          llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
       emitter.registerDeferredValue(
@@ -860,6 +983,20 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, FileOp fileOp) {
+  if (!emitter.shouldEmitFile(fileOp)) {
+    return success();
+  }
+
+  for (Operation &op : fileOp.getRegion().getOps()) {
+    if (failed(emitter.emitOperation(op))) {
+      return failure();
+    }
+  }
+
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -868,9 +1005,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
-                GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
-                GetValueForDictKeyOp, ExpressionOp, YieldOp>(
-              [&](auto op) { return printOperation(*this, op); })
+                GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
+                FileOp>([&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
             return success();
@@ -890,7 +1026,9 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
     return success();
   }
 
-  os << "\n";
+  if (!isa<IfOp>(op)) {
+    os << "\n";
+  }
 
   return success();
 }
@@ -932,6 +1070,20 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
   // Print integer attributes.
   if (auto iAttr = dyn_cast<IntegerAttr>(attr)) {
     os << printInt(iAttr.getValue());
+    return success();
+  }
+  // Print float attributes.
+  if (auto fAttr = dyn_cast<FloatAttr>(attr)) {
+    APFloat value = fAttr.getValue();
+    if (value.isInfinity()) {
+      os << (value.isNegative() ? "float('-inf')" : "float('inf')");
+    } else if (value.isNaN()) {
+      os << "float('nan')";
+    } else {
+      SmallString<128> strValue;
+      value.toString(strValue);
+      os << strValue;
+    }
     return success();
   }
   // Print string attributes.
@@ -1029,8 +1181,9 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
   return success();
 }
 
-LogicalResult mlir::tt::emitpy::translateToPython(Operation *op,
-                                                  raw_ostream &os) {
-  PythonEmitter emitter(os);
+LogicalResult
+mlir::tt::emitpy::translateToPython(Operation *op, raw_ostream &os,
+                                    std::optional<std::string> fileId) {
+  PythonEmitter emitter(os, std::move(fileId));
   return emitter.emitOperation(*op);
 }

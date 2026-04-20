@@ -17,6 +17,8 @@
 
 namespace mlir::tt::ttcore {
 
+constexpr inline llvm::StringLiteral g_kvCacheAttrName = "ttcore.kv_cache";
+
 class DeviceOp;
 class DeviceAttr;
 class SystemDescAttr;
@@ -154,6 +156,16 @@ inline ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
       .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
+// Helper function to derive shard shape from tensor OR memref using underlying
+// layout attr.
+inline ArrayRef<int64_t> getShardShape(Value tensorOrMemref) {
+  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  return ttcore::getDeviceLayout(tensorOrMemref)
+      .getShardShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
+}
+
 Type getOperandInnerElementType(const mlir::Value operand);
 
 // Convert a TensorType with MetalLayoutAttr encoding into a MemRefType with
@@ -161,6 +173,40 @@ Type getOperandInnerElementType(const mlir::Value operand);
 bufferization::BufferLikeType
 getBufferType(Type type, bool isView,
               std::optional<MetalLayoutAttr> hostInfo = std::nullopt);
+
+// ArgumentType helpers
+
+// Retrieves the ArgumentType for a given function argument, defaulting to
+// Input if not specified.
+inline ArgumentType getFunctionArgumentType(func::FuncOp op, size_t argIndex) {
+  auto argAttrDict = op.getArgAttrDict(argIndex);
+  if (argAttrDict && argAttrDict.contains(ArgumentTypeAttr::name)) {
+    Attribute attr = argAttrDict.get(ArgumentTypeAttr::name);
+    auto argTypeAttr = mlir::cast<ttcore::ArgumentTypeAttr>(attr);
+    return argTypeAttr.getValue();
+  }
+
+  // Default to Input if not specified
+  return ArgumentType::Input;
+}
+
+// Checks if the function argument is of type Input.
+inline bool isInputArgumentType(func::FuncOp op, size_t argIndex) {
+  return getFunctionArgumentType(op, argIndex) == ArgumentType::Input;
+}
+
+// Checks if the function argument is of type Constant or Parameter.
+inline bool isConstantOrParameterArgumentType(func::FuncOp op,
+                                              size_t argIndex) {
+  ArgumentType argType = getFunctionArgumentType(op, argIndex);
+  return argType == ArgumentType::Constant ||
+         argType == ArgumentType::Parameter;
+}
+
+// Checks if the function argument has the ttcore.kv_cache attribute attached.
+inline bool isKVCacheArgument(func::FuncOp op, size_t argIndex) {
+  return op.getArgAttr(argIndex, ttcore::g_kvCacheAttrName) != nullptr;
+}
 
 } // namespace mlir::tt::ttcore
 

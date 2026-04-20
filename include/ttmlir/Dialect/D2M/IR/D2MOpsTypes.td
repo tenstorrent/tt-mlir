@@ -10,6 +10,7 @@ include "mlir/IR/BuiltinTypeInterfaces.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td"
 include "ttmlir/Dialect/D2M/IR/D2MBase.td"
+include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.td"
 
 class D2M_Type<string name, string typeMnemonic, list<Trait> traits = []>
     : TypeDef<D2M_Dialect, name, traits> {
@@ -18,12 +19,19 @@ class D2M_Type<string name, string typeMnemonic, list<Trait> traits = []>
 
 def D2M_MemTx : D2M_Type<"MemTx", "mem_tx"> {
     let summary = "D2M memory transaction type.";
-    let description = "Memory transaction returned by dma op, used to wait for completion.";
+    let description = [{
+      Memory transaction returned by a DMA op, used to wait for completion.
+      Parameterized by DMAType to encode the barrier type (read, write,
+      mcast_write) so downstream lowering can emit the correct NOC barrier
+      without needing use-def chain analysis.
+    }];
+    let parameters = (ins "DMAType":$dmaType);
+    let assemblyFormat = "`<` $dmaType `>`";
 }
 
-def D2M_Semaphore : D2M_Type<"Semaphore", "semaphore"> {
-    let summary = "D2M semaphore type.";
-    let description = "Semaphore primitive type used with semaphore ops to synchronize cores.";
+def D2M_LocalSemaphore : D2M_Type<"LocalSemaphore", "local_semaphore"> {
+    let summary = "D2M local semaphore type.";
+    let description = "Local semaphore primitive type used with semaphore ops to synchronize cores.";
 }
 
 def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLikeTypeInterface, Bufferization_BufferLikeTypeInterface]> {
@@ -100,6 +108,11 @@ def D2M_CB : D2M_Type<"CB", "cb", [ShapedTypeInterface, Bufferization_TensorLike
                        getShape() == shapedType.getShape());
       }
     }];
+}
+
+def D2M_GlobalSemaphore : D2M_Type<"GlobalSemaphore", "global_semaphore"> {
+    let summary = "D2M global semaphore type.";
+    let description = "Global semaphore type used with semaphore wait/set ops to synchronize cores.";
 }
 
 #endif  // TTMLIR_D2M_DIALECT_D2M_IR_D2MOPSTYPES_TD

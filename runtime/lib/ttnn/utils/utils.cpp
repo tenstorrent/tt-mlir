@@ -143,20 +143,20 @@ getProgram(const ::tt::runtime::Binary &executableHandle,
   return program;
 }
 
-::ttnn::operations::reduction::ReduceType getReduceType(uint32_t reduceType) {
+::reduction_common::ReduceType getReduceType(uint32_t reduceType) {
   switch (reduceType) {
   case 0:
-    return ::ttnn::operations::reduction::ReduceType::Sum;
+    return ::reduction_common::ReduceType::Sum;
   case 1:
-    return ::ttnn::operations::reduction::ReduceType::Mean;
+    return ::reduction_common::ReduceType::Mean;
   case 2:
-    return ::ttnn::operations::reduction::ReduceType::Max;
+    return ::reduction_common::ReduceType::Max;
   case 3:
-    return ::ttnn::operations::reduction::ReduceType::Min;
+    return ::reduction_common::ReduceType::Min;
   case 4:
-    return ::ttnn::operations::reduction::ReduceType::Std;
+    return ::reduction_common::ReduceType::Std;
   case 5:
-    return ::ttnn::operations::reduction::ReduceType::Var;
+    return ::reduction_common::ReduceType::Var;
   default:
     LOG_FATAL("Unsupported reduce type");
   }
@@ -210,16 +210,17 @@ getProgram(const ::tt::runtime::Binary &executableHandle,
   }
 }
 
-MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
+::tt::tt_metal::MathFidelity
+toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case ::tt::target::MathFidelity::LoFi:
-    return MathFidelity::LoFi;
+    return ::tt::tt_metal::MathFidelity::LoFi;
   case ::tt::target::MathFidelity::HiFi2:
-    return MathFidelity::HiFi2;
+    return ::tt::tt_metal::MathFidelity::HiFi2;
   case ::tt::target::MathFidelity::HiFi3:
-    return MathFidelity::HiFi3;
+    return ::tt::tt_metal::MathFidelity::HiFi3;
   case ::tt::target::MathFidelity::HiFi4:
-    return MathFidelity::HiFi4;
+    return ::tt::tt_metal::MathFidelity::HiFi4;
   }
 }
 
@@ -257,6 +258,8 @@ MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity) {
     return ::ttnn::TensorMemoryLayout::WIDTH_SHARDED;
   case ::tt::target::ttnn::TensorMemoryLayout::BlockSharded:
     return ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+  case ::tt::target::ttnn::TensorMemoryLayout::NDSharded:
+    return ::ttnn::TensorMemoryLayout::ND_SHARDED;
   }
 }
 
@@ -271,6 +274,8 @@ fromTTNNTensorMemoryLayout(::ttnn::TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ::ttnn::TensorMemoryLayout::BLOCK_SHARDED:
     return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  case ::ttnn::TensorMemoryLayout::ND_SHARDED:
+    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
   }
 }
 

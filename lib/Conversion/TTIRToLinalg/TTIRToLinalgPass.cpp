@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
-#include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
@@ -40,6 +40,7 @@ struct ConvertTTIRToLinalgPass
     target.addLegalDialect<tosa::TosaDialect>();
     target.addLegalDialect<arith::ArithDialect>();
     target.addLegalDialect<math::MathDialect>();
+    target.addLegalDialect<scf::SCFDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
 
     TypeConverter typeConverter;
@@ -49,10 +50,12 @@ struct ConvertTTIRToLinalgPass
     RewritePatternSet patterns(&getContext());
 
     // Add TTIR to Tosa patterns.
-    populateTTIRToTosaPatterns(&getContext(), patterns, typeConverter);
+    ttir_to_linalg::populateTTIRToTosaPatterns(&getContext(), patterns,
+                                               typeConverter);
 
     // Add direct TTIR to Linalg patterns.
-    populateTTIRToLinalgPatterns(&getContext(), patterns, typeConverter);
+    ttir_to_linalg::populateTTIRToLinalgPatterns(&getContext(), patterns,
+                                                 typeConverter);
 
     // Apply full conversion for both paths.
     //

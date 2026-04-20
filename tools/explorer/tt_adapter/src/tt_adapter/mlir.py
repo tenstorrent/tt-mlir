@@ -26,7 +26,7 @@ def parse_loc_string(loc_str):
         )
         # raise IndexError("Invalid LOC type in perf_trace: %s, expected string", type(loc_str))
         return None
-    match = re.match(r'^loc\("([^"]+)"', loc_str)
+    match = re.match(r'^loc\("?([^")]+)"?\)', loc_str)
     if not match:
         logging.error("Failed to match location string: %s", loc_str)
         return None
@@ -697,7 +697,7 @@ class OpHandler:
                 graph_builder.KeyValue(key="full_location", value=self.full_location)
             )
 
-        # Add output tensor attriributes to the op itself
+        # Add output tensor attributes to the op itself
         if self.op.results:
             # Examples like the Pooling Op Contain more than 1 Result Tensor
             # Since the output of a pool op is currently the same shape we don't have to add any extra logic

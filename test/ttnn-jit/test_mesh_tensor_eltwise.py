@@ -16,10 +16,10 @@ from utils import (
 from op_definitions import exp, cosh, add
 
 DRAM_INTERLEAVED_SHAPES = [
-    (32, 32),
+    (256, 256),
     (2048, 2048),
-    (1024, 32),
-    (32, 1024),
+    (1024, 256),
+    (256, 1024),
 ]
 
 
@@ -43,7 +43,6 @@ DRAM_INTERLEAVED_SHAPES = [
         (ttnn.ShardTensor2dMesh, (None, 1)),
         (ttnn.ShardTensor2dMesh, (0, None)),
         (ttnn.ShardTensor2dMesh, (1, None)),
-        (ttnn.ShardTensor2dMesh, (0, 1)),
         (ttnn.ShardTensor2dMesh, (1, 0)),
     ],
 )
@@ -68,15 +67,23 @@ def test_mesh_tensor_eltwise(
         )
 
     inputs = [
-        create_dram_tensor(mesh_device, shape, dtype, mesh_mapper=mesh_mapper)
+        create_dram_tensor(
+            mesh_device,
+            shape,
+            dtype,
+            mesh_mapper=mesh_mapper,
+        )
         for i in range(num_inputs)
     ]
+
+    output_memory_config = ttnn.DRAM_MEMORY_CONFIG
 
     # JIT path
     enable_cache = False
     op_jit = ttnn_jit.jit(
         debug=True,
         enable_cache=enable_cache,
+        memory_config=output_memory_config,
     )(op)
     interop_result = op_jit(*inputs)
 
@@ -85,12 +92,10 @@ def test_mesh_tensor_eltwise(
 
     # Run a regular ttnn op (ttnn.sum) using jit output to check interop between ttnn jit and ttnn
     if check_interop:
-        interop_result = ttnn.sum(interop_result, dim=0)
-        golden_result = ttnn.sum(golden_result, dim=0)
+        interop_result = ttnn.exp(interop_result)
+        golden_result = ttnn.exp(golden_result)
 
-    assert memory_configs_equal(
-        interop_result.memory_config(), golden_result.memory_config()
-    )
+    assert memory_configs_equal(interop_result.memory_config(), output_memory_config)
 
     # compare each device shard
     interop_result_shards = ttnn.get_device_tensors(interop_result.cpu())
@@ -99,5 +104,6 @@ def test_mesh_tensor_eltwise(
     for interop_result_shard, golden_result_shard in zip(
         interop_result_shards, golden_result_shards
     ):
+
         assert interop_result_shard.shape == golden_result_shard.shape
         assert all_close_check(interop_result_shard, golden_result_shard)

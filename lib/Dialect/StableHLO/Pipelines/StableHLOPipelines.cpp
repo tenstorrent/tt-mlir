@@ -7,6 +7,7 @@
 #include "shardy/dialect/sdy/transforms/propagation/user_priority_propagation.h"
 
 #include "mlir/Transforms/Passes.h"
+#include "stablehlo/transforms/optimization/Passes.h"
 
 namespace mlir::tt::stablehlo {
 //===----------------------------------------------------------------------===//
@@ -25,6 +26,11 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Convert any xla.sdy ops to sdy ops.
   pm.addPass(createConvertXlaSdyToSdyPass());
 
+  // Optionally run aggressive StableHLO simplification if enabled.
+  if (options.enableAggressiveSimplification) {
+    pm.addPass(mlir::stablehlo::createStablehloAggressiveSimplificationPass());
+  }
+
   // Apply StableHLO fusing pass.
   pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
 
@@ -32,7 +38,11 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createPartiallyConvertSdyToStableHLOPass());
 
   // Annotate arguments with whether they are already pre-sharded or not.
-  pm.addPass(createApplyArgumentShardStatusPass());
+  ApplyArgumentShardStatusPassOptions applyArgumentShardStatusOptions;
+  applyArgumentShardStatusOptions.resultPresharded =
+      llvm::to_vector(options.resultPresharded);
+  pm.addPass(
+      createApplyArgumentShardStatusPass(applyArgumentShardStatusOptions));
 
   // Analyze the mesh of the graph and update shardings or annotations to match
   // the target device.
@@ -43,8 +53,15 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   pm.addPass(createDecoupleConstFanoutPass());
 
-  // Flatten all composite ops to make sharding propagation easier.
-  pm.addPass(createFlattenCompositePass());
+  // Convert tuple-returning custom_call ops to multi-result ops so that
+  // Shardy can propagate shardings through them (Shardy does not support
+  // tuple types).
+  pm.addPass(createDecomposeCustomCallTuplesPass());
+
+  // Flatten or convert composite ops. Composites with custom sharding rules
+  // are converted to stablehlo.custom_call ops so Shardy can propagate through
+  // them. All other composites are flattened (inlined).
+  pm.addPass(createFlattenOrConvertCompositesPass());
 
   // Register custom sharding rules for unsupported ops in Shardy.
   pm.addPass(createRegisterCustomShardingRulePass());
@@ -69,6 +86,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.nest<mlir::func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
 
+  // Replicate non-splittable constants so that InsertExplicitReshards inserts
+  // reshard ops between the replicated constant and its sharded consumers.
+  pm.addPass(createReplicateNonSplittableConstantsPass());
+
   // Insert explicit reshards conditionally.
   pm.addPass(createInsertExplicitReshardsPass());
 
@@ -83,11 +104,18 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Canonicalize shardy CCL ops
   pm.addPass(createShardyCCLCanonicalizationPass());
 
+  // Annotate arguments and results with their local shape
+  pm.addPass(createAnnotateLocalShapesPass());
+
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
 
   // Re-outline composite ops from flattened groups.
   pm.addPass(createReoutlineCompositePass());
+
+  // Fuse custom_calls with surrounding CCL ops into
+  // distributed variants that handle cross-device communication internally.
+  pm.addPass(createFuseDistributedCustomCallsPass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());

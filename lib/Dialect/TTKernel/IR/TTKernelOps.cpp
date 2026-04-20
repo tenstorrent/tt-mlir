@@ -7,9 +7,12 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+
+#include <limits>
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.cpp.inc"
@@ -76,6 +79,19 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
            "element type";
   }
   return std::string();
+}
+
+static ::mlir::LogicalResult verifyPackUntilizeDims(Operation *op,
+                                                    int32_t colsPerDstPass,
+                                                    int32_t totalColTiles) {
+  if (colsPerDstPass <= 0 || totalColTiles <= 0) {
+    return op->emitOpError(
+        "cols_per_dst_pass and total_col_tiles must both be positive");
+  }
+  if (totalColTiles % colsPerDstPass != 0) {
+    return op->emitOpError("cols_per_dst_pass must divide total_col_tiles");
+  }
+  return success();
 }
 
 ::mlir::LogicalResult TilizeInitOp::verify() {
@@ -151,6 +167,52 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
       verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
   if (!err.empty()) {
     return emitOpError(err);
+  }
+  return success();
+}
+
+::mlir::LogicalResult PackUntilizeInitOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError(
+        "PackUntilizeInitOp must be inside of a EnqueueProgramOp region");
+  }
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
+  }
+  if (failed(verifyPackUntilizeDims(getOperation(), getColsPerDstPass(),
+                                    getTotalColTiles()))) {
+    return failure();
+  }
+  return success();
+}
+
+::mlir::LogicalResult ExperimentalPackUntilizeBlockOp::verify() {
+  if (!insideEnqueueProgramOpRegion(getOperation())) {
+    return emitOpError("ExperimentalPackUntilizeBlockOp must be inside of a "
+                       "EnqueueProgramOp region");
+  }
+  std::string err =
+      verifyTilizeUntilizeCBs(getCbIn().getType(), getCbOut().getType());
+  if (!err.empty()) {
+    return emitOpError(err);
+  }
+  if (failed(verifyPackUntilizeDims(getOperation(), getColsPerDstPass(),
+                                    getTotalColTiles()))) {
+    return failure();
+  }
+
+  // block_c is an SSA operand. If it is constant here, validate the additional
+  // compatibility requirement used by the LLK implementation.
+  if (auto blockC = getConstantIntValue(getBlockC())) {
+    int64_t blockColTiles = *blockC;
+    if (blockColTiles <= 0) {
+      return emitOpError("block_c must be positive");
+    }
+    if (blockColTiles % static_cast<int64_t>(getColsPerDstPass()) != 0) {
+      return emitOpError("block_c must be divisible by cols_per_dst_pass");
+    }
   }
   return success();
 }
@@ -373,6 +435,70 @@ TensorAccessorArgsOp::parse(::mlir::OpAsmParser &parser,
   result.addTypes(tensorAccessorArgsType);
 
   return success();
+}
+
+static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
+  unsigned width = mlir::IndexType::kInternalStorageBitWidth;
+  return mlir::ConstantIntRanges::fromUnsigned(mlir::APInt(width, umin),
+                                               mlir::APInt(width, umax));
+}
+
+void MyLogicalXOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+void MyLogicalYOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](NocAsyncReadBarrierOp op,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    for (Operation *it = op->getPrevNode(); it != nullptr;
+         it = it->getPrevNode()) {
+      if (mlir::isa<NocAsyncReadBarrierOp>(it)) {
+        rewriter.eraseOp(op);
+        return success();
+      }
+      if (mlir::isa<NocAsyncReadOp, NocAsyncReadTileOp,
+                    NocAsyncReadOnePacketSetStateOp,
+                    NocAsyncReadOnePacketWithStateOp, NocAsyncReadSetTridOp,
+                    NocAsyncReadOnePacketWithStateWithTridOp>(it) ||
+          it->getNumRegions() > 0) {
+        break;
+      }
+    }
+    return failure();
+  });
+}
+
+void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](NocAsyncWriteBarrierOp op,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    for (Operation *it = op->getPrevNode(); it != nullptr;
+         it = it->getPrevNode()) {
+      if (mlir::isa<NocAsyncWriteBarrierOp>(it)) {
+        rewriter.eraseOp(op);
+        return success();
+      }
+      if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
+                    NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
+                    NocAsyncWriteMulticastOp, NocAsyncWriteMulticastOnePacketOp,
+                    NocAsyncWriteMulticastLoopbackSrcOp>(it) ||
+          it->getNumRegions() > 0) {
+        break;
+      }
+    }
+    return failure();
+  });
 }
 
 } // namespace mlir::tt::ttkernel

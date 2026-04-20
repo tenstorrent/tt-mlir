@@ -38,9 +38,9 @@ def TTKernel_CB : TTKernel_Type<"CB", "cb"> {
     }];
 }
 
-def TTKernel_Semaphore : TTKernel_Type<"Semaphore", "semaphore"> {
+def TTKernel_LocalSemaphore : TTKernel_Type<"LocalSemaphore", "local_semaphore"> {
   let summary = "TTKernel semaphore";
-  let description = "Semaphore type in TTKernel dialect";
+  let description = "Local semaphore type in TTKernel dialect";
 }
 
 def TTKernel_NocAddr : TTKernel_Type<"NocAddr", "noc_addr"> {
@@ -133,12 +133,21 @@ def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
   let description = [{
   }];
   let parameters = (ins "ArgType":$arg_type, "size_t":$operand_index,
-                        DefaultValuedParameter<"bool", "true">:$is_uniform);
+                        DefaultValuedParameter<"bool", "true">:$is_uniform,
+                        DefaultValuedParameter<"StringAttr", "StringAttr::get($_ctxt, \"\")">:$argument_name);
   let assemblyFormat = "`<` struct(params) `>`";
 
   let extraClassDeclaration = [{
     static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index) {
-      return ArgAttr::get(context, argType, index, true);
+      return ArgAttr::get(context, argType, index, true, StringAttr::get(context, ""));
+    }
+
+    static ArgAttr get(::mlir::MLIRContext *context, ArgType argType, size_t index, bool isUniform) {
+      return ArgAttr::get(context, argType, index, isUniform, StringAttr::get(context, ""));
+    }
+
+    static ArgAttr get(::mlir::MLIRContext *context, StringAttr argumentName) {
+      return ArgAttr::get(context, ArgType::NamedArgument, 0, true, argumentName);
     }
   }];
 }
@@ -146,7 +155,7 @@ def TTKernel_ArgAttr : TTKernel_Attr<"Arg", "arg"> {
 def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
   let summary = "Kernel argument specification.";
   let description = [{
-    A list of argument attibutes, of which form the argument specification for this kernel.
+    A list of argument attributes, of which form the argument specification for this kernel.
   }];
   let parameters = (ins OptionalArrayRefParameter<"ArgAttr">:$rt_args,
                         OptionalArrayRefParameter<"ArgAttr">:$ct_args);

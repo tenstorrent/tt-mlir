@@ -36,16 +36,15 @@ module {
       threads = [#d2m.thread<compute>]}
       ins(%arg0, %arg1 : tensor<2x2xf32>, tensor<2x2xf32>)
       outs(%0 : tensor<2x2xf32>) {
-    ^bb0(%cb0: !d2m.cb<tensor<2x2xf32>>, %cb1: !d2m.cb<tensor<2x2xf32>>, %cb2: !d2m.cb<tensor<2x2xf32>>):
+    ^bb0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2xf32>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2xf32>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<tensor<2x2xf32>>
       // These get_global operations should be replaced with the corresponding operands
       %global0 = ttcore.get_global @global_0 : tensor<2x2xf32>
       %global1 = ttcore.get_global @global_1 : tensor<2x2xf32>
       // CHECK-NOT: ttcore.get_global
-      // CHECK: d2m.wait %cb0
-      %arg0_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.wait %cb1
-      %arg1_val = d2m.wait %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.reserve %cb2
+      // CHECK: d2m.reserve %{{.*}}
       %arg2_val = d2m.reserve %cb2 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // CHECK: linalg.generic
       // CHECK-SAME: ins(%[[ARG0]], %[[ARG1]] : tensor<2x2xf32>, tensor<2x2xf32>)
@@ -87,19 +86,17 @@ module {
       threads = [#d2m.thread<compute>]}
       ins(%input, %weight, %bias : tensor<2x2xf32>, tensor<2x2xf32>, tensor<2x2xf32>)
       outs(%0 : tensor<2x2xf32>) {
-    ^bb0(%cb0: !d2m.cb<tensor<2x2xf32>>, %cb1: !d2m.cb<tensor<2x2xf32>>, %cb2: !d2m.cb<tensor<2x2xf32>>, %cb3: !d2m.cb<tensor<2x2xf32>>):
+    ^bb0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2xf32>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2xf32>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<tensor<2x2xf32>>
+      %cb3 = d2m.get_cb(3) : !d2m.cb<tensor<2x2xf32>>
       // These get_global operations should be replaced with the corresponding operands
       %input_global = ttcore.get_global @input_global : tensor<2x2xf32>
       %weight_global = ttcore.get_global @weight_global : tensor<2x2xf32>
       %bias_global = ttcore.get_global @bias_global : tensor<2x2xf32>
       // CHECK-NOT: ttcore.get_global
-      // CHECK: d2m.wait %cb0
-      %input_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.wait %cb1
-      %weight_val = d2m.wait %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.wait %cb2
-      %bias_val = d2m.wait %cb2 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: [[OUTPUT_VAL:%.*]] = d2m.reserve %cb3
+      // CHECK: %{{.*}} = d2m.reserve %{{.*}}
       %output_val = d2m.reserve %cb3 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       // Simulate some computation using the globals
       %c0 = arith.constant 0 : index
@@ -115,7 +112,7 @@ module {
       %mult_result = arith.mulf %input_scalar, %weight_scalar : f32
       // CHECK: [[ADD_RESULT:%.*]] = arith.addf
       %add_result = arith.addf %mult_result, %bias_scalar : f32
-      // CHECK: tensor.insert [[ADD_RESULT]] into [[OUTPUT_VAL]][%c0, %c0] : tensor<2x2xf32>
+      // CHECK: tensor.insert %{{.*}} into %{{.*}}[%c0, %c0] : tensor<2x2xf32>
       %result_tensor = tensor.insert %add_result into %output_val[%c0, %c0] : tensor<2x2xf32>
       d2m.yield %result_tensor : (tensor<2x2xf32>)
     } : tensor<2x2xf32>
@@ -137,13 +134,13 @@ module {
       threads = [#d2m.thread<compute>]}
       ins(%arg0 : tensor<2x2xf32>)
       outs(%0 : tensor<2x2xf32>) {
-    ^bb0(%cb0: !d2m.cb<tensor<2x2xf32>>, %cb1: !d2m.cb<tensor<2x2xf32>>):
+    ^bb0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<tensor<2x2xf32>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<tensor<2x2xf32>>
       // This get_global is inside a d2m.generic, so it should be replaced
       %input_global = ttcore.get_global @input_global : tensor<2x2xf32>
       // CHECK-NOT: ttcore.get_global
-      // CHECK: d2m.wait %cb0
-      %arg0_val = d2m.wait %cb0 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
-      // CHECK: d2m.reserve %cb1
+      // CHECK: d2m.reserve %{{.*}}
       %arg1_val = d2m.reserve %cb1 : !d2m.cb<tensor<2x2xf32>> -> tensor<2x2xf32>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index

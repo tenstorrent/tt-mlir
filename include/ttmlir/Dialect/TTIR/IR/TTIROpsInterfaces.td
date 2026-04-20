@@ -70,6 +70,10 @@ def TTIR_TensorManipulation : OpInterface<"TensorManipulation"> {
   let cppNamespace = "::mlir::tt::ttir";
 }
 
+def TTIR_CCL : OpInterface<"CCL"> {
+  let cppNamespace = "::mlir::tt::ttir";
+}
+
 def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
   let cppNamespace = "::mlir::tt::ttir";
   let methods = [
@@ -95,6 +99,25 @@ def TTIR_QuantizableOpInterface : OpInterface<"QuantizableOpInterface"> {
       /*args=*/(ins "ArrayRef<mlir::Value>":$sourceOperands),
       /*methodBody=*/"",
       /*defaultImplementation=*/"return true;"
+    >,
+  ];
+}
+
+def TTIR_CacheOpInterface : OpInterface<"CacheOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttir";
+  let description = [{
+    This interface identifies kv_cache operations and provides access to their
+    cache operand.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{ Get the cache operand. }],
+      /*retTy=*/"::mlir::Value",
+      /*methodName=*/"getCache",
+      /*args=*/(ins),
+      /*methodBody=*/[{
+        return $_op.getCache();
+      }]
     >,
   ];
 }

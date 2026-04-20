@@ -32,7 +32,7 @@ namespace workaround {
 // Stub for workaround::Env::get
 const Env &Env::get(bool swapBinaryOperands,
                     bool readUpdateIndexFromDeviceForKVCache,
-                    bool traceImplicitFromDevice, bool blackholeWorkarounds) {
+                    bool blackholeWorkarounds) {
   __builtin_trap();
 }
 
@@ -112,8 +112,11 @@ const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
 }
 
 // Stub for debug::Hooks::get
-const Hooks &Hooks::get(std::optional<Hooks::CallbackFn> preOperatorCallback,
-                        std::optional<Hooks::CallbackFn> postOperatorCallback) {
+const Hooks &Hooks::get(
+    const std::optional<Hooks::OperationCallbackFn> &preOperatorCallback,
+    const std::optional<Hooks::OperationCallbackFn> &postOperatorCallback,
+    const std::optional<Hooks::ProgramCallbackFn> &preProgramCallback,
+    const std::optional<Hooks::ProgramCallbackFn> &postProgramCallback) {
   __builtin_trap();
 }
 
@@ -194,6 +197,13 @@ std::vector<HostRuntime> getAvailableHostRuntimes() { __builtin_trap(); }
 DeviceRuntime getCurrentDeviceRuntime() { __builtin_trap(); }
 HostRuntime getCurrentHostRuntime() { __builtin_trap(); }
 std::vector<int> getDeviceIds(Device meshDevice) { __builtin_trap(); }
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape) {
+  __builtin_trap();
+}
+MeshFabricConfig computeFabricConfig(const SystemDesc &systemDesc,
+                                     const std::vector<uint32_t> &meshShape) {
+  __builtin_trap();
+}
 size_t getDramSizePerChannel(Device meshDevice) { __builtin_trap(); }
 size_t getL1SizePerCore(Device meshDevice) { __builtin_trap(); }
 size_t getL1SmallSize(Device meshDevice) { __builtin_trap(); }

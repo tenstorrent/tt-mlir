@@ -65,9 +65,6 @@ struct ConvertD2MToTTMetal
     target.addIllegalDialect<math::MathDialect>();
     target.addIllegalDialect<d2m::D2MDialect>();
 
-    target.addLegalOp<d2m::StreamLayoutOp>();
-    target.addLegalOp<d2m::ViewLayoutOp>();
-
     target.addDynamicallyLegalOp<memref::AllocOp>([&](memref::AllocOp op) {
       return !mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
           op.getMemref().getType().getMemorySpace());

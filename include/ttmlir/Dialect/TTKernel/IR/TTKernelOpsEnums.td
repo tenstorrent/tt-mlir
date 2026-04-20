@@ -23,11 +23,13 @@ def TTKernel_ThreadType : I32EnumAttr<"ThreadType", "TTKernel ThreadTypes",
 
 def TTKernel_ReduceSum : I32EnumAttrCase<"Sum", 0, "reduce_sum">;
 def TTKernel_ReduceMax : I32EnumAttrCase<"Max", 1, "reduce_max">;
+def TTKernel_ReduceAvg : I32EnumAttrCase<"Avg", 2, "reduce_avg">;
 
 def TTKernel_ReduceType : I32EnumAttr<"ReduceType", "TTKernel Reduce Types",
                           [
                             TTKernel_ReduceSum,
-                            TTKernel_ReduceMax
+                            TTKernel_ReduceMax,
+                            TTKernel_ReduceAvg
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";
@@ -65,12 +67,16 @@ def TTKernel_BcastType : I32EnumAttr<"BcastType", "TTKernel Broadcast Types",
 def TTKernel_ArgTypeCBPort : I32EnumAttrCase<"CBPort", 0, "cb_port">;
 def TTKernel_ArgTypeBufferAddress : I32EnumAttrCase<"BufferAddress", 1, "buffer_address">;
 def TTKernel_ArgTypeSemaphore : I32EnumAttrCase<"Semaphore", 2, "semaphore">;
+def TTKernel_ArgTypeNamedArgument : I32EnumAttrCase<"NamedArgument", 3, "named_argument">;
+def TTKernel_ArgTypeGlobalSemaphore : I32EnumAttrCase<"GlobalSemaphore", 4, "global_semaphore">;
 
 def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
                          [
                            TTKernel_ArgTypeCBPort,
                            TTKernel_ArgTypeBufferAddress,
-                           TTKernel_ArgTypeSemaphore
+                           TTKernel_ArgTypeSemaphore,
+                           TTKernel_ArgTypeNamedArgument,
+                           TTKernel_ArgTypeGlobalSemaphore
                          ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttkernel";

@@ -69,6 +69,7 @@ void createOptimizationPasses(OpPassManager &pm,
   pm.addPass(mlir::createSCCPPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
+  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
 }
 
 void createTTIRToTTMetalFrontendPipeline(
@@ -80,19 +81,29 @@ void createTTIRToTTMetalFrontendPipeline(
     registerDeviceOptions.systemDescPath = options.systemDescPath;
     registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
     registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+    registerDeviceOptions.meshTopology = llvm::to_vector(options.meshTopology);
   }
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
+  pm.addPass(ttir::createPredicateTypeAlignment());
+  pm.addPass(ttir::createElementTypeNormalization());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
+  pm.addPass(ttir::createTTIRDecomposeMinReduction());
+  pm.addPass(ttir::createTTIRRMSNormDecomposition());
+  pm.addPass(ttir::createTTIRExplicateTMs());
+  pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
-  pm.addPass(d2m::createD2MRankNormalization());
+  pm.addPass(ttir::createTTIRReductionForceKeepDim());
+  pm.addPass(ttir::createTTIRRankNormalization());
+  pm.addPass(ttir::createTTIRDecomposeComplexReshape());
+  pm.addPass(ttir::createTTIRImplicitBroadcastFold());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   if (!options.globalDataFormatTarget.empty()) {
-    d2m::D2MGlobalDataFormatConversionOptions globalFormatOptions;
+    ttir::TTIRGlobalDataFormatConversionOptions globalFormatOptions;
     { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
-    pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
+    pm.addPass(ttir::createTTIRGlobalDataFormatConversion(globalFormatOptions));
   }
-  pm.addPass(d2m::createD2MDecomposeComplexPermute());
+  pm.addPass(ttir::createTTIRDecomposeComplexPermute());
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;
@@ -107,6 +118,7 @@ void createTTIRToTTMetalFrontendPipeline(
   {
     gridOptOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
+    gridOptOptions.ttnnMode = options.ttnnMode;
   }
   pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
@@ -117,15 +129,27 @@ void createTTIRToTTMetalFrontendPipeline(
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
-  d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
-  {
+  if (options.enableElementwiseFusion) {
+    d2m::D2MElementwiseFusionOptions elementwiseFusionOptions;
     elementwiseFusionOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
+    pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
   }
-  pm.addPass(d2m::createD2MElementwiseFusion(elementwiseFusionOptions));
-  pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
+  pm.addPass(d2m::createD2MInsertScratchBuffers());
+
+  d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
+  {
+    applyInterchangeOptions.matmulInterchange =
+        llvm::to_vector(options.matmulInterchange);
+  }
+
+  pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
+
+  // After GenerateOuterLoops, all generic ops are in Affine Blocked form.
+  pm.addPass(d2m::createD2MGenerateOuterLoops());
+
   d2m::D2MAllocateOptions allocateOptions;
   {
     allocateOptions.numStreamBuffers = options.numStreamBuffers;
@@ -138,15 +162,15 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
+  pm.addPass(d2m::createD2MLowerMulticastLoads());
+
+  // After LowerToExplicitForm, all generic op are in Explicit Datamovement
+  // form.
+  pm.addPass(d2m::createD2MLowerToExplicitForm());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MDecomposeMasking());
+  pm.addPass(d2m::createD2MDecomposeArange());
 
-  d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
-  {
-    applyInterchangeOptions.matmulInterchange =
-        llvm::to_vector(options.matmulInterchange);
-  }
-  pm.addPass(d2m::createD2MGenericApplyInterchange(applyInterchangeOptions));
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {
     tileComputeLoopsOptions.maxDstPhysicalSizeTiles =
@@ -154,10 +178,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
   d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
-  {
-    linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
-    linalgToAffineOptions.markRootLoops = true;
-  }
+  { linalgToAffineOptions.markRootLoops = true; }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
 
   d2m::D2MOpSchedulerOptions opSchedulerOptions;
@@ -169,18 +190,21 @@ void createTTIRToTTMetalMiddleendPipeline(
     ;
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
-
+  pm.addPass(d2m::createD2MInsertSpillAndScratch());
+  pm.addPass(mlir::createCanonicalizerPass());
+  pm.addPass(d2m::createD2MLowerScratchAllocate());
+  pm.addPass(mlir::createCanonicalizerPass());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
-    insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
     insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
+    insertDstRegisterAccessOptions.enableL1Acc = options.enableL1Acc;
   }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
-
-  pm.addPass(d2m::createD2MLowerMulticastLoads());
-  pm.addPass(d2m::createD2MGenerateOuterLoops());
+  d2m::D2MInsertTileMatmulBlockOptions insertTileMatmulBlockOptions;
+  { insertTileMatmulBlockOptions.useTileMatmul = options.useTileMatmul; }
+  pm.addPass(d2m::createD2MInsertTileMatmulBlock(insertTileMatmulBlockOptions));
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
@@ -195,12 +219,10 @@ void createTTIRToTTMetalMiddleendPipeline(
   // GenericLinearizeMemref generates affine apply ops that must be lowered here
   pm.addPass(mlir::createLowerAffinePass());
 
-  // Frontend of DMA lowering pipeline; lower abstract
-  // remote loads and stores to explicit CB form split the
-  // unified thread into separate compute and datamovement
-  // threads.
-  pm.addPass(d2m::createD2MConvertLocalLoadStoreOpsToAliasedCBs());
-  pm.addPass(d2m::createD2MLowerLoadStoreOpsToExplicitCBForm());
+  // Frontend of DMA lowering pipeline; insert compute-side CB
+  // sync ops and split the unified thread into separate compute
+  // and datamovement threads.
+  pm.addPass(d2m::createD2MHoistCBAllocs());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
 
   // Backend of DMA lowering pipeline; generic ops are now
@@ -210,10 +232,14 @@ void createTTIRToTTMetalMiddleendPipeline(
   // pass.
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
+  pm.addPass(d2m::createD2MOptimizeDMA());
+  pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
+  pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
+
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
 }
 

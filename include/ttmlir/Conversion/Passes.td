@@ -193,18 +193,53 @@ def ConvertTTNNToEmitC : Pass<"convert-ttnn-to-emitc", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttnn::TTNNDialect"];
 }
 
+def ConvertTTIRCPUToEmitPy : Pass<"convert-ttir-cpu-to-emitpy", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR CPU-hoisted ops to EmitPy dialect.";
+  let description = [{
+    Lowers TTIR ops to EmitPy CallOpaqueOp calls targeting
+    `ttir_cpu.<mnemonic>` functions — pure-torch implementations that run
+    on the host CPU.
+  }];
+  let constructor = "createConvertTTIRCPUToEmitPyPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
+}
+
 def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
   let options = [
-    Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
-    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">,
     // `target-module` is forwarded from the TTNN EmitPy pipeline options.
     // Issue: https://github.com/tenstorrent/tt-mlir/issues/6746
     Option<"targetModule", "target-module", "bool", /*default=*/"false",
       "Tailor EmitPy conversion for Python module export target. When enabled, const-eval functions accept device as an explicit argument instead of opening it via a singleton.">
   ];
+}
+
+def EmitPyConstEvalCaching : Pass<"emitpy-const-eval-caching", "::mlir::ModuleOp"> {
+  let summary = "Wrap complete consteval caching logic into the one if-guard.";
+  let description = [{
+    Post-conversion pass that walks functions containing a cache dictionary
+    and wraps const-eval calls (tagged with `emitpy.const_evaled`) and their
+    dict-set expressions in an `emitpy.if` guard:
+
+      if not dict:
+          dict["key"] = callee(inputs...)
+  }];
+  let constructor = "createEmitPyConstEvalCachingPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
+def EmitPyFormExpressions : Pass<"emitpy-form-expressions", "::mlir::ModuleOp"> {
+  let summary = "Form EmitPy expression ops from known patterns.";
+  let description = [{
+    Post-conversion pass that wraps known patterns of single-use EmitPy ops
+    into `emitpy.expression` blocks so the Python translator can emit them
+    inline, producing more compact and readable code.
+  }];
+  let constructor = "createEmitPyFormExpressionsPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
 def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
@@ -258,6 +293,32 @@ def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
+def EmitPyAddImports : Pass<"emitpy-add-imports", "::mlir::ModuleOp"> {
+  let summary = "Add Python import statements to EmitPy IR.";
+  let description = [{
+    Adds Python import statements to the EmitPy IR:
+
+    1. Module-level imports (`import ttnn`, `import utils`, `import ttir_cpu`).
+       If FileOps exist (i.e., file splitting was performed), these are added
+       to each file scope. Otherwise, they are added to the module scope.
+       `import ttir_cpu` is only added to scopes that contain CPU-hoisted code.
+
+    2. Imported-declaration imports (`from <file> import <func>`). These are
+       generated from ImportedDeclaration func ops created by TTNNFileSplit,
+       and are placed in the same scope as the declaration they correspond to.
+
+    This pass runs after EmitPyLinkModules so that all modules have been merged
+    and the final file structure is known.
+
+    Note: the module-level imports are hardcoded. If the number of required
+    modules grows, consider a more scalable approach (e.g., scanning call
+    sites or having each conversion pass register its import requirements,
+    as well as ensuring that imports are deduplicated).
+  }];
+  let constructor = "createEmitPyAddImportsPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
@@ -306,7 +367,7 @@ def ConvertTTIRToLinalg: Pass<"convert-ttir-to-linalg", "::mlir::ModuleOp"> {
     }
   }];
   let constructor = "createConvertTTIRToLinalgPass()";
-  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect"];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::linalg::LinalgDialect", "mlir::tosa::TosaDialect", "mlir::scf::SCFDialect"];
 }
 
 def ConvertTTNNToTTIR : Pass<"convert-ttnn-to-ttir", "::mlir::ModuleOp"> {
@@ -318,10 +379,10 @@ let summary = "Convert TTNN dialect to TTIR dialect.";
 def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
   let summary = "Conversion to exit D2M flow into TTNN";
   let description = [{
-    Conversion pass to convert from TTIR to TTNN by constructing a TTNN Generic op using the TTIRGeneric op.
-    For now assume, input into the TTIRGeneric will always be a stream layout, output is `ttnn_metal_layout_cast`.
-    The input to said stream is also from a cast op. This pass also lifts any ttir.empty with attached ttnn_layout
-    back into a ttnn.empty. The current version does not support intermediate tensor allocations.
+    Conversion pass to convert from D2M to TTNN by constructing a TTNN Generic op using the D2M GenericOp.
+    The input into the D2M GenericOp comes from a `ttir.ttnn_metal_layout_cast`, and the output also goes
+    through a cast op. This pass also lifts any d2m.empty with attached ttnn_layout back into a ttnn.empty.
+    The current version does not support intermediate tensor allocations.
 
     Example:
     Input IR:
@@ -329,13 +390,8 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
       %ttnn_output_l1 = ttir.empty() : tensor<32x32xf32, #l1_layout>
       %metal_input_l1 = ttir.ttnn_metal_layout_cast %ttnn_input_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
       %metal_output_l1 = ttir.ttnn_metal_layout_cast %ttnn_output_l1 : tensor<32x32xf32, #l1_layout> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
-      %storage = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>
-      %stream  = "ttir.stream_layout" (%metal_input_l1, %storage)
-            : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>,
-              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
-            -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>
-      ttir.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#ttir.thread<datamovement, @read_kernel>, #ttir.thread<datamovement, @write_kernel>, #ttir.thread<compute, @compute_kernel0>]}
-          ins(%stream : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<map(4)>, #ttcore.memory_space<l1>>)
+      d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @read_kernel>, #d2m.thread<datamovement, @write_kernel>, #d2m.thread<compute, @compute_kernel0>]}
+          ins(%metal_input_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
           outs(%metal_output_l1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096>, #ttcore.memory_space<l1>>)
       %output_l1 = ttir.ttnn_metal_layout_cast
 

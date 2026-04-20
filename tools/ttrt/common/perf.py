@@ -4,23 +4,16 @@
 
 import os
 import json
-import importlib.machinery
 import sys
 import signal
-import io
 import subprocess
-import time
 import socket
-from pkg_resources import get_distribution
 import shutil
-import atexit
 import traceback
-from pathlib import Path
 import csv
 import ast
 
 from ttrt.common.util import *
-from ttrt.common.query import Query
 
 
 class Perf:
@@ -146,6 +139,13 @@ class Perf:
             default=False,
             choices=[True, False],
             help="Enable benchmark mode with warmup and e2e time measurements (automatically enables program cache)",
+        )
+        Perf.register_arg(
+            name="--fabric-config",
+            type=str,
+            default="fabric_1d",
+            choices=None,
+            help="Select fabric topology: disabled, fabric_1d, fabric_1d_ring, fabric_2d, fabric_2d_torus_x, fabric_2d_torus_y, fabric_2d_torus_xy or custom (case-insensitive, default: fabric_1d)",
         )
         Perf.register_arg(
             name="binary",
@@ -379,7 +379,7 @@ class Perf:
                     try:
                         serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                         serv.bind((ip, port))
-                        return str(port)
+                        return port
                     except PermissionError as e:
                         pass
                     except OSError as e:
@@ -396,12 +396,12 @@ class Perf:
                         get_available_port() if self["--port"] == 0 else self["--port"]
                     )
 
-                    if not port:
+                    if port is None:
                         raise Exception("No available port found")
                     self.logging.debug(f"selected port={port}")
 
                     env_vars = dict(os.environ)
-                    env_vars["TRACY_PORT"] = port
+                    env_vars["TRACY_PORT"] = str(port)
 
                     if not self["--host-only"]:
                         env_vars["TT_METAL_CLEAR_L1"] = "1"
@@ -444,6 +444,11 @@ class Perf:
 
                     if self["--benchmark"]:
                         command_options += " --benchmark "
+
+                    if self["--fabric-config"] is not None:
+                        command_options += (
+                            f" --fabric-config {self['--fabric-config']} "
+                        )
 
                     if self["--ignore-version"]:
                         command_options += " --ignore-version "
@@ -526,6 +531,8 @@ class Perf:
 
                     # copy all relevant files into perf folder for this test
                     perf_folder_path = self.artifacts.get_binary_perf_folder_path(bin)
+                    if not self.file_manager.check_directory_exists(perf_folder_path):
+                        self.file_manager.create_directory(perf_folder_path)
                     self.file_manager.copy_file(perf_folder_path, tracy_file_path)
                     self.file_manager.copy_file(
                         perf_folder_path, tracy_ops_times_file_path

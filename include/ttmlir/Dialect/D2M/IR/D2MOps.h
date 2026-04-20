@@ -23,6 +23,8 @@
 
 namespace mlir::tt::d2m {
 
+struct ParallelizedGeneric;
+
 inline void getDpsEffects(
     DestinationStyleOpInterface op,
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
@@ -45,11 +47,21 @@ inline void getDpsEffects(
 
 } // namespace mlir::tt::d2m
 
-#include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.h.inc"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsEnums.h"
 #define GET_ATTRDEF_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.h.inc"
 
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h.inc"
+
+namespace mlir::tt::d2m {
+
+struct ParallelizedGeneric {
+  SmallVector<ViewLayoutOp> operands;
+  GenericOp genericOp;
+  ViewLayoutOp returnView;
+};
+
+} // namespace mlir::tt::d2m
 
 #endif // TTMLIR_DIALECT_D2M_IR_D2MOPS_H

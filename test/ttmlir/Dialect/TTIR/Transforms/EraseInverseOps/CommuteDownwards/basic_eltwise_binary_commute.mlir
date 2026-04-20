@@ -28,3 +28,16 @@ module {
         return %5 : tensor<1x1x3x50176xbf16>
     }
 }
+
+module {
+    func.func @test_high_rank_reshape_binary_not_commute_downwards(%arg0: tensor<1x1x1x1x32x64xbf16>, %arg1: tensor<1x1x1x1x32x64xbf16>) -> tensor<1x1x2048xbf16> {
+        // CHECK: %[[RESHAPE1:[0-9]+]] = "ttir.reshape"(%arg0
+        // CHECK: %[[RESHAPE2:[0-9]+]] = "ttir.reshape"(%arg1
+        // CHECK: %[[ADD:[0-9]+]] = "ttir.add"(%[[RESHAPE1]], %[[RESHAPE2]]
+        // CHECK: return %[[ADD]]
+        %1 = "ttir.reshape"(%arg0) <{shape = [1:i32, 1:i32, 2048:i32]}> : (tensor<1x1x1x1x32x64xbf16>) -> tensor<1x1x2048xbf16>
+        %3 = "ttir.reshape"(%arg1) <{shape = [1:i32, 1:i32, 2048:i32]}> : (tensor<1x1x1x1x32x64xbf16>) -> tensor<1x1x2048xbf16>
+        %5 = "ttir.add"(%1, %3) : (tensor<1x1x2048xbf16>, tensor<1x1x2048xbf16>) -> tensor<1x1x2048xbf16>
+        return %5 : tensor<1x1x2048xbf16>
+    }
+}

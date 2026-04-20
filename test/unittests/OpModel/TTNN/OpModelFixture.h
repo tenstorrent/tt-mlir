@@ -223,15 +223,16 @@ public:
              const llvm::ArrayRef<int64_t> virtualGridSize,
              const llvm::ArrayRef<int64_t> physicalGridSize) {
 
-    auto affineMap = mlir::tt::ttnn::optimizer_utils::
-        createSingleDeviceVirtualToPhysicalAffineMap(
+    auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
             context, tensorMemoryLayout, physicalGridSize);
 
     llvm::SmallVector<int64_t> gridShape(virtualGridSize);
     if (!mlir::tt::ttnn::isL1BufferType(bufferType)) {
       gridShape = {1, 1};
     }
-    return mlir::tt::ttcore::GridAttr::get(context, gridShape, affineMap);
+    return mlir::tt::ttcore::GridAttr::get(
+        context, gridShape, virtToPhysicalMap, physicalToVirtMap);
   }
 
   mlir::tt::ttcore::GridAttr CreateWorkerGrid(

@@ -52,16 +52,17 @@ if(TTMLIR_BUILD_LLVM)
         llvm-project
         # Super hacky way to install the python dependencies before the build
         # Sync nanobind with tt-metal's pinned version to avoid ODR violations
-        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -r mlir/python/requirements.txt && pip install --force-reinstall 'nanobind==2.10.2'"
+        PATCH_COMMAND bash -c "source ${CMAKE_CURRENT_SOURCE_DIR}/activate && pip install -c ${CMAKE_CURRENT_LIST_DIR}/pip-constraints.txt -r mlir/python/requirements.txt && git config user.email \"tt-mlir@tenstorrent.com\" && git config user.name \"tenstorrent\" && git apply --index \"${CMAKE_CURRENT_LIST_DIR}/patches/affine-allow-symbol-vars.patch\" && git commit -m \"tt-mlir related patch\""
         CMAKE_GENERATOR Ninja
         CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=${LLVM_BUILD_TYPE}
         -DPython3_FIND_VIRTUALENV=ONLY
         -DPython3_EXECUTABLE=${TTMLIR_TOOLCHAIN_DIR}/venv/bin/python
         -DCMAKE_INSTALL_PREFIX=${TTMLIR_TOOLCHAIN_DIR}
-        -DCMAKE_C_COMPILER=clang
-        -DCMAKE_CXX_COMPILER=clang++
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DLLVM_ENABLE_PROJECTS=mlir,lld
+        -DLLVM_TARGETS_TO_BUILD=host
         -DLLVM_INSTALL_UTILS=ON
         -DLLVM_INSTALL_GTEST=ON
         -DLLVM_ENABLE_ASSERTIONS=ON
@@ -86,6 +87,7 @@ ExternalProject_Add(stablehlo
    CONFIGURE_COMMAND ""
    BUILD_COMMAND ""
    INSTALL_COMMAND ""
+   PATCH_COMMAND git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/patches/stablehlo-complex-mul-expander.patch" && git commit -m "tt-mlir related patch"
 )
 
 ExternalProject_Add(shardy

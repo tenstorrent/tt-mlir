@@ -22,12 +22,11 @@ void run(const ::tt::target::ttnn::AnnotateOp *op, ProgramContext &context) {
 }
 
 void run(const ::tt::target::ttnn::BreakpointOp *op, ProgramContext &context) {
-  ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &operand =
-      tensorPool.getTTNNTensorAndValidate(op->operand());
-  tensorPool.insertTTNNTensorAndValidate(op->result(), operand);
-
   invoke_pdb();
+}
+
+void run(const ::tt::target::ttnn::PrintOp *op, ProgramContext &context) {
+  LOG_INFO(op->message()->str());
 }
 
 void run(const ::tt::target::ttnn::MemorySnapshotOp *op,
@@ -51,7 +50,16 @@ void run(const ::tt::target::ttnn::MemorySnapshotOp *op,
             << "\n";
   }
   outFile.close();
+}
 
+void run(const ::tt::target::ttnn::RegionStartOp *op, ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  const ::ttnn::Tensor &operand =
+      tensorPool.getTTNNTensorAndValidate(op->operand());
+  tensorPool.insertTTNNTensorAndValidate(op->result(), operand);
+}
+
+void run(const ::tt::target::ttnn::RegionEndOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &operand =
       tensorPool.getTTNNTensorAndValidate(op->operand());

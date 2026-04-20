@@ -49,7 +49,7 @@ tt-mlir is an open-source compiler framework that is used to compile and optimiz
 
 -----
 # Related Tenstorrent Projects
-- [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe)
+- [tt-forge-onnx](https://github.com/tenstorrent/tt-forge-onnx)
 - [tt-xla](https://github.com/tenstorrent/tt-xla)
 - [tt-forge](https://github.com/tenstorrent/tt-forge)
 - [tt-metalium](https://github.com/tenstorrent/tt-metal)

@@ -7,6 +7,7 @@ enum TensorMemoryLayout: ushort {
   HeightSharded,
   WidthSharded,
   BlockSharded,
+  NDSharded,
 }
 
 enum StorageType: ushort {
@@ -91,21 +92,21 @@ table LayoutDesc {
   memory_desc: MemoryDesc;
 }
 
-table RuntimeTensorShardingDesc {
-  shard_status: ShardStatus;
-  local_shape: [int];
-}
-
 table TensorDesc {
   shape: [int];
   mesh_shape: [int32];
   layout: LayoutDesc;
-  runtime_tensor_sharding: RuntimeTensorShardingDesc;
+  shard_status: ShardStatus;
+  local_shape: [int];
 }
 
 table TensorRef {
   global_id: uint32;
   desc: TensorDesc;
+}
+
+table GlobalSemaphoreRef {
+  global_id: uint32;
 }
 
 table FloatingPointType {
@@ -114,6 +115,11 @@ table FloatingPointType {
 
 table IntegralType {
   value: int32;
+}
+
+union NumberType {
+  FP: FloatingPointType,
+  I32: IntegralType,
 }
 
 enum PlacementType: ushort {

@@ -31,7 +31,7 @@ jobs:
       TT_METAL_SUBMODULE_PATH: third_party/tt-metal
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           fetch-depth: 0
@@ -78,8 +78,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
-          echo "Current tt-metal version: $CURRENT_TT_METAL_VERSION"
+          CURRENT_TT_METAL_VERSION_REF=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+          CURRENT_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/$CURRENT_TT_METAL_VERSION_REF --jq '.sha')
+          echo "Current tt-metal version ref: $CURRENT_TT_METAL_VERSION_REF"
+          echo "Current tt-metal version (resolved SHA): $CURRENT_TT_METAL_VERSION"
           echo "Custom tt-metal version: ${{ env.UPLIFTED_TT_METAL_VERSION }}"
 
           # Verify custom commit is on main metal branch
@@ -109,20 +111,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          CURRENT_TT_METAL_VERSION=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+          CURRENT_TT_METAL_VERSION_REF=$(grep 'set(TT_METAL_VERSION' third_party/CMakeLists.txt | sed 's/.*"\(.*\)".*/\1/')
+          CURRENT_TT_METAL_VERSION=$(gh api repos/tenstorrent/tt-metal/commits/$CURRENT_TT_METAL_VERSION_REF --jq '.sha')
+          echo "Current tt-metal version ref: $CURRENT_TT_METAL_VERSION_REF"
+          echo "Current tt-metal version (resolved SHA): $CURRENT_TT_METAL_VERSION"
 
           # Fetch file hashes from current version
           CURRENT_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
           CURRENT_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
           CURRENT_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
+          CURRENT_EXALENS_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/scripts/ttexalens_ref.txt?ref=$CURRENT_TT_METAL_VERSION --jq '.sha' 2>/dev/null || echo "not_found")
 
           # Fetch file hashes from uplifted version
           LATEST_INSTALL_DEPS_SHA=$(gh api repos/tenstorrent/tt-metal/contents/install_dependencies.sh?ref=${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
           LATEST_SFPI_INFO_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-info.sh?ref=${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
           LATEST_SFPI_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/tt_metal/sfpi-version?ref=${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
+          LATEST_EXALENS_VERSION_SHA=$(gh api repos/tenstorrent/tt-metal/contents/scripts/ttexalens_ref.txt?ref=${{ env.UPLIFTED_TT_METAL_VERSION }} --jq '.sha' 2>/dev/null || echo "not_found")
 
           if [ "$CURRENT_INSTALL_DEPS_SHA" != "$LATEST_INSTALL_DEPS_SHA" ] || \
              [ "$CURRENT_SFPI_INFO_SHA" != "$LATEST_SFPI_INFO_SHA" ] || \
+             [ "$CURRENT_EXALENS_VERSION_SHA" != "$LATEST_EXALENS_VERSION_SHA" ] || \
              [ "$CURRENT_SFPI_VERSION_SHA" != "$LATEST_SFPI_VERSION_SHA" ]; then
             # Update the commit hash in Dockerfile.base
             sed -i "s|ARG TT_METAL_DEPENDENCIES_COMMIT=.*|ARG TT_METAL_DEPENDENCIES_COMMIT=${{ env.UPLIFTED_TT_METAL_VERSION }}|" .github/Dockerfile.base
@@ -136,7 +144,7 @@ jobs:
           sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.UPLIFTED_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         id: create-pr
         with:
           branch: ${{ inputs.branch_name || 'uplift' }}
@@ -153,8 +161,8 @@ jobs:
 
             ### Checklist
             - **Frontend CI passing links**
-              - [ ] [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe/actions/workflows/on-pr.yml):
-              - [ ] [tt-xla (mlir-uplift-qualification)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
+              - [ ] [tt-forge-onnx](https://github.com/tenstorrent/tt-forge-onnx/actions/workflows/on-pr.yml):
+              - [ ] [tt-xla (full-mlir-uplift-qualification.json)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
             - **Follow-up Actions**
               - [ ] **Issues filed** to follow up on incomplete changes (if any):
               - [ ] **Frontend fix PRs** ready (if needed by this uplift):

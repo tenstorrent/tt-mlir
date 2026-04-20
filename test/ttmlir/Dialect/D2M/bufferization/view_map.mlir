@@ -8,22 +8,23 @@
   logical_shape = 64x128,
   dim_alignments = 32x32,
   collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>,
-  undef, l1, sharded,
-  index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)
+  undef, l1, sharded
 >
 
 #layout_without_view = #ttcore.metal_layout<
   logical_shape = 64x128,
   dim_alignments = 32x32,
   collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>,
-  undef, l1, sharded, index_map = map(0)
+  undef, l1, sharded
 >
+// Use a non-identity view affine map to verify it is propagated to ViewLayoutOp.
+#view_map = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 
 func.func @propagate_view_map() -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_with_view> {
   %input = d2m.empty() : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_without_view>
 
-  // CHECK: -> memref<{{.*}}, #ttcore.view<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>, #l1>
-  %view = "d2m.view_layout"(%input) : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_without_view>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_with_view>
+  // CHECK: -> memref<{{.*}}, #ttcore.view<4>, #l1>
+  %view = "d2m.view_layout"(%input) {remapping = #view_map} : (tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_without_view>) -> tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_with_view>
 
   return %view : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout_with_view>
 }

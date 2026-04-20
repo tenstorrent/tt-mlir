@@ -77,4 +77,30 @@ target_link_libraries(TestRMSNormWidthSharded
     MLIRTTTransforms
 )
 
+add_executable(TestD2MOpCostModel
+TestD2MOpCostModel.cpp
+)
+
+target_compile_options(TestD2MOpCostModel
+    PRIVATE
+    -fno-rtti
+)
+
+target_include_directories(TestD2MOpCostModel
+    PUBLIC
+    ${PROJECT_SOURCE_DIR}/lib/OpModel/TTNN/
+    ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
+)
+
+target_link_libraries(TestD2MOpCostModel
+    PRIVATE
+    gtest
+    gtest_main
+    MLIRTTNNInterfaces
+    MLIRTTCoreDialect
+    MLIRTTNNDialect
+    MLIRTTTransforms
+    TTMLIRTTNNUtils
+)
+
 endif()

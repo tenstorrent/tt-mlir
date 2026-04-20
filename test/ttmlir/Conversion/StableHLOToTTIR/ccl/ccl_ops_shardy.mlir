@@ -381,17 +381,17 @@ module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
 
 // -----
 
@@ -461,4 +461,4 @@ module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : 
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK-SAME: shard_type = #ttcore.shard_type<devices>

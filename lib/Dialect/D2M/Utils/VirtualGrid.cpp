@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 namespace ttmlir::d2m::utils::grids {
 
@@ -89,6 +90,33 @@ createCoreVirtMaps(mlir::MLIRContext *context,
                     getAffineConstantExpr(0, context));
 
   return {forwardMap, inverseMap};
+}
+
+bool requiresVirtualGrid(llvm::ArrayRef<int64_t> gridShape,
+                         llvm::ArrayRef<int64_t> deviceGridShape) {
+  return gridShape.size() != 2 || gridShape[0] > deviceGridShape[0] ||
+         gridShape[1] > deviceGridShape[1];
+}
+
+llvm::SmallVector<int64_t, 2>
+getPhysicalGridExtent(llvm::ArrayRef<int64_t> virtualGrid,
+                      llvm::ArrayRef<int64_t> targetGrid) {
+  TT_assertv(targetGrid.size() == 2ul,
+             "Target grid must have 2 dimensions (device grid is 2D)");
+
+  // Compute volume of virtual grid.
+  int64_t volume = 1;
+  for (int64_t dim : virtualGrid) {
+    volume *= dim;
+  }
+
+  auto result =
+      mlir::tt::d2m::utils::findLegalPhysicalGridForVolume(volume, targetGrid);
+  TT_assertv(!result.empty(),
+             "Virtual grid volume {} has no valid 2D factorization within "
+             "target grid [{}, {}]",
+             volume, targetGrid[0], targetGrid[1]);
+  return result;
 }
 
 } // namespace ttmlir::d2m::utils::grids

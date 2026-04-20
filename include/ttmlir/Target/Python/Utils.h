@@ -22,14 +22,13 @@ namespace mlir::ttmlir::python {
 
 inline nb::capsule wrapInCapsule(std::shared_ptr<void> underlying) {
   // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-  std::shared_ptr<void> *binary = static_cast<std::shared_ptr<void> *>(
-      std::malloc(sizeof(std::shared_ptr<void>)));
+  auto *binary = new std::shared_ptr<void>(std::move(underlying));
   assert(binary);
-  *binary = underlying;
   return nb::capsule(
-      static_cast<void *>(
-          binary), // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
-      +[](void *data) noexcept { std::free(data); });
+      static_cast<void *>(binary), +[](void *data) noexcept {
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+        delete static_cast<std::shared_ptr<void> *>(data);
+      });
 }
 
 } // namespace mlir::ttmlir::python

@@ -375,6 +375,11 @@ inline uint64_t getElementSizeBytes(mlir::Type elementType) {
                   : elementType.getIntOrFloatBitWidth() / 8;
 }
 
+inline DataType getDataType(mlir::Type elementType) {
+  TileType tileType = mlir::dyn_cast<TileType>(elementType);
+  return tileType ? tileType.getDataType() : elementTypeToDataType(elementType);
+}
+
 inline MemorySpace getMemorySpace(MemorySpaceAttr memorySpaceAttr) {
   return memorySpaceAttr.getValue();
 }
@@ -394,6 +399,25 @@ inline MemorySpace getMemorySpace(Type memrefType) {
 
 inline MemorySpace getMemorySpace(Value memrefTypedValue) {
   return getMemorySpace(memrefTypedValue.getType());
+}
+
+inline void printCoordBracketStyle(::mlir::AsmPrinter &printer,
+                                   CoreCoordAttr coreCoordAttr) {
+  printer << "(" << coreCoordAttr.getY() << "," << coreCoordAttr.getX() << ")";
+}
+
+inline ::mlir::ParseResult
+parseCoordBracketStyle(::mlir::AsmParser &parser,
+                       CoreCoordAttr &coreCoordAttr) {
+  int64_t y, x;
+
+  if (parser.parseLParen() || parser.parseInteger(y) || parser.parseComma() ||
+      parser.parseInteger(x) || parser.parseRParen()) {
+    return ::mlir::failure();
+  }
+
+  coreCoordAttr = CoreCoordAttr::get(parser.getContext(), y, x);
+  return ::mlir::success();
 }
 
 } // namespace mlir::tt::ttcore

@@ -13,15 +13,8 @@
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 // Workaround which adds padding to ScaledDotProductAttention query, key, and
-// value tensors to make:
-// - sequence dimensions (dim -2) multiples of TILE_HEIGHT (only when attention
-//   mask is present) - Metal issue reference:
-//   https://github.com/tenstorrent/tt-metal/issues/32502
-// - head dimensions (dim -1) multiples of TILE_WIDTH (always, regardless of
-//   attention mask) - Metal issue reference:
-//   https://github.com/tenstorrent/tt-metal/issues/33434
-// When attention mask is present and sequence padding is needed, the mask is
-// also padded accordingly with -infinity values.
+// value tensors to make head dimensions (dim -1) multiples of TILE_WIDTH.
+// Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/33434
 // After the operation, the result is sliced back to the original shape.
 
 class ScaledDotProductAttentionPadTileDimsRewritePattern

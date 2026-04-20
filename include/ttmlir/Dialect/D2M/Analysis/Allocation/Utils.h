@@ -5,9 +5,15 @@
 #ifndef TTMLIR_DIALECT_D2M_ANALYSIS_ALLOCATION_UTILS_H
 #define TTMLIR_DIALECT_D2M_ANALYSIS_ALLOCATION_UTILS_H
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Support/Logger.h"
 
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
@@ -17,6 +23,8 @@
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <array>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -271,6 +279,229 @@ struct AsOperandPrinter {
     return this->operator()(op.getOperation());
   }
 };
+
+//===---------------------------------------------------------------------===//
+// Shared helpers for the allocator and block factor analysis.
+//===---------------------------------------------------------------------===//
+
+/// Returns the index of the single reduction dimension if exactly one exists.
+inline std::optional<std::size_t>
+getSingleReductionDim(ArrayRef<ttcore::IteratorType> iteratorTypes) {
+  std::optional<std::size_t> reductionDim;
+  for (auto [dim, iteratorType] : llvm::enumerate(iteratorTypes)) {
+    if (iteratorType != ttcore::IteratorType::Reduction) {
+      continue;
+    }
+    if (reductionDim.has_value()) {
+      return std::nullopt;
+    }
+    reductionDim = dim;
+  }
+  return reductionDim;
+}
+
+/// @return `map` with all broadcast result expressions replaced with const-1
+/// expression.
+///
+/// This could almost be a simple AffineMap::replace() but need to make sure
+/// only complete `0`-result expressions are replaced, not other possible zero
+/// const terms within result expression trees, however unlikely that seems.
+inline AffineMap canonicalizeBroadcasts(AffineMap map) {
+  auto *ctx = map.getContext();
+  const auto replacement = mlir::getAffineConstantExpr(1, ctx);
+  SmallVector<AffineExpr> exprs;
+
+  for (auto expr : map.getResults()) {
+    if (auto constExpr = llvm::dyn_cast<AffineConstantExpr>(expr)) {
+      if (constExpr.getValue() == 0) {
+        exprs.push_back(replacement);
+        continue;
+      }
+    }
+    exprs.push_back(expr);
+  }
+
+  return AffineMap::get(map.getNumDims(), map.getNumSymbols(), exprs, ctx);
+}
+
+/// @return a ShardLayoutAttr-backed MemRefType from explicit grid and shard
+/// shapes, suitable for a circular buffer allocation.
+inline MemRefType getCBBufferType(ArrayRef<int64_t> gridShape,
+                                  ArrayRef<int64_t> shardShape,
+                                  Type elementType,
+                                  ttcore::MemorySpaceAttr memSpaceAttr,
+                                  uint32_t buffers) {
+  TT_debug(gridShape.size() == shardShape.size());
+
+  const SmallVector<int64_t> fullShape =
+      concatToVector<int64_t>(gridShape, shardShape);
+  const auto bufferLayout =
+      ttcore::ShardLayoutAttr::get(shardShape, elementType, buffers);
+
+  return MemRefType::get(fullShape, elementType, bufferLayout, memSpaceAttr);
+}
+
+/// @return the size in bytes of a circular buffer (must be in L1).
+inline int64_t getCBBufferSizeBytes(MemRefType bufferType,
+                                    ttcore::DeviceAttr device) {
+  TT_assertv(ttcore::getMemorySpace(bufferType) ==
+                 ttcore::MemorySpace::DeviceL1,
+             "circular buffers must be allocated in L1");
+  return device.getMemrefSizeBytes(bufferType, 0, true);
+}
+
+/// Project the generic op's concatenated operand grid and shard shapes through
+/// the inverse of its indexing maps, yielding iteration-space-aligned extents.
+/// @return a (gridExtents, shardExtents) tuple.
+inline std::tuple<SmallVector<int64_t>, SmallVector<int64_t>>
+getGridAndShardExtents(d2m::GenericOp genericOp) {
+  auto flatInverseMap = ttmlir::utils::concatInversePermutationMap(
+      genericOp.getIndexingMapsValue(), /*reverse=*/false);
+
+  return {flatInverseMap.compose(
+              concatToVector(genericOp.getInputOutputOperandGridShapes())),
+          flatInverseMap.compose(
+              concatToVector(genericOp.getInputOutputOperandShardShapes()))};
+}
+
+/// @return a bitmask that indicates which of the dims are "participating"
+/// (defined as dims that are used by any of the `genericOp`'s output indexing
+/// map expressions).
+inline llvm::BitVector getParticipatingDimMask(d2m::GenericOp genericOp) {
+  TT_debug(genericOp.getOutputs().size() == 1u);
+  AffineMap outputMap = genericOp.getIndexingMapsValue().back();
+
+  const std::size_t rank = outputMap.getNumDims();
+
+  llvm::BitVector mask(rank, false);
+  for (std::size_t d = 0; d < rank; ++d) {
+    mask[d] = outputMap.isFunctionOfDim(d);
+  }
+  return mask;
+}
+
+/// @return full "shard-only" blocking factors (defined as full blocking
+/// factors divided by blocking factors).
+inline SmallVector<int64_t> getShardBlockFactors(d2m::GenericOp genericOp) {
+  SmallVector<int64_t> r = genericOp.getFullBlockFactors();
+  SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
+  TT_debug(r.size() == blockFactors.size());
+  for (std::size_t d = 0; d < r.size(); ++d) {
+    TT_debugv(blockFactors[d] > 0, "unexpected block factor {} for dim {}",
+              blockFactors[d], d);
+    r[d] /= blockFactors[d];
+  }
+
+  return r;
+}
+
+/// Walk a value's defining chain and detect whether it includes a non-identity
+/// view remapping.
+inline bool hasNonTrivialView(Value value) {
+  Operation *definingOp = value.getDefiningOp();
+  if (!definingOp) {
+    return false;
+  }
+
+  if (auto viewOp = mlir::dyn_cast<d2m::ViewLayoutOp>(definingOp)) {
+    return !viewOp.getRemapping().isIdentity() ||
+           hasNonTrivialView(viewOp.getInput());
+  }
+  if (auto compositeViewOp = mlir::dyn_cast<d2m::CompositeViewOp>(definingOp)) {
+    return llvm::any_of(compositeViewOp.getCompositeInputs(),
+                        hasNonTrivialView);
+  }
+  if (auto castOp = mlir::dyn_cast<ttir::TTNNMetalLayoutCastOp>(definingOp)) {
+    return hasNonTrivialView(castOp.getInput());
+  }
+  return false;
+}
+
+/// @return tile shape of `elementType` or `{1, 1}` if it isn't a TileType.
+inline std::array<int64_t, 2> getEffectiveTileShape(Type elementType) {
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    TT_debug(tileType.getRank() == 2);
+    ArrayRef<int64_t> shape = tileType.getShape();
+    return {shape[0], shape[1]};
+  }
+  return {1, 1};
+}
+
+/// @return the effective input/output tile shapes for the single-output
+/// `genericOp`.
+inline std::pair<std::array<int64_t, 2>, std::array<int64_t, 2>>
+getGenericInputAndOutputTileShapes(d2m::GenericOp genericOp) {
+  const Type inputElementType =
+      mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().front().getType())
+          .getElementType();
+  for (std::size_t operandIndex = 1;
+       operandIndex < genericOp.getOutputs().getBeginOperandIndex();
+       ++operandIndex) {
+    TT_assertv(inputElementType ==
+                   mlir::cast<MemRefType>(
+                       genericOp->getOperand(operandIndex).getType())
+                       .getElementType(),
+               "expected no change in tile shapes across generic op inputs");
+  }
+
+  const Type outputElementType =
+      mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().back().getType())
+          .getElementType();
+
+  return {getEffectiveTileShape(inputElementType),
+          getEffectiveTileShape(outputElementType)};
+}
+
+/// @return a bitmask that indicates which dims are blocked.
+inline llvm::BitVector getBlockedDimMask(ArrayRef<int64_t> blockFactors) {
+  llvm::BitVector blockedDims(blockFactors.size(), false);
+  for (auto [dim, factor] : llvm::enumerate(blockFactors)) {
+    blockedDims[dim] = (factor > 1);
+  }
+  return blockedDims;
+}
+
+/// @return `true` iff `indexingMap` depends on any blocked dim.
+inline bool isIndexingMapBlocked(AffineMap indexingMap,
+                                 const llvm::BitVector &blockedDims) {
+  for (std::size_t dim = 0; dim < blockedDims.size(); ++dim) {
+    if (blockedDims[dim] && indexingMap.isFunctionOfDim(dim)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// @return `true` iff the operand uses any blocked dim under `blockFactors`.
+inline bool isOperandBlocked(d2m::GenericOp genericOp, uint32_t operandIndex,
+                             ArrayRef<int64_t> blockFactors) {
+  return isIndexingMapBlocked(genericOp.getIndexingMap(operandIndex),
+                              getBlockedDimMask(blockFactors));
+}
+
+/// Compute the operand-local grid/shard extents implied by the provided
+/// iteration-space extents.
+inline std::tuple<SmallVector<int64_t>, SmallVector<int64_t>>
+getOperandGridAndShardExtents(d2m::GenericOp genericOp, uint32_t operandIndex,
+                              ArrayRef<int64_t> gridExtents,
+                              ArrayRef<int64_t> shardExtents) {
+  const AffineMap canonicalMap =
+      canonicalizeBroadcasts(genericOp.getIndexingMap(operandIndex));
+  const SmallVector<int64_t> gridShape = canonicalMap.compose(gridExtents);
+  SmallVector<int64_t> shardShape = canonicalMap.compose(shardExtents);
+
+  if (genericOp.isOutputOperandIdx(operandIndex) && shardShape.size() >= 2) {
+    auto [inputTileFactors, outputTileFactors] =
+        getGenericInputAndOutputTileShapes(genericOp);
+    for (std::size_t t = 0; t < 2; ++t) {
+      const std::size_t d = shardShape.size() - 2 + t;
+      shardShape[d] =
+          (shardShape[d] * inputTileFactors[t]) / outputTileFactors[t];
+    }
+  }
+
+  return {gridShape, shardShape};
+}
 
 } // namespace mlir::tt::d2m::allocation
 

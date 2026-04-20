@@ -4,14 +4,13 @@
 #l1 = #ttnn.buffer_type<l1>
 #ttnn_l1_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
-  <1x1, (d0, d1) -> (0, d0, d1)>,
+  <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>,
   memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
   >
 #metal_layout = #ttcore.metal_layout<
   logical_shape = 32x32,
   dim_alignments = 32x32,
-  collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded,
-  index_map = map(0)
+  collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded
   >
 
 module {
@@ -35,7 +34,9 @@ module {
                   threads = [#d2m.thread<compute>]}
         ins(%2 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>)
         outs(%4 : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>) {
-      ^compute0(%arg_in: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %arg_out: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+      ^compute0:
+        %arg_in = d2m.get_cb(0) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
+        %arg_out = d2m.get_cb(1) : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>
         %out = d2m.reserve %arg_out : !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
         d2m.yield %out : (tensor<1x1x!ttcore.tile<32x32, f32>>)
     } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #metal_layout>

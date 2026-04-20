@@ -17,18 +17,23 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-class TTKernelTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
+template <typename PackOp>
+class TTKernelTileRegsRewriter : public OpRewritePattern<PackOp> {
 public:
-  using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
+  using OpRewritePattern<PackOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
+  LogicalResult matchAndRewrite(PackOp op,
                                 PatternRewriter &rewriter) const final {
     Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
-    if (!acquireBlock->getOps<ttkernel::TileRegsCommitOp>().empty()) {
+    Operation *parent = parentOpAtBlock(op, acquireBlock);
+
+    // Guard against re-application: check for an existing commit between the
+    // nearest preceding acquire and `parent` in acquireBlock. If one exists,
+    // this pack has already been handled.
+    if (hasPrecedingCommit(parent)) {
       return failure();
     }
 
-    Operation *parent = parentOpAtBlock(op, acquireBlock);
     rewriter.setInsertionPoint(parent);
     rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
     rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
@@ -55,6 +60,22 @@ public:
     }
     return parent;
   }
+
+  // Returns true if a TileRegsCommitOp exists between the most recent
+  // TileRegsAcquireOp before `op` (in `op`'s block) and `op` itself.
+  // Used to prevent double-insertion on re-application.
+  static bool hasPrecedingCommit(Operation *op) {
+    for (Operation *it = op->getPrevNode(); it != nullptr;
+         it = it->getPrevNode()) {
+      if (isa<ttkernel::TileRegsCommitOp>(it)) {
+        return true;
+      }
+      if (isa<ttkernel::TileRegsAcquireOp>(it)) {
+        return false;
+      }
+    }
+    return false;
+  }
 };
 
 } // namespace
@@ -68,7 +89,9 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTKernelTileRegsRewriter>(&getContext());
+    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileOp>>(&getContext());
+    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileBlockOp>>(
+        &getContext());
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

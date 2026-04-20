@@ -1,6 +1,9 @@
 add_mlir_conversion_library(TTMLIRTTNNToEmitPy
   TTNNToEmitPy.cpp
   TTNNToEmitPyPass.cpp
+  EmitPyAddImports.cpp
+  EmitPyConstEvalCaching.cpp
+  EmitPyFormExpressions.cpp
   EmitPyNameVars.cpp
   EmitPyLinkModules.cpp
 

@@ -7,9 +7,8 @@
 
 #include <optional>
 
-#include "ttmlir/Target/Common/Target.h"
-
 #define FMT_HEADER_ONLY
+#include "tt-metalium/cluster.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
@@ -21,26 +20,32 @@
 
 namespace tt::runtime::common {
 
+inline bool isEthDispatchable() {
+  const auto clusterType = tt::tt_metal::GetClusterType();
+  switch (clusterType) {
+  case tt::tt_metal::ClusterType::N150:
+  case tt::tt_metal::ClusterType::N300:
+  case tt::tt_metal::ClusterType::T3K:
+  case tt::tt_metal::ClusterType::N300_2x2:
+    return true;
+  default:
+    return false;
+  }
+}
+
 inline ::tt::tt_metal::DispatchCoreType getDispatchCoreType(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType) {
+  // Prefer ETH dispatch when possible.
+  const auto type =
+      dispatchCoreType.value_or(::tt::runtime::DispatchCoreType::Ethernet);
+  assert(type == ::tt::runtime::DispatchCoreType::Ethernet ||
+         type == ::tt::runtime::DispatchCoreType::Worker);
 
-  ::tt::tt_metal::DispatchCoreType type;
-  if (dispatchCoreType.has_value()) {
-    if (dispatchCoreType == ::tt::runtime::DispatchCoreType::Ethernet) {
-      type = ::tt::tt_metal::DispatchCoreType::ETH;
-    } else if (dispatchCoreType == ::tt::runtime::DispatchCoreType::Worker) {
-      type = ::tt::tt_metal::DispatchCoreType::WORKER;
-    } else {
-      LOG_FATAL("Unsupported dispatch core type");
-    }
-  } else {
-    size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-    size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
-    type = numDevices == numPCIeDevices
-               ? ::tt::tt_metal::DispatchCoreType::WORKER
-               : ::tt::tt_metal::DispatchCoreType::ETH;
+  const bool ethDispatchable = isEthDispatchable();
+  if (ethDispatchable && type == ::tt::runtime::DispatchCoreType::Ethernet) {
+    return ::tt::tt_metal::DispatchCoreType::ETH;
   }
-  return type;
+  return ::tt::tt_metal::DispatchCoreType::WORKER;
 }
 
 inline ::tt::tt_fabric::FabricConfig
@@ -116,22 +121,22 @@ inline ::tt::target::Arch toTargetArch(::tt::ARCH arch) {
   }
 }
 
-inline UnpackToDestMode
+inline ::tt::tt_metal::UnpackToDestMode
 toUnpackToDestMode(const tt::target::UnpackToDestMode &unpackToDestMode) {
   switch (unpackToDestMode) {
   case tt::target::UnpackToDestMode::Fp32:
-    return UnpackToDestMode::UnpackToDestFp32;
+    return ::tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
   case tt::target::UnpackToDestMode::Default:
-    return UnpackToDestMode::Default;
+    return ::tt::tt_metal::UnpackToDestMode::Default;
   }
 }
 
-inline std::vector<UnpackToDestMode>
+inline std::vector<::tt::tt_metal::UnpackToDestMode>
 toUnpackToDestModes(const ::flatbuffers::Vector<tt::target::UnpackToDestMode>
                         *unpackToDestModesFB) {
   // Metal asserts that unpack_to_dest_mode.size() == NUM_CIRCULAR_BUFFERS.
-  std::vector<UnpackToDestMode> unpackToDestModes(NUM_CIRCULAR_BUFFERS,
-                                                  UnpackToDestMode::Default);
+  std::vector<::tt::tt_metal::UnpackToDestMode> unpackToDestModes(
+      NUM_CIRCULAR_BUFFERS, ::tt::tt_metal::UnpackToDestMode::Default);
   if (unpackToDestModesFB == nullptr) {
     return unpackToDestModes;
   }

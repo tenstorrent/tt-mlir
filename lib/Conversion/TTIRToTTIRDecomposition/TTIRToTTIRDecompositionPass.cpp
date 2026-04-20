@@ -50,7 +50,6 @@ struct TTIRToTTIRDecompositionPass
       // All other ops are legal (won't be decomposed).
       target.addLegalOp<ttir::IndexOp>();
       target.addLegalOp<ttir::GetDimensionSizeOp>();
-      target.addLegalOp<ttir::GatherOp>();
       target.addLegalOp<ttir::IndexSelectOp>();
       target.addLegalOp<ttir::QuantizeOp>();
       target.addLegalOp<ttir::RequantizeOp>();
@@ -60,7 +59,6 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::ReduceAndOp>();
       target.addIllegalOp<ttir::ReduceOrOp>();
-      target.addIllegalOp<ttir::EmbeddingOp>();
       target.addIllegalOp<ttir::SplitQueryKeyValueAndSplitHeadsOp>();
       break;
 
@@ -69,7 +67,6 @@ struct TTIRToTTIRDecompositionPass
       // TTNN and TTMetal decompose all ops
       target.addIllegalOp<ttir::IndexOp>();
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
-      target.addIllegalOp<ttir::GatherOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::IndexSelectOp>();
       target.addIllegalOp<ttir::ReduceAndOp>();
@@ -138,6 +135,13 @@ struct TTIRToTTIRDecompositionPass
       auto dimsAttr = op.getDimArg();
       return !dimsAttr || dimsAttr->size() <= 1; // Legal if 0 or 1 dimensions
     });
+
+    target.addDynamicallyLegalOp<ttir::PadOp>([&](ttir::PadOp op) {
+      // Illegal if any padding value is negative (needs decomposition into
+      // slice + pad).
+      return llvm::none_of(op.getPadding(), [](int32_t p) { return p < 0; });
+    });
+
     TypeConverter typeConverter;
     // All types map 1:1.
     typeConverter.addConversion([](Type type) { return type; });

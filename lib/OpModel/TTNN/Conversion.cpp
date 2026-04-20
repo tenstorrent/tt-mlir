@@ -237,9 +237,10 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
 
 ::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {
   std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  assert(layout.getGrid().getMapping().isEmpty() == false);
-  for (const auto &[loc, size] : ttcore::utils::toCoreRangeSet(
-           layout.getGrid().getShape(), layout.getGrid().getMapping())) {
+  assert(layout.getGrid().getVirtToPhysicalMap().isEmpty() == false);
+  for (const auto &[loc, size] :
+       ttcore::utils::toCoreRangeSet(layout.getGrid().getShape(),
+                                     layout.getGrid().getVirtToPhysicalMap())) {
     coreRangeSet.insert(::tt::tt_metal::CoreRange(
         ::tt::tt_metal::CoreCoord(loc[0], loc[1]),
         ::tt::tt_metal::CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
@@ -331,6 +332,8 @@ getTensorMemoryLayout(const TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::tt_metal::TensorMemoryLayout::WIDTH_SHARDED;
   case TensorMemoryLayout::BlockSharded:
     return ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED;
+  case TensorMemoryLayout::NDSharded:
+    return ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED;
   }
 }
 TensorMemoryLayout
@@ -344,6 +347,8 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
     return TensorMemoryLayout::WidthSharded;
   case ::tt::tt_metal::TensorMemoryLayout::BLOCK_SHARDED:
     return TensorMemoryLayout::BlockSharded;
+  case ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED:
+    return TensorMemoryLayout::NDSharded;
   }
 }
 
@@ -436,7 +441,7 @@ convertLLVMSmallVecToTTNNSmallVec(const ::llvm::ArrayRef<int64_t> vec) {
   return ::ttsl::SmallVector<int>(vec.begin(), vec.end());
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig>
+std::optional<::ttnn::Conv2dConfig>
 getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   if (!conv2dConfig || !conv2dConfig.has_value() || !conv2dConfig.value()) {
     return std::nullopt;
@@ -446,7 +451,7 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
   // CoreRangeSet as an IR attribute.
   assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
 
-  ::ttnn::operations::conv::conv2d::Conv2dConfig config;
+  ::ttnn::Conv2dConfig config;
 
   if (conv2dConfig->getWeightsDtype()) {
     config.weights_dtype = getDataType(*conv2dConfig->getWeightsDtype());
@@ -528,16 +533,16 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
 // there's no clear usecase for it other than conversion from
 // MathFidelity to ::ttnn::MathFidelity. Therefore, I decided to
 // not expose it for now. Subject to change in the future.
-::MathFidelity getMathFidelity(MathFidelity mathFidelity) {
+::tt::tt_metal::MathFidelity getMathFidelity(MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case MathFidelity::LoFi:
-    return ::MathFidelity::LoFi;
+    return ::tt::tt_metal::MathFidelity::LoFi;
   case MathFidelity::HiFi2:
-    return ::MathFidelity::HiFi2;
+    return ::tt::tt_metal::MathFidelity::HiFi2;
   case MathFidelity::HiFi3:
-    return ::MathFidelity::HiFi3;
+    return ::tt::tt_metal::MathFidelity::HiFi3;
   case MathFidelity::HiFi4:
-    return ::MathFidelity::HiFi4;
+    return ::tt::tt_metal::MathFidelity::HiFi4;
   }
 }
 
@@ -570,8 +575,7 @@ getDeviceComputeKernelConfig(const std::optional<DeviceComputeKernelConfigAttr>
   return config;
 }
 
-std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
-getConv2dSliceConfig(
+std::optional<::ttnn::Conv2dSliceConfig> getConv2dSliceConfig(
     const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig) {
   if (!conv2dSliceConfig || !conv2dSliceConfig.has_value() ||
       !conv2dSliceConfig.value()) {
@@ -580,20 +584,17 @@ getConv2dSliceConfig(
 
   const Conv2dSliceConfigAttr &sliceConfig = conv2dSliceConfig.value();
 
-  ::ttnn::operations::conv::conv2d::Conv2dSliceConfig config;
+  ::ttnn::Conv2dSliceConfig config;
 
   switch (sliceConfig.getSliceType()) {
   case Conv2dSliceType::DramHeight:
-    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-        SliceType::DRAM_HEIGHT;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_HEIGHT;
     break;
   case Conv2dSliceType::DramWidth:
-    config.slice_type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::
-        SliceType::DRAM_WIDTH;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::DRAM_WIDTH;
     break;
   case Conv2dSliceType::L1Full:
-    config.slice_type =
-        ::ttnn::operations::conv::conv2d::Conv2dSliceConfig::SliceType::L1_FULL;
+    config.slice_type = ::ttnn::Conv2dSliceConfig::SliceType::L1_FULL;
     break;
   }
 
@@ -668,10 +669,12 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
   if (isL1BufferType(bufferType)) {
+    auto [virtToPhysicalMap, physicalToVirtMap] =
+        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
+            context, memoryLayoutAttr.getValue(), deviceGrid);
     gridAttr = ttcore::GridAttr::get(
         context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMap(
-            context, memoryLayoutAttr.getValue(), deviceGrid));
+        virtToPhysicalMap, physicalToVirtMap);
   }
 
   return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,

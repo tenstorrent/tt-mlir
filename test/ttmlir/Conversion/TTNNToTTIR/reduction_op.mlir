@@ -11,7 +11,7 @@
 #l1_memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#core_range]>, <32x32>, <row_major>>>
 
 #dram_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#l1_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, (d0, d1) -> (0, d0, d1)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#l1_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
 
 #memory_config_l1 = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>
 #memory_config_dram = #ttnn.memory_config<#dram, <interleaved>>
@@ -89,12 +89,12 @@ module {
         return %3 : tensor<32xi32, #dram_layout>
     }
 
-    func.func @test_moreh_cumsum(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
+    func.func @test_cumsum(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
         %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #memory_config_l1}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
 
         // CHECK: %{{[0-9]+}} = "ttir.cumsum"(%{{[0-9]+}}) <{dim = 0 : i64}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
-        // CHECK-NOT: "ttnn.moreh_cumsum"
-        %2 = "ttnn.moreh_cumsum"(%1) {ttnn.hoist_generic_via_d2m, dim = 0 : i64} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+        // CHECK-NOT: "ttnn.cumsum"
+        %2 = "ttnn.cumsum"(%1) <{dim = 0 : i32, dtype = #ttcore.supportedDataTypes<f32>}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) <{memory_config = #memory_config_dram}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 

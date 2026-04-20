@@ -6,13 +6,16 @@
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 // ANCHOR: standalone_includes
+#include "operations/ccl/all_to_all_combine/all_to_all_combine.hpp"
+#include "operations/ccl/all_to_all_dispatch/all_to_all_dispatch.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
 #include "operations/core/core.hpp"
-#include "operations/creation.hpp"
+#include "operations/creation/creation.hpp"
 #include "operations/data_movement/concat/concat.hpp"
+#include "operations/data_movement/gather/gather.hpp"
 #include "operations/data_movement/pad/pad.hpp"
 #include "operations/data_movement/permute/permute.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
@@ -27,20 +30,26 @@
 #include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
+#include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
 #include "operations/matmul/matmul.hpp"
-#include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
+#include "operations/normalization/groupnorm/groupnorm.hpp"
+#include "operations/normalization/layernorm/layernorm.hpp"
+#include "operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
+#include "operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
 #include "operations/pool/global_avg_pool/global_avg_pool.hpp"
 #include "operations/pool/upsample/upsample.hpp"
 #include "operations/rand/rand.hpp"
+#include "operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "operations/reduction/argmax/argmax.hpp"
 #include "operations/reduction/generic/generic_reductions.hpp"
 #include "operations/reduction/prod/prod.hpp"
@@ -55,11 +64,13 @@
 #include "ttnn/device.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
+#include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads_decode/nlp_concat_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads_decode/nlp_create_qkv_heads_decode.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding/rotary_embedding.hpp"
 #include "ttnn/operations/experimental/transformer/rotary_embedding_llama/rotary_embedding_llama.hpp"
 #include "ttnn/operations/normalization/layernorm/layernorm.hpp"
+#include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -87,8 +98,8 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15;     // 32kB
-  static constexpr std::size_t traceRegionSize = 1 << 20; // 1MB
+  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t traceRegionSize = 0;
 
   static ttnn::MeshDevice *getInstance() {
     // If we have an external device, use it.

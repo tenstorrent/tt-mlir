@@ -70,15 +70,19 @@ validateWithMultipleAttributes(Operation *op,
       continue;
     }
 
-    TTNNLayoutAttr actualOutput = constraintResult.actualOutputLayout;
+    // TODO(bmalesevic, #7108): propagate all output layouts once multi-output
+    // matching is supported.
+    const auto firstActualOutputLayout =
+        constraintResult.checkAndGetFirstActualOutputLayout();
 
     // 2. Search referenceConfigs for matching (outputLayout + opSpecificAttr).
     if (!referenceConfigs.empty()) {
       bool foundMatch = false;
       for (size_t i = 0; i < referenceConfigs.size(); ++i) {
-        if (referenceConfigs[i].outputLayout == actualOutput &&
+        if (referenceConfigs[i].outputLayout == firstActualOutputLayout &&
             referenceConfigs[i].opSpecificAttrs == testConfig.opSpecificAttrs) {
-          results.push_back(ValidationResult::success(i, actualOutput));
+          results.push_back(
+              ValidationResult::success(i, firstActualOutputLayout));
           foundMatch = true;
           break;
         }
@@ -90,11 +94,73 @@ validateWithMultipleAttributes(Operation *op,
       }
     } else {
       // No reference configs to search - consider validation success as match.
-      results.push_back(ValidationResult::success(0, actualOutput));
+      results.push_back(ValidationResult::success(0, firstActualOutputLayout));
     }
   }
 
   return results;
+}
+
+// ----------- Shared L1 budget check ----------
+
+ValidationResult
+checkConstraintsResult(Operation *contextOp,
+                       llvm::Expected<op_model::OpConstraints> constraints,
+                       uint64_t additionalL1Usage) {
+  if (!constraints) {
+    ValidationResult result;
+    llvm::handleAllErrors(
+        constraints.takeError(),
+        [&](ttnn::detail::OpNotSupportedError &notSupportedErr) {
+          result = ValidationResult::notImplemented(notSupportedErr.message());
+        },
+        [&](llvm::ErrorInfoBase &otherErr) {
+          std::string errorMsg = otherErr.message();
+          TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                       "OpModel constraints failed: {}",
+                       ttmlir::utils::firstNLines(errorMsg, 8));
+          result = ValidationResult::metalBackendError(
+              ttmlir::utils::firstNLines(errorMsg, 8));
+        });
+    return result;
+  }
+
+  auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
+        outputTensorUsagePerCore, outputLayouts] = constraints.get();
+
+  const float tensorL1UsageCap = utils::getTensorL1UsageCap(contextOp);
+
+  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+      contextOp->getParentOfType<ModuleOp>()->getAttr(
+          ttcore::SystemDescAttr::name));
+  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
+  uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
+
+  uint64_t effectiveL1Limit =
+      static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize);
+  uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
+
+  if (totalL1Usage > effectiveL1Limit) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::OpValidation,
+        "Not enough L1 memory. "
+        "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
+        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
+        totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
+        l1BuffersPeakUsage, effectiveL1Limit);
+    return ValidationResult::outOfMemoryError("Not enough L1 memory");
+  }
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+               "OpModel constraints valid. FirstOutputLayout: {}\n"
+               "L1 usage: overallPeakL1Usage={}, cbPeakUsage={}, "
+               "l1BuffersPeakUsage={}, outputTensorUsagePerCore={}",
+               outputLayouts.empty() ? nullptr : outputLayouts[0],
+               overallPeakL1Usage, cbPeakUsage, l1BuffersPeakUsage,
+               outputTensorUsagePerCore);
+
+  return ValidationResult::success(0, outputLayouts, outputTensorUsagePerCore,
+                                   cbPeakUsage);
 }
 
 // ----------- Core constraint validation implementation ----------
@@ -102,9 +168,6 @@ validateWithMultipleAttributes(Operation *op,
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                     const OpConfig &config, uint64_t additionalL1Usage) {
-
-  // Get tensorL1UsageCap from module attribute
-  const float tensorL1UsageCap = utils::getTensorL1UsageCap(op);
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
@@ -123,8 +186,9 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "About to call getOpConstraints for {} with {} input layouts",
-               ttmlir::opToString(op), inputLayouts.size());
+               "About to call getOpConstraints for {} with {} input layouts, "
+               "additionalL1={}",
+               ttmlir::opToString(op), inputLayouts.size(), additionalL1Usage);
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -137,66 +201,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   llvm::Expected<ttnn::op_model::OpConstraints> l1UsageExp =
       backend.getOpConstraints(inputLayouts, config);
 
-  if (!l1UsageExp) {
-    // Check if this is a "not supported" error by trying to handle it
-    ValidationResult result;
-    llvm::handleAllErrors(
-        l1UsageExp.takeError(),
-        [&](ttnn::detail::OpNotSupportedError &notSupportedErr) {
-          result = ValidationResult::notImplemented(notSupportedErr.message());
-        },
-        [&](llvm::ErrorInfoBase &otherErr) {
-          std::string errorMsg = otherErr.message();
-          TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                       "OpModel constraints failed: {} @ {} :: \n{}"
-                       "\n\tconfig.outputLayout: {}",
-                       op->getName(), op->getLoc(),
-                       ttmlir::utils::firstNLines(errorMsg, 8),
-                       config.outputLayout);
-          result = ValidationResult::metalBackendError(
-              ttmlir::utils::firstNLines(errorMsg, 8));
-        });
-
-    return result;
-  }
-
-  auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
-        outputTensorUsagePerCore, outputLayout] = l1UsageExp.get();
-
-  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "Backend returned output layout: {}, layout={}, dtype={}",
-               outputLayout, static_cast<int>(outputLayout.getLayout()),
-               static_cast<int>(outputLayout.getDataType()));
-
-  // Get usable L1 cache size from device.
-  ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
-      op->getParentOfType<ModuleOp>()->getAttr(ttcore::SystemDescAttr::name));
-  ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
-  uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
-
-  uint64_t effectiveL1Limit =
-      static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize);
-  uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
-
-  if (totalL1Usage > effectiveL1Limit) {
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::OpValidation,
-        "Not enough L1 memory. OpModel constraints failed for op {}\n"
-        "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
-        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
-        ttmlir::opToString(op), totalL1Usage, overallPeakL1Usage,
-        additionalL1Usage, cbPeakUsage, l1BuffersPeakUsage, effectiveL1Limit);
-    return ValidationResult::outOfMemoryError("Not enough L1 memory");
-  }
-
-  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
-               "L1 usage: overallPeakL1Usage={}, cbPeakUsage={}, "
-               "l1BuffersPeakUsage={}, outputTensorUsagePerCore={}",
-               ttmlir::opToString(op), outputLayout, overallPeakL1Usage,
-               cbPeakUsage, l1BuffersPeakUsage, outputTensorUsagePerCore);
-
-  return ValidationResult::success(0, outputLayout, outputTensorUsagePerCore);
+  return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage);
 }
 
 } // namespace op_constraint_validation

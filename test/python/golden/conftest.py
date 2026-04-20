@@ -2,14 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import pytest
-import _ttmlir_runtime as tt_runtime
 import json
 import re
 import platform
 from functools import reduce
 import operator
 import os
-import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
 import math
@@ -28,8 +26,13 @@ TT_METAL_RUNTIME_ROOT = Path(
 ).resolve()
 sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
 
-import utils
+# Import ttnn before torch and _ttmlir_runtime to avoid false nanobind leak
+# warnings caused by CPython module teardown order.
 import ttnn
+import utils
+import _ttmlir_runtime as tt_runtime
+import torch
+from test_utils import SystemDesc
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -102,18 +105,9 @@ def _get_device_for_target(
 
     else:
         mesh_options = tt_runtime.runtime.MeshDeviceOptions()
-        system_desc = fbb_as_dict(
-            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
-        )["system_desc"]
-        board_id = get_board_id(system_desc)
 
-        if pytestconfig.getoption("--disable-eth-dispatch") or board_id in [
-            "p150",
-            "p300",
-        ]:
+        if pytestconfig.getoption("--disable-eth-dispatch"):
             mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
-        else:
-            mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
 
         # Start with a small mesh shape that should work for most tests
         # Tests requiring larger meshes will be handled appropriately
@@ -146,6 +140,55 @@ def _get_device_for_target(
     _current_device_mesh_shape = mesh_shape
     _current_fabric_config = fabric_config
     return _current_device
+
+
+def clear_device_cache():
+    """Clear the cached device so the next test will open a fresh device.
+
+    Call this after device.close() when a test explicitly closes the device
+    so that the next test does not receive a stale (closed) handle and can
+    open a new device (e.g. after compile with mock opmodel).
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    _current_device = None
+    _current_device_target = None
+    _current_device_mesh_shape = None
+    _current_fabric_config = None
+
+
+def _reset_device_after_failure():
+    """Close the cached device after an execution failure.
+
+    After a device execution failure the hardware may be in an undefined state.
+    Close the device and clear the cache so the next test's ``device`` fixture
+    opens a fresh one automatically.
+    """
+    global _current_device, _current_device_target, _current_device_mesh_shape, _current_fabric_config
+    if _current_device is None:
+        return
+
+    target = _current_device_target
+    device = _current_device
+
+    try:
+        if target == "emitpy":
+            ttnn.close_mesh_device(device)
+        else:
+            tt_runtime.runtime.close_mesh_device(device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+    except Exception as e:
+        print(f"Warning: failed to close device during reset: {e}")
+
+    _current_device = None
+    _current_device_target = None
+    _current_device_mesh_shape = None
+    _current_fabric_config = None
+
+    if target == "emitpy":
+        utils.DeviceGetter._instance = None
+        utils.DeviceGetter._mesh_shape = None
 
 
 def _get_current_environment():
@@ -218,6 +261,15 @@ def device(request, pytestconfig):
     return _get_device_for_target(target, mesh_shape, pytestconfig, fabric_config)
 
 
+@pytest.fixture(scope="session")
+def system_desc(request, pytestconfig):
+    return SystemDesc(
+        fbb_as_dict(
+            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+        )["system_desc"]
+    )
+
+
 def get_request_kwargs(request):
     """
     Extracts and organizes request-related arguments into a dictionary.
@@ -249,7 +301,9 @@ def get_request_kwargs(request):
         kwargs["enable_intermediate_verification"] = True
     if request.config.getoption("--disable-golden"):
         kwargs["disable_golden"] = True
-    if request.config.getoption("--skip-exec"):
+    if request.config.getoption("--skip-exec") or getattr(
+        request.node, "skip_exec", False
+    ):
         kwargs["skip_exec"] = True
     if request.config.getoption("--disable-pcc"):
         kwargs["check_pcc"] = False
@@ -284,7 +338,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--disable-eth-dispatch",
         action="store_true",
-        help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
+        help="disable putting dispatch on ethernet cores - place it on worker cores instead",
     )
     parser.addoption(
         "--dump-kernels",
@@ -383,6 +437,21 @@ def configure_debug_env(pytestconfig):
             kernel_source_dir,  # kernelSourceDir
             True,  # deviceAddressValidation (safe default)
             False,  # blockingCQ
+        )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_perf_env(pytestconfig):
+    if "TT_METAL_DEVICE_PROFILER" in os.environ:
+        tt_runtime.runtime.PerfEnv.get(
+            enable_perf_trace=True,
+            tracy_program_metadata=str(
+                {
+                    "disable_eth_dispatch": False,
+                    "enable_program_cache": True,
+                    "dump_device_rate": 1000,
+                }
+            ),
         )
 
 
@@ -579,7 +648,7 @@ def _extract_frontend(item: pytest.Item) -> None:
     raise KeyError("No frontend marker found!")
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_setup(item: pytest.Item):
     """
     Extract test metadata during setup phase for XML reporting.
@@ -623,7 +692,7 @@ def pytest_runtest_setup(item: pytest.Item):
     </properties>
 
     Note that the above example excludes the "failure_stage" entry. This is
-    handled by the hookwrapper for `pytest_runtest_makereport` below
+    handled by the wrapper for `pytest_runtest_call` below
     """
     yield
 
@@ -635,12 +704,13 @@ def pytest_runtest_setup(item: pytest.Item):
         _extract_frontend(item)
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item):
     """
     Extract runtime information from tests that actually execute.
 
     This includes failure classification and error reporting during the call phase.
+    Exceptions are re-raised so tests fail normally while still recording metadata.
 
     Runtime report data includes:
     - failure_stage: Categorizes where in the compilation pipeline the test failed
@@ -661,9 +731,8 @@ def pytest_runtest_call(item: pytest.Item):
 
     failure_stage = "success"  # Default to success.
 
-    outcome = yield
     try:
-        outcome.get_result()
+        yield
     except Exception as exc:
         exc_type = type(exc)
         exc_name = exc_type.__name__
@@ -672,6 +741,11 @@ def pytest_runtest_call(item: pytest.Item):
                 f"Unknown failure detected! Please address this or correctly throw a `TTBuilder*` exception instead if this is a compilation issue, runtime error, or golden mismatch. Exception: {exc}:{type(exc)}"
             )
         failure_stage = TTBUILDER_EXCEPTIONS[exc_name]
+
+        if failure_stage == "runtime" and not getattr(item, "skip_exec", False):
+            _reset_device_after_failure()
+
+        raise
     finally:
         _safe_add_property(item, "failure_stage", failure_stage)
 
@@ -685,13 +759,12 @@ def _mark_item_for_skip(
     skip_handler_fn,
     negate_check=False,
 ):
+    matches = []
     for marker in item.iter_markers(name=marker_name):
         for platform_config in marker.args:
 
             # All of the operations we need to do on these are set membership based
             platform_config = set(platform_config)
-
-            reason = marker.kwargs.get("reason", "")
 
             # Verify this is a valid configuration
             if not platform_config <= ALL_CONFIGS:
@@ -700,16 +773,22 @@ def _mark_item_for_skip(
                     f"Invalid {marker_name}: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_CONFIGS}"
                 )
 
-            should_skip = platform_config <= set(
+            match = platform_config <= set(
                 [current_target, board_id, current_environment]
             )
+            matches.append(match)
 
-            # For only_config we want to skip if config is NOT in the allowed list
-            if negate_check:
-                should_skip = not should_skip
+    if len(matches) == 0:
+        return
 
-            if should_skip:
-                skip_handler_fn(item, platform_config, reason)
+    should_skip = any(matches)
+
+    # For only_config we want to skip if config is NOT in the allowed list
+    if negate_check:
+        should_skip = not should_skip
+
+    if should_skip:
+        skip_handler_fn(item)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -750,24 +829,24 @@ def pytest_collection_modifyitems(config, items):
         current_environment = _get_current_environment()
         board_id = get_board_id(system_desc)
 
-        def skip_config_handler(item, platform_config, reason):
+        def skip_config_handler(item):
             item.add_marker(
                 pytest.mark.skip(
-                    reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
+                    reason="Test marked as skip for this platform/target combination"
                 )
             )
 
-        def only_config_handler(item, platform_config, reason):
+        def only_config_handler(item):
             item.add_marker(
                 pytest.mark.skip(
-                    reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
+                    reason="Test marked as skip for this platform/target combination"
                 )
             )
 
-        def skip_exec_handler(item, platform_config, reason):
+        def skip_exec_handler(item):
             # Set skip_exec attribute on the item instead of marking as skipped
             item.skip_exec = True
-            xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
+            xfail_reason = f"Execution marked as skip"
             item.skip_exec_reason = xfail_reason
             # Mark test as xfail so it's expected to fail
             item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=False))
@@ -826,3 +905,8 @@ def pytest_sessionfinish(session):
         _current_device_target = None
         _current_device_mesh_shape = None
         _current_fabric_config = None
+
+        # Ensure DeviceGetter singleton is cleared after tests finish and after
+        # any mesh device has been closed.
+        utils.DeviceGetter._instance = None
+        utils.DeviceGetter._mesh_shape = None

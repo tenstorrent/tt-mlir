@@ -47,17 +47,13 @@ public:
   using impl::TTNNRowMajorLayoutPropagationBase<
       TTNNRowMajorLayoutPropagation>::TTNNRowMajorLayoutPropagationBase;
 
-  TTNNRowMajorLayoutPropagation(TTNNRowMajorLayoutPropagationOptions options)
-      : impl::TTNNRowMajorLayoutPropagationBase<TTNNRowMajorLayoutPropagation>(
-            std::move(options)) {}
-
   void runOnOperation() final {
 #ifndef TTMLIR_ENABLE_OPMODEL
     llvm::llvm_unreachable_internal(
         "TTNNRowMajorLayoutPropagation pass requires OpModel support to be"
         "enabled.");
 #else
-    op_model::ScopedSingletonDeviceGuard deviceGuard;
+    op_model::ScopedSingletonDeviceGuard deviceGuard(getOperation());
 
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
@@ -89,7 +85,11 @@ public:
 
 private:
   // Returns true if block argument is an input argument of the function.
+  // KV cache arguments are excluded even though they have Input argument type.
   bool isInputArgument(BlockArgument arg, func::FuncOp func) {
+    if (func.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+      return false;
+    }
     if (auto typeAttr = func.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
             arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
       auto argType = typeAttr.getValue();
@@ -227,7 +227,7 @@ private:
     // Create layout with TILE (required for on-device typecast) and the
     // original tensor element type. TTNNDecomposeLayouts requires TILE
     // layout for on-device dtype conversion; ROW_MAJOR would force a
-    // host round-trip (from_device → to_dtype → to_device).
+    // host round-trip (from_device → typecast → to_device).
     TTNNLayoutAttr correctedLayout = rmOutputLayout.withElementType(
         tensorElementType, userResultType.getShape());
     TTNNLayoutAttr tileLayout =
@@ -369,11 +369,12 @@ private:
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
 
-    if (result.actualOutputLayout.isTiled()) {
+    auto actualFirstOutputLayout = result.checkAndGetFirstActualOutputLayout();
+    if (actualFirstOutputLayout.isTiled()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                    "Stopping RM propagation at op {} as it returns tile "
                    "layout,\n\t output layout: {}",
-                   ttmlir::opToString(op), result.actualOutputLayout);
+                   ttmlir::opToString(op), actualFirstOutputLayout);
       return llvm::make_error<llvm::StringError>(
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
@@ -382,9 +383,8 @@ private:
                  "Continuing RM propagation through op {} with RM layout on "
                  "operand {},\n\t input layout: {}, \n\t output layout: {}",
                  ttmlir::opToString(op), operandIdx, layoutAttr,
-                 result.actualOutputLayout);
-
-    return result.actualOutputLayout;
+                 actualFirstOutputLayout);
+    return actualFirstOutputLayout;
   }
 
   // Handles ReturnOp during propagation. Checks if actual layout matches

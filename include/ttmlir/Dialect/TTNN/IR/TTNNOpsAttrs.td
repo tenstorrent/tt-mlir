@@ -213,7 +213,7 @@ def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
     - The strategy for distributing shards across the grid (round robin 1D, or grid 2D)
 
     NDShardSpecAttr is used within MemoryConfigAttr to specify sharding information for ND sharded tensors
-    stored in L1 memory. ND sharded tensors that are not expressable in legacy are considered
+    stored in L1 memory. ND sharded tensors that are not expressible in legacy are considered
     block sharded by convention.
 
     This attribute is optional in the MemoryConfigAttr and should only be present
@@ -562,6 +562,31 @@ def TTNN_SDPAProgramConfigAttr : TTNN_Attr<"SDPAProgramConfig", "sdpa_program_co
                         "uint64_t":$k_chunk_size,
                         OptionalParameter<"BoolAttr">:$exp_approx_mode,
                         OptionalParameter<"std::optional<uint32_t>">:$max_cores_per_head_batch);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
+def TTNN_LayerNormShardedMultiCoreProgramConfigAttr
+    : TTNN_Attr<"LayerNormShardedMultiCoreProgramConfig",
+                "layernorm_sharded_multicore_program_config"> {
+  let summary = "TTNN LayerNorm Sharded Multi-Core Program Config";
+  let description = [{
+    Configuration for sharded multi-core layer norm / RMS norm operations.
+
+    Parameters:
+    - `compute_with_storage_grid_size`: The core grid dimensions (x, y) used
+      for computation and storage.
+    - `subblock_w`: Width of the sub-block (typically 1 for norm ops).
+    - `block_h`: Height of each block in tiles (shard_height / tile_height).
+    - `block_w`: Width of each block in tiles (shard_width / tile_width).
+    - `inplace`: Whether the operation is performed in-place.
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$compute_with_storage_grid_size,
+                        "uint64_t":$subblock_w,
+                        "uint64_t":$block_h,
+                        "uint64_t":$block_w,
+                        "bool":$inplace);
 
   let assemblyFormat = "`<` struct(params) `>`";
 }
@@ -933,7 +958,7 @@ def TTNN_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "kerne
 def TTNN_KernelArgAddressOfTensorAttr : TTNN_Attr<"KernelArgAddressOfTensor", "kernel_arg_address_of_tensor"> {
   let summary = "Address of tensor argument";
   let description = [{
-    TTNN generic kernel argument for address of tensor at postion in operation tensors array.
+    TTNN generic kernel argument for address of tensor at position in operation tensors array.
   }];
 
   let parameters = (ins "size_t":$tensor_index);
@@ -948,6 +973,27 @@ def TTNN_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_ar
 
   let parameters = (ins "size_t":$semaphore_index);
   let assemblyFormat = "`<` $semaphore_index `>`";
+}
+
+def TTNN_KernelArgNamedArgAttr : TTNN_Attr<"KernelArgNamedArg", "kernel_named_arg"> {
+  let summary = "Named kernel argument";
+  let description = [{
+    TTNN generic kernel argument for a named argument in kernel. For example this could be
+    used to pass in dynamic loop bounds for M, N, K in a matmul kernel.
+  }];
+
+  let parameters = (ins "StringAttr":$name, "uint32_t":$value);
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
+def TTNN_KernelArgGlobalSemaphoreAttr : TTNN_Attr<"KernelArgGlobalSemaphore", "kernel_arg_global_semaphore"> {
+  let summary = "Global Semaphore argument";
+  let description = [{
+    TTNN generic kernel argument for semaphore at position in global semaphores array in program.
+  }];
+
+  let parameters = (ins "size_t":$global_semaphore_index);
+  let assemblyFormat = "`<` $global_semaphore_index `>`";
 }
 
 def TTNN_CoreRuntimeArgsAttr : TTNN_Attr<"CoreRuntimeArgs", "core_runtime_args"> {
@@ -1041,6 +1087,39 @@ def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInte
   let genVerifyDecl = 1;
 }
 
+def TTNN_DataMovementKernelAttr: TTNN_Attr<"DataMovementKernel", "data_movement_kernel", [TTNN_KernelInterface]> {
+  let summary = "Data movement kernel";
+  let description = [{
+    Data movement kernel config descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins "SymbolRefAttr":$symbol_ref,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        "DataMovementProcessor":$processor,
+                        "mlir::tt::ttcore::NocIndex":$noc_index,
+                        "NocMode":$noc_mode,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+
+  let builders = [
+    AttrBuilder<(ins "SymbolRefAttr":$symbol_ref,
+                     "CoreRangeSetAttr":$core_ranges,
+                     "DataMovementProcessor":$processor,
+                     "mlir::tt::ttcore::NocIndex":$noc_index,
+                     "NocMode":$noc_mode,
+                     "::llvm::ArrayRef<mlir::Attribute>":$common_rt_args,
+                     "::llvm::ArrayRef<mlir::Attribute>":$ct_args), [{
+      return $_get($_ctxt, symbol_ref, core_ranges, processor, noc_index, noc_mode, common_rt_args, ::llvm::ArrayRef<CoreRuntimeArgsAttr>{}, ct_args);
+    }]>
+  ];
+
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $processor, $noc_index, $noc_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+
+}
+
 def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelInterface]> {
   let summary = "Write kernel";
   let description = [{
@@ -1066,20 +1145,6 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
-}
-
-def TTNN_FabricConnectionConfigAttr: TTNN_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
-  let summary = "TTNN Fabric Connection Config attribute.";
-  let description = [{
-    Structure for configuring fabric connections for worker cores.
-  }];
-
-  let parameters = (ins "NocIndex":$noc_index,
-                        "mlir::tt::ttcore::Topology":$topology,
-                        "uint32_t":$cluster_axis,
-                        "RoutingMode":$routing_mode,
-                        "uint32_t":$num_links);
-  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
 }
 
 def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
@@ -1114,7 +1179,7 @@ def TTNN_MeshProgramDescriptorAttr : TTNN_Attr<"MeshProgramDescriptor", "mesh_pr
     Mesh program descriptor for TTNN generic operation.
   }];
 
-  let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs, "FabricConnectionConfigAttr":$fabric_connection_config);
+  let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs, "mlir::tt::ttcore::FabricConnectionConfigAttr":$fabric_connection_config);
   let assemblyFormat = "`<` `[` qualified($mesh_programs) `]` `,` `fabric_connection_config` `=` qualified($fabric_connection_config) `>`";
 
   let genVerifyDecl = 1;

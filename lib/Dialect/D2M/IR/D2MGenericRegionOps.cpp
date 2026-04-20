@@ -94,50 +94,71 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
     return emitOpError("mcast start index defined but mcast shape is not");
   }
 
-  constexpr int64_t kExpectedIndicesRemote = 3;
-  constexpr int64_t kExpectedIndicesLocal = 1;
-
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
 
-  if (isDstRemote()) {
-    if (numDstIndices != kExpectedIndicesRemote) {
-      return emitOpError("Must have 3 dst indices for remote dst operand");
+  if (isShardLevel()) {
+    if (numSrcIndices != 0) {
+      return emitOpError("Shard-level DMAWrite must have 0 src indices");
+    }
+    if (isMcast() && numDstIndices != 0) {
+      return emitOpError("Shard-level mcast DMAWrite must have 0 dst indices");
     }
   } else {
-    if (numDstIndices != kExpectedIndicesLocal) {
-      return emitOpError("Must have 1 dst index for local dst operand");
+    constexpr int64_t kExpectedIndicesRemote = 3;
+    constexpr int64_t kExpectedIndicesLocal = 1;
+
+    if (isDstRemote()) {
+      if (numDstIndices != kExpectedIndicesRemote) {
+        return emitOpError("Must have 3 dst indices for remote dst operand");
+      }
+    } else {
+      if (numDstIndices != kExpectedIndicesLocal) {
+        return emitOpError("Must have 1 dst index for local dst operand");
+      }
+    }
+
+    if (numSrcIndices != kExpectedIndicesLocal) {
+      return emitOpError("Must have 1 src index for local src operand");
     }
   }
 
-  if (numSrcIndices != kExpectedIndicesLocal) {
-    return emitOpError("Must have 1 src index for local src operand");
-  }
   return success();
 }
 
 ::mlir::LogicalResult DMAReadOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
   ShapedType dstType = mlir::cast<ShapedType>(getDst().getType());
-  auto isRemote = [&](auto operand) {
-    return ttcore::hasDeviceLayout(operand);
+  auto isLocal = [](Value operand) {
+    return !ttcore::hasDeviceLayout(operand);
   };
-  auto isLocal = [&](auto operand) { return !isRemote(operand); };
-  if (!(isRemote(getSrc()) && isLocal(getDst()))) {
-    return emitOpError("For DMARead, src must be remote and dst must be local");
+  if (!isLocal(getDst())) {
+    return emitOpError("For DMARead, dst must be local");
   }
   if (srcType.getElementType() != dstType.getElementType()) {
-    return emitOpError("Operands to DMAWrite must have the same element type");
+    return emitOpError("Operands to DMARead must have the same element type");
   }
-  constexpr int64_t kExpectedIndicesRemote = 3;
-  constexpr int64_t kExpectedIndicesLocal = 1;
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
-  if (numSrcIndices != kExpectedIndicesRemote) {
-    return emitOpError("Must have 3 src indices for remote src operand");
-  }
-  if (numDstIndices != kExpectedIndicesLocal) {
-    return emitOpError("Must have 1 dst index for local dst operand");
+  if (isShardLevel()) {
+    if (numDstIndices != 0) {
+      return emitOpError("Shard-level DMARead must have 0 dst indices");
+    }
+  } else {
+    constexpr int64_t kExpectedIndicesRemote = 3;
+    constexpr int64_t kExpectedIndicesLocal = 1;
+    if (isSrcLocal()) {
+      if (numSrcIndices != kExpectedIndicesLocal) {
+        return emitOpError("Must have 1 src index for local src operand");
+      }
+    } else {
+      if (numSrcIndices != kExpectedIndicesRemote) {
+        return emitOpError("Must have 3 src indices for remote src operand");
+      }
+    }
+    if (numDstIndices != kExpectedIndicesLocal) {
+      return emitOpError("Must have 1 dst index for local dst operand");
+    }
   }
   return success();
 }
@@ -170,6 +191,140 @@ void DMAWriteOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(), 0,
                        true, mlir::SideEffects::DefaultResource::get());
+}
+
+::mlir::LogicalResult LocalCopyOp::verify() {
+  bool hasDst = static_cast<bool>(getDst());
+  bool hasCb = static_cast<bool>(getCb());
+  if (hasDst == hasCb) {
+    return emitOpError(
+        "must have exactly one of dst or cb (not both, not neither)");
+  }
+
+  // Locality checks only apply to memref operands (tensors don't carry
+  // device layout attributes).
+  auto isLocalMemref = [](Value operand) {
+    if (!mlir::isa<MemRefType>(operand.getType())) {
+      return true;
+    }
+    return !ttcore::hasDeviceLayout(operand);
+  };
+  if (!isLocalMemref(getSrc())) {
+    return emitOpError("src must be a local memref");
+  }
+  if (hasDst && !isLocalMemref(getDst())) {
+    return emitOpError("dst must be a local memref");
+  }
+
+  ArrayRef<Attribute> maps = getIndexingMaps().getValue();
+  if (maps.size() != 2) {
+    return emitOpError("requires exactly 2 indexing maps");
+  }
+  ShapedType dstType = getDstShapedType();
+  int64_t dstRank = dstType.getRank();
+  for (auto [idx, mapAttr] : llvm::enumerate(maps)) {
+    auto affineMap = mlir::cast<AffineMapAttr>(mapAttr).getValue();
+    if (static_cast<int64_t>(affineMap.getNumDims()) != dstRank) {
+      return emitOpError("indexing map #")
+             << idx << " has " << affineMap.getNumDims()
+             << " dims but dst rank is " << dstRank;
+    }
+  }
+
+  auto srcType = mlir::cast<ShapedType>(getSrc().getType());
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError("source and destination element types must match");
+  }
+
+  bool hasTensors = mlir::isa<RankedTensorType>(getSrc().getType()) ||
+                    (hasDst && mlir::isa<RankedTensorType>(getDst().getType()));
+  if (hasTensors) {
+    if (!getResult()) {
+      return emitOpError("tensor form requires a result");
+    }
+  } else if (getResult()) {
+    if (hasCb) {
+      return emitOpError("explicit CB form must not have a result");
+    }
+    if (!mlir::isa<MemTxType>(getResult().getType())) {
+      return emitOpError("memref form result must be !d2m.mem_tx");
+    }
+  }
+
+  return success();
+}
+
+bool LocalCopyOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool LocalCopyOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  Value dst = getDst();
+  return dst && operand.get() == dst;
+}
+
+mlir::bufferization::AliasingValueList
+LocalCopyOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  Value dst = getDst();
+  Value resultValue = getResult();
+  if (dst && resultValue && operand.get() == dst) {
+    aliasList.addAlias(
+        {resultValue, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+LocalCopyOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  return ttcore::getBufferType(value.getType(), /*isView=*/false);
+}
+
+mlir::LogicalResult
+LocalCopyOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  if (getCb()) {
+    return emitOpError(
+        "LocalCopyOp with CB should not exist during bufferization");
+  }
+
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return failure();
+  }
+
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  if (failed(dstBuffer)) {
+    return failure();
+  }
+
+  // The memref-form LocalCopyOp has no result (unlike the tensor-form which
+  // returns the destination tensor). Create the new op and replace the old
+  // tensor result with the destination buffer directly.
+  rewriter.create<LocalCopyOp>(getLoc(), *srcBuffer, *dstBuffer,
+                               getIndexingMaps());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
+                                                     ValueRange{*dstBuffer});
+  return success();
+}
+
+bool LocalCopyOp::hasTensorSemantics() {
+  if (getCb()) {
+    return false;
+  }
+  return mlir::isa<RankedTensorType>(getSrc().getType()) ||
+         (getDst() && mlir::isa<RankedTensorType>(getDst().getType()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -292,7 +447,8 @@ void DMAWriteOp::getEffects(
     mcastDimIndices.push_back(indexAttr.getInt());
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     std::optional<unsigned> operandIndex;
@@ -302,10 +458,12 @@ void DMAWriteOp::getEffects(
         break;
       }
     }
-    if (!operandIndex) {
+    // Also allow scratch allocations.
+    if (!operandIndex &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
 
     // Forbid high-level mcast form in explicit datamovement form
@@ -467,7 +625,8 @@ void WriteColMaskTileOp::getEffects(
            << getIndices().size() << " indices but expected " << gridRank;
   }
 
-  // Verify that memref references a generic op operand when inside a generic
+  // Verify that memref references a generic op operand or scratch allocation
+  // when inside a generic.
   if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
     Value memrefOperand = getMemref();
     bool foundInOperands = false;
@@ -477,10 +636,12 @@ void WriteColMaskTileOp::getEffects(
         break;
       }
     }
-    if (!foundInOperands) {
+    // Also allow scratch allocations
+    if (!foundInOperands &&
+        !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
           "memref operand must reference one of the parent generic op's "
-          "operands directly");
+          "operands or a scratch allocation");
     }
   }
 
@@ -838,6 +999,129 @@ bool RemoteLoadOp::bufferizesToMemoryRead(
   return operand.get() == getMemref();
 }
 
+//===----------------------------------------------------------------------===//
+// FillArangeTileOp Implementation
+//===----------------------------------------------------------------------===//
+
+void FillArangeTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
+// ArangeBlockOp Implementation
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult ArangeBlockOp::verify() {
+  // Output and index_tile_tensor must have the same element type category
+  // (both tensor or both memref).
+  Type outputType = getOutput().getType();
+  Type indexType = getIndexTileTensor().getType();
+
+  bool outputIsTensor = mlir::isa<mlir::RankedTensorType>(outputType);
+  bool indexIsTensor = mlir::isa<mlir::RankedTensorType>(indexType);
+
+  if (outputIsTensor != indexIsTensor) {
+    return emitOpError(
+        "output and index_tile_tensor must both be tensors or both be memrefs");
+  }
+  return mlir::success();
+}
+
+void ArangeBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  // Read and write index tile tensor (written by
+  // WriteFullLinearIndexTileOp, then read for tile arithmetic).
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getIndexTileTensorMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getIndexTileTensorMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  // Write to the output tensor.
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+bool ArangeBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getIndexTileTensor();
+}
+
+bool ArangeBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput() || operand.get() == getIndexTileTensor();
+}
+
+mlir::bufferization::AliasingValueList
+ArangeBlockOp::getAliasingValues(mlir::OpOperand &operand,
+                                 const mlir::bufferization::AnalysisState &) {
+  // The result aliases the output operand (DPS style).
+  if (operand.get() == getOutput()) {
+    return {{getResult(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+ArangeBlockOp::getBufferType(mlir::Value value,
+                             const mlir::bufferization::BufferizationOptions &,
+                             const mlir::bufferization::BufferizationState &,
+                             ::llvm::SmallVector<mlir::Value> &) {
+  // The result type is derived from the output tensor's type.
+  auto tensorType =
+      mlir::dyn_cast<mlir::RankedTensorType>(getOutput().getType());
+  if (!tensorType) {
+    // Already a memref.
+    return mlir::bufferization::BufferLikeType(
+        mlir::cast<mlir::MemRefType>(getOutput().getType()));
+  }
+  auto memrefType =
+      mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
+  return mlir::bufferization::BufferLikeType(memrefType);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult ArangeBlockOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  // Skip if already bufferized.
+  if (!mlir::isa<mlir::RankedTensorType>(getOutput().getType())) {
+    return mlir::failure();
+  }
+
+  // Get bufferized versions of the operands.
+  auto maybeOutputBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutput(), options, state);
+  if (failed(maybeOutputBuffer)) {
+    return maybeOutputBuffer;
+  }
+
+  auto maybeIndexTileBuffer = mlir::bufferization::getBuffer(
+      rewriter, getIndexTileTensor(), options, state);
+  if (failed(maybeIndexTileBuffer)) {
+    return maybeIndexTileBuffer;
+  }
+
+  // Create new op with memref operands.
+  auto newOp = rewriter.create<ArangeBlockOp>(
+      getLoc(), *maybeIndexTileBuffer, *maybeOutputBuffer, getNumElements(),
+      getStart(), getStep());
+
+  // Replace uses and erase (DPS pattern - result aliases output buffer).
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
+                                                     newOp.getResult());
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
 bool RemoteLoadOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // Only result-form (no CB) operations should exist during bufferization
@@ -970,6 +1254,29 @@ bool RemoteLoadOp::hasTensorSemantics() {
   return memrefIsTensor || resultIsTensor;
 }
 
+bool RemoteLoadOp::isNotConflicting(
+    mlir::OpOperand *uRead, mlir::OpOperand *uConflictingWrite,
+    const mlir::bufferization::AnalysisState &) {
+  if (uRead->get() != getMemref()) {
+    return false;
+  }
+
+  auto *parentOp = (*this)->getParentOp();
+  if (!parentOp) {
+    return false;
+  }
+  auto parentGeneric = mlir::dyn_cast<d2m::GenericOp>(parentOp);
+  if (!parentGeneric) {
+    return false;
+  }
+
+  if (uConflictingWrite->getOwner() != parentGeneric.getOperation()) {
+    return false;
+  }
+
+  return llvm::is_contained(parentGeneric.getOutputs(), getMemref());
+}
+
 //===----------------------------------------------------------------------===//
 // RemoteStoreOp Bufferization Interface Implementation
 //===----------------------------------------------------------------------===//
@@ -1078,7 +1385,8 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
   // Create a new RemoteStoreOp with bufferized operands and result
   mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
       rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
-      localBufferBufferized, /*cb=*/Value{});
+      localBufferBufferized, getStartDevice(), getDeviceMcastShape(),
+      getSemaphore(), getSemaphoreIndices());
 
   return mlir::success();
 }
@@ -1119,10 +1427,6 @@ void IterIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult IterIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
-}
-
 //===----------------------------------------------------------------------===//
 // BlockIndexOp
 //===----------------------------------------------------------------------===//
@@ -1140,9 +1444,42 @@ void BlockIndexOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
-mlir::OpFoldResult BlockIndexOp::fold(FoldAdaptor adaptor) {
-  return adaptor.getDimAttr();
+//===----------------------------------------------------------------------===//
+// BlockOffsetOp
+//===----------------------------------------------------------------------===//
+
+void BlockOffsetOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "block_offset" + std::to_string(dim));
 }
+
+void BlockOffsetOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+
+//===----------------------------------------------------------------------===//
+// GetBlockFactorOp
+//===----------------------------------------------------------------------===//
+
+void GetBlockFactorOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  int64_t dim = getDim();
+  setNameFn(getResult(), "block_factor" + std::to_string(dim));
+}
+
+void GetBlockFactorOp::inferResultRanges(
+    ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
+    mlir::SetIntRangeFn setResultRange) {
+  setResultRange(getResult(),
+                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+}
+//===----------------------------------------------------------------------===//
+// CoreIndexOp
+//===----------------------------------------------------------------------===//
 
 void CoreIndexOp::getAsmResultNames(
     function_ref<void(Value, StringRef)> setNameFn) {
@@ -1150,21 +1487,34 @@ void CoreIndexOp::getAsmResultNames(
   setNameFn(getResult(), "core" + std::to_string(dim));
 }
 
+::mlir::LogicalResult CoreIndexOp::verify() {
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return success();
+  }
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  if (dim >= static_cast<int64_t>(gridShape.size())) {
+    return emitOpError("dim ")
+           << dim << " exceeds grid rank " << gridShape.size();
+  }
+  return success();
+}
+
 void CoreIndexOp::inferResultRanges(
     ::llvm::ArrayRef<::mlir::ConstantIntRanges> argRanges,
     mlir::SetIntRangeFn setResultRange) {
-  setResultRange(getResult(),
-                 getIndexRange(0, std::numeric_limits<uint32_t>::max()));
-}
-
-mlir::OpFoldResult CoreIndexOp::fold(FoldAdaptor adaptor) {
-  // Only fold to the constant `dim` when no virtualization map is present.
-  // If a map is present, the result depends on runtime core coordinates and
-  // must not be folded.
-  if (adaptor.getPhysToVirtMapAttr()) {
-    return {};
+  auto genericOp = getOperation()->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    setResultRange(getResult(),
+                   getIndexRange(0, std::numeric_limits<uint32_t>::max()));
+    return;
   }
-  return adaptor.getDimAttr();
+
+  auto gridShape = genericOp.getGrid().getShape();
+  int64_t dim = getDim();
+  assert(dim < static_cast<int64_t>(gridShape.size()) && "dim out of range");
+  setResultRange(getResult(), getIndexRange(0, gridShape[dim] - 1));
 }
 
 // TileMatmulBlockOp verification
@@ -1256,6 +1606,16 @@ TileTilizeBlockOp::getBufferType(
   assert(false && "should already have bufferized types via parent generic op "
                   "bufferization");
   return mlir::failure();
+}
+
+mlir::LogicalResult TileClampScalarOp::verify() {
+  bool minIsInt = mlir::isa<IntegerAttr>(getMinAttr());
+  bool maxIsInt = mlir::isa<IntegerAttr>(getMaxAttr());
+  if (minIsInt != maxIsInt) {
+    return emitOpError("min and max attributes must be the same type (both "
+                       "F32Attr or both I32Attr)");
+  }
+  return success();
 }
 
 mlir::LogicalResult TileTilizeBlockOp::verify() {
@@ -1385,6 +1745,105 @@ void TileUntilizeBlockOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+template <typename Pred>
+static mlir::OpFoldResult foldScalarIdentity(mlir::Operation *op,
+                                             mlir::Attribute rhsAttr,
+                                             Pred isIdentity) {
+  if (!rhsAttr) {
+    return nullptr;
+  }
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(rhsAttr)) {
+    return isIdentity(floatAttr.getValue()) ? op->getOperand(0) : nullptr;
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(rhsAttr)) {
+    return isIdentity(intAttr.getValue()) ? op->getOperand(0) : nullptr;
+  }
+  return nullptr;
+}
+
+// Shared implementation for D2M_GenericRegionComputeFPUOrSFPUBinary ops.
+// Returns the operand indices that need to be loaded from the dst register.
+// For FPU, we don't load from DST.
+// For SFPU (either via f32 operands or scalar operands) we load from DST.
+static SmallVector<int64_t>
+getOperandsLoadFromDstRegisterFPUOrSFPUBinary(Operation *op) {
+  assert(op->getNumOperands() == 2 && "Binary operation must have 2 operands");
+  auto lhsType = op->getOperand(0).getType();
+  auto rhsType = op->getOperand(1).getType();
+
+  // If either operand is a float32, use SFPU to maintain accuracy. Load both
+  // operands from DST.
+  if (mlir::tt::ttcore::getDataType(lhsType) ==
+          mlir::tt::ttcore::DataType::Float32 ||
+      mlir::tt::ttcore::getDataType(rhsType) ==
+          mlir::tt::ttcore::DataType::Float32) {
+    return {0, 1};
+  }
+
+  // If RHS is a scalar (not a tile), only load LHS from DST (SFPU path).
+  if (!mlir::isa<mlir::tt::ttcore::TileType>(rhsType)) {
+    return {0};
+  }
+  // Both operands are tiles (not float32) - FPU reads directly from CBs, no
+  // DST load needed.
+  return {};
+}
+
+SmallVector<int64_t> TileAddOp::getOperandsLoadFromDstRegister() {
+  return getOperandsLoadFromDstRegisterFPUOrSFPUBinary(getOperation());
+}
+
+SmallVector<int64_t> TileSubOp::getOperandsLoadFromDstRegister() {
+  return getOperandsLoadFromDstRegisterFPUOrSFPUBinary(getOperation());
+}
+
+SmallVector<int64_t> TileMulOp::getOperandsLoadFromDstRegister() {
+  return getOperandsLoadFromDstRegisterFPUOrSFPUBinary(getOperation());
+}
+
+mlir::OpFoldResult TileAddOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(),
+                            [](auto v) { return v.isZero(); });
+}
+
+mlir::OpFoldResult TileSubOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(),
+                            [](auto v) { return v.isZero(); });
+}
+
+mlir::OpFoldResult TileMulOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(), [](auto v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, mlir::APFloat>) {
+      return v.isExactlyValue(1.0);
+    } else {
+      return v.isOne();
+    }
+  });
+}
+
+mlir::OpFoldResult TileDivOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(), [](auto v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, mlir::APInt>) {
+      return v.isOne();
+    } else {
+      return v.isExactlyValue(1.0);
+    }
+  });
+}
+
+mlir::OpFoldResult TilePowOp::fold(FoldAdaptor adaptor) {
+  return foldScalarIdentity(getOperation(), adaptor.getRhs(), [](auto v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, mlir::APInt>) {
+      return v.isOne();
+    } else {
+      return v.isExactlyValue(1.0);
+    }
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -1532,11 +1991,35 @@ void BlockMaskOp::getEffects(
 // YieldOp / WaitOp / ReserveOp / PushOp / PopOp
 //===----------------------------------------------------------------------===//
 
+void WaitOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
+                                         mlir::MLIRContext *context) {
+  // A WaitOp whose result and cb has no uses is dead
+  patterns.add(+[](WaitOp op, mlir::PatternRewriter &rewriter) {
+    if (!op.getResult().use_empty()) {
+      return failure();
+    }
+    if (!op.getCb().hasOneUse()) {
+      return failure();
+    }
+    rewriter.eraseOp(op);
+    return success();
+  });
+}
+
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
   if (!generic || !generic.hasPureTensorSemantics()) {
     return emitOpError()
            << "used outside of generic op with pure tensor semantics";
+  }
+
+  return ::mlir::success();
+}
+mlir::LogicalResult SpatialYieldOp::verify() {
+  auto spatial = getOperation()->getParentOfType<SpatialOp>();
+  if (!spatial || !spatial.hasPureTensorSemantics()) {
+    return emitOpError()
+           << "used outside of spatial op with pure tensor semantics";
   }
 
   return ::mlir::success();

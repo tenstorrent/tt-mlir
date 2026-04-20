@@ -75,13 +75,12 @@ public:
         mlir::DictionaryAttr argAttrs = mlir::DictionaryAttr::get(
             op.getContext(), funcOp.getArgAttrs(argIndex));
         if (argAttrs) {
-          auto runtimeTensorShardingAttr =
-              argAttrs.get(mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-          if (runtimeTensorShardingAttr) {
-            auto rtsAttr =
-                mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-                    runtimeTensorShardingAttr);
-            shardStatus = rtsAttr.getShardStatus().getValue();
+          auto shardStatusAttr =
+              argAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
+          if (shardStatusAttr) {
+            auto ssAttr =
+                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+            shardStatus = ssAttr.getValue();
           }
         }
       }
@@ -119,13 +118,12 @@ public:
             continue;
           }
 
-          auto runtimeTensorShardingAttr = resultAttrs.get(
-              mlir::tt::ttcore::RuntimeTensorShardingAttr::name);
-          if (runtimeTensorShardingAttr) {
-            auto rtsAttr =
-                mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(
-                    runtimeTensorShardingAttr);
-            shardStatus = rtsAttr.getShardStatus().getValue();
+          auto shardStatusAttr =
+              resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
+          if (shardStatusAttr) {
+            auto ssAttr =
+                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr);
+            shardStatus = ssAttr.getValue();
           }
         }
 

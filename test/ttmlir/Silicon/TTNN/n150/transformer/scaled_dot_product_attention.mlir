@@ -5,13 +5,13 @@
 module {
     func.func @qkv_causal_sdpa(%query: tensor<8x12x32x32xbf16>, %key: tensor<8x3x32x32xbf16>, %value: tensor<8x3x32x32xbf16>) -> tensor<8x12x32x32xbf16> {
         // CHECK: "ttnn.scaled_dot_product_attention"
-        %1 = "ttir.scaled_dot_product_attention"(%query, %key, %value) <{is_causal = true, scale = 1.0 : f32 }> : (tensor<8x12x32x32xbf16>, tensor<8x3x32x32xbf16>, tensor<8x3x32x32xbf16>) -> tensor<8x12x32x32xbf16>
+        %1 = "ttir.scaled_dot_product_attention"(%query, %key, %value) <{operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>, is_causal = true, scale = 1.0 : f32 }> : (tensor<8x12x32x32xbf16>, tensor<8x3x32x32xbf16>, tensor<8x3x32x32xbf16>) -> tensor<8x12x32x32xbf16>
         return %1 : tensor<8x12x32x32xbf16>
     }
 
     func.func @qkv_attn_mask_sdpa(%query: tensor<8x12x32x32xbf16>, %key: tensor<8x3x32x32xbf16>, %value: tensor<8x3x32x32xbf16>, %attn_mask: tensor<8x1x32x32xbf16>) -> tensor<8x12x32x32xbf16> {
         // CHECK: "ttnn.scaled_dot_product_attention"
-        %1 = "ttir.scaled_dot_product_attention"(%query, %key, %value, %attn_mask) <{is_causal = false, scale = 1.0 : f32 }> : (tensor<8x12x32x32xbf16>, tensor<8x3x32x32xbf16>, tensor<8x3x32x32xbf16>, tensor<8x1x32x32xbf16>) -> tensor<8x12x32x32xbf16>
+        %1 = "ttir.scaled_dot_product_attention"(%query, %key, %value, %attn_mask) <{operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>, is_causal = false, scale = 1.0 : f32 }> : (tensor<8x12x32x32xbf16>, tensor<8x3x32x32xbf16>, tensor<8x3x32x32xbf16>, tensor<8x1x32x32xbf16>) -> tensor<8x12x32x32xbf16>
         return %1 : tensor<8x12x32x32xbf16>
     }
 }

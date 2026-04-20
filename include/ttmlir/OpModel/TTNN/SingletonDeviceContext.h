@@ -6,10 +6,20 @@
 #define TTMLIR_OPMODEL_TTNN_SINGLETONDEVICECONTEXT_H
 #ifdef TTMLIR_ENABLE_OPMODEL
 
-#include "hostdevcommon/common_values.hpp"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+
+#include "Constants.h"
+
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <optional>
+#include <utility>
+
+namespace mlir {
+class Operation;
+} // namespace mlir
 
 namespace tt::tt_metal::distributed {
 class MeshDevice;
@@ -61,10 +71,37 @@ public:
   static void setExternalDevice(
       std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> device);
 
-  // Opens a new (owned) device. Users need to ensure that we don't have an
-  // active device in the current context, otherwise this method will assert.
-  void
-  openDevice(const size_t trace_region_size = opModelDefaultTraceRegionSize);
+  // Sets the system descriptor attribute. This is used extract architecture
+  // info for mock mode.
+  static void setSystemDesc(ttcore::SystemDescAttr systemDesc);
+
+  // Opens a new (owned) device. When isMock is true, configures mock mode
+  // using the system descriptor (setSystemDesc must be called first).
+  // When isMock is false (default), opens a real device connected to hardware.
+  // Users need to ensure that we don't have an active device in the current
+  // context, otherwise this method will assert.
+  // meshShape overrides the default {1, 1} mesh shape when provided.
+  void openDevice(
+      const size_t traceRegionSize =
+          ::tt::constants::opModelDefaultTraceRegionSize,
+      bool isMock = false,
+      const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
+
+  // Convenience method that opens a mock device.
+  // TODO(#7384) TraceRegionSize might be irrelevant for mock devices,
+  // but we set it to a default value just in case for now.
+  void openMockDevice(
+      const size_t traceRegionSize =
+          ::tt::constants::opModelDefaultTraceRegionSize,
+      const std::optional<std::pair<size_t, size_t>> &meshShape = std::nullopt);
+
+  // Destroys the current MeshDevice and creates a new one with a different
+  // mesh shape. Does NOT re-configure or disable mock mode, so mock mode
+  // must already be active.
+  // This exists because Metal's configure_mock_mode/disable_mock_mode
+  // cannot be reliably cycled within the same process.
+  void reshapeMeshDevice(const std::pair<size_t, size_t> &meshShape,
+                         size_t traceRegionSize = 0);
 
   // Returns a pointer to the device. Asserts that we have an active device in
   // our context.
@@ -76,6 +113,10 @@ public:
   // Returns true if the device is initialized.
   bool isDeviceInitialized() const { return m_device != nullptr; }
 
+  // Returns true if the device was opened via the mock path
+  // (no real HW).
+  bool isMockDevice() const { return m_isMockDevice; }
+
 private:
   SingletonDeviceContext() = default;
   ~SingletonDeviceContext();
@@ -84,18 +125,13 @@ private:
   SingletonDeviceContext &operator=(const SingletonDeviceContext &) = delete;
 
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
+  ttcore::SystemDescAttr m_systemDesc;
 
   // This field is technically not needed, but is there to assert that
   // `resetInstance()` is legal. If we are using an external device, we cannot
   // reset the instance.
   bool m_isExternalDevice = false;
-
-  // todo(arminaleTT): look into dynamically adjusting this
-  // getOpRuntime() uses trace capture to run and measure the runtime of an op.
-  // This requires the device to be opened with sufficient trace region size.
-  // This number is currently set based on manual testing of supported ops to
-  // accommodate the highest required trace buffer size (2004992B)
-  static constexpr size_t opModelDefaultTraceRegionSize = 6000000;
+  bool m_isMockDevice = false;
 };
 
 // RAII guard for OpModel device lifecycle management.
@@ -111,9 +147,11 @@ private:
 //
 class ScopedSingletonDeviceGuard {
 public:
-  ScopedSingletonDeviceGuard() {
+  explicit ScopedSingletonDeviceGuard(mlir::Operation *op) {
+    SingletonDeviceContext::setSystemDesc(
+        ttcore::getCurrentScopeSystemDesc(op));
     if (!SingletonDeviceContext::getInstance().isDeviceInitialized()) {
-      SingletonDeviceContext::getInstance().openDevice();
+      SingletonDeviceContext::getInstance().openMockDevice();
       m_deviceOpenedByGuard = true;
     }
   }

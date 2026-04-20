@@ -11,6 +11,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -1056,6 +1057,26 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 }
 
 //===----------------------------------------------------------------------===//
+// BitcastConvertOp
+//===----------------------------------------------------------------------===//
+
+// BitcastConvertOp verification
+::mlir::LogicalResult mlir::tt::ttnn::BitcastConvertOp::verify() {
+  ::mlir::RankedTensorType outputType = getResult().getType();
+  TTNNLayoutAttr outputLayout =
+      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+
+  if (getDtype() != outputLayout.getDataType()) {
+    return emitOpError() << "Output tensor data type "
+                         << DataTypeEnumToString(outputLayout.getDataType())
+                         << " must match the data type of dtype attribute "
+                         << DataTypeEnumToString(getDtype()) << ".";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Typecast Op
 //===----------------------------------------------------------------------===//
 
@@ -1090,46 +1111,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 ::llvm::LogicalResult
 mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
                                          ::mlir::PatternRewriter &rewriter) {
-  return foldConsecutiveDataCastOps(typecastOp, rewriter);
-}
-
-//===----------------------------------------------------------------------===//
-// ToDTypeOp
-//===----------------------------------------------------------------------===//
-
-// ToDTypeOp verification
-::mlir::LogicalResult mlir::tt::ttnn::ToDTypeOp::verify() {
-  ::mlir::RankedTensorType outputType = getResult().getType();
-  TTNNLayoutAttr outputLayout =
-      mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-
-  if (getDtype() != outputLayout.getDataType()) {
-    return emitOpError() << "Output tensor data type "
-                         << DataTypeEnumToString(outputLayout.getDataType())
-                         << " must match the data type of dtype attribute "
-                         << DataTypeEnumToString(getDtype()) << ".";
-  }
-
-  return success();
-}
-
-// ToDTypeOp folder
-::mlir::OpFoldResult mlir::tt::ttnn::ToDTypeOp::fold(FoldAdaptor adaptor) {
-
-  // If the input and output are same, fold to the input.
-  if (getType() == getInput().getType()) {
-    return getInput();
-  }
-
-  return nullptr;
-}
-
-// ToDTypeOp canonicalizer method
-::llvm::LogicalResult
-mlir::tt::ttnn::ToDTypeOp::canonicalize(ToDTypeOp op,
-                                        ::mlir::PatternRewriter &rewriter) {
   // NOLINTNEXTLINE
-  return foldConsecutiveDataCastOps(op, rewriter);
+  return foldConsecutiveDataCastOps(typecastOp, rewriter);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1619,6 +1602,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
                        "the rank of the input tensor");
   }
 
+  bool hasNegativePadding =
+      llvm::any_of(getPadding(), [](int32_t padding) { return padding < 0; });
+  if (hasNegativePadding) {
+    return emitOpError("Padding cannot contain negative values");
+  }
   std::vector<int64_t> inferredShapeVec = inputType.getShape().vec();
   llvm::ArrayRef<int32_t> padding = getPadding();
   for (int64_t i = 0; i < inputType.getRank(); i++) {
@@ -1875,7 +1863,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType outputType = getResult().getType();
 
-  // Intput tensor must be at most 2D tensor.
+  // Input tensor must be at most 2D tensor.
   if (inputType.getRank() > 2) {
     return emitOpError("input must be at most a 2D tensor, got ")
            << inputType.getRank() << "D ranked tensor";
@@ -2300,9 +2288,9 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
            << ") must have matching inner dimensions";
   }
 
-  llvm::SmallVector<int64_t> expectedOutputShape;
+  llvm::SmallVector<int64_t> matmulOutputShape;
   // Verify that the batch dimensions are broadcast compatible and construct the
-  // expected output shape. If either of input A or input B is at most 2D
+  // matmul output shape. If either of input A or input B is at most 2D
   // tensors, the batch dimensions are trivially broadcast compatible.
   if (inputAShape.size() > 2 || inputBShape.size() > 2) {
     llvm::SmallVector<int64_t> inputABatchDims(inputAShape.begin(),
@@ -2322,20 +2310,34 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
                          ") are not broadcast compatible");
     }
 
-    // Insert the broadcasted batch dimensions in the expected output shape.
-    expectedOutputShape = std::move(broadcastedShape);
+    // Insert the broadcasted batch dimensions in the matmul output shape.
+    matmulOutputShape = std::move(broadcastedShape);
   }
 
-  // Insert the input A and B inner dimensions in expected output shape
+  // Insert the input A and B inner dimensions in matmul output shape.
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
-    expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
+    matmulOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }
 
   if (inputBType.getRank() > 1) {
-    expectedOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
+    matmulOutputShape.push_back(inputBShape[inputBShape.size() - 1]);
   }
+
+  // For vector-vector products, the matmul output is a scalar. MLIR doesn't
+  // support rank-0 tensors, so represent as tensor<1>.
+  if (matmulOutputShape.empty()) {
+    matmulOutputShape.push_back(1);
+  }
+
+  // The expected output shape is a pair of valid shapes:
+  // - broadcastShape: broadcast(matmul(A,B), bias), always valid.
+  // - matmulShape: matmul(A,B), only valid when tt-metal uses the fused
+  //   LinearOp kernel (bias padded second-to-last dim == TILE_HEIGHT).
+  // Without bias, both are equal to the matmul output shape.
+  std::pair<llvm::SmallVector<int64_t>, llvm::SmallVector<int64_t>>
+      expectedOutputShape = {matmulOutputShape, {}};
 
   if (biasType) {
     // Verify that the input bias is at least 1D tensor.
@@ -2348,66 +2350,42 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     // Verify that the dimensions of the matmul of A and B are broadcast
     // compatible with input bias.
     llvm::SmallVector<int64_t> broadcastShape;
-    if (!mlir::OpTrait::util::getBroadcastedShape(expectedOutputShape,
-                                                  biasShape, broadcastShape)) {
+    if (!mlir::OpTrait::util::getBroadcastedShape(matmulOutputShape, biasShape,
+                                                  broadcastShape)) {
       return emitOpError("Bias shape(")
              << ttmlir::utils::join(biasShape, ",")
              << ") is not broadcast compatible with the matmul output shape("
-             << ttmlir::utils::join(expectedOutputShape, ",") << ")";
+             << ttmlir::utils::join(matmulOutputShape, ",") << ")";
     }
 
-    // tt-metal uses a composite LinearOp where the bias is added after the
-    // matmul, and ttnn.add supports broadcasting of both operands. Otherwise,
-    // tt-metal lowers to a fused LinearOp, which uses the matmul result shape
-    // as the output shape. The composite LinearOp requires that the bias
-    // second-to-last dim (of padded shape) does not match the tile height.
-    // Update the expected output shape to the fully broadcasted shape when:
-    // 1) The matmul result is a scalar (vector x vector), so the inferred
-    //    output shape is empty and must be derived from the bias via
-    //    broadcasting, or
-    // 2) The bias second-to-last dim (of padded shape) does not match the
-    //    tile height, indicating the composite LinearOp is used.
+    expectedOutputShape.first = broadcastShape;
+
+    // The matmul result shape is also a valid output shape when:
+    // 1) tt-metal uses a fused LinearOp kernel (bias padded second-to-last
+    //    dim matches tile height), or
+    // 2) The matmul is a vector-vector dot product (scalar output), where
+    //    TTNN lowering produces tensor<1> regardless of bias shape.
     llvm::SmallVector<int64_t> paddedBiasShape =
         ttnn::utils::getTilePaddedShape(biasShape);
-    if (expectedOutputShape.empty() ||
-        (paddedBiasShape.size() > 1 &&
-         paddedBiasShape[paddedBiasShape.size() - 2] != ttnn::TILE_HEIGHT)) {
-      expectedOutputShape = broadcastShape;
+    if ((paddedBiasShape.size() > 1 &&
+         paddedBiasShape[paddedBiasShape.size() - 2] == ttnn::TILE_HEIGHT)) {
+      expectedOutputShape.second = matmulOutputShape;
     }
   }
 
-  // Check the case of a vector-vector product. At this moment we don't support
-  // scalars in IR, hence check that the output is at least 1D tensor of size 1.
-  if (expectedOutputShape.size() == 0) {
-    if (outputType.getRank() < 1) {
-      return emitOpError("Scalar output is not supported, output must be at "
-                         "least a 1D tensor");
-    }
+  auto &[broadcastExpected, matmulExpected] = expectedOutputShape;
 
-    if (outputType.getRank() > 1 || outputType.getShape()[0] != 1) {
-      return emitOpError("Scalar output must be a 1D tensor of size 1");
-    }
-
-    return success();
-  }
-
-  // Verify that the output shape is correct.
-  if (outputShape.size() != expectedOutputShape.size()) {
-    return emitOpError("Output shape rank(")
-           << outputShape.size()
-           << ") must match the expected output shape rank("
-           << expectedOutputShape.size() << ")";
-  }
-
-  // Verify each dim of the output shape.
-  for (auto [index, outputDim, expectedDim] : llvm::zip(
-           llvm::seq(outputShape.size()), outputShape, expectedOutputShape)) {
-    if (outputDim != expectedDim) {
-      return emitOpError("Output shape dimension[")
-             << index << "](" << outputDim
-             << ") doesn't match the expected output shape dimension[" << index
-             << "](" << expectedDim << ")";
-    }
+  // Verify that the output shape matches one of the valid expected shapes.
+  if (!llvm::equal(outputShape, broadcastExpected) &&
+      (matmulExpected.empty() || !llvm::equal(outputShape, matmulExpected))) {
+    return emitOpError("Output shape(")
+           << ttmlir::utils::join(outputShape, ",")
+           << ") must match the broadcasted shape("
+           << ttmlir::utils::join(broadcastExpected, ",") << ")"
+           << (matmulExpected.empty()
+                   ? ""
+                   : " or the matmul output shape(" +
+                         ttmlir::utils::join(matmulExpected, ",") + ")");
   }
 
   return success();
@@ -2497,7 +2475,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
   // Insert the input A and B inner dimensions in expected output shape
   // Consider the case where input A and B are vectors. In that case,
-  // the dimension 1 is ommited from the output shape.
+  // the dimension 1 is omitted from the output shape.
   if (inputAType.getRank() > 1) {
     expectedOutputShape.push_back(inputAShape[inputAShape.size() - 2]);
   }
@@ -2543,6 +2521,309 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
+
+//===----------------------------------------------------------------------===//
+// SparseMatmulOp
+//===----------------------------------------------------------------------===//
+
+// SparseMatmulOp verification
+::mlir::LogicalResult mlir::tt::ttnn::SparseMatmulOp::verify() {
+  ::mlir::RankedTensorType inputAType = getA().getType();
+  ::mlir::RankedTensorType inputBType = getB().getType();
+  ::mlir::RankedTensorType sparsityType = getSparsity().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
+
+  // Verify that input A is at least 4D tensor
+  if (inputAType.getRank() < 4) {
+    return emitOpError("Input A must be at least a 4D tensor");
+  }
+
+  // Verify that input B is exactly 4D tensor [1, E, K, N]
+  if (inputBType.getRank() != 4) {
+    return emitOpError("Input B must be a 4D tensor [1, E, K, N]");
+  }
+
+  // Verify that sparsity is a 4D tensor
+  if (sparsityType.getRank() != 4) {
+    return emitOpError("Sparsity tensor must be a 4D tensor");
+  }
+
+  bool isInputASparse = getIsInputASparse();
+  bool isInputBSparse = getIsInputBSparse();
+
+  // Verify that at least one input is sparse
+  if (!isInputASparse && !isInputBSparse) {
+    return emitOpError("At least one of is_input_a_sparse or is_input_b_sparse "
+                       "must be true");
+  }
+
+  // Get dimensions
+  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
+  llvm::ArrayRef<int64_t> bShape = inputBType.getShape();
+  int64_t E = bShape[1];
+  int64_t K = bShape[2];
+  int64_t N = bShape[3];
+  int64_t M = aShape[aShape.size() - 2];
+
+  // Verify input B first dimension is 1
+  if (bShape[0] != 1) {
+    return emitOpError("Input B first dimension must be 1");
+  }
+
+  // Verify inner dimensions match
+  if (aShape[aShape.size() - 1] != K) {
+    return emitOpError(
+        "Input A inner dimension must match Input B K dimension");
+  }
+
+  // Verify sparsity tensor has correct number of experts
+  if (sparsityType.getShape()[sparsityType.getRank() - 1] != E) {
+    return emitOpError("Sparsity tensor last dimension must match number of "
+                       "experts in Input B");
+  }
+
+  // Verify output shape based on sparse mode (including batch dimensions)
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  if (isInputASparse && isInputBSparse) {
+    // [1, E, M, K] @ [1, E, K, N] -> [1, E, M, N]
+    if (outputShape.size() != 4) {
+      return emitOpError("Output must be 4D for sparse-sparse mode");
+    }
+    if (outputShape[0] != 1 || outputShape[1] != E || outputShape[2] != M ||
+        outputShape[3] != N) {
+      return emitOpError(
+          "Output shape must be [1, E, M, N] for sparse-sparse mode");
+    }
+  } else if (!isInputASparse && isInputBSparse) {
+    // [A, B, M, K] @ [1, E, K, N] -> [A, B, 1, E, M, N]
+    if (outputShape.size() != 6) {
+      return emitOpError("Output must be 6D for dense-sparse mode");
+    }
+    int64_t A = aShape[0];
+    int64_t B = aShape[1];
+    if (outputShape[0] != A || outputShape[1] != B || outputShape[2] != 1 ||
+        outputShape[3] != E || outputShape[4] != M || outputShape[5] != N) {
+      return emitOpError(
+          "Output shape must be [A, B, 1, E, M, N] for dense-sparse mode");
+    }
+  } else if (isInputASparse && !isInputBSparse) {
+    // [A, E, M, K] @ [1, E, K, N] -> [A, E, M, N]
+    if (outputShape.size() != 4) {
+      return emitOpError("Output must be 4D for sparse-dense mode");
+    }
+    int64_t A = aShape[0];
+    if (outputShape[0] != A || outputShape[1] != E || outputShape[2] != M ||
+        outputShape[3] != N) {
+      return emitOpError(
+          "Output shape must be [A, E, M, N] for sparse-dense mode");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllDispatchOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllToAllDispatchOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType metadataType = getMetadata().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (dispatchedType.getRank() != 4) {
+    return emitOpError("dispatched output must be a 4D tensor [1, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("metadata output must be a 4D tensor [1, B*D, S, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllToAllDispatchMetadataOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType scoresType = getExpertScores().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType indicesOutType = getIndices().getType();
+  ::mlir::RankedTensorType scoresOutType = getScores().getType();
+
+  // Input tensors must be 4D, mapping must be 2D, outputs must be 3D.
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
+  }
+  if (scoresType.getRank() != 4) {
+    return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
+  }
+  if (mappingType.getRank() != 2) {
+    return emitOpError("expert_mapping must be a 2D tensor [D, E]");
+  }
+  if (dispatchedType.getRank() != 3) {
+    return emitOpError(
+        "dispatched output must be a 3D tensor [1, tokens_global, H]");
+  }
+  if (indicesOutType.getRank() != 3) {
+    return emitOpError(
+        "indices output must be a 3D tensor [1, tokens_global, K]");
+  }
+  if (scoresOutType.getRank() != 3) {
+    return emitOpError(
+        "scores output must be a 3D tensor [1, tokens_global, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// AllToAllCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllToAllCombineOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType resultType = getResult().getType();
+
+  // All tensors must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [E_local, B*D, S, H]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("expert_metadata must be a 4D tensor [1, B*D, S, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("result must be a 4D tensor [K, B, S, H]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify num_experts_per_tok > 0
+  if (getNumExpertsPerTok() <= 0) {
+    return emitOpError("num_experts_per_tok must be positive");
+  }
+
+  // Verify output_shard_dim is 1 or 2.
+  int64_t outputShardDim = getOutputShardDim();
+  if (outputShardDim != 1 && outputShardDim != 2) {
+    return emitOpError("output_shard_dim must be 1 or 2, got ")
+           << outputShardDim;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SelectiveReduceCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult SelectiveReduceCombineOp::verify() {
+  // Verify select_experts_k > 0
+  if (getSelectExpertsK() == 0) {
+    return emitOpError("select_experts_k must be positive");
+  }
+
+  // Verify experts > 0
+  if (getExperts() == 0) {
+    return emitOpError("experts must be positive");
+  }
+
+  // Verify hidden_size > 0
+  if (getHiddenSize() == 0) {
+    return emitOpError("hidden_size must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeExpertTokenRemapOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeExpertTokenRemapOp::verify() {
+  ::mlir::RankedTensorType topkType = getTopkTensor().getType();
+  ::mlir::RankedTensorType mappingInputType = getExpertMapping().getType();
+  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
+  ::mlir::RankedTensorType mappingOutputType = getMapping().getType();
+  ::mlir::RankedTensorType reducedType = getReduced().getType();
+
+  if (topkType.getRank() != 4) {
+    return emitOpError("topk_tensor must be a 4D tensor [D, B, S, E]");
+  }
+  if (mappingInputType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+  }
+  if (metadataType.getRank() != 4) {
+    return emitOpError("expert_metadata must be a 4D tensor [D, B, S, K]");
+  }
+  if (mappingOutputType.getRank() != 4) {
+    return emitOpError("mapping output must be a 4D tensor");
+  }
+  if (reducedType.getRank() != 4) {
+    return emitOpError("reduced output must be a 4D tensor");
+  }
+
+  if (getReductionSize() <= 0) {
+    return emitOpError("reduction_size must be positive");
+  }
+
+  return success();
+}
 
 //===----------------------------------------------------------------------===//
 // AllocOp
@@ -2788,6 +3069,152 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("output shape must match input shape");
+  }
+
+  // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify epsilon is positive.
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  // Verify residual tensor shape matches input if present.
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input tensor shape");
+    }
+  }
+
+  // Verify weight tensor total elements match input's last dimension.
+  // The weight may be 1D (N,) or 2D (N/tile_w, tile_w) after reshaping for
+  // ROW_MAJOR layout.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t inputLastDim = inputType.getShape().back();
+    int64_t weightElements = 1;
+    for (int64_t dim : weightType.getShape()) {
+      weightElements *= dim;
+    }
+
+    if (weightElements != inputLastDim) {
+      return emitOpError(
+          "weight tensor total elements must match input's last dimension");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank greater than 1");
+  }
+
+  // output shape containing the partial stats must match
+  // input shape except last dimension
+  RankedTensorType outputType = getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    emitOpError("input rank must match the output rank");
+  }
+
+  for (auto idx = 0; idx < inputType.getRank() - 1; idx++) {
+    if (inputShape[idx] != outputShape[idx]) {
+      return emitOpError() << "output dimension " << idx << " ("
+                           << outputShape[idx]
+                           << ") must match input dimension ("
+                           << inputShape[idx] << ")";
+    }
+  }
+
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError(
+          "residual tensor shape must match the input tensor shape");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// DistributedLayerNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::DistributedLayerNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("output shape must match input shape");
+  }
+
+  // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify epsilon is positive.
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  // Verify residual tensor shape matches input if present.
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input tensor shape");
+    }
+  }
+
+  int64_t inputLastDim = inputType.getShape().back();
+
+  // Verify weight tensor is 1D with size matching input's last dimension.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != inputLastDim) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor is 1D with size matching input's last dimension.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != inputLastDim) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::LayerNormOp::verify() {
@@ -2842,6 +3269,195 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// LayerNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank >= 2");
+  }
+
+  // If residual_input is present, its shape must match input shape.
+  if (getResidualInput()) {
+    RankedTensorType residualType = getResidualInput().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual_input shape must match input shape");
+    }
+  }
+
+  // Output shape must match input shape except the last dimension,
+  // which must be 2 * TILE_WIDTH (64) for the partial statistics
+  // (E(x) and E(x²)).
+  RankedTensorType outputType = getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    return emitOpError("input and output must have the same rank");
+  }
+
+  // All dimensions except the last must match.
+  for (int64_t i = 0; i < inputType.getRank() - 1; ++i) {
+    if (inputShape[i] != outputShape[i]) {
+      return emitOpError() << "output dimension " << i << " (" << outputShape[i]
+                           << ") must match input dimension (" << inputShape[i]
+                           << ")";
+    }
+  }
+
+  // Last dimension must be 2 * TILE_WIDTH for layernorm statistics.
+  constexpr int64_t kExpectedLastDim = 2 * TILE_WIDTH;
+  if (outputShape.back() != kExpectedLastDim) {
+    return emitOpError()
+           << "output last dimension must be " << kExpectedLastDim
+           << " (2 * TILE_WIDTH) for layernorm partial statistics, got "
+           << outputShape.back();
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormPostAllGatherOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::LayerNormPostAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType statsType = getStats().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input must have rank >= 2.
+  if (inputType.getRank() < 2) {
+    return emitOpError("input must have rank >= 2");
+  }
+
+  // Stats must have rank >= 2.
+  if (statsType.getRank() < 2) {
+    return emitOpError("stats must have rank >= 2");
+  }
+
+  // Output shape must match input shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Verify weight tensor shape if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != lastDimSize) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor shape if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    int64_t lastDimSize = inputType.getShape().back();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != lastDimSize) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::GroupNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be a 4D tensor [N, 1, H*W, C], got rank ")
+           << inputType.getRank();
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  if (inputShape[1] != 1) {
+    return emitOpError("input second dimension must be 1 for shape [N, 1, H*W, "
+                       "C], got ")
+           << inputShape[1];
+  }
+
+  if (inputShape[0] * inputShape[2] % 32 != 0) {
+    return emitOpError("flattened height must be tile-aligned, "
+                       "got ")
+           << inputShape[0] * inputShape[2];
+  }
+
+  int64_t numGroups = getNumGroups();
+  if (numGroups <= 0) {
+    return emitOpError("num_groups must be positive, got ") << numGroups;
+  }
+
+  int64_t channelDim = inputShape[3];
+
+  if (channelDim % 32 != 0) {
+    return emitOpError("channel dimension (last dim) must be divisible by 32, "
+                       "got C=")
+           << channelDim;
+  }
+
+  if (channelDim % numGroups != 0) {
+    return emitOpError("channel dimension (last dim) must be divisible by "
+                       "num_groups; got C=")
+           << channelDim << ", num_groups=" << numGroups;
+  }
+
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() == 1) {
+      if (weightType.getShape()[0] != channelDim) {
+        return emitOpError(
+                   "weight must be 1D with size matching channel dimension C=")
+               << channelDim;
+      }
+    } else if (weightType.getRank() == 4) {
+      llvm::ArrayRef<int64_t> shape = weightType.getShape();
+      if (shape[0] != 1 || shape[1] != 1 || shape[3] != 32 ||
+          shape[2] * shape[3] != channelDim) {
+        return emitOpError("weight must be either 1D [C] or 4D [1,1,C/32,32]");
+      }
+    } else {
+      return emitOpError("weight must be either 1D [C] or 4D [1,1,C/32,32], "
+                         "got rank ")
+             << weightType.getRank();
+    }
+  }
+
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() == 1) {
+      if (biasType.getShape()[0] != channelDim) {
+        return emitOpError(
+                   "bias must be 1D with size matching channel dimension C=")
+               << channelDim;
+      }
+    } else if (biasType.getRank() == 4) {
+      llvm::ArrayRef<int64_t> shape = biasType.getShape();
+      if (shape[0] != 1 || shape[1] != 1 || shape[3] != 32 ||
+          shape[2] * shape[3] != channelDim) {
+        return emitOpError("bias must be either 1D [C] or 4D [1,1,C/32,32]");
+      }
+    } else {
+      return emitOpError("bias must be either 1D [C] or 4D [1,1,C/32,32], "
+                         "got rank ")
+             << biasType.getRank();
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 
@@ -2860,7 +3476,11 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 ::mlir::OpFoldResult mlir::tt::ttnn::AllGatherOp::fold(FoldAdaptor adaptor) {
-  ttcore::DeviceAttr device = ttcore::lookupDevice(*this);
+  auto deviceOp = ttcore::lookupDeviceOp(*this);
+  if (!deviceOp) {
+    return {};
+  }
+  ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
   llvm::SmallVector<int64_t> meshShape{device.getMeshShape()};
   // AllGather Op is semantically meaningless when gathering across a single
   // mesh device.
@@ -2962,6 +3582,39 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
+// GatherOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult GatherOp::verify() {
+  const ::mlir::RankedTensorType inputType = getInput().getType();
+  const ::mlir::RankedTensorType indexType = getIndex().getType();
+  const ::mlir::RankedTensorType resultType = getResult().getType();
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t indexRank = indexType.getRank();
+
+  if (inputRank != indexRank) {
+    return emitOpError()
+           << "Input tensor and index tensor must have the same rank. "
+           << "Got input rank = " << inputRank
+           << ", index rank = " << indexRank;
+  }
+
+  int32_t dim = getDim();
+  if (dim >= inputRank || dim < -inputRank) {
+    return emitOpError() << "Dimension must be in the range [-" << inputRank
+                         << ", " << inputRank << "), got dim = " << dim;
+  }
+
+  if (indexType.getShape() != resultType.getShape()) {
+    return emitOpError(
+        "Index tensor and result tensor must have the same shape.");
+  }
+
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllReduceOp
 //===----------------------------------------------------------------------===//
 
@@ -2986,6 +3639,44 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   return {};
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceAsyncOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllReduceAsyncOp::verify() {
+  ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
+
+  // Currently TTNN only supports the sum reduce types.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
+    return emitOpError("Invalid reduction op for all reduce async op.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MeshPartitionOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult MeshPartitionOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int32_t dim = getDim();
+  if (dim >= inputType.getRank() || dim < -inputType.getRank()) {
+    return emitOpError(
+               "Invalid tensor dimension for mesh partition op. Dimension "
+               "must be >= to input tensor rank or < -input tensor rank, got "
+               "dim = ")
+           << dim;
+  }
+
+  std::optional<uint32_t> clusterAxis = getClusterAxis();
+  if (clusterAxis.has_value() && clusterAxis.value() > 1) {
+    return emitOpError("Cluster axis must be either None, 0 or 1, got " +
+                       std::to_string(clusterAxis.value()));
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -3356,6 +4047,54 @@ mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
+// PermuteOp canonicalizes to ReshapeOp when only size-1 dims are permuted.
+void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+
+  patterns.add(+[](PermuteOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    // Require ranked tensors so we can reason about shapes.
+    auto inputType = op.getInput().getType();
+    auto resultType = op.getResult().getType();
+
+    auto inShape = inputType.getShape();
+    auto outShape = resultType.getShape();
+    auto permutation = op.getPermutation();
+
+    // Collect indices of non-1 dims in the original order.
+    llvm::SmallVector<int64_t> origNonOne;
+    for (int64_t i = 0, e = inShape.size(); i < e; ++i) {
+      if (inShape[i] != 1) {
+        origNonOne.push_back(i);
+      }
+    }
+
+    // Collect indices of non-1 dims in the permuted order.
+    llvm::SmallVector<int64_t> permNonOne;
+    for (int64_t idx : permutation) {
+      if (inShape[idx] != 1) {
+        permNonOne.push_back(idx);
+      }
+    }
+
+    // If non-1 dims change relative order, this is a real permute.
+    if (!llvm::equal(origNonOne, permNonOne)) {
+      return mlir::failure();
+    }
+
+    // Only singleton dims are moved: we can safely rewrite as reshape.
+    llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
+
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+    auto memCfg = op.getMemoryConfigAttr();
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
+        op, resultType, op.getInput(), shapeAttr, memCfg);
+
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
@@ -3594,6 +4333,59 @@ verifyReduceProdOp(tt::ttnn::ProdOp *reduceOp,
 }
 
 //===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+// ArgMaxOp verification.
+::mlir::LogicalResult ArgMaxOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  int64_t inputRank = inputType.getRank();
+  std::optional<int32_t> dimOpt = getDim();
+  bool keepDim = getKeepDim();
+
+  if (dimOpt) {
+    int32_t dim = *dimOpt;
+    if (dim < -inputRank || dim >= inputRank) {
+      return emitOpError() << "dim attribute value " << dim
+                           << " is out of range for input tensor of rank "
+                           << inputRank << ", expected value in range ["
+                           << -inputRank << ", " << inputRank - 1 << "]";
+    }
+  }
+
+  // Compute expected output shape.
+  llvm::SmallVector<int64_t> expectedOutputShape;
+  if (dimOpt) {
+    int64_t normalizedDim = *dimOpt < 0 ? *dimOpt + inputRank : *dimOpt;
+    for (int64_t i = 0; i < inputRank; ++i) {
+      if (i == normalizedDim) {
+        if (keepDim) {
+          expectedOutputShape.push_back(1);
+        }
+      } else {
+        expectedOutputShape.push_back(inputType.getDimSize(i));
+      }
+    }
+  } else {
+    // No dim specified: reduce over all elements.
+    if (keepDim) {
+      expectedOutputShape.assign(inputRank, 1);
+    }
+  }
+
+  ::llvm::ArrayRef<int64_t> actualOutputShape =
+      getResult().getType().getShape();
+  if (!llvm::equal(actualOutputShape, expectedOutputShape)) {
+    return emitOpError() << "expected output shape ("
+                         << ttmlir::utils::join(expectedOutputShape, ", ")
+                         << "), got ("
+                         << ttmlir::utils::join(actualOutputShape, ", ") << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // WriteTensorOp
 //===----------------------------------------------------------------------===//
 
@@ -3744,6 +4536,27 @@ void CaptureOrExecuteTraceOp::getEffects(
                          << "' does not reference a function";
   }
 
+  // Verify that the input arguments to this op match the capture_callee
+  // function's arguments
+  auto captureInputTypes = captureFuncOp.getFunctionType().getInputs();
+  auto opInputs = this->getInputs();
+
+  if (captureInputTypes.size() != opInputs.size()) {
+    return emitOpError() << "Number of input arguments (" << opInputs.size()
+                         << ") does not match capture function '"
+                         << captureCalleeAttr.getValue() << "' input count ("
+                         << captureInputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opInputs.size(); ++i) {
+    if (opInputs[i].getType() != captureInputTypes[i]) {
+      return emitOpError() << "Input argument " << i << " type mismatch: "
+                           << "expected " << captureInputTypes[i]
+                           << " from capture function, but got "
+                           << opInputs[i].getType();
+    }
+  }
+
   FlatSymbolRefAttr traceFuncCalleeAttr;
   captureFuncOp.walk([&](func::CallOp callOp) {
     traceFuncCalleeAttr = callOp.getCalleeAttr();
@@ -3759,6 +4572,26 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!traceFuncOp) {
     return emitOpError() << "'" << traceFuncCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that the outputs of this op match the trace function's outputs
+  auto traceOutputTypes = traceFuncOp.getFunctionType().getResults();
+  auto opOutputs = this->getResults();
+
+  if (traceOutputTypes.size() != opOutputs.size()) {
+    return emitOpError() << "Number of output results (" << opOutputs.size()
+                         << ") does not match trace function '"
+                         << traceFuncCalleeAttr.getValue() << "' output count ("
+                         << traceOutputTypes.size() << ")";
+  }
+
+  for (size_t i = 0; i < opOutputs.size(); ++i) {
+    if (opOutputs[i].getType() != traceOutputTypes[i]) {
+      return emitOpError() << "Output result " << i << " type mismatch: "
+                           << "expected " << traceOutputTypes[i]
+                           << " from trace function, but got "
+                           << opOutputs[i].getType();
+    }
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {
@@ -3852,6 +4685,27 @@ void CaptureOrExecuteTraceOp::getEffects(
   if (!executeFuncOp) {
     return emitOpError() << "'" << executeCalleeAttr.getValue()
                          << "' does not reference a function";
+  }
+
+  // Verify that execute function takes exactly one trace_id argument
+  auto executeInputTypes = executeFuncOp.getFunctionType().getInputs();
+  if (executeInputTypes.size() != 1) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' must take exactly one trace_id argument, but has "
+           << executeInputTypes.size() << " arguments";
+  }
+
+  // Verify that the single argument is a trace_id tensor (scalar ui32 with
+  // TraceIdAttr encoding).
+  auto traceIdType =
+      mlir::dyn_cast<mlir::RankedTensorType>(executeInputTypes[0]);
+  if (!traceIdType || traceIdType.getRank() != 0 ||
+      !mlir::isa_and_present<ttnn::TraceIdAttr>(traceIdType.getEncoding())) {
+    return emitOpError()
+           << "Execute function '" << executeCalleeAttr.getValue()
+           << "' argument must be a trace_id tensor (scalar ui32 with "
+              "TraceIdAttr encoding)";
   }
 
   return ::mlir::success();
@@ -4313,8 +5167,12 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
   mlir::RankedTensorType sinType = getSinCache().getType();
   mlir::RankedTensorType outputType = getResult().getType();
 
-  if (cosType != sinType) {
-    return emitOpError("cos and sin tensor types must match.");
+  if (cosType.getElementType() != sinType.getElementType()) {
+    return emitOpError("cos and sin tensor dtypes must match.");
+  }
+
+  if (cosType.getShape() != sinType.getShape()) {
+    return emitOpError("cos and sin tensor shapes must match.");
   }
 
   SmallVector<RankedTensorType> inputTypes = {inputType, cosType, sinType,
@@ -4546,15 +5404,18 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
     if (attentionMaskType.getShape()[1] != 1) {
       return emitOpError("Attention mask dim 1 must be 1");
     }
-    if (attentionMaskType.getShape()[2] != nQueryHeads) {
-      return emitOpError("Attention mask num heads must match query num heads");
+    if (attentionMaskType.getShape()[2] != 1 &&
+        attentionMaskType.getShape()[2] != nQueryHeads) {
+      return emitOpError("Attention mask num heads must be 1 (broadcast) or "
+                         "match query num heads");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask sequence length must match key/value "
@@ -4664,6 +5525,58 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
+
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+
+  // Verify ranks.
+  if (queryType.getShape().size() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getShape().size() != 4) {
+    return emitOpError("Key tensor must be a 4D tensor.");
+  }
+  if (pageTableType.getShape().size() != 2) {
+    return emitOpError("Page table tensor must be a 2D tensor.");
+  }
+
+  // Verify element types.
+  if (!queryType.getElementType().isFloat()) {
+    return emitOpError("Query must be a float tensor.");
+  }
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type.");
+  }
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+
+  // Verify value if present.
+  if (getValue()) {
+    RankedTensorType valueType = getValue().getType();
+    if (valueType.getShape().size() != 4) {
+      return emitOpError("Value tensor must be a 4D tensor.");
+    }
+    if (queryType.getElementType() != valueType.getElementType()) {
+      return emitOpError("Query and value must have the same element type.");
+    }
+  }
+
+  // head_dim_v must be > 0.
+  if (getHeadDimV() == 0) {
+    return emitOpError("head_dim_v must be greater than 0.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
@@ -4735,12 +5648,15 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != batchSize) {
-      return emitOpError(
-          "Attention mask batch size must match query batch size");
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
     }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != nQueryHeads) {
+      return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
+                         "query num heads");
     }
     if (attentionMaskType.getShape()[2] != seqLen) {
       return emitOpError(
@@ -4874,6 +5790,133 @@ void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
                        SideEffects::DefaultResource::get());
   effects.emplace_back(MemoryEffects::Write::get(),
                        SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
+// TopKOp
+//===----------------------------------------------------------------------===//
+
+// TopKOp verification
+::mlir::LogicalResult mlir::tt::ttnn::TopKOp::verify() {
+  RankedTensorType inputType = getInputTensor().getType();
+  int64_t inputRank = inputType.getRank();
+  int32_t dim = getDim();
+  int32_t K = getK();
+
+  // Normalize dim to check if it's effectively the last dimension
+  int normalizedDim = dim < 0 ? dim + inputRank : dim;
+  if (normalizedDim < 0 || normalizedDim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  if (K <= 0 || K > inputType.getDimSize(normalizedDim)) {
+    return emitOpError() << "K should be between 1 and the size of the "
+                            "specified dimension ("
+                         << normalizedDim << "), but got: " << K;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TopKRouterGptOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::TopKRouterGptOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType biasType = getBias().getType();
+
+  if (inputType.getRank() != 2) {
+    return emitOpError() << "input must be a 2D tensor [B, hidden_dim], but "
+                            "got rank "
+                         << inputType.getRank();
+  }
+  if (weightType.getRank() != 2) {
+    return emitOpError()
+           << "weight must be a 2D tensor [hidden_dim, num_experts], but got "
+              "rank "
+           << weightType.getRank();
+  }
+  if (biasType.getRank() != 2) {
+    return emitOpError()
+           << "bias must be a 2D tensor [B, num_experts], but got rank "
+           << biasType.getRank();
+  }
+
+  int64_t B = inputType.getDimSize(0);
+  int64_t hiddenDim = inputType.getDimSize(1);
+  if (weightType.getDimSize(0) != hiddenDim) {
+    return emitOpError() << "weight dim 0 (" << weightType.getDimSize(0)
+                         << ") must equal input hidden_dim (" << hiddenDim
+                         << ")";
+  }
+  if (biasType.getDimSize(0) != B) {
+    return emitOpError() << "bias dim 0 (" << biasType.getDimSize(0)
+                         << ") must equal input batch size B (" << B << ")";
+  }
+  if (biasType.getDimSize(1) != weightType.getDimSize(1)) {
+    return emitOpError() << "bias dim 1 (" << biasType.getDimSize(1)
+                         << ") must equal weight num_experts ("
+                         << weightType.getDimSize(1) << ")";
+  }
+
+  if (B != 32) {
+    return emitOpError() << "B must be 32, but got: " << B;
+  }
+
+  int32_t numExperts = getNumExperts();
+  if (numExperts != 128) {
+    return emitOpError() << "num_experts must be 128, but got: " << numExperts;
+  }
+  if (static_cast<int64_t>(numExperts) != weightType.getDimSize(1)) {
+    return emitOpError() << "num_experts attribute (" << numExperts
+                         << ") must equal weight dim 1 ("
+                         << weightType.getDimSize(1) << ")";
+  }
+
+  int32_t k = getK();
+  if (k <= 0) {
+    return emitOpError() << "k must be positive, but got: " << k;
+  }
+
+  RankedTensorType indicesType = getExpertIndices().getType();
+  RankedTensorType weightsType = getExpertWeights().getType();
+
+  if (indicesType.getRank() != 2) {
+    return emitOpError()
+           << "expert_indices must be a 2D tensor [B, k], but got rank "
+           << indicesType.getRank();
+  }
+  if (weightsType.getRank() != 2) {
+    return emitOpError()
+           << "expert_weights must be a 2D tensor [B, k], but got rank "
+           << weightsType.getRank();
+  }
+  if (indicesType.getDimSize(0) != B) {
+    return emitOpError() << "expert_indices dim 0 ("
+                         << indicesType.getDimSize(0)
+                         << ") must equal input batch size B (" << B << ")";
+  }
+  if (indicesType.getDimSize(1) != static_cast<int64_t>(k)) {
+    return emitOpError() << "expert_indices dim 1 ("
+                         << indicesType.getDimSize(1) << ") must equal k (" << k
+                         << ")";
+  }
+  if (weightsType.getDimSize(0) != B) {
+    return emitOpError() << "expert_weights dim 0 ("
+                         << weightsType.getDimSize(0)
+                         << ") must equal input batch size B (" << B << ")";
+  }
+  if (weightsType.getDimSize(1) != static_cast<int64_t>(k)) {
+    return emitOpError() << "expert_weights dim 1 ("
+                         << weightsType.getDimSize(1) << ") must equal k (" << k
+                         << ")";
+  }
+
+  return success();
 }
 
 } // namespace mlir::tt::ttnn

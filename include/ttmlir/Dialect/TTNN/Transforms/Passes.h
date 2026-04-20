@@ -8,15 +8,21 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Transforms/GreedyMemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
 
 namespace mlir::tt::ttnn {
+
+constexpr const char *kCacheDictAttr = "cache_dict";
+
+enum class FileSplitTarget { EmitPy, EmitC };
 
 // TTNN Passes
 #define GEN_PASS_DECL

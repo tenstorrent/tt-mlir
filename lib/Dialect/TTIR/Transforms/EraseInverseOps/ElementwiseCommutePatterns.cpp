@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROpsInterfaces.h"
 #include "ttmlir/Dialect/TTIR/Transforms/EraseInverseOps/EraseInverseOps.h"
-#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 namespace mlir::tt::ttir {
 
@@ -142,7 +142,9 @@ private:
     assert(!isa<DestinationStyleOpInterface>(op.getOperation()) &&
            "DPS ops are not supported");
     for (auto operand : op->getOperands()) {
+      mlir::Operation *defOp = operand.getDefiningOp();
       if (checkIdenticalTms(operand.getDefiningOp(), tmOperand) ||
+          (defOp && defOp->hasTrait<mlir::OpTrait::ConstantLike>()) ||
           ttcore::valueTracesToConstantArgs(operand)) {
         continue;
       }

@@ -75,6 +75,7 @@ table ScaledDotProductAttentionOp {
   attention_mask: tt.target.ttnn.TensorRef;
   scale: float = null;
   sliding_window_size: uint32 = null;
+  attention_sink: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
 }
@@ -108,6 +109,21 @@ table PagedScaledDotProductAttentionDecodeOp {
   query: tt.target.ttnn.TensorRef;
   key: tt.target.ttnn.TensorRef;
   value: tt.target.ttnn.TensorRef;
+  page_table: tt.target.ttnn.TensorRef;
+  is_causal: bool;
+  attention_mask: tt.target.ttnn.TensorRef;
+  cur_pos_tensor: tt.target.ttnn.TensorRef;
+  attention_sink: tt.target.ttnn.TensorRef;
+  scale: float = null;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
+table PagedFlashMultiLatentAttentionDecodeOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  head_dim_v: uint32;
   page_table: tt.target.ttnn.TensorRef;
   is_causal: bool;
   attention_mask: tt.target.ttnn.TensorRef;

@@ -2,7 +2,7 @@
 // Comparison operations are fine for L1 interleaved if consumed by a different op, showcased by the Abs operation.
 // Example ops inspired by the YOLO model, can be used to check these ops when fixed as a trial for YOLO.
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1 enable-greedy-optimizer=false l1-interleaved-fallback-analysis-enabled=true" -o %t_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=%t_ttnn.mlir
 
 module @L1InterleavedRuntimeSupportTypecastSlice attributes {} {
@@ -36,8 +36,8 @@ module @L1InterleavedRuntimeSupportTypecastSlice attributes {} {
     // CHECK: %{{.*}} = "ttnn.typecast"{{.*}} -> tensor<1x32x8400xf32, #[[DRAM_LAYOUT3]]>
     %5 = "ttir.typecast"(%4) : (tensor<1x32x8400xbf16>) -> tensor<1x32x8400xf32>
 
-    // Less than comparison - not upgraded to L1 because not immediately consumed by its user (schedule)
-    // CHECK: %{{.*}} = "ttnn.lt"{{.*}} -> tensor<1x32x8400xf32, #[[DRAM_LAYOUT3]]>
+    // Less than comparison (canonicalized to greater than with swapped operands) - not upgraded to L1 because not immediately consumed by its user (schedule)
+    // CHECK: %{{.*}} = "ttnn.gt"{{.*}} -> tensor<1x32x8400xf32, #[[DRAM_LAYOUT3]]>
     %6 = "ttir.lt"(%3, %5) : (tensor<1x32x8400xf32>, tensor<1x32x8400xf32>) -> tensor<1x32x8400xf32>
 
     // CHECK: %{{.*}} = "ttnn.slice_static"{{.*}} -> tensor<1x32x8400xbf16, #[[DRAM_LAYOUT5]]>

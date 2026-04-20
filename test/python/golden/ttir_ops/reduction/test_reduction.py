@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import torch
-from typing import Callable, List, Optional
+from typing import List, Optional
 from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -11,6 +11,7 @@ from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
     Marks,
     shapes_list_str,
+    shape_str,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -35,13 +36,14 @@ keep_dim_options = [
 
 
 dim_arg_options = [
+    [0],
     [2],
     [1, 2],
     None,
 ]
 
 
-@pytest.mark.parametrize("shapes", [[(32, 128, 128)]], ids=shapes_list_str)
+@pytest.mark.parametrize("shapes", [[(32, 128, 128)], [(1, 1, 1)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
@@ -57,34 +59,6 @@ def test_reduction_ops(
     request,
     device,
 ):
-
-    if (
-        reduction_op_name == "max"
-        or reduction_op_name == "min"
-        or reduction_op_name == "mean"
-        or reduction_op_name == "sum"
-    ) and dim_arg is None:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails Golden, see issue https://github.com/tenstorrent/tt-metal/issues/32274"
-            )
-        )
-
-    # FP32 prod reduction fails due to tt-metal untilize NaN handling.
-    # See: https://github.com/tenstorrent/tt-metal/pull/33904
-    if reduction_op_name == "prod" and dtype == torch.float32 and target == "ttnn":
-        pytest.xfail(
-            "FP32 prod reduction fails due to tt-metal untilize NaN handling. "
-            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
-        )
-
-    if reduction_op_name == "prod" and dim_arg is None and keep_dim is True:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails in ttnn runtime, see issue https://github.com/tenstorrent/tt-metal/issues/32279"
-            )
-        )
-
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [dtype])
         def reduction_op_wrapper(
@@ -114,29 +88,26 @@ def test_reduction_ops(
 
 
 reduction_op_cpu_hoisted_names = [
-    "argmax"
-    | Marks(
-        pytest.mark.xfail(reason="Not supported in CPU hoisted mode, see issue #5809")
-    ),
+    "argmax",
     "max",
     "mean",
     "min",
     "prod",
-    "reduce_and" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
-    "reduce_or" | Marks(pytest.mark.xfail(reason="Builder test not supported #5792")),
+    "reduce_and" | Marks(pytest.mark.skip(reason="Builder test not supported #5792")),
+    "reduce_or" | Marks(pytest.mark.skip(reason="Builder test not supported #5792")),
     "sum",
 ]
 
 
 @x86_only
-@pytest.mark.parametrize("shapes", [[(32, 128, 128)]], ids=shapes_list_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("shape", [(32, 128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_cpu_hoisted_names)
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_reduction_cpu_hoisted_ops(
-    shapes,
+    shape,
     dtype: torch.dtype,
     keep_dim: bool,
     dim_arg: Optional[List[int]],
@@ -146,7 +117,7 @@ def test_reduction_cpu_hoisted_ops(
     device,
 ):
     def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype])
+        @builder.func([shape], [dtype])
         def reduction_op_cpu_hoisted_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
@@ -175,4 +146,150 @@ def test_reduction_cpu_hoisted_ops(
         **get_request_kwargs(request),
         device=device,
         target=target,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes, dim",
+    [
+        pytest.param([(4, 4, 128, 128)], 1, id="rank4_dim1"),
+        pytest.param([(4, 4, 128, 128)], 2, id="rank4_dim2"),
+        pytest.param([(128,)], 0, id="rank1_dim0"),
+        pytest.param([(4, 128)], 0, id="rank2_dim0"),
+        pytest.param([(4, 4, 128)], 1, id="rank3_dim1"),
+        pytest.param([(4, 4, 128)], 2, id="rank3_dim2"),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        ([(4, 4, 32, 32)], 1),
+        ([(2, 8, 16, 16)], 0),
+        ([(4, 4, 32, 32)], -1),
+    ],
+    ids=["dim1", "dim0", "dim_negative"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+def test_hoisted_cumsum(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def hoisted_cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitc", "emitpy"])
+def test_topk(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def topk(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.topk(
+                in0, k=10, dim=-1, largest=True, sorted=True, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "batch,hidden_dim,num_experts,k",
+    [
+        pytest.param(32, 2880, 128, 4),
+        pytest.param(32, 64, 128, 4),
+        pytest.param(32, 4096, 128, 4),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.skip_exec(("p150",), ("p300",), reason="Not supported on Blackhole")
+def test_topk_router_gpt(
+    batch: int,
+    hidden_dim: int,
+    num_experts: int,
+    k: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [(batch, hidden_dim), (hidden_dim, num_experts), (batch, num_experts)],
+            [dtype, dtype, dtype],
+        )
+        def topk_router_gpt(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.topk_router_gpt(
+                in0,
+                in1,
+                in2,
+                k=k,
+                num_experts=num_experts,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pcc=0.95,
+        skip_exec=getattr(request.node, "skip_exec", False),
     )

@@ -61,7 +61,7 @@ def D2M_ViewOpInterface : OpInterface<"ViewOpInterface"> {
   let cppNamespace = "::mlir::tt::d2m";
   let methods = [
     InterfaceMethod<
-      /*desc=*/[{Get the input of the view op.}],
+      /*desc=*/[{Get the (only) input of the view op.}],
       /*retTy=*/"mlir::Value",
       /*methodName=*/"getInput"
     >,
@@ -71,12 +71,20 @@ def D2M_ViewOpInterface : OpInterface<"ViewOpInterface"> {
       /*methodName=*/"getResult"
     >,
     InterfaceMethod<
-      /*desc=*/[{Recursively apply view ops until a shard layout is reached, returning underlying memref and view map.}],
-      /*retTy=*/"std::pair<mlir::MemRefType, mlir::AffineMap>",
-      /*methodName=*/"applyViews",
+      /*desc=*/[{Return whether this is a composite view or not.}],
+      /*retTy=*/"bool",
+      /*methodName=*/"isComposite",
       /*args=*/(ins),
       /*methodBody=*/"",
-      /*defaultImplementation=*/"return ::mlir::tt::d2m::applyViews($_op);"
+      /*defaultImplementation=*/"return false;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{Get all the inputs of the (potentially composite) view op.}],
+      /*retTy=*/"mlir::SmallVector<mlir::Value>",
+      /*methodName=*/"getCompositeInputs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return {$_op.getInput()};"
     >,
   ];
 }
@@ -92,6 +100,26 @@ def D2M_DMAOpInterface : OpInterface<"DMAOpInterface"> {
     InterfaceMethod<[{}], "::mlir::OpOperand&", "getDstMutable">,
     InterfaceMethod<[{}], "::mlir::Location", "getLoc">,
     InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getResult">,
+  ];
+}
+
+// Interface for CB-based DMA ops that run on the DM thread (RemoteLoadOp,
+// RemoteStoreOp, LocalCopyOp).
+def D2M_ShardDMAOpInterface : OpInterface<"ShardDMAOpInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let description = [{
+    Implemented by the shard-level DMA ops (RemoteLoadOp, RemoteStoreOp,
+    LocalCopyOp) that run on the datamovement thread before lowering to fully
+    indexed form.  Provides a uniform getCBPort() accessor so scheduling and
+    thread-splitting passes do not need to enumerate individual op types.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/"Return the CB port number for this DMA operation. "
+               "The op must be in explicit CB form (getCb() != nullptr). ",
+      /*retTy=*/"unsigned",
+      /*methodName=*/"getCBPort"
+    >,
   ];
 }
 

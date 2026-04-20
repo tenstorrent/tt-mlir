@@ -17,8 +17,9 @@ namespace mlir::tt::ttcore {
 // Register device pass
 //===----------------------------------------------------------------------===//
 
-static LogicalResult registerDeviceInSymbolTable(ModuleOp moduleOp,
-                                                 ArrayRef<int64_t> meshShape) {
+static LogicalResult
+registerDeviceInSymbolTable(ModuleOp moduleOp, ArrayRef<int64_t> meshShape,
+                            ArrayRef<Topology> meshTopology) {
   MLIRContext *context = moduleOp.getContext();
 
   SymbolTable symbolTable(moduleOp);
@@ -36,14 +37,15 @@ static LogicalResult registerDeviceInSymbolTable(ModuleOp moduleOp,
     OpBuilder builder(moduleOp.getBodyRegion());
     symbolTable.insert(builder.create<DeviceOp>(
         moduleOp.getLoc(), getDefaultDeviceName(),
-        DeviceAttr::get(context, systemDesc, *finalMeshShape)));
+        DeviceAttr::get(context, systemDesc, *finalMeshShape, meshTopology)));
   }
   return success();
 }
 
 LogicalResult registerDevice(ModuleOp moduleOp,
                              Arch mockSystemDescArch = Arch::WormholeB0,
-                             ArrayRef<int64_t> meshShape = {}) {
+                             ArrayRef<int64_t> meshShape = {},
+                             ArrayRef<Topology> meshTopology = {}) {
   MLIRContext *context = moduleOp.getContext();
 
   if (!moduleOp->hasAttr(SystemDescAttr::name)) {
@@ -52,12 +54,13 @@ LogicalResult registerDevice(ModuleOp moduleOp,
                                                  llvm::to_vector(meshShape)));
   }
 
-  return registerDeviceInSymbolTable(moduleOp, meshShape);
+  return registerDeviceInSymbolTable(moduleOp, meshShape, meshTopology);
 }
 
 LogicalResult registerDevice(ModuleOp moduleOp,
                              const std::string &systemDescPath,
-                             ArrayRef<int64_t> meshShape = {}) {
+                             ArrayRef<int64_t> meshShape = {},
+                             ArrayRef<Topology> meshTopology = {}) {
   MLIRContext *context = moduleOp.getContext();
   assert(!systemDescPath.empty() && "path must be set");
   FailureOr<SystemDescAttr> systemDesc = SystemDescAttr::getFromPath(
@@ -67,7 +70,7 @@ LogicalResult registerDevice(ModuleOp moduleOp,
     return systemDesc;
   }
   moduleOp->setAttr(SystemDescAttr::name, *systemDesc);
-  return registerDeviceInSymbolTable(moduleOp, meshShape);
+  return registerDeviceInSymbolTable(moduleOp, meshShape, meshTopology);
 }
 
 namespace {
@@ -80,8 +83,10 @@ public:
   void runOnOperation() final {
     LogicalResult registered =
         systemDescPath.empty()
-            ? registerDevice(getOperation(), mockSystemDescArch, *meshShape)
-            : registerDevice(getOperation(), systemDescPath, *meshShape);
+            ? registerDevice(getOperation(), mockSystemDescArch, *meshShape,
+                             *meshTopology)
+            : registerDevice(getOperation(), systemDescPath, *meshShape,
+                             *meshTopology);
     if (failed(registered)) {
       signalPassFailure();
     }

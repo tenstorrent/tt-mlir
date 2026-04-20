@@ -4,34 +4,23 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
-#include "ttmlir/Dialect/Debug/IR/Debug.h"
 #include "ttmlir/Dialect/Debug/IR/DebugOps.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Transforms/TTNNToCpp.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/IRHasher.h"
-#include "ttmlir/Target/Common/Target.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/LLVM/LLVMToDynamicLib.h"
 #include "ttmlir/Target/TTKernel/TTKernelToCpp.h"
-#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/binary_generated.h"
 #include "ttmlir/Target/TTNN/operations/conv_generated.h"
 #include "ttmlir/Target/TTNN/operations/eltwise_generated.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
+#include "ttmlir/Target/TTNN/operations/global_semaphore_generated.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
+#include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/FuncOpToProgram.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -39,7 +28,6 @@
 #include "ttmlir/Utils.h"
 #include "ttmlir/Version.h"
 
-#include "mlir/Dialect/EmitC/IR/EmitC.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -101,17 +89,23 @@ getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
   return memoryConfig;
 }
 
+// Returns the memory config for an op, using the op's memory_config attribute
+// if present, otherwise deriving it from the given result tensor type.
+// Use this overload for multi-result ops where a specific result must be
+// specified.
 template <typename OpType>
 static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
-getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
-  // TODO (#620): Once we add a full support for shard spec, we can
-  // remove obtaining tileShape and coreRangeSet from output tensor.
-  // TODO (#2415): Once we have this pass, we can remove ternary if
-  // and just get memory config attr from the op.
-  auto result = op.getResult();
+getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op, Value result) {
   return op.getMemoryConfig()
              ? toFlatbuffer(cache, *op.getMemoryConfig())
              : getMemoryConfigFromTensorTypeIfNeeded(cache, result);
+}
+
+// Convenience overload for single-result ops.
+template <typename OpType>
+static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
+getMemoryConfigIfNeeded(FlatbufferObjectCache &cache, OpType op) {
+  return getMemoryConfigIfNeeded(cache, op, op.getResult());
 }
 
 static bool isCpuHoistedFuncCall(func::CallOp op) {
@@ -202,13 +196,10 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
                    return static_cast<int32_t>(val);
                  });
 
-  auto runtimeTensorShardingDesc =
-      ::tt::target::ttnn::CreateRuntimeTensorShardingDescDirect(
-          *cache.fbb, shardStatus, &localShape);
   return ::tt::target::ttnn::CreateTensorDescDirect(
       *cache.fbb, &shape, &meshShape,
       cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr),
-      runtimeTensorShardingDesc);
+      shardStatus, &localShape);
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
@@ -238,6 +229,12 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                                            shardStatus, newLocalType);
   return ::tt::target::ttnn::CreateTensorRef(*cache.fbb, cache.global_id++,
                                              tensorDesc);
+}
+
+flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>
+globalSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
+  return ::tt::target::ttnn::CreateGlobalSemaphoreRef(*cache.fbb,
+                                                      cache.global_id++);
 }
 
 template <typename OpT>
@@ -309,16 +306,18 @@ createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
       memoryConfig ? toFlatbuffer(cache, *memoryConfig) : 0, output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::ToDTypeOp>
-createOp(FlatbufferObjectCache &cache, ToDTypeOp op) {
+::flatbuffers::Offset<::tt::target::ttnn::BitcastConvertOp>
+createOp(FlatbufferObjectCache &cache, BitcastConvertOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
 
-  return ::tt::target::ttnn::CreateToDTypeOp(*cache.fbb, input, dtype, output);
+  return ::tt::target::ttnn::CreateBitcastConvertOp(*cache.fbb, input, dtype,
+                                                    memoryConfig, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TypecastOp>
@@ -412,24 +411,43 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
                                   /*local_shape*/ std::nullopt));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CreateGlobalSemaphoreOp>
+createOp(FlatbufferObjectCache &cache, CreateGlobalSemaphoreOp op) {
+  auto output =
+      cache.getOrCreate(op.getResult(), globalSemaphoreValueToFlatbuffer);
+  auto coreRangeSet = ::tt::target::ttnn::CreateCoreRangeSet(
+      *cache.fbb, toFlatbuffer(cache, llvm::ArrayRef<ttnn::CoreRangeAttr>{
+                                          op.getCoreRange()}));
+  return ::tt::target::ttnn::CreateCreateGlobalSemaphoreOp(
+      *cache.fbb, coreRangeSet, op.getInitialValue(), output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ResetGlobalSemaphoreOp>
+createOp(FlatbufferObjectCache &cache, ResetGlobalSemaphoreOp op) {
+  auto semaphore =
+      cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(op.getSemaphore());
+  return ::tt::target::ttnn::CreateResetGlobalSemaphoreOp(*cache.fbb, semaphore,
+                                                          op.getValue());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
-  ::tt::target::ttnn::FillValueType fillValueType;
-  ::flatbuffers::Offset<void> fillValue;
+  ::tt::target::ttnn::NumberType numberType;
+  ::flatbuffers::Offset<void> numberValue;
   if (auto fillValueAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getFillValue())) {
-    fillValueType = ::tt::target::ttnn::FillValueType::FP;
-    fillValue = ::tt::target::ttnn::CreateFloatingPointType(
-                    *cache.fbb, fillValueAttr.getValue().convertToFloat())
-                    .Union();
+    numberType = ::tt::target::ttnn::NumberType::FP;
+    numberValue = ::tt::target::ttnn::CreateFloatingPointType(
+                      *cache.fbb, fillValueAttr.getValue().convertToFloat())
+                      .Union();
   } else if (auto fillValueAttr =
                  mlir::dyn_cast<mlir::IntegerAttr>(op.getFillValue())) {
-    fillValueType = ::tt::target::ttnn::FillValueType::I32;
-    fillValue = ::tt::target::ttnn::CreateIntegralType(
-                    *cache.fbb, fillValueAttr.getValue().getSExtValue())
-                    .Union();
+    numberType = ::tt::target::ttnn::NumberType::I32;
+    numberValue = ::tt::target::ttnn::CreateIntegralType(
+                      *cache.fbb, fillValueAttr.getValue().getSExtValue())
+                      .Union();
   } else {
     llvm_unreachable("fill value must be float or integer");
   }
@@ -442,7 +460,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
                                   /*local_shape*/ std::nullopt);
 
   return ::tt::target::ttnn::CreateFullOpDirect(*cache.fbb, device, &shape,
-                                                fillValueType, fillValue, dtype,
+                                                numberType, numberValue, dtype,
                                                 layout, memoryConfig, output);
 }
 
@@ -617,6 +635,45 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
+::flatbuffers::Offset<::tt::target::ttnn::SparseMatmulOp>
+createOp(FlatbufferObjectCache &cache, SparseMatmulOp op) {
+  auto a = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getA()));
+  auto b = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getB()));
+  auto sparsity = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSparsity()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig>
+      programConfig = 0;
+  if (auto config = op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, config.value());
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  int64_t nnz = op.getNnz().value_or(0);
+
+  return ::tt::target::ttnn::CreateSparseMatmulOp(
+      *cache.fbb, a, b, sparsity, output, op.getIsInputASparse(),
+      op.getIsInputBSparse(), nnz, programConfig, memoryConfig,
+      dtype.value_or(::tt::target::DataType::BFloat16),
+      computeConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FuncCallOp>
 createOp(FlatbufferObjectCache &cache, func::CallOp op,
          const llvm::StringMap<uint32_t> &programIndexMap) {
@@ -642,8 +699,8 @@ createOp(FlatbufferObjectCache &cache, func::CallOp op,
                                                     &inputs, &outputs);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::MorehCumSumOp>
-createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
+::flatbuffers::Offset<::tt::target::ttnn::CumSumOp>
+createOp(FlatbufferObjectCache &cache, CumSumOp op) {
   auto in = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
   auto outputType = op.getResult();
@@ -652,12 +709,12 @@ createOp(FlatbufferObjectCache &cache, MorehCumSumOp op) {
                                             /*local_shape*/ std::nullopt);
 
   auto coreRangeSet = getTensorValueCoreRangeSet(cache, outputType);
-  auto memoryConfig = op.getMemoryConfig()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
 
-  return ::tt::target::ttnn::CreateMorehCumSumOp(*cache.fbb, in, output,
-                                                 op.getDim(), memoryConfig);
+  return ::tt::target::ttnn::CreateCumSumOp(*cache.fbb, in, output, op.getDim(),
+                                            dtype, memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>
@@ -1028,6 +1085,20 @@ createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
       computeConfig.value_or(0), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::MeshPartitionOp>
+createOp(FlatbufferObjectCache &cache, MeshPartitionOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  return ::tt::target::ttnn::CreateMeshPartitionOp(
+      *cache.fbb, input, output, op.getDim(), op.getClusterAxis(),
+      memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
 createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1043,7 +1114,7 @@ createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
     subDeviceId = std::make_optional<uint8_t>(
         static_cast<uint8_t>(op.getSubDeviceId().value()));
   }
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
@@ -1067,11 +1138,34 @@ createOp(FlatbufferObjectCache &cache, AllReduceOp op) {
     subDeviceId = std::make_optional<uint8_t>(
         static_cast<uint8_t>(op.getSubDeviceId().value()));
   }
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
   return ::tt::target::ttnn::CreateAllReduceOp(
+      *cache.fbb, input, output, static_cast<uint32_t>(op.getReduceType()),
+      op.getClusterAxis(), subDeviceId, memoryConfig, numLinks, topology);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllReduceAsyncOp>
+createOp(FlatbufferObjectCache &cache, AllReduceAsyncOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
+  return ::tt::target::ttnn::CreateAllReduceAsyncOp(
       *cache.fbb, input, output, static_cast<uint32_t>(op.getReduceType()),
       op.getClusterAxis(), subDeviceId, memoryConfig, numLinks, topology);
 }
@@ -1091,14 +1185,146 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
     subDeviceId = std::make_optional<uint8_t>(
         static_cast<uint8_t>(op.getSubDeviceId().value()));
   }
-  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+      computeConfig = 0;
+  if (op.getComputeConfig().has_value()) {
+    computeConfig = toFlatbuffer(cache, op.getComputeConfig().value());
+  }
 
   return ::tt::target::ttnn::CreateReduceScatterOp(
       *cache.fbb, input, output, op.getScatterDim(),
       static_cast<uint32_t>(op.getReduceType()), op.getClusterAxis(),
-      subDeviceId, memoryConfig, numLinks, topology);
+      subDeviceId, memoryConfig, numLinks, topology, computeConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllDispatchOp>
+createOp(FlatbufferObjectCache &cache, AllToAllDispatchOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto dispatched = cache.getOrCreateNoSharding(
+      op.getDispatched(), tensorValueToFlatbuffer, std::nullopt);
+  auto metadata = cache.getOrCreateNoSharding(
+      op.getMetadata(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllDispatchOp(
+      *cache.fbb, inputTensor, expertIndices, expertMapping, dispatched,
+      metadata, static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllDispatchMetadataOp>
+createOp(FlatbufferObjectCache &cache, AllToAllDispatchMetadataOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertScores = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertScores()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto dispatched = cache.getOrCreateNoSharding(
+      op.getDispatched(), tensorValueToFlatbuffer, std::nullopt);
+  auto indices = cache.getOrCreateNoSharding(
+      op.getIndices(), tensorValueToFlatbuffer, std::nullopt);
+  auto scores = cache.getOrCreateNoSharding(
+      op.getScores(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  const ::tt::target::ttnn::CoreCoord *drainCorePtr = nullptr;
+  ::tt::target::ttnn::CoreCoord drainCoreVal;
+  if (auto drainCoreAttr = op.getDrainCore()) {
+    drainCoreVal = toFlatbuffer(cache, *drainCoreAttr);
+    drainCorePtr = &drainCoreVal;
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllDispatchMetadataOp(
+      *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
+      dispatched, indices, scores, static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig, drainCorePtr);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>
+createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertMetadata = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMetadata()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateAllToAllCombineOp(
+      *cache.fbb, inputTensor, expertMetadata, expertMapping, output,
+      static_cast<uint32_t>(op.getNumDevices()),
+      static_cast<uint32_t>(op.getClusterAxis()),
+      static_cast<uint32_t>(op.getNumExpertsPerTok()),
+      static_cast<uint32_t>(op.getOutputShardDim()), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SelectiveReduceCombineOp>
+createOp(FlatbufferObjectCache &cache, SelectiveReduceCombineOp op) {
+  auto denseInputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseInputTensor()));
+  auto denseActivationsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseActivationsTensor()));
+  auto denseTokenMapsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenMapsTensor()));
+  auto denseTokenCountsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenCountsTensor()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  return ::tt::target::ttnn::CreateSelectiveReduceCombineOp(
+      *cache.fbb, denseInputTensor, denseActivationsTensor,
+      denseTokenMapsTensor, denseTokenCountsTensor, output, op.getHiddenSize(),
+      op.getBatchSize(), op.getSeqSize(), op.getSelectExpertsK(),
+      op.getExperts());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>
+createOp(FlatbufferObjectCache &cache, MoeExpertTokenRemapOp op) {
+  auto topkTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTopkTensor()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto expertMetadata = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMetadata()));
+  auto mapping = cache.getOrCreateNoSharding(
+      op.getMapping(), tensorValueToFlatbuffer, std::nullopt);
+  auto reduced = cache.getOrCreateNoSharding(
+      op.getReduced(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (auto memConfig = op.getMemoryConfig()) {
+    memoryConfig = toFlatbuffer(cache, memConfig.value());
+  }
+
+  return ::tt::target::ttnn::CreateMoeExpertTokenRemapOp(
+      *cache.fbb, topkTensor, expertMapping, expertMetadata, mapping, reduced,
+      static_cast<uint32_t>(op.getReductionSize()), memoryConfig);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -1138,6 +1364,20 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
   return ::tt::target::ttnn::CreateScatterOp(
       *cache.fbb, input, output, index, sourceTensor, op.getDim(), memoryConfig,
       toFlatbuffer(op.getScatterReduceType()));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::GatherOp>
+createOp(FlatbufferObjectCache &cache, GatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto index = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getIndex()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  return ::tt::target::ttnn::CreateGatherOp(*cache.fbb, input, index, output,
+                                            op.getDim(), memoryConfig);
 }
 
 // NOTE: This legacy mesh_shard path only handles the "identity" variant.
@@ -1311,6 +1551,102 @@ createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
       memoryConfig, output, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::DistributedRMSNormOp>
+createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residual = 0;
+  if (op.getResidual()) {
+    residual = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidual()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> stats = 0;
+  if (op.getStats()) {
+    stats = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getStats()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Optional<uint8_t> subDeviceId = std::nullopt;
+  if (op.getSubDeviceId()) {
+    subDeviceId = std::make_optional<uint8_t>(
+        static_cast<uint8_t>(op.getSubDeviceId().value()));
+  }
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  return ::tt::target::ttnn::CreateDistributedRMSNormOp(
+      *cache.fbb, input, weight, residual, op.getClusterAxis(),
+      op.getEpsilon().convertToFloat(), subDeviceId, memoryConfig, numLinks,
+      topology, computeConfig.value_or(0), stats, programConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormPreAllGatherOp>
+createOp(FlatbufferObjectCache &cache, RMSNormPreAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residual = 0;
+  if (op.getResidual()) {
+    residual = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidual()));
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig()).value_or(0);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  bool use2DCoreGrid = false;
+  if (op.getUse_2dCoreGrid()) {
+    use2DCoreGrid = op.getUse_2dCoreGrid().value();
+  }
+
+  return ::tt::target::ttnn::CreateRMSNormPreAllGatherOp(
+      *cache.fbb, input, dtype.value_or(::tt::target::DataType::BFloat16),
+      residual, memoryConfig, computeConfig.value_or(0), programConfig,
+      use2DCoreGrid, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
 createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -1341,6 +1677,142 @@ createOp(FlatbufferObjectCache &cache, LayerNormOp op) {
   return ::tt::target::ttnn::CreateLayerNormOp(*cache.fbb, input, weight, bias,
                                                op.getEpsilon().convertToFloat(),
                                                memoryConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPreAllGatherOp>
+createOp(FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> residualInput = 0;
+  if (op.getResidualInput()) {
+    residualInput = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getResidualInput()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> recip = 0;
+  if (op.getRecip()) {
+    recip = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getRecip()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::tt::target::DataType dtype = ::tt::target::DataType::BFloat16;
+  if (op.getDtype()) {
+    dtype = toFlatbuffer(cache, op.getDtype().value());
+  }
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  return ::tt::target::ttnn::CreateLayerNormPreAllGatherOp(
+      *cache.fbb, input, residualInput, recip, dtype, memoryConfig,
+      computeConfig.value_or(0), programConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPostAllGatherOp>
+createOp(FlatbufferObjectCache &cache, LayerNormPostAllGatherOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+
+  auto stats = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getStats()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  ::flatbuffers::Offset<
+      ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+      programConfig = 0;
+  if (op.getProgramConfig()) {
+    programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  return ::tt::target::ttnn::CreateLayerNormPostAllGatherOp(
+      *cache.fbb, input, stats, weight, bias, op.getEpsilon().convertToFloat(),
+      dtype, memoryConfig, computeConfig.value_or(0), programConfig, output);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::GroupNormOp>
+createOp(FlatbufferObjectCache &cache, GroupNormOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+
+  // Handle optional input mask operand
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> inputMask = 0;
+  if (op.getInputMask()) {
+    inputMask = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getInputMask()));
+  }
+
+  // Handle optional weight and bias operands
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> weight = 0;
+  if (op.getWeight()) {
+    weight = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getWeight()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      getMemoryConfigIfNeeded(cache, op);
+
+  // Handle optional core_grid attribute
+  const ::tt::target::ttnn::CoreCoord *coreGridPtr = nullptr;
+  ::tt::target::ttnn::CoreCoord coreGridVal;
+  if (auto coreGridAttr = op.getCoreGrid()) {
+    coreGridVal = toFlatbuffer(cache, *coreGridAttr);
+    coreGridPtr = &coreGridVal;
+  }
+
+  return ::tt::target::ttnn::CreateGroupNormOp(
+      *cache.fbb, input, inputMask, weight, bias, op.getNumGroups(),
+      op.getEpsilon().convertToFloat(), memoryConfig, output, coreGridPtr);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
@@ -1615,18 +2087,18 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                                      EltwiseBinaryCompositeScalarOp op) {
 
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType type;
-  ::tt::target::ttnn::RhsParams rhsType;
+  ::tt::target::ttnn::NumberType numberType;
   ::flatbuffers::Offset<void> rhsValue;
   if (std::is_same_v<EltwiseBinaryCompositeScalarOp, PowScalarOp>) {
     type = ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar;
     if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::FP;
+      numberType = ::tt::target::ttnn::NumberType::FP;
       rhsValue = ::tt::target::ttnn::CreateFloatingPointType(
                      *cache.fbb, floatAttr.getValue().convertToFloat())
                      .Union();
     } else if (auto integerAttr =
                    mlir::dyn_cast<mlir::IntegerAttr>(op.getRhs())) {
-      rhsType = ::tt::target::ttnn::RhsParams::I32;
+      numberType = ::tt::target::ttnn::NumberType::I32;
       rhsValue = ::tt::target::ttnn::CreateIntegralType(
                      *cache.fbb, integerAttr.getValue().getSExtValue())
                      .Union();
@@ -1647,7 +2119,7 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
                                   /*local_shape*/ std::nullopt);
 
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeScalarOp(
-      *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
+      *cache.fbb, type, lhs, numberType, rhsValue, memoryConfig, out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
@@ -1925,6 +2397,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Ceil;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, CosOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Cos;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AcosOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Acos;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, FloorOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Floor;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, GeluOp>) {
@@ -1953,6 +2427,10 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Mish;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SinOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Sin;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AsinOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Asin;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, AsinhOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Asinh;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, ReciprocalOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, SignOp>) {
@@ -2012,15 +2490,36 @@ createEltwiseUnaryCompositeOp(FlatbufferObjectCache &cache,
       ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::NONE;
   ::flatbuffers::Offset<void> params = 0;
 
+  // Helper lambda to convert attribute to NumberType union
+  auto attrToNumberType =
+      [&cache](
+          mlir::Attribute attr) -> std::pair<::tt::target::ttnn::NumberType,
+                                             ::flatbuffers::Offset<void>> {
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+      return {::tt::target::ttnn::NumberType::FP,
+              ::tt::target::ttnn::CreateFloatingPointType(
+                  *cache.fbb, floatAttr.getValue().convertToFloat())
+                  .Union()};
+    }
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      return {::tt::target::ttnn::NumberType::I32,
+              ::tt::target::ttnn::CreateIntegralType(
+                  *cache.fbb, intAttr.getValue().getSExtValue())
+                  .Union()};
+    }
+    llvm_unreachable("Unsupported attribute type for clamp");
+  };
+
   if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, CbrtOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Cbrt;
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampScalarOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
     paramsType =
         ::tt::target::ttnn::EltwiseUnaryCompositeOpParams::ClampScalarOpParams;
-    auto min = op.getMin().convertToFloat();
-    auto max = op.getMax().convertToFloat();
-    params = ::tt::target::ttnn::CreateClampScalarOpParams(*cache.fbb, min, max)
+    auto [minType, minValue] = attrToNumberType(op.getMin());
+    auto [maxType, maxValue] = attrToNumberType(op.getMax());
+    params = ::tt::target::ttnn::CreateClampScalarOpParams(
+                 *cache.fbb, minType, minValue, maxType, maxValue)
                  .Union();
   } else if constexpr (std::is_same_v<EltwiseUnaryCompositeOp, ClampTensorOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor;
@@ -2284,9 +2783,7 @@ createPadOp(FlatbufferObjectCache &cache, PadOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
-  auto memoryConfig = op.getMemoryConfig().has_value()
-                          ? toFlatbuffer(cache, op.getMemoryConfig().value())
-                          : 0;
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   return ::tt::target::ttnn::CreatePadOp(
       *cache.fbb, in, out, cache.fbb->CreateVector<uint32_t>(padding), value,
       op.getUseMulticore(), memoryConfig);
@@ -2355,12 +2852,11 @@ createSortOp(FlatbufferObjectCache &cache, SortOp op) {
   int8_t dim = op.getDim();
   bool descending = op.getDescending();
   bool stable = op.getStable();
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
 
-  return ::tt::target::ttnn::CreateSortOpDirect(
-      *cache.fbb, in, dim, descending, stable,
-      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op, op.getValues());
+
+  return ::tt::target::ttnn::CreateSortOpDirect(*cache.fbb, in, dim, descending,
+                                                stable, memoryConfig, &outputs);
 }
 
 template <typename Pool2dOp>
@@ -2478,14 +2974,12 @@ createRepeatInterleaveOp(FlatbufferObjectCache &cache, RepeatInterleaveOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
                                   /*local_shape*/ std::nullopt);
-  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
-      op.getMemoryConfig();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
   uint32_t repeats = op.getRepeats();
   int32_t dim = op.getDim();
 
   return ::tt::target::ttnn::CreateRepeatInterleaveOp(
-      *cache.fbb, input, out, repeats, dim,
-      memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
+      *cache.fbb, input, out, repeats, dim, memoryConfig);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
@@ -2798,6 +3292,53 @@ createOp(FlatbufferObjectCache &cache,
       curPosTensor, attentionSink, scale, out, memoryConfig);
 }
 
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+createOp(FlatbufferObjectCache &cache,
+         PagedFlashMultiLatentAttentionDecodeOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> value = 0;
+  if (op.getValue()) {
+    value = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getValue()));
+  }
+
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+
+  auto attentionMask = op.getAttentionMask()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionMask()))
+                           : 0;
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
+  auto attentionSink = op.getAttentionSink()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionSink()))
+                           : 0;
+
+  auto isCausal = op.getIsCausal();
+  auto headDimV = op.getHeadDimV();
+  auto scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreatePagedFlashMultiLatentAttentionDecodeOp(
+      *cache.fbb, query, key, value, headDimV, pageTable, isCausal,
+      attentionMask, curPosTensor, attentionSink, scale, out, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
 createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
@@ -2828,10 +3369,15 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionOp op) {
   ::flatbuffers::Optional<uint32_t> slidingWindowSize =
       toFlatbuffer(cache, op.getSlidingWindowSize());
 
+  auto attentionSink = op.getAttentionSink()
+                           ? cache.at<::tt::target::ttnn::TensorRef>(
+                                 getOperandThroughDPSOps(op.getAttentionSink()))
+                           : 0;
+
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
   return ::tt::target::ttnn::CreateScaledDotProductAttentionOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, scale,
-      slidingWindowSize, out, memoryConfig);
+      slidingWindowSize, attentionSink, out, memoryConfig);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
@@ -2866,6 +3412,23 @@ createKernelArgs(FlatbufferObjectCache &cache,
       arg = ::tt::target::ttnn::CreateKernelArgSemaphoreAt(
                 *cache.fbb, kernelArgSemaphoreAtAttr.getSemaphoreIndex())
                 .Union();
+    } else if (auto kernelArgNamedArgument =
+                   llvm::dyn_cast<KernelArgNamedArgAttr>(argAttr);
+               kernelArgNamedArgument) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgNamedArgument;
+      arg =
+          ::tt::target::ttnn::CreateKernelArgNamedArgument(
+              *cache.fbb, toFlatbuffer(cache, kernelArgNamedArgument.getName()),
+              kernelArgNamedArgument.getValue())
+              .Union();
+    } else if (auto kernelArgGlobalSemaphore =
+                   llvm::dyn_cast<KernelArgGlobalSemaphoreAttr>(argAttr);
+               kernelArgGlobalSemaphore) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgGlobalSemaphore;
+      arg = ::tt::target::ttnn::CreateKernelArgGlobalSemaphore(
+                *cache.fbb, kernelArgGlobalSemaphore.getGlobalSemaphoreIndex())
+                .Union();
+
     } else {
       llvm_unreachable("Unsupported kernel argument attribute");
     }
@@ -2912,6 +3475,18 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                    computeKernelAttr.getDstFullSyncEn(), &unpackToDestModes,
                    computeKernelAttr.getBfp8PackPrecise(),
                    computeKernelAttr.getMathApproxMode())
+                   .Union();
+    } else if (auto dmKernelAttr =
+                   llvm::dyn_cast<DataMovementKernelAttr>(kernelAttr);
+               dmKernelAttr) {
+      auto processor = static_cast<::tt::target::ttnn::DataMovementType>(
+          dmKernelAttr.getProcessor());
+      auto noc = toFlatbuffer(cache, dmKernelAttr.getNocIndex());
+      auto nocMode =
+          static_cast<::tt::target::ttnn::NocMode>(dmKernelAttr.getNocMode());
+      configType = ::tt::target::ttnn::KernelConfig::DataMovementKernelConfig;
+      config = ::tt::target::ttnn::CreateDataMovementKernelConfig(
+                   *cache.fbb, processor, noc, nocMode)
                    .Union();
     } else if (auto readKernelAttr = llvm::dyn_cast<ReadKernelAttr>(kernelAttr);
                readKernelAttr) {
@@ -3000,17 +3575,6 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
                                                            &semaphores, &cbs);
 }
 
-static ::tt::target::RoutingMode
-toFlatbuffer(tt::ttnn::RoutingMode routingMode) {
-  switch (routingMode) {
-  case ttnn::RoutingMode::BidirLineMesh:
-    return ::tt::target::RoutingMode::BidirLineMesh;
-  case ttnn::RoutingMode::UnidirRingTorus:
-    return ::tt::target::RoutingMode::UnidirRingTorus;
-  }
-  assert(false && "Unsupported RoutingMode");
-}
-
 static ::flatbuffers::Offset<::tt::target::ttnn::MeshProgramDescriptor>
 createMeshProgramDescriptor(FlatbufferObjectCache &cache,
                             MeshProgramDescriptorAttr meshProgramDescAttr,
@@ -3034,13 +3598,13 @@ createMeshProgramDescriptor(FlatbufferObjectCache &cache,
     meshPrograms.push_back(::tt::target::ttnn::CreateMeshProgram(
         *cache.fbb, deviceRange, programDescriptor));
   }
-  FabricConnectionConfigAttr fabricConnectionConfigAttr =
+  ttcore::FabricConnectionConfigAttr fabricConnectionConfigAttr =
       meshProgramDescAttr.getFabricConnectionConfig();
   auto fabricConnectionConfig = ::tt::target::CreateFabricConnectionConfig(
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfigAttr.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfigAttr.getTopology()),
       fabricConnectionConfigAttr.getClusterAxis(),
-      toFlatbuffer(fabricConnectionConfigAttr.getRoutingMode()),
+      toFlatbuffer(cache, fabricConnectionConfigAttr.getRoutingMode()),
       fabricConnectionConfigAttr.getNumLinks());
 
   return ::tt::target::ttnn::CreateMeshProgramDescriptorDirect(
@@ -3055,6 +3619,23 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         getOperandThroughDPSOps(operand)));
   }
 
+  std::vector<::tt::target::ttnn::ArgRef> additional_args_types;
+  std::vector<flatbuffers::Offset<void>> additional_args;
+  additional_args_types.reserve(op.getAdditionalArgs().size());
+  additional_args.reserve(op.getAdditionalArgs().size());
+  for (auto arg : op.getAdditionalArgs()) {
+    if (mlir::isa<RankedTensorType>(arg.getType())) {
+      additional_args_types.push_back(::tt::target::ttnn::ArgRef::TensorRef);
+      additional_args.push_back(
+          cache.at<::tt::target::ttnn::TensorRef>(arg).Union());
+    } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
+      additional_args_types.push_back(
+          ::tt::target::ttnn::ArgRef::GlobalSemaphoreRef);
+      additional_args.push_back(
+          cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(arg).Union());
+    }
+  }
+
   ModuleOp moduleOp = dyn_cast<ModuleOp>(op->getParentOp()->getParentOp());
   mlir::Attribute programAttrGeneric = op.getProgramAttr();
 
@@ -3064,7 +3645,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
     auto meshProgramDesc =
         createMeshProgramDescriptor(cache, meshProgramDescAttr, moduleOp);
     return ::tt::target::ttnn::CreateGenericOpDirect(
-        *cache.fbb, &ios,
+        *cache.fbb, &ios, &additional_args_types, &additional_args,
         ::tt::target::ttnn::ProgramType::MeshProgramDescriptor,
         meshProgramDesc.Union());
   }
@@ -3074,8 +3655,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
   auto program = createProgramDescriptor(cache, programAttr, moduleOp);
 
   return ::tt::target::ttnn::CreateGenericOpDirect(
-      *cache.fbb, &ios, ::tt::target::ttnn::ProgramType::ProgramDescriptor,
-      program.Union());
+      *cache.fbb, &ios, &additional_args_types, &additional_args,
+      ::tt::target::ttnn::ProgramType::ProgramDescriptor, program.Union());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>
@@ -3186,10 +3767,7 @@ createOp(FlatbufferObjectCache &cache, SplitQueryKeyValueAndSplitHeadsOp op) {
       toFlatbuffer(cache, op.getNumKvHeads());
   bool transposeKey = op.getTransposeKey();
 
-  auto memoryConfig =
-      op.getMemoryConfig()
-          ? toFlatbuffer(cache, *op.getMemoryConfig())
-          : getMemoryConfigFromTensorTypeIfNeeded(cache, op.getQuery());
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op, op.getQuery());
 
   return ::tt::target::ttnn::CreateSplitQueryKeyValueAndSplitHeadsOp(
       *cache.fbb, inputTensor, inputKVTensor, outQuery, outKey, outValue,
@@ -3320,26 +3898,103 @@ createOp(FlatbufferObjectCache &cache, debug::AnnotateOp op) {
 createOp(FlatbufferObjectCache &cache, debug::BreakpointOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
-  auto result =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
-                                  /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand);
+}
 
-  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand, result);
+::flatbuffers::Offset<::tt::target::ttnn::PrintOp>
+createOp(FlatbufferObjectCache &cache, debug::PrintOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto message = toFlatbuffer(cache, op.getMessage());
+
+  return ::tt::target::ttnn::CreatePrintOp(*cache.fbb, operand, message);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemorySnapshotOp>
 createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
   auto operand = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getOperand()));
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+
+  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand,
+                                                    filePath);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionStartOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionStartOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
   auto result =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
                                   /*local_shape*/ std::nullopt);
-  auto filePath = toFlatbuffer(cache, op.getFilePath());
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
 
-  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand, result,
-                                                    filePath);
+  return ::tt::target::ttnn::CreateRegionStartOp(*cache.fbb, operand, result,
+                                                 regionId);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::RegionEndOp>
+createOp(FlatbufferObjectCache &cache, debug::RegionEndOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto result =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto regionId = toFlatbuffer(cache, op.getRegionId());
+
+  return ::tt::target::ttnn::CreateRegionEndOp(*cache.fbb, operand, result,
+                                               regionId);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::TopKOp>
+createOp(FlatbufferObjectCache &cache, TopKOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+
+  // Collect output tensors
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        result, tensorValueToFlatbuffer, /*local_shape*/ std::nullopt));
+  }
+
+  int32_t k = op.getK();
+  int32_t dim = op.getDim();
+  bool largest = op.getLargest();
+  bool sorted = op.getSorted();
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+
+  return ::tt::target::ttnn::CreateTopKOpDirect(
+      *cache.fbb, in, k, dim, largest, sorted,
+      (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::TopKRouterGptOp>
+createOp(FlatbufferObjectCache &cache, TopKRouterGptOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto bias = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getBias()));
+
+  auto expertIndices = cache.getOrCreateNoSharding(
+      op.getExpertIndices(), tensorValueToFlatbuffer,
+      /*local_shape*/ std::nullopt);
+  auto expertWeights = cache.getOrCreateNoSharding(
+      op.getExpertWeights(), tensorValueToFlatbuffer,
+      /*local_shape*/ std::nullopt);
+
+  int32_t k = op.getK();
+  int32_t numExperts = op.getNumExperts();
+
+  return ::tt::target::ttnn::CreateTopKRouterGptOp(
+      *cache.fbb, input, weight, bias, k, numExperts, expertIndices,
+      expertWeights);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
@@ -3360,9 +4015,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,
                            locInfo);
   }
-  if (auto toDTypeOp = dyn_cast<ToDTypeOp>(op); toDTypeOp) {
-    return createOperation(cache, createOp(cache, toDTypeOp), debugString,
-                           locInfo);
+  if (auto bitcastConvertOp = dyn_cast<BitcastConvertOp>(op);
+      bitcastConvertOp) {
+    return createOperation(cache, createOp(cache, bitcastConvertOp),
+                           debugString, locInfo);
   }
   if (auto typecastOp = dyn_cast<TypecastOp>(op); typecastOp) {
     return createOperation(cache, createOp(cache, typecastOp), debugString,
@@ -3641,6 +4297,18 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, tanhOp),
                            debugString, locInfo);
   }
+  if (auto asinOp = dyn_cast<AsinOp>(op); asinOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, asinOp),
+                           debugString, locInfo);
+  }
+  if (auto asinhOp = dyn_cast<AsinhOp>(op); asinhOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, asinhOp),
+                           debugString, locInfo);
+  }
+  if (auto acosOp = dyn_cast<AcosOp>(op); acosOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, acosOp),
+                           debugString, locInfo);
+  }
   if (auto atanOp = dyn_cast<AtanOp>(op); atanOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, atanOp),
                            debugString, locInfo);
@@ -3671,8 +4339,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, matmulOp), debugString,
                            locInfo);
   }
-  if (auto morehCumSumOp = dyn_cast<MorehCumSumOp>(op); morehCumSumOp) {
-    return createOperation(cache, createOp(cache, morehCumSumOp), debugString,
+  if (auto sparseMatmulOp = dyn_cast<SparseMatmulOp>(op); sparseMatmulOp) {
+    return createOperation(cache, createOp(cache, sparseMatmulOp), debugString,
+                           locInfo);
+  }
+  if (auto cumSumOp = dyn_cast<CumSumOp>(op); cumSumOp) {
+    return createOperation(cache, createOp(cache, cumSumOp), debugString,
                            locInfo);
   }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
@@ -3763,16 +4435,55 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, allGatherOp), debugString,
                            locInfo);
   }
+  if (auto meshPartitionOp = dyn_cast<MeshPartitionOp>(op); meshPartitionOp) {
+    return createOperation(cache, createOp(cache, meshPartitionOp), debugString,
+                           locInfo);
+  }
   if (auto allReduceOp = dyn_cast<AllReduceOp>(op); allReduceOp) {
     return createOperation(cache, createOp(cache, allReduceOp), debugString,
                            locInfo);
+  }
+  if (auto allReduceAsyncOp = dyn_cast<AllReduceAsyncOp>(op);
+      allReduceAsyncOp) {
+    return createOperation(cache, createOp(cache, allReduceAsyncOp),
+                           debugString, locInfo);
   }
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
                            locInfo);
   }
+  if (auto allToAllDispatchOp = dyn_cast<AllToAllDispatchOp>(op);
+      allToAllDispatchOp) {
+    return createOperation(cache, createOp(cache, allToAllDispatchOp),
+                           debugString, locInfo);
+  }
+  if (auto allToAllDispatchMetadataOp =
+          dyn_cast<AllToAllDispatchMetadataOp>(op);
+      allToAllDispatchMetadataOp) {
+    return createOperation(cache, createOp(cache, allToAllDispatchMetadataOp),
+                           debugString, locInfo);
+  }
+  if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);
+      allToAllCombineOp) {
+    return createOperation(cache, createOp(cache, allToAllCombineOp),
+                           debugString, locInfo);
+  }
+  if (auto selectiveReduceCombineOp = dyn_cast<SelectiveReduceCombineOp>(op);
+      selectiveReduceCombineOp) {
+    return createOperation(cache, createOp(cache, selectiveReduceCombineOp),
+                           debugString, locInfo);
+  }
+  if (auto moeExpertTokenRemapOp = dyn_cast<MoeExpertTokenRemapOp>(op);
+      moeExpertTokenRemapOp) {
+    return createOperation(cache, createOp(cache, moeExpertTokenRemapOp),
+                           debugString, locInfo);
+  }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,
+                           locInfo);
+  }
+  if (auto gatherOp = dyn_cast<GatherOp>(op); gatherOp) {
+    return createOperation(cache, createOp(cache, gatherOp), debugString,
                            locInfo);
   }
   if (auto meshShardOp = dyn_cast<MeshShardOp>(op); meshShardOp) {
@@ -3878,8 +4589,32 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,
                            locInfo);
   }
+  if (auto distributedRMSNormOp = dyn_cast<DistributedRMSNormOp>(op);
+      distributedRMSNormOp) {
+    return createOperation(cache, createOp(cache, distributedRMSNormOp),
+                           debugString, locInfo);
+  }
+  if (auto rmsNormPreAllGatherOp = dyn_cast<RMSNormPreAllGatherOp>(op);
+      rmsNormPreAllGatherOp) {
+    return createOperation(cache, createOp(cache, rmsNormPreAllGatherOp),
+                           debugString, locInfo);
+  }
   if (auto layerNormOp = dyn_cast<LayerNormOp>(op); layerNormOp) {
     return createOperation(cache, createOp(cache, layerNormOp), debugString,
+                           locInfo);
+  }
+  if (auto layerNormPreAllGatherOp = dyn_cast<LayerNormPreAllGatherOp>(op);
+      layerNormPreAllGatherOp) {
+    return createOperation(cache, createOp(cache, layerNormPreAllGatherOp),
+                           debugString, locInfo);
+  }
+  if (auto layerNormPostAllGatherOp = dyn_cast<LayerNormPostAllGatherOp>(op);
+      layerNormPostAllGatherOp) {
+    return createOperation(cache, createOp(cache, layerNormPostAllGatherOp),
+                           debugString, locInfo);
+  }
+  if (auto groupNormOp = dyn_cast<GroupNormOp>(op); groupNormOp) {
+    return createOperation(cache, createOp(cache, groupNormOp), debugString,
                            locInfo);
   }
   if (auto constantOp = dyn_cast<ConstantOp>(op); constantOp) {
@@ -3995,6 +4730,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
         cache, createOp(cache, pagedScaledDotProductAttentionDecodeOp),
         debugString, locInfo);
   }
+  if (auto pagedFlashMlaDecodeOp =
+          dyn_cast<PagedFlashMultiLatentAttentionDecodeOp>(op);
+      pagedFlashMlaDecodeOp) {
+    return createOperation(cache, createOp(cache, pagedFlashMlaDecodeOp),
+                           debugString, locInfo);
+  }
   if (auto scaledDotProductAttentionOp =
           dyn_cast<ScaledDotProductAttentionOp>(op);
       scaledDotProductAttentionOp) {
@@ -4021,9 +4762,41 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, breakpointOp), debugString,
                            locInfo);
   }
+  if (auto printOp = dyn_cast<debug::PrintOp>(op); printOp) {
+    return createOperation(cache, createOp(cache, printOp), debugString,
+                           locInfo);
+  }
   if (auto memorySnapshotOp = dyn_cast<debug::MemorySnapshotOp>(op);
       memorySnapshotOp) {
     return createOperation(cache, createOp(cache, memorySnapshotOp),
+                           debugString, locInfo);
+  }
+  if (auto regionStartOp = dyn_cast<debug::RegionStartOp>(op); regionStartOp) {
+    return createOperation(cache, createOp(cache, regionStartOp), debugString,
+                           locInfo);
+  }
+  if (auto regionEndOp = dyn_cast<debug::RegionEndOp>(op); regionEndOp) {
+    return createOperation(cache, createOp(cache, regionEndOp), debugString,
+                           locInfo);
+  }
+  if (auto topKOp = dyn_cast<TopKOp>(op); topKOp) {
+    return createOperation(cache, createOp(cache, topKOp), debugString,
+                           locInfo);
+  }
+  if (auto topKRouterGptOp = dyn_cast<TopKRouterGptOp>(op); topKRouterGptOp) {
+    return createOperation(cache, createOp(cache, topKRouterGptOp), debugString,
+                           locInfo);
+  }
+
+  if (auto createGlobalSemaphoreOp = dyn_cast<CreateGlobalSemaphoreOp>(op);
+      createGlobalSemaphoreOp) {
+    return createOperation(cache, createOp(cache, createGlobalSemaphoreOp),
+                           debugString, locInfo);
+  }
+
+  if (auto resetGlobalSemaphoreOp = dyn_cast<ResetGlobalSemaphoreOp>(op);
+      resetGlobalSemaphoreOp) {
+    return createOperation(cache, createOp(cache, resetGlobalSemaphoreOp),
                            debugString, locInfo);
   }
 

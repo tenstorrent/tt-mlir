@@ -20,7 +20,7 @@ pytestmark = pytest.mark.frontend("ttir")
 # 1. F32 inputs are truncated into TF32, losing 13 mantissa bits. When positive
 #    and negative values with very close abs values are added together, some
 #    arithmetic operations will have over 5 orders of magnitude of differences
-#    in their operands. TF32 dosn't have this much "dynamic range".
+#    in their operands. TF32 doesn't have this much "dynamic range".
 # 2. When the CPU doesn't have native F16/BF16 support, torch will use
 #    software-emulated arithmetic operations to generate the matmul golden
 #    output, which is too slow.
@@ -45,6 +45,22 @@ def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype=torch.float32):
             return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     return module
+
+
+def get_allocator_policy_override(
+    shape: tuple[int, ...], dtype: torch.dtype, enable_l1_acc: bool
+) -> list[str]:
+    if (
+        dtype == torch.bfloat16
+        and enable_l1_acc
+        and shape in ((1024, 2048, 2048), (2048, 2048, 2048))
+    ):
+        # `auto` over-splits the reduction panel for these large bf16 matmuls,
+        # which increases partial accumulations and hurts PCC.
+        # TODO (anuragsingh): Revert this to the default allocator policy once precision issues are fixed.
+        # Issue here: https://github.com/tenstorrent/tt-mlir/issues/7656
+        return ["test-buffer-size-policy=max"]
+    return []
 
 
 @pytest.mark.parametrize("m", [2])
@@ -119,22 +135,31 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("use_tile_matmul", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
+)
+@pytest.mark.parametrize("enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_single_buffered(
     shape: tuple[int, ...],
     dtype: torch.dtype,
     use_tile_matmul: bool,
+    enable_l1_acc: bool,
     target: str,
     request,
     device,
 ):
     pcc = 0.99 if dtype == torch.float32 else 0.96
-    if dtype == torch.bfloat16 and shape in (
-        (2048, 2048, 2048),
-        (1024, 2048, 2048),
+    if (
+        dtype == torch.bfloat16
+        and not enable_l1_acc
+        and shape
+        in (
+            (2048, 2048, 2048),
+            (1024, 2048, 2048),
+        )
     ):
         pytest.xfail(reason="bf16 PCC below threshold for these shapes")
 
@@ -151,7 +176,9 @@ def test_matmul_ttnn_shapes_single_buffered(
         f"matmul-interchange=2,0,1",
         f"num-stream-buffers=1",
         f"use-tile-matmul={use_tile_matmul}",
+        f"enable-l1-acc={enable_l1_acc}",
     ]
+    options.extend(get_allocator_policy_override(shape, dtype, enable_l1_acc))
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
         target=target,
@@ -172,22 +199,42 @@ def test_matmul_ttnn_shapes_single_buffered(
         (512, 1024, 2048),
         (1024, 1024, 1024),
         (1024, 1024, 2048),
+        (1024, 2048, 2048),
+        (2048, 2048, 2048),
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("use_tile_matmul", [True, False])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "use_tile_matmul", [True, False], ids=["matmul_tile", "matmul_block"]
+)
+@pytest.mark.parametrize("enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 # Large matmuls, based on ttnn's matmul benchmarks
 def test_matmul_ttnn_shapes_double_buffered(
     shape: tuple[int, ...],
     dtype: torch.dtype,
     use_tile_matmul: bool,
+    enable_l1_acc: bool,
     target: str,
     request,
     device,
 ):
     pcc = 0.99 if dtype == torch.float32 else 0.96
+    if dtype == torch.float32 and shape == (2048, 2048, 2048):
+        pytest.xfail(reason="Too large for f32.")
+
+    if (
+        dtype == torch.bfloat16
+        and not enable_l1_acc
+        and shape
+        in (
+            (2048, 2048, 2048),
+            (1024, 2048, 2048),
+        )
+    ):
+        pytest.xfail(reason="bf16 PCC below threshold for these shapes")
+
     lhs = (
         shape[0],
         shape[1],
@@ -200,7 +247,9 @@ def test_matmul_ttnn_shapes_double_buffered(
     options = [
         f"matmul-interchange=2,0,1",
         f"use-tile-matmul={use_tile_matmul}",
+        f"enable-l1-acc={enable_l1_acc}",
     ]
+    options.extend(get_allocator_policy_override(shape, dtype, enable_l1_acc))
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs, dtype),
         target=target,
@@ -213,7 +262,6 @@ def test_matmul_ttnn_shapes_double_buffered(
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -224,7 +272,7 @@ def test_matmul_ttnn_shapes_double_buffered(
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_matmul_1d_shapes(
     shape: tuple[int, ...],
@@ -233,6 +281,9 @@ def test_matmul_1d_shapes(
     request,
     device,
 ):
+    if dtype == torch.float32 and shape in ((32768, 32, 32), (32, 32, 32768)):
+        pytest.xfail(reason="Too large for f32.")
+
     lhs = (
         shape[0],
         shape[1],

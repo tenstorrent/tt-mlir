@@ -21,9 +21,9 @@
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
 #mapO = affine_map<(d0, d1, d2) -> (d0, d1)>
 
-#layout_a = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
-#layout_b = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
-#layout_c = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
+#layout_a = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_b = #ttcore.metal_layout<logical_shape = 96x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+#layout_c = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
 
 // CHECK-LABEL: func.func @explicit_datamovement_matmul_mcast
 func.func @explicit_datamovement_matmul_mcast(
@@ -32,15 +32,7 @@ func.func @explicit_datamovement_matmul_mcast(
 ) -> tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c> {
   %output = d2m.empty() : tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
 
-  // Wrap inputs and output in stream_layout operations
-  %input_a_storage = d2m.empty() : tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>
-  %arg0_stream = "d2m.stream_layout"(%arg0, %input_a_storage) : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>, tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>) -> tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>
-
-  %input_b_storage = d2m.empty() : tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>
-  %arg1_stream = "d2m.stream_layout"(%arg1, %input_b_storage) : (tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>, tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>) -> tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>
-
-  %output_storage = d2m.empty() : tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
-  %output_stream = "d2m.stream_layout"(%output, %output_storage) : (tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>, tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>) -> tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
+  // Inputs and output go directly to the generic
 
   // CHECK: d2m.generic
   // CHECK-SAME: block_factors = []
@@ -55,17 +47,18 @@ func.func @explicit_datamovement_matmul_mcast(
   // CHECK: linalg.generic
   // CHECK: d2m.tile_matmul
   // CHECK: d2m.remote_store
-  %result = "d2m.generic"(%arg0_stream, %arg1_stream, %output_stream) <{
+  %result = "d2m.generic"(%arg0, %arg1, %output) <{
     block_factors = [],
     grid = #ttcore.grid<1x1>,
     indexing_maps = [],
     iterator_types = [],
-    operandSegmentSizes = array<i32: 2, 1>,
+    operandSegmentSizes = array<i32: 2, 1, 0>,
     threads = [#d2m.thread<unified>]
   }> ({
-  ^unified0(%cb_a: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>,
-            %cb_b: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>,
-            %cb_c: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
+  ^unified0:
+    %cb_a = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb_b = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
+    %cb_c = d2m.get_cb(2) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index  // M - output grid dim 0
@@ -82,14 +75,14 @@ func.func @explicit_datamovement_matmul_mcast(
 
           // Load A shard at [i, k] with multicast along columns (j direction)
           // Core 0 gathers and multicasts to a 1x4 region
-          %a_loaded = d2m.remote_load %a_buf %arg0_stream[%i, %k] mcore[%c0, %c0] mshape[%c1, %c4]
+          %a_loaded = d2m.remote_load %a_buf %arg0[%i, %k] mcore[%c0, %c0] mshape[%c1, %c4]
             : tensor<2x2x!ttcore.tile<32x32, f32>>,
               tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>
             -> tensor<2x2x!ttcore.tile<32x32, f32>>
 
           // Load B shard at [k, j] with multicast along rows (i direction)
           // Core 0 gathers and multicasts to a 2x1 region
-          %b_loaded = d2m.remote_load %b_buf %arg1_stream[%k, %j] mcore[%c0, %c0] mshape[%c2, %c1]
+          %b_loaded = d2m.remote_load %b_buf %arg1[%k, %j] mcore[%c0, %c0] mshape[%c2, %c1]
             : tensor<2x2x!ttcore.tile<32x32, f32>>,
               tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>
             -> tensor<2x2x!ttcore.tile<32x32, f32>>
@@ -111,14 +104,14 @@ func.func @explicit_datamovement_matmul_mcast(
           } -> tensor<2x2x!ttcore.tile<32x32, f32>>
 
           // Store result shard at grid position [i, j]
-          %stored = d2m.remote_store %output_stream[%i, %j] %matmul_result
+          %stored = d2m.remote_store %output[%i, %j] %matmul_result
             : tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>,
               tensor<2x2x!ttcore.tile<32x32, f32>>
             -> tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
         }
       }
     }
-    d2m.yield %output_stream : (tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>)
+    d2m.yield %output : (tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>)
   }) : (tensor<2x3x2x2x!ttcore.tile<32x32, f32>, #layout_a>, tensor<3x4x2x2x!ttcore.tile<32x32, f32>, #layout_b>, tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>) -> tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>
 
   return %result : tensor<2x4x2x2x!ttcore.tile<32x32, f32>, #layout_c>

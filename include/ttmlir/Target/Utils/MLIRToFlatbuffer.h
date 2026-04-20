@@ -220,6 +220,8 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
     return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
   case ttnn::TensorMemoryLayout::BlockSharded:
     return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  case ttnn::TensorMemoryLayout::NDSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
   }
 }
 
@@ -475,8 +477,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, llvm::ArrayRef<int64_t> tensorGrid,
 inline std::vector<::tt::target::Dim2dRange>
 toFlatbuffer(FlatbufferObjectCache &cache, ttcore::GridAttr tensorGrid,
              ttcore::GridAttr deviceGrid) {
-  auto mapping = tensorGrid.getMapping().isEmpty() ? deviceGrid.getMapping()
-                                                   : tensorGrid.getMapping();
+  auto mapping = tensorGrid.getVirtToPhysicalMap().isEmpty()
+                     ? deviceGrid.getVirtToPhysicalMap()
+                     : tensorGrid.getVirtToPhysicalMap();
   return toFlatbuffer(cache, tensorGrid.getShape(), mapping);
 }
 
@@ -777,6 +780,17 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, sdpaConfigAttr.getMaxCoresPerHeadBatch()));
 }
 
+inline ::flatbuffers::Offset<
+    ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, configAttr.getComputeWithStorageGridSize());
+  return ::tt::target::ttnn::CreateLayerNormShardedMultiCoreProgramConfig(
+      *cache.fbb, &computeWithStorageGridSize, configAttr.getSubblockW(),
+      configAttr.getBlockH(), configAttr.getBlockW(), configAttr.getInplace());
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
   ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
@@ -986,21 +1000,27 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
                      ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
                                               shardGrid.getShape()[0] - 1)));
       } else {
+        // When the layout's grid has a non-empty mapping, it is a virtual grid
+        // and we must use that mapping for virtual-to-physical core range.
+        // Otherwise use the default mapping from mem layout and device grid.
+        mlir::AffineMap mapping =
+            shardGrid.getVirtToPhysicalMap().isEmpty()
+                ? ttnn::optimizer_utils::
+                      createSingleDeviceVirtualToPhysicalAffineMaps(
+                          ctx, memLayoutAttr.getValue(), deviceGrid.getShape())
+                          .first
+                : shardGrid.getVirtToPhysicalMap();
         coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-            ctx, llvm::map_to_vector(
-                     ttcore::utils::toCoreRangeSet(
-                         shardGrid.getShape(),
-                         ttnn::optimizer_utils::
-                             createSingleDeviceVirtualToPhysicalAffineMap(
-                                 ctx, memLayoutAttr.getValue(),
-                                 deviceGrid.getShape())),
-                     [ctx](const auto &range) {
-                       const auto [loc, size] = range;
-                       return ttnn::CoreRangeAttr::get(
-                           ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
-                           ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
-                                                    loc[1] + size[1] - 1));
-                     }));
+            ctx,
+            llvm::map_to_vector(
+                ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping),
+                [ctx](const auto &range) {
+                  const auto [loc, size] = range;
+                  return ttnn::CoreRangeAttr::get(
+                      ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
+                      ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
+                                               loc[1] + size[1] - 1));
+                }));
       }
       shardSpecAttr = ttnn::ShardSpecAttr::get(
           ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
@@ -1180,30 +1200,32 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   case ttcore::Topology::Torus:
     fbTopology = ::tt::target::Topology::Torus;
     break;
+  case ttcore::Topology::Disabled:
+    llvm_unreachable("Disabled topology cannot be serialized to flatbuffer");
   }
   return fbTopology;
 }
 
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttmetal::NocIndex nocIndex) {
+                                           ttcore::NocIndex nocIndex) {
   switch (nocIndex) {
-  case ttmetal::NocIndex::Noc0:
+  case ttcore::NocIndex::Noc0:
     return ::tt::target::NocIndex::Noc0;
-  case ttmetal::NocIndex::Noc1:
+  case ttcore::NocIndex::Noc1:
     return ::tt::target::NocIndex::Noc1;
   }
   assert(false && "Unsupported NocIndex");
 }
 
-inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttnn::NocIndex nocIndex) {
-  switch (nocIndex) {
-  case ttnn::NocIndex::Noc0:
-    return ::tt::target::NocIndex::Noc0;
-  case ttnn::NocIndex::Noc1:
-    return ::tt::target::NocIndex::Noc1;
+inline ::tt::target::RoutingMode toFlatbuffer(FlatbufferObjectCache &cache,
+                                              ttcore::RoutingMode routingMode) {
+  switch (routingMode) {
+  case ttcore::RoutingMode::BidirLineMesh:
+    return ::tt::target::RoutingMode::BidirLineMesh;
+  case ttcore::RoutingMode::UnidirRingTorus:
+    return ::tt::target::RoutingMode::UnidirRingTorus;
   }
-  assert(false && "Unsupported NocIndex");
+  assert(false && "Unsupported RoutingMode");
 }
 
 } // namespace mlir::tt

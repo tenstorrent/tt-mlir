@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "7dda41876d5812b3fead27da99d262df1637f3ce")
+set(TT_METAL_VERSION "90c914ef258b5cc92ad172f3604b784ec77253ca")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -52,7 +52,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/boost/1359e136761ab2d10afa1c4e21086c8d824735cd/libs/core/include
   ${CPM_SOURCE_CACHE}/nlohmann_json/798e0374658476027d9723eeb67a262d0f3c8308/include
   ${CPM_SOURCE_CACHE}/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
-  ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
+  ${CPM_SOURCE_CACHE}/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7/include
   ${CPM_SOURCE_CACHE}/xtl/0_8_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor/0_26_0_patched/include
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
@@ -63,10 +63,16 @@ set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
 set(TTNN_PY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
-set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
+set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt-umd.so)
 set(TT_STL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_stl.so)
 set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
 set(TRACY_BINARY_DIR ${TTMETAL_BUILD_DIR}/tools/profiler/bin)
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(FMT_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libfmtd.so)
+else()
+  set(FMT_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libfmt.so)
+endif()
+
 set(TTMETAL_BUILD_DIR ${TTMETAL_BUILD_DIR} PARENT_SCOPE)
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_LIBRARY_DIR} PARENT_SCOPE)
 set(TTNN_LIBRARY_PATH ${TTNN_LIBRARY_PATH} PARENT_SCOPE)
@@ -76,6 +82,7 @@ set(DEVICE_LIBRARY_PATH ${DEVICE_LIBRARY_PATH} PARENT_SCOPE)
 set(TT_STL_LIBRARY_PATH ${TT_STL_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_LIBRARY_PATH ${TRACY_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_BINARY_DIR ${TRACY_BINARY_DIR} PARENT_SCOPE)
+set(FMT_LIBRARY_PATH ${FMT_LIBRARY_PATH} PARENT_SCOPE)
 
 if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
   # `tt-metal` has specific setup for ccache.
@@ -127,7 +134,14 @@ ExternalProject_Add(
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
-  BUILD_BYPRODUCTS ${TTNN_LIBRARY_PATH} ${TTNN_PY_LIBRARY_PATH} ${TTMETAL_LIBRARY_PATH} ${TRACY_LIBRARY_PATH} ${DEVICE_LIBRARY_PATH} ${TT_STL_LIBRARY_PATH}
+  BUILD_BYPRODUCTS
+    ${TTNN_LIBRARY_PATH}
+    ${TTNN_PY_LIBRARY_PATH}
+    ${TTMETAL_LIBRARY_PATH}
+    ${TRACY_LIBRARY_PATH}
+    ${DEVICE_LIBRARY_PATH}
+    ${TT_STL_LIBRARY_PATH}
+    ${FMT_LIBRARY_PATH}
 )
 
 ExternalProject_Add_StepTargets(tt-metal download update configure)
@@ -187,6 +201,7 @@ install(
   FILES_MATCHING
   REGEX "third_party/tt_llk/tt_llk_blackhole/"
   REGEX "third_party/tt_llk/tt_llk_wormhole_b0/"
+  REGEX "third_party/tt_llk/common"
   REGEX "third_party/umd/"
 )
 
@@ -232,8 +247,8 @@ install(
 )
 install(
   DIRECTORY
-    ${CPM_SOURCE_CACHE}/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e/include
-  DESTINATION tt-metal/.cpmcache/tt-logger/87c1a5f2e9d2dd011200eb49c86426c26dec719e
+    ${CPM_SOURCE_CACHE}/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7/include
+  DESTINATION tt-metal/.cpmcache/tt-logger/d2339ce68562cae34cd95f3fece7fd94eb0529b7
   COMPONENT TTNNStandalone
   EXCLUDE_FROM_ALL
 )
@@ -269,6 +284,14 @@ install(
   DIRECTORY
     ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/tt_metal/tt_fabric/custom_mesh_descriptors
   DESTINATION tt-metal/tests/tt_metal/tt_fabric
+  COMPONENT DistributedRuntime
+  EXCLUDE_FROM_ALL
+)
+
+install(
+  DIRECTORY
+    ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tests/scale_out
+  DESTINATION tt-metal/tests
   COMPONENT DistributedRuntime
   EXCLUDE_FROM_ALL
 )

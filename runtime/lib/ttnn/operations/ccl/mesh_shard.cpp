@@ -17,8 +17,9 @@ void run(const ::tt::target::ttnn::MeshShardOp *op, ProgramContext &context) {
   // tensor is pre-sharded by frontend and output tensor is expected to be
   // pre-sharded by frontend.
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
-  tensorPool.insertTTNNTensorAndValidate(op->out(), input);
+  ::tt::runtime::Tensor &input =
+      tensorPool.getRuntimeTensorAndValidate(op->in());
+  tensorPool.insertRuntimeTensorAndValidate(op->out(), input);
   return;
 }
 } // namespace tt::runtime::ttnn::operations::ccl

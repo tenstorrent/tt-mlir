@@ -17,7 +17,7 @@ namespace mlir::tt::ttcore::utils {
 // Determine hardware mesh config for DeviceAttr.
 // If none exists, the empty meshShape leads to single device config.
 // If either option.meshShape or meshes exists, use one of them.
-// If both exist, use mesh shape found in module.
+// If both exist, compare mesh and throw error if they are different.
 inline llvm::Expected<llvm::SmallVector<int64_t>>
 determineMeshShape(mlir::ModuleOp module, llvm::ArrayRef<int64_t> meshShape) {
   if (auto meshesAttr = module->getAttrOfType<MeshesAttr>(MeshesAttr::name)) {
@@ -27,6 +27,12 @@ determineMeshShape(mlir::ModuleOp module, llvm::ArrayRef<int64_t> meshShape) {
     }
     // For now, use the first meshShape.
     llvm::ArrayRef<int64_t> meshFromMeshes = meshAttr[0].getShape();
+    // If both meshes exist, they should be identical. Otherwise, throw error.
+    if (!meshShape.empty() && !llvm::equal(meshShape, meshFromMeshes)) {
+      return llvm::createStringError(
+          std::errc::invalid_argument,
+          "Option.meshShape and mesh info from graph should be identical.");
+    }
     return llvm::SmallVector<int64_t>(meshFromMeshes);
   }
   return llvm::SmallVector<int64_t>(meshShape);

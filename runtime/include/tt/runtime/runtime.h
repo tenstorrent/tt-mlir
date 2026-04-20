@@ -158,6 +158,8 @@ void reshapeMeshDevice(Device meshDevice,
 
 std::vector<uint32_t> getMeshShape(Device meshDevice);
 std::vector<int> getDeviceIds(Device meshDevice);
+
+std::vector<int> getMappedDeviceIds(const std::vector<uint32_t> &meshShape);
 size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
 void clearProgramCache(Device meshDevice);
@@ -185,6 +187,15 @@ This function gets the memory view per device
 */
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
+
+struct MeshFabricConfig {
+  FabricConfig globalConfig;
+  std::vector<FabricConfig> perAxisConfig;
+};
+
+MeshFabricConfig
+computeMeshFabricConfig(const SystemDesc &systemDesc,
+                        const std::vector<uint32_t> &meshShape);
 
 void setFabricConfig(tt::runtime::FabricConfig config);
 

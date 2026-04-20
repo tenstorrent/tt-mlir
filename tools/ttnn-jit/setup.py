@@ -52,11 +52,11 @@ class CMakeBuild(build_ext):
     @staticmethod
     def get_python_version() -> str:
         """
-        Parse TTMLIR_PYTHON_VERSION environment variable. This is needed bc tt-metal will use Python3.10 while tt-mlir will use Python3.11.
+        Parse TTMLIR_PYTHON_VERSION environment variable. This is needed bc tt-metal will use Python3.10 while tt-mlir will use Python3.12.
             eg: TTMLIR_PYTHON_VERSION="python3.10" -> "cpython-310"
                 TTMLIR_PYTHON_VERSION="3.10" -> "cpython-310"
         """
-        python_version_env = os.getenv("TTMLIR_PYTHON_VERSION", "python3.11")
+        python_version_env = os.getenv("TTMLIR_PYTHON_VERSION", "python3.12")
         match = re.search(r"(\d+)\.(\d+)", python_version_env)
 
         if match:
@@ -64,7 +64,7 @@ class CMakeBuild(build_ext):
             minor = match.group(2)
             return f"cpython-{major}{minor}"
 
-        return "cpython-311"
+        return "cpython-312"
 
     @staticmethod
     def get_working_dir():
@@ -126,6 +126,7 @@ class CMakeBuild(build_ext):
                 "-DTTMLIR_ENABLE_OPMODEL=OFF",
                 "-DTTMLIR_ENABLE_TESTS=OFF",
                 "-DTTMLIR_ENABLE_ALCHEMIST=OFF",
+                "-DTT_USE_SYSTEM_SFPI=ON",
             ]
             cmake_args.extend(["-S", str(source_dir)])
             print(f"Running CMake configure: {' '.join(cmake_args)}")
@@ -198,42 +199,48 @@ import ttnn_jit
 ttnn_jit_ext = Extension("ttnn_jit._build_trigger", sources=[])
 
 """
-Installed wheel in a metal dev env starting from TT_METAL_HOME:
-tt_metal/
-├── python_env/
-│   └── lib/
-│       └── python3.10/
-│           └── site-packages/
-│               ├── ttnn/  (if installed via wheel)
-│               │   └── build/
-│               │       └── lib/
-│               │           ├── libtt_metal.so
-│               │           ├── _ttnncpp.so
-│               │           ├── libdevice.so
-│               │           └── libtt_stl.so
-│               │
-│               └── ttnn_jit/
-│                   ├── __init__.py
-│                   ├── api.py
-│                   ├── _src/
-│                   └── runtime/
-│                       ├── libTTMLIRRuntime.so
-│                       ├── _ttmlir_runtime.cpython-310-x86_64-linux-gnu.so
-│                       ├── _ttnn_jit.cpython-310-x86_64-linux-gnu.so
-│                       ├── libJITCPP.so
-│                       └── ttmlir/
-│                           ├── dialects/
-│                           ├── _mlir_libs/
-│                           ├── ir.py
-│                           └── passes.py (and others)
-│
-└── build/  (if using editable install via build_metal.sh)
-    └── lib/
-        ├── libtt_metal.so
-        ├── _ttnncpp.so
-        ├── libdevice.so
-        ├── libtt_stl.so
-        └── libtracy.so.0.10.0
+Installed wheel in a dev env, site-packages layout:
+
+site-packages/
+└── ttnn_jit/
+    ├── __init__.py
+    ├── api.py
+    ├── setup.py
+    ├── libTTMLIRRuntime.so
+    ├── _ttmlir_runtime.cpython-312-x86_64-linux-gnu.so
+    ├── _ttnn_jit.cpython-312-x86_64-linux-gnu.so
+    ├── libJITCPP.so
+    ├── ttmlir/  (bundled ttmlir package)
+    │   ├── _mlir_libs/
+    │   │   ├── __init__.py
+    │   │   ├── _mlir.cpython-312-x86_64-linux-gnu.so
+    │   │   ├── _ttmlir.cpython-312-x86_64-linux-gnu.so
+    │   │   ├── libTTMLIRPythonCAPI.so
+    │   │   └── (other dialect .so files)
+    │   ├── dialects/
+    │   ├── ir.py
+    │   ├── passes.py
+    │   └── (and others)
+    └── _src/
+        ├── __init__.py
+        ├── conversions.py
+        ├── dispatch_op.py
+        ├── ir_generator.py
+        ├── jit.py
+        ├── jit_functions.py
+        ├── memory_analyzer.py
+        ├── supported_ops.py
+        ├── tensor_translator.py
+        ├── tracing_compiler.py
+        └── utils.py
+
+TT_METAL_HOME build/lib/ contains (used at runtime via LD_LIBRARY_PATH):
+├── libtt_metal.so
+├── _ttnncpp.so
+├── _ttnn.so
+├── libdevice.so
+├── libtt_stl.so
+└── libtracy.so.0.10.0
 """
 
 setup(
@@ -249,7 +256,7 @@ setup(
     package_dir={"ttnn_jit": "."},
     ext_modules=[ttnn_jit_ext],
     cmdclass={"build_ext": CMakeBuild},
-    install_requires=["ttmlir"],
-    python_requires=">=3.10",  # tt-metal uses python3.10
+    install_requires=[],
+    python_requires=">=3.12",
     zip_safe=False,
 )

@@ -1,0 +1,6 @@
+loguru
+pandas
+seaborn
+graphviz
+pyyaml
+click

@@ -88,6 +88,52 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @pack_tile_block
+    func.func @pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 2 : index
+      // CHECK: %[[NTILES:.*]] = "emitc.constant"
+      %ntiles = arith.constant 8 : index
+      // CHECK: emitc.call_opaque "pack_tile_block"(%[[DST_INDEX]], %[[OUT_CB]], %[[NTILES]])
+      "ttkernel.pack_tile_block"(%dst_index, %out_cb, %ntiles) : (index, !cb0_tiles, index) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @pack_reconfig_l1_acc
+    func.func @pack_reconfig_l1_acc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[ENABLE:.*]] = "emitc.constant"
+      %enable = arith.constant 1 : i32
+      // CHECK: emitc.verbatim "PACK((llk_pack_reconfig_l1_acc({})));" args %[[ENABLE]]
+      "ttkernel.pack_reconfig_l1_acc"(%enable) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @pack_reconfig_data_format
+    func.func @pack_reconfig_data_format() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: emitc.call_opaque "pack_reconfig_data_format"(%[[CB]])
+      "ttkernel.pack_reconfig_data_format"(%cb) : (!cb0_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @copy_block_matmul_partials
+    func.func @copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[START_TILE:.*]] = "emitc.constant"
+      %start_tile = arith.constant 1 : index
+      // CHECK: %[[START_DST:.*]] = "emitc.constant"
+      %start_dst = arith.constant 3 : index
+      // CHECK: %[[NTILES:.*]] = "emitc.constant"
+      %ntiles = arith.constant 4 : index
+      // CHECK: emitc.call_opaque "copy_block_matmul_partials"(%[[CB]], %[[START_TILE]], %[[START_DST]], %[[NTILES]])
+      "ttkernel.copy_block_matmul_partials"(%cb, %start_tile, %start_dst, %ntiles) : (!cb0_tiles, index, index, index) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @copy_tile_init
     func.func @copy_tile_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
@@ -400,6 +446,31 @@ module {
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
       %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      // CHECK: %[[IN0_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[IN1_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
+      // CHECK: %[[CT_DIM:.*]] = "emitc.constant"
+      // CHECK: %[[RT_DIM:.*]] = "emitc.constant"
+      // CHECK: %[[KT_DIM:.*]] = "emitc.constant"
+      %in0_tile_index = arith.constant 0 : i32
+      %in1_tile_index = arith.constant 0 : i32
+      %dst_tile_index = arith.constant 0 : i32
+      %transpose = arith.constant 0 : i32
+      %ct_dim = arith.constant 1 : i32
+      %rt_dim = arith.constant 2 : i32
+      %kt_dim = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "matmul_block"(%[[CB_A]], %[[CB_B]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_TILE_INDEX]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
+      "ttkernel.matmul_block"(%cb_A, %cb_B, %in0_tile_index, %in1_tile_index, %dst_tile_index, %transpose, %ct_dim, %rt_dim, %kt_dim) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32, i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @experimental_matmul_block
+    func.func @experimental_matmul_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       // CHECK: %[[IN0_TILE_INDEX:.*]] = "emitc.constant"
       // CHECK: %[[IN1_TILE_INDEX:.*]] = "emitc.constant"
@@ -449,6 +520,30 @@ module {
       // CHECK: emitc.call_opaque "reduce_tile"(%[[IN_CB]], %[[SCALING_CB]],  %[[IN_TILE_INDEX]], %[[SCALING_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"PoolType::MAX">, #emitc.opaque<"ReduceDim::REDUCE_ROW">, #emitc.opaque<"false">]}
       "ttkernel.reduce_tile"(%in_cb, %scaling_cb, %in_tile_index, %scaling_tile_index, %dst_index) <{
         reduce_dim = #ttkernel.reduce_dim<reduce_dim_row>, reduce_type = #ttkernel.reduce_type<reduce_max>
+        }> : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @reduce_init_avg
+    func.func @reduce_init_avg() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
+      // CHECK: emitc.call_opaque "reduce_init"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">, #emitc.opaque<"false">]}
+      "ttkernel.reduce_init"(%in_cb, %scaling_cb, %out_cb) <{reduce_dim = #ttkernel.reduce_dim<reduce_dim_col>, reduce_type = #ttkernel.reduce_type<reduce_avg>}> : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @reduce_tile_avg
+    func.func @reduce_tile_avg() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      %in_tile_index = arith.constant 0 : i32
+      %scaling_tile_index = arith.constant 0 : i32
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "reduce_tile"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">, #emitc.opaque<"false">]}
+      "ttkernel.reduce_tile"(%in_cb, %scaling_cb, %in_tile_index, %scaling_tile_index, %dst_index) <{
+        reduce_dim = #ttkernel.reduce_dim<reduce_dim_col>, reduce_type = #ttkernel.reduce_type<reduce_avg>
         }> : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
       return
     }
@@ -660,6 +755,140 @@ module {
       %dst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
       "ttkernel.exp_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp2_tile_init
+    func.func @exp2_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "exp2_tile_init"()
+      "ttkernel.exp2_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp2_tile
+    func.func @exp2_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "exp2_tile"(%[[DST_INDEX]])
+      "ttkernel.exp2_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @expm1_tile_init
+    func.func @expm1_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "expm1_tile_init"()
+      "ttkernel.expm1_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @expm1_tile
+    func.func @expm1_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "expm1_tile"(%[[DST_INDEX]])
+      "ttkernel.expm1_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @log1p_tile_init
+    func.func @log1p_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "log1p_tile_init"()
+      "ttkernel.log1p_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @log1p_tile
+    func.func @log1p_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "log1p_tile"(%[[DST_INDEX]])
+      "ttkernel.log1p_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @square_tile_init
+    func.func @square_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "square_tile_init"()
+      "ttkernel.square_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @square_tile
+    func.func @square_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "square_tile"(%[[DST_INDEX]])
+      "ttkernel.square_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @softsign_tile_init
+    func.func @softsign_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "softsign_tile_init"()
+      "ttkernel.softsign_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @softsign_tile
+    func.func @softsign_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "softsign_tile"(%[[DST_INDEX]])
+      "ttkernel.softsign_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @signbit_tile_init
+    func.func @signbit_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "signbit_tile_init"()
+      "ttkernel.signbit_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @signbit_tile
+    func.func @signbit_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "signbit_tile"(%[[DST_INDEX]])
+      "ttkernel.signbit_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @selu_tile_init
+    func.func @selu_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "selu_tile_init"()
+      "ttkernel.selu_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @selu_tile
+    func.func @selu_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: %[[SCALE:.*]] = "emitc.constant"
+      %scale = arith.constant 1 : i32
+      // CHECK: %[[ALPHA:.*]] = "emitc.constant"
+      %alpha = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "selu_tile"(%[[DST_INDEX]], %[[SCALE]], %[[ALPHA]])
+      "ttkernel.selu_tile"(%dst_index, %scale, %alpha) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @frac_tile
+    func.func @frac_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "frac_tile"(%[[DST_INDEX]])
+      "ttkernel.frac_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @trunc_tile
+    func.func @trunc_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "trunc_tile"(%[[DST_INDEX]])
+      "ttkernel.trunc_tile"(%dst_index) : (i32) -> ()
       return
     }
 
@@ -956,28 +1185,28 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_init
-    func.func @logical_not_unary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_init"()
-      "ttkernel.logical_not_unary_tile_init"() : () -> ()
+    // CHECK-LABEL: func @logical_not_tile_init
+    func.func @logical_not_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "logical_not_tile_init"()
+      "ttkernel.logical_not_tile_init"() : () -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile
-    func.func @logical_not_unary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @logical_not_tile
+    func.func @logical_not_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile"(%dst0_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float16_b">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<bf16>} : (i32) -> ()
       return
     }
 
-    // CHECK-LABEL: func @logical_not_unary_tile_int32
-    func.func @logical_not_unary_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+    // CHECK-LABEL: func @logical_not_tile_int32
+    func.func @logical_not_tile_int32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "logical_not_unary_tile_int32"(%[[DST0_INDEX]])
-      "ttkernel.logical_not_unary_tile_int32"(%dst0_index) : (i32) -> ()
+      // CHECK: emitc.call_opaque "logical_not_tile"(%[[DST0_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.logical_not_tile"(%dst0_index) {dtype = #ttcore.supportedDataTypes<si32>} : (i32) -> ()
       return
     }
 
@@ -996,6 +1225,17 @@ module {
       %val = arith.constant 1.0 : f32
       // CHECK: emitc.call_opaque "fill_tile"(%[[DST_INDEX]], %[[VAL]])
       "ttkernel.fill_tile"(%dst_index, %val) : (i32, f32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @fill_tile_int
+    func.func @fill_tile_int() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: %[[VAL:.*]] = "emitc.constant"
+      %val = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "fill_tile_int"(%[[DST_INDEX]], %[[VAL]]) {template_args = [#emitc.opaque<"DataFormat::Int32">]}
+      "ttkernel.fill_tile_int"(%dst_index, %val) : (i32, i32) -> ()
       return
     }
 
@@ -1495,7 +1735,7 @@ module {
       // CHECK: %[[SEMAPHORE_ID:.*]] = "emitc.constant"
       %semaphore_id = arith.constant 2 : i32
       // CHECK: emitc.call_opaque "get_semaphore"(%[[SEMAPHORE_ID]])
-      "ttkernel.get_semaphore"(%semaphore_id) : (i32) -> (!ttkernel.semaphore)
+      "ttkernel.get_semaphore"(%semaphore_id) : (i32) -> (!ttkernel.local_semaphore)
       return
     }
 
@@ -1527,27 +1767,27 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @noc_semaphore_wait
-    func.func @noc_semaphore_wait() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-LABEL: func @semaphore_wait
+    func.func @semaphore_wait() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
       %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_wait"(%[[ADDR]], %[[VAL]])
-      "ttkernel.noc_semaphore_wait"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      // CHECK: emitc.call_opaque "experimental::semaphore_wait"(%[[ADDR]], %[[VAL]])
+      "ttkernel.experimental::semaphore_wait"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
       return
     }
 
-    // CHECK-LABEL: func @noc_semaphore_wait_min
-    func.func @noc_semaphore_wait_min() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-LABEL: func @semaphore_wait_min
+    func.func @semaphore_wait_min() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
       %temp = arith.constant 262400 : i32
       %addr = "ttkernel.reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%temp) : (i32) -> (!ttkernel.l1_addr_ptr) // a dummy l1 addr ptr
       // CHECK: %[[VAL:.*]] = "emitc.constant"
       %val = arith.constant 123 : i32
-      // CHECK: emitc.call_opaque "noc_semaphore_wait_min"(%[[ADDR]], %[[VAL]])
-      "ttkernel.noc_semaphore_wait_min"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
+      // CHECK: emitc.call_opaque "experimental::semaphore_wait_min"(%[[ADDR]], %[[VAL]])
+      "ttkernel.experimental::semaphore_wait_min"(%addr, %val) : (!ttkernel.l1_addr_ptr, i32) -> ()
       return
     }
 
@@ -1555,7 +1795,7 @@ module {
     func.func @noc_semaphore_set_multicast() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
-      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.semaphore) // a dummy l1 addr
+      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.local_semaphore) // a dummy l1 addr
       // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
@@ -1567,7 +1807,7 @@ module {
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast"(%src_addr, %dst_mcast_addr, %num_dsts) <{
           linked = false, multicast_path_reserve = true
-        }> : (!ttkernel.semaphore, !ttkernel.noc_addr, i32) -> ()
+        }> : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }
 
@@ -1575,7 +1815,7 @@ module {
     func.func @noc_semaphore_set_multicast_loopback_src() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"
       %temp1 = arith.constant 2 : i32
-      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.semaphore) // a dummy l1 addr
+      %src_addr = "ttkernel.get_semaphore"(%temp1) : (i32) -> (!ttkernel.local_semaphore) // a dummy l1 addr
       // CHECK: %[[DST_MCAST_ADDR:.*]] = emitc.call_opaque "get_noc_addr"
       %x = arith.constant 1 : index
       %y = arith.constant 1 : index
@@ -1587,7 +1827,7 @@ module {
       // CHECK: emitc.call_opaque "noc_semaphore_set_multicast_loopback_src"(%[[SRC_ADDR]], %[[DST_MCAST_ADDR]], %[[NUM_DSTS]])
       "ttkernel.noc_semaphore_set_multicast_loopback_src"(%src_addr, %dst_mcast_addr, %num_dsts) <{
           linked = false, multicast_path_reserve = true
-        }> : (!ttkernel.semaphore, !ttkernel.noc_addr, i32) -> ()
+        }> : (!ttkernel.local_semaphore, !ttkernel.noc_addr, i32) -> ()
       return
     }
 

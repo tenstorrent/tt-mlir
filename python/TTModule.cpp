@@ -44,7 +44,7 @@ void populateTTModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
              uint32_t oobValValue, uint32_t memorySpaceValue,
-             uint32_t memoryLayoutValue, MlirAffineMap indexMap) {
+             uint32_t memoryLayoutValue) {
             // Use [0, -1] as default collapsed intervals.
             auto *context = unwrap(ctx);
             auto intervalType =
@@ -65,7 +65,7 @@ void populateTTModule(nb::module_ &m) {
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
-                collapsedIntervals, dimAlignments, unwrap(indexMap)));
+                collapsedIntervals, dimAlignments));
           })
       // 8-arg overload (full specification with index_map)
       .def_static(
@@ -73,14 +73,14 @@ void populateTTModule(nb::module_ &m) {
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
              uint32_t oobValValue, uint32_t memorySpaceValue,
              uint32_t memoryLayoutValue, MlirAttribute collapseIntervals,
-             std::vector<int64_t> dimAlignments, MlirAffineMap indexMap) {
+             std::vector<int64_t> dimAlignments) {
             return wrap(tt::ttcore::MetalLayoutAttr::get(
                 unwrap(ctx), ArrayRef<int64_t>(logicalShape),
                 static_cast<tt::ttcore::OOBVal>(oobValValue),
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
                 mlir::cast<DenseIntElementsAttr>(unwrap(collapseIntervals)),
-                ArrayRef<int64_t>(dimAlignments), unwrap(indexMap)));
+                ArrayRef<int64_t>(dimAlignments)));
           })
       .def("getLayout",
            [](MlirType &type)
@@ -371,6 +371,22 @@ void populateTTModule(nb::module_ &m) {
         return self.getChipChannels().vec();
       });
 
+  nb::enum_<tt::ttcore::Topology>(m, "Topology")
+      .value("Ring", tt::ttcore::Topology::Ring)
+      .value("Linear", tt::ttcore::Topology::Linear)
+      .value("Disabled", tt::ttcore::Topology::Disabled);
+
+  tt_attribute_class<tt::ttcore::TopologyAttr>(m, "TopologyAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, uint32_t topology) {
+            return wrap(tt::ttcore::TopologyAttr::get(
+                unwrap(ctx), static_cast<tt::ttcore::Topology>(topology)));
+          })
+      .def_prop_ro("topology_as_int", [](tt::ttcore::TopologyAttr self) {
+        return static_cast<uint32_t>(self.getValue());
+      });
+
   tt_attribute_class<tt::ttcore::MemorySpaceAttr>(m, "MemorySpaceAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t memorySpace) {
@@ -416,14 +432,18 @@ void populateTTModule(nb::module_ &m) {
           })
       .def_static("get",
                   [](MlirContext ctx, std::vector<int64_t> gridShape,
-                     MlirAffineMap workerGridMapping, MlirAffineMap l1Map,
+                     MlirAffineMap virtToPhysicalMap,
+                     MlirAffineMap physicalToVirtMap, MlirAffineMap l1Map,
                      MlirAffineMap dramMap, std::vector<int64_t> meshShape,
-                     std::vector<unsigned> chipIds) {
+                     std::vector<unsigned> chipIds,
+                     std::vector<tt::ttcore::Topology> meshTopology) {
                     return wrap(tt::ttcore::DeviceAttr::get(
                         unwrap(ctx),
                         tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
-                                                  unwrap(workerGridMapping)),
-                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds));
+                                                  unwrap(virtToPhysicalMap),
+                                                  unwrap(physicalToVirtMap)),
+                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
+                        meshTopology));
                   })
       .def("unwrap",
            [](const MlirAttribute &self) {
@@ -440,8 +460,14 @@ void populateTTModule(nb::module_ &m) {
                    [](const tt::ttcore::DeviceAttr &self) {
                      return self.getMeshShape().vec();
                    })
-      .def_prop_ro("chip_ids", [](const tt::ttcore::DeviceAttr &self) {
-        return self.getChipIds().vec();
+      .def_prop_ro("chip_ids",
+                   [](const tt::ttcore::DeviceAttr &self) {
+                     return self.getChipIds().vec();
+                   })
+      .def_prop_ro("mesh_topology", [](const tt::ttcore::DeviceAttr &self) {
+        auto topologies = self.getMeshTopology();
+        return std::vector<tt::ttcore::Topology>(topologies.begin(),
+                                                 topologies.end());
       });
 
   nb::enum_<mlir::tt::ttcore::TensorMemoryLayout>(m, "TensorMemoryLayout")
@@ -567,24 +593,16 @@ void populateTTModule(nb::module_ &m) {
         return self.getValue();
       });
 
-  tt_attribute_class<tt::ttcore::RuntimeTensorShardingAttr>(
-      m, "RuntimeTensorShardingAttr")
-      .def_static("get",
-                  [](MlirContext ctx, MlirAttribute shardStatusAttr,
-                     MlirType localShape) {
-                    return wrap(tt::ttcore::RuntimeTensorShardingAttr::get(
-                        unwrap(ctx),
-                        mlir::cast<tt::ttcore::ShardStatusAttr>(
-                            unwrap(shardStatusAttr)),
-                        mlir::cast<RankedTensorType>(unwrap(localShape))));
-                  })
-      .def_prop_ro("shard_status",
-                   [](const tt::ttcore::RuntimeTensorShardingAttr &attr) {
-                     return attr.getShardStatus();
-                   })
-      .def_prop_ro("local_shape",
-                   [](const tt::ttcore::RuntimeTensorShardingAttr &attr) {
-                     return attr.getLocalShape().getShape().vec();
-                   });
+  tt_attribute_class<tt::ttcore::LocalShapeAttr>(m, "LocalShapeAttr")
+      .def_static(
+          "get",
+          [](MlirContext ctx, MlirType localShape) {
+            return wrap(tt::ttcore::LocalShapeAttr::get(
+                unwrap(ctx), mlir::cast<RankedTensorType>(unwrap(localShape))));
+          })
+      .def_prop_ro("local_shape", [](const tt::ttcore::LocalShapeAttr &attr) {
+        return std::vector<int64_t>(attr.getLocalShape().getShape().begin(),
+                                    attr.getLocalShape().getShape().end());
+      });
 }
 } // namespace mlir::ttmlir::python

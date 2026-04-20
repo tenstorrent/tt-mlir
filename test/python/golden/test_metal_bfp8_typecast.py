@@ -26,10 +26,6 @@ pytestmark = pytest.mark.frontend("ttir")
 
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.xfail(
-    reason="fp32->bf16 typecast fails due to LLK tiling issue. "
-    "See comment at: https://github.com/tenstorrent/tt-metal/issues/35302"
-)
 def test_triple_exp_f32(shape: Shape, target: str, request, device):
     pipeline_options = ["global-data-format-target=bfp_bf8"]
 
@@ -152,6 +148,16 @@ def test_matmul_f32(
         f"use-tile-matmul={use_tile_matmul}",
         f"global-data-format-target=bfp_bf8",
     ]
+    if shape in (
+        (512, 1024, 1024),
+        (512, 1024, 2048),
+        (1024, 1024, 1024),
+        (1024, 1024, 2048),
+    ):
+        # `auto` shrinks the local reduction panel for these larger matmuls.
+        # TODO (anuragsingh): Revert this to the default allocator policy once precision issues are fixed.
+        # Issue here: https://github.com/tenstorrent/tt-mlir/issues/7656
+        options.append("test-buffer-size-policy=max")
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
         target=target,

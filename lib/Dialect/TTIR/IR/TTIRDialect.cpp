@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -118,10 +119,50 @@ void TTIRDialect::initialize() {
 // TTIR constant materializer.
 //===----------------------------------------------------------------------===//
 
+// Check if the attribute represents zero.
+static bool isZeroAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isPosZero();
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isZero();
+  }
+  return false;
+}
+
+// Check if the attribute represents one.
+static bool isOneAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isExactlyValue(1.0);
+  }
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isOne();
+  }
+  return false;
+}
+
 ::mlir::Operation *TTIRDialect::materializeConstant(OpBuilder &builder,
                                                     Attribute value, Type type,
                                                     Location loc) {
   if (auto elementsAttr = mlir::dyn_cast<mlir::ElementsAttr>(value)) {
+    auto shapedType = mlir::dyn_cast<ShapedType>(type);
+    if (elementsAttr.isSplat() && shapedType) {
+      auto shape = llvm::to_vector_of<int32_t>(shapedType.getShape());
+      auto splatValue = elementsAttr.getSplatValue<mlir::Attribute>();
+      if (isZeroAttr(splatValue)) {
+        return builder.create<ttir::ZerosOp>(loc, type, shape);
+      }
+      if (isOneAttr(splatValue)) {
+        return builder.create<ttir::OnesOp>(loc, type, shape);
+      }
+
+      // Canonicalize splat constant to FullOp. The value first needs to be
+      // converted to i32 or f32, which will not reduce precision because we
+      // don't use larger types in TTIR.
+      if (auto fillValueAttr = utils::splatToFillValue(builder, elementsAttr)) {
+        return builder.create<ttir::FullOp>(loc, type, shape, fillValueAttr);
+      }
+    }
     return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
   }
   return {};

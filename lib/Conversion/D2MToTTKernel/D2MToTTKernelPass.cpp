@@ -6,9 +6,11 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -71,16 +73,17 @@ struct ConvertD2MToTTKernel
 
     target.addLegalOp<d2m::ToDeviceOp>();
     target.addLegalOp<d2m::ToHostOp>();
-    target.addLegalOp<d2m::StreamLayoutOp>();
     target.addLegalOp<d2m::ViewLayoutOp>();
     target.addLegalOp<d2m::GenericOp>();
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
+    target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::SpatialOp>();
 
     if (ttnnMode) {
       target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
       target.addLegalDialect<ttnn::TTNNDialect>();
-      target.addLegalOp<d2m::FullOp>();
     }
 
     // Allow loads and stores to integer element types.
@@ -97,10 +100,8 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<memref::GlobalOp>();
     target.addLegalOp<memref::GetGlobalOp>();
 
-    target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-      return !op->hasAttr(d2m::ThreadAttr::name) ||
-             (op.getFunctionType().getNumInputs() == 0);
-    });
+    target.addDynamicallyLegalOp<func::FuncOp>(
+        [&](func::FuncOp op) { return !op->hasAttr(d2m::ThreadAttr::name); });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
@@ -134,12 +135,12 @@ struct ConvertD2MToTTKernel
     typeConverter.addConversion([](d2m::CBType cb) -> Type {
       return ttkernel::CBType::get(cb.getUnderlyingAs<MemRefType>());
     });
-    typeConverter.addConversion([](d2m::SemaphoreType semaphore) {
-      return ttkernel::SemaphoreType::get(semaphore.getContext());
+    typeConverter.addConversion([](d2m::LocalSemaphoreType semaphore) {
+      return ttkernel::LocalSemaphoreType::get(semaphore.getContext());
     });
-
-    d2m::AssociatedDMAWaits associatedDMAWaits =
-        getAnalysis<d2m::AssociatedDMAWaits>();
+    typeConverter.addConversion([](d2m::GlobalSemaphoreType globalSemaphore) {
+      return ttkernel::L1AddrType::get(globalSemaphore.getContext());
+    });
 
     d2m::CBProducerConsumer cbProducerConsumer =
         getAnalysis<d2m::CBProducerConsumer>();
@@ -148,10 +149,40 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  associatedDMAWaits, cbProducerConsumer,
-                                  ttnnMode);
+                                  cbProducerConsumer, ttnnMode);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
+
+    // If there is any fabric related writes,
+    // insert fabric connection manager ops and setup fabric connections at the
+    // start of the function and close at the end.
+    ModuleOp moduleOp = getOperation();
+    moduleOp->walk([&](func::FuncOp func) {
+      bool fabric_write_present = false;
+      func.walk([&](d2m::DMAWriteOp dmaWriteOp) {
+        if (dmaWriteOp.getStartDevice().size() > 0) {
+          fabric_write_present = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+
+      if (fabric_write_present) {
+        OpBuilder builder(func.getContext());
+        builder.setInsertionPointToStart(&func.getBody().front());
+        auto fabricConnectionManager =
+            builder
+                .create<ttkernel::CreateFabricConnectionManagerOp>(
+                    func.getLoc())
+                .getResult();
+        builder.create<ttkernel::SetupFabricConnectionsOp>(
+            func.getLoc(), fabricConnectionManager);
+        Operation *terminator = func.getBody().front().getTerminator();
+        builder.setInsertionPoint(terminator);
+        builder.create<ttkernel::CloseFabricConnectionsOp>(
+            func.getLoc(), fabricConnectionManager);
+      }
+    });
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {

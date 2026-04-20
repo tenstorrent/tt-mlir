@@ -14,7 +14,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// This rewrite pattern is used to apply a specifi memory config to the input
+// This rewrite pattern is used to apply a specific memory config to the input
 // tensor (fill value) of the ttnn.paged_update_cache op. The input tensor must
 // be height sharded, but in addition to that, must fit onto an exact number of
 // rows in the physical grid.
@@ -41,12 +41,13 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
   // physical grid layout, and generate a grid. For example, with a virtual grid
   // of [32, 1] and a physical grid of [8, 8], this affine map would produce a
   // core range of [0, 0] to [7, 3].
-  auto affineMap = mlir::tt::ttnn::optimizer_utils::
-      createSingleDeviceVirtualToPhysicalAffineMap(
+  auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
+      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
           rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded,
           physicalGrid);
-  auto grid = mlir::tt::ttcore::GridAttr::get(rewriter.getContext(),
-                                              virtualGridSize, affineMap);
+  auto grid =
+      mlir::tt::ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
+                                      virtToPhysicalMap, physicalToVirtMap);
   auto memLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded);
 

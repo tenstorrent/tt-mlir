@@ -25,7 +25,7 @@ The overall system integrates these components:
 >
 > - "AI Model", with an arrow labeled "Model binary file" to the next node.
 > - "TVM", with an arrow labeled "PyBUDA Graph" to the next node.
-> - "TT-Forge-FE", with an unlabeled arrow to the next node.
+> - "TT-Forge-ONNX", with an unlabeled arrow to the next node.
 > - "TT-MLIR", with an arrow labeled "MLIR file (.ttir, etc...)" to the "TT-Adapter" node on the next group.
 >
 > Vertical group at the right side, unlabeled, with nodes from top down connected to each other by arrows, and with some arrows going to the next group.
@@ -36,7 +36,7 @@ The overall system integrates these components:
 > - "TTRT", with an arrow labeled "HTTPS Server Call" to the next node.
 > - "Tracy Results", with an arrow labeled "Performance Trace" to the "UI" node on the next group.
 >
-> Rectangular group labeled "Client Side", below "Host side" and left of unlabeled group, with interconected nodes by arrows, and with some arrows going to the previous group.
+> Rectangular group labeled "Client Side", below "Host side" and left of unlabeled group, with interconnected nodes by arrows, and with some arrows going to the previous group.
 > The nodes are:
 >
 > - "Model Explorer", with an arrow labeled "HTTPS API (Overrides, MLIR -> JSON, etc...)" to and from the "TT-Adapter" node on the previous group, and an arrow labeled "Overrides (legal configurations)" to and from the next node.
@@ -45,9 +45,9 @@ The overall system integrates these components:
 
 </details>
 
-### [TT-Forge-FE (Front End)](https://docs.tenstorrent.com/tt-forge-fe/)
+### [TT-Forge-ONNX (Front End)](https://docs.tenstorrent.com/tt-forge-onnx/)
 
-TT-Forge FE is _currently_ the primary frontend which uses TVM to transform conventional AI models into the MLIR in the TTIR Dialect.
+TT-Forge ONNX is frontend which uses TVM to transform conventional AI models into the MLIR in the TTIR Dialect for ONNX and paddlepaddle models.
 
 **Ingests**: AI Model defined in PyTorch, TF, etc…
 **Emits**: Rudimentary TTIR Module consisting of Ops from AI Model.

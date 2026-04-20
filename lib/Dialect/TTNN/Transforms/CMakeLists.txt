@@ -1,5 +1,11 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
+        set(OPMODEL_SRCS
+                Fusing/RoPEFusingPattern.cpp
+                Fusing/SDPAFusingPattern.cpp
+                Fusing/SplitQKVFusingPatterns.cpp
+                Fusing/TopKFusingPattern.cpp
+                Fusing/FusionValidator.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -7,47 +13,62 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/DevicePassesWrapper.cpp
+        OptimizerPasses/GreedyL1SpillManagement.cpp
+        OptimizerPasses/GreedyMemoryLayoutPropagation.cpp
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
         TTNNCollaspeD2M.cpp
         TTNNCollectPerfMetrics.cpp
         TTNND2MFusing.cpp
+        TTNNFileSplit.cpp
+        TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
+        Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
+        Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
+        Decomposition/TTNNDecompositionPass.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
+        ${OPMODEL_SRCS}
         TTNNLayout.cpp
+        TTNNConfigureCCLOps.cpp
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
         TTNNSetComputeKernelConfig.cpp
+        TTNNMemoryManagement.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
-        TTNNWeightBFP8Conversion.cpp
+        TTNNWeightDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
-        Workarounds/Decomposition/ArgMaxOpRewritePattern.cpp
-        Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
-        Workarounds/Decomposition/ConcatOpDecompositionRewritePattern.cpp
+        Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
+        Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
-        Workarounds/Decomposition/ConcatOpReshapeRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
-        Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
-        Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
+        Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.cpp
+        Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
-        Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
+        Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
+        Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.cpp
+        Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
+        Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.cpp
+        Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
+        Workarounds/Decomposition/LayerNormPreAllGatherZeroPadRewritePattern.cpp
+        Workarounds/Decomposition/LayerNormPostAllGatherDecompositionRewritePattern.cpp
+        Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
-        Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
-        Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp
+        Workarounds/Decomposition/PadHighDimRewritePattern.cpp
+        Workarounds/Decomposition/ProdOpRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
 
         ADDITIONAL_HEADER_DIRS
@@ -62,10 +83,12 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         PUBLIC
         MLIRTTNNDialect
         MLIRTTNNAnalysis
+        MLIRTTNNDiagnostics
         MLIRTTCoreDialect
         PRIVATE
         TTMLIRTTIRToTTNN
         MLIRTTNNValidation
         TTMLIRTTNNToEmitC
+        TTMLIRTTIRToEmitPy
         TTMLIRTTNNToEmitPy
         )

@@ -511,6 +511,23 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
   }
 }
 
+uint32_t getNumShards(Tensor tensor) {
+  return std::visit(
+      utils::overloaded{
+          [&](const TensorDesc &) -> uint32_t { return 1; },
+          [&](const HostBuffer &) -> uint32_t { return 1; },
+          [&](const DistributedHostBuffer &buffer) -> uint32_t {
+            // Count populated shards.
+            return static_cast<uint32_t>(buffer->shard_coords().size());
+          },
+          [&](const MeshBuffer &buffer) -> uint32_t {
+            // MeshBuffer spans the full mesh shape.
+            return static_cast<uint32_t>(buffer->device()->shape().mesh_size());
+          },
+      },
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+}
+
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   ::tt::runtime::ttmetal::wait(tensor);
   std::visit(utils::overloaded{
@@ -541,9 +558,9 @@ static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
   }
 
   // Recursive case.
-  // 1. Get the indicies of all the rows of a single slice of the current dim.
-  const auto sliceIndicies = getStridedRowStartIndices(shape, strides, dim + 1);
-  const size_t sliceRows = sliceIndicies.size();
+  // 1. Get the indices of all the rows of a single slice of the current dim.
+  const auto sliceIndices = getStridedRowStartIndices(shape, strides, dim + 1);
+  const size_t sliceRows = sliceIndices.size();
   // 2. Generate indices for all the slices of the current dim.
   std::vector<T> indices(sliceRows * dimSize);
   // 3. The distance between the start of the first row of two neighboring
@@ -551,7 +568,7 @@ static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
   for (T i = 0; i < dimSize; i++) {
     const T offset = i * strides[dim];
     for (size_t j = 0; j < sliceRows; j++) {
-      indices[i * sliceRows + j] = sliceIndicies[j] + offset;
+      indices[i * sliceRows + j] = sliceIndices[j] + offset;
     }
   }
   return indices;
