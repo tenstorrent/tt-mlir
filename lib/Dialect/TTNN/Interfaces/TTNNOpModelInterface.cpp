@@ -484,6 +484,22 @@ AsinOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// AsinhOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AsinhOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return detail::getUnaryOpConstraints(*this, inputs, opConfig);
+}
+
+llvm::Expected<size_t>
+AsinhOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
+  return detail::getUnaryOpRuntime(*this, inputs, opConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // AbsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -3328,6 +3344,23 @@ AllToAllCombineOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SelectiveReduceCombineOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+SelectiveReduceCombineOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t> SelectiveReduceCombineOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // MoeExpertTokenRemapOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -4338,6 +4371,27 @@ RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, getDtype(), getUse_2dCoreGrid(),
       opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// DistributedLayerNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+// DistributedLayerNormOp decomposes into multiple ops (CCL + layer norm), and
+// there is no equivalent fused op in the TTNN library, so op model is not
+// supported.
+
+llvm::Expected<op_model::OpConstraints>
+DistributedLayerNormOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
+}
+
+llvm::Expected<size_t>
+DistributedLayerNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
 }
 
 //===----------------------------------------------------------------------===//

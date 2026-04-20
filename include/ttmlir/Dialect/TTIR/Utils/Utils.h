@@ -253,6 +253,15 @@ int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
 // Dimension can be negative (counted from back, e.g. -1 for last dimension).
 bool preservesDim(mlir::Operation *op, int64_t dim);
 
+// If `originalOp` consumes values that were typecasted from the same source
+// dtype, add an inverse typecast pair after `newValue`. The first typecast
+// converts `newValue` back to that common source dtype and is returned for new
+// uses, while the inverse typecast preserves the original dtype for existing
+// users of `originalOp`.
+mlir::Value revertTypecastFolding(mlir::PatternRewriter &rewriter,
+                                  mlir::Operation *originalOp,
+                                  mlir::Value newValue);
+
 // In tt-metal, implicit broadcast is supported up to rank 5.
 // For rank >= 6, the device ops require a_dim == b_dim (and c_dim) on all
 // higher axes.

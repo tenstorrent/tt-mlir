@@ -414,6 +414,22 @@ public:
       indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
     }
 
+    // tt-metal reshapes indices from (batch, seq_len) to (batch, 1, 1, seq_len)
+    // and asserts batch * seq_len == number of gradient vectors which are
+    // further embedded into the weight tensor. For 1D indices (N,) it takes
+    // first_dim == last_dim == N, producing (N, 1, 1, N) and the assert fails
+    // (N*N != N). Unsqueeze to 2D: (N,) -> (1, N) so tt-metal sees
+    // (1, 1, 1, N).
+    if (indicesType.getRank() == 1) {
+      llvm::SmallVector<int64_t, 2> unsqueezedShape{1,
+                                                    indicesType.getDimSize(0)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices),
+          unsqueezedShape, rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_unsqueeze_indices"));
+      indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+    }
+
     // Pad the sequence length to be divisible by TILE_WIDTH (32).
     constexpr int64_t TILE_WIDTH = 32;
     int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
@@ -1296,6 +1312,26 @@ public:
 } // namespace
 
 namespace {
+class DistributedLayerNormOpConversionPattern
+    : public OpConversionPattern<ttir::DistributedLayerNormOp> {
+public:
+  using OpConversionPattern<ttir::DistributedLayerNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DistributedLayerNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    rewriter.replaceOpWithNewOp<ttnn::DistributedLayerNormOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getResidual(), device,
+        static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class LayerNormOpConversionPattern
     : public OpConversionPattern<ttir::LayerNormOp> {
 public:
@@ -1774,6 +1810,27 @@ public:
         op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
         op.getOutputShardDimAttr(),
         /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SelectiveReduceCombineOpConversionPattern
+    : public OpConversionPattern<ttir::SelectiveReduceCombineOp> {
+public:
+  using OpConversionPattern<
+      ttir::SelectiveReduceCombineOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SelectiveReduceCombineOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getDenseInputTensor(), adaptor.getDenseActivationsTensor(),
+        adaptor.getDenseTokenMapsTensor(), adaptor.getDenseTokenCountsTensor(),
+        op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
+        op.getSelectExpertsKAttr(), op.getExpertsAttr());
     return success();
   }
 };
@@ -3713,6 +3770,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::CeilOp, ttnn::CeilOp>,
            ElementwiseOpConversionPattern<ttir::SinOp, ttnn::SinOp>,
            ElementwiseOpConversionPattern<ttir::AsinOp, ttnn::AsinOp>,
+           ElementwiseOpConversionPattern<ttir::AsinhOp, ttnn::AsinhOp>,
            ElementwiseOpConversionPattern<ttir::CosOp, ttnn::CosOp>,
            ElementwiseOpConversionPattern<ttir::AcosOp, ttnn::AcosOp>,
            ElementwiseOpConversionPattern<ttir::Expm1Op, ttnn::Expm1Op>,
@@ -3757,6 +3815,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
+           DistributedLayerNormOpConversionPattern,
            LayerNormOpConversionPattern,
            GroupNormOpConversionPattern,
            MatmulOpConversionPattern,
@@ -3764,6 +3823,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllDispatchOpConversionPattern,
            AllToAllDispatchMetadataOpConversionPattern,
            AllToAllCombineOpConversionPattern,
+           SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,

@@ -457,6 +457,161 @@ def test_distributed_rms_norm(
     )
 
 
+# Distributed layer norm tests
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (1, 1, 32, 128),
+        (1, 1, 32, 512),
+        (1, 1, 128, 128),
+        (1, 1, 32, 68),
+        (1, 1, 37, 72),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("has_weight", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+@pytest.mark.parametrize("has_residual", [True, False])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize("cluster_axis", [1])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_distributed_layer_norm(
+    shape: Shape,
+    has_weight: bool,
+    has_bias: bool,
+    has_residual: bool,
+    mesh_shape: Tuple[int, int],
+    cluster_axis: int,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test distributed layer normalization across mesh devices.
+
+    Verifies the distributed pipeline:
+    1. Optional residual addition (input + residual)
+    2. layer_norm_pre_all_gather: compute local partial statistics (Welford)
+    3. all_gather: exchange statistics across devices along cluster_axis
+    4. layer_norm_post_all_gather: normalize using global statistics,
+       apply optional weight (gamma) and bias (beta)
+    """
+    shapes = [shape]
+    weight_shape = (shape[-1],)
+    if has_weight:
+        shapes.append(weight_shape)
+    if has_bias:
+        shapes.append(weight_shape)
+    if has_residual:
+        shapes.append(shape)
+
+    # Shard dimensions for width sharding (dim 3)
+    shard_dims = [-1, 3]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.bfloat16] * len(shapes))
+        def distributed_layer_norm_test(
+            *inputs, unit_attrs: Optional[List[str]] = None
+        ):
+            builder = inputs[-1]
+
+            in0 = inputs[0]
+            weight = None
+            bias = None
+            residual = None
+            input_idx = 1
+
+            if has_weight:
+                weight = inputs[input_idx]
+                input_idx += 1
+            if has_bias:
+                bias = inputs[input_idx]
+                input_idx += 1
+            if has_residual:
+                residual = inputs[input_idx]
+
+            # Shard input across devices along last dim
+            shard_shape_input = make_shard_shape(len(shape), shard_dims, mesh_shape)
+            sharded_input = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_input,
+                shard_dims=shard_dims,
+            )
+
+            # Shard weight by last dim if present
+            sharded_weight = None
+            if weight is not None:
+                weight_shard_dims = [-1, 0]
+                weight_shard_shape = make_shard_shape(
+                    len(weight_shape), weight_shard_dims, mesh_shape
+                )
+                sharded_weight = builder.mesh_shard(
+                    weight,
+                    shard_direction=MeshShardDirection.FullToShard.value,
+                    shard_type=MeshShardType.Devices.value,
+                    shard_shape=weight_shard_shape,
+                    shard_dims=weight_shard_dims,
+                )
+
+            # Shard bias by last dim if present
+            sharded_bias = None
+            if bias is not None:
+                bias_shard_dims = [-1, 0]
+                bias_shard_shape = make_shard_shape(
+                    len(weight_shape), bias_shard_dims, mesh_shape
+                )
+                sharded_bias = builder.mesh_shard(
+                    bias,
+                    shard_direction=MeshShardDirection.FullToShard.value,
+                    shard_type=MeshShardType.Devices.value,
+                    shard_shape=bias_shard_shape,
+                    shard_dims=bias_shard_dims,
+                )
+
+            # Shard residual if present
+            sharded_residual = None
+            if residual is not None:
+                sharded_residual = builder.mesh_shard(
+                    residual,
+                    shard_direction=MeshShardDirection.FullToShard.value,
+                    shard_type=MeshShardType.Devices.value,
+                    shard_shape=shard_shape_input,
+                    shard_dims=shard_dims,
+                )
+
+            result = builder.distributed_layer_norm(
+                sharded_input,
+                cluster_axis=cluster_axis,
+                weight=sharded_weight,
+                bias=sharded_bias,
+                residual=sharded_residual,
+                epsilon=1e-5,
+            )
+
+            gathered = builder.mesh_shard(
+                result,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape_input,
+                shard_dims=shard_dims,
+            )
+
+            return gathered
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )
+
+
 # Group norm tests
 
 

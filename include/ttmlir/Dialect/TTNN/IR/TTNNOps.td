@@ -486,6 +486,14 @@ def TTNN_AsinOp: TTNN_ElementwiseUnaryOp<"asin"> {
     }];
 }
 
+def TTNN_AsinhOp: TTNN_ElementwiseUnaryOp<"asinh"> {
+    let summary = "Eltwise inverse hyperbolic sine op.";
+    let description = [{
+      Performs an elementwise inverse hyperbolic sine (`asinh`) on the input
+      tensor. Accepts all real-valued inputs. Floating-point tensors.
+    }];
+}
+
 def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{
@@ -1723,6 +1731,29 @@ def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
     let hasVerifier = 1;
 }
 
+def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine"> {
+    let summary = "Reduce and combine phase of the MoE pipeline.";
+    let description = [{
+      Takes dense blocks of expert-computed tokens from the MoE compute kernel,
+      sparsifies them, and sends tokens back to their originating devices via
+      fabric.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$dense_input_tensor,
+                         AnyRankedTensor:$dense_activations_tensor,
+                         AnyRankedTensor:$dense_token_maps_tensor,
+                         AnyRankedTensor:$dense_token_counts_tensor,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$batch_size,
+                         UI32Attr:$seq_size,
+                         UI32Attr:$select_experts_k,
+                         UI32Attr:$experts);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap"> {
     let summary = "Remap global expert routing to local device experts with sparsity.";
     let description = [{
@@ -2477,6 +2508,45 @@ def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
     let hasVerifier = 1;
 }
 
+def TTNN_DistributedLayerNormOp : TTNN_Op<"distributed_layer_norm",
+    [AttrSizedOperandSegments]> {
+    let summary = "Distributed layer normalization with all-gather op.";
+    let description = [{
+      Intermediate TTNN op for distributed layer normalization across mesh devices.
+
+      Always decomposes into:
+        layer_norm_pre_all_gather + all_gather + layer_norm_post_all_gather.
+
+      Does not reach serialization — no flatbuffer/runtime/EmitC needed.
+
+      Inputs:
+        - input: Input tensor, width-sharded across mesh devices along the
+            normalized (last) dimension.
+        - weight: Optional gamma (scale) tensor applied after normalization.
+        - bias: Optional beta (shift) tensor applied after normalization.
+        - residual: Optional residual tensor to add to input before
+            normalization. norm_input = input + residual.
+
+      Attributes:
+        - cluster_axis: Mesh dimension (0 or 1) along which to all-gather
+            the partial statistics across devices.
+        - epsilon: Small constant added to the denominator for numerical
+            stability. Defaults to 1e-05.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$residual,
+                         TTNN_Device:$device,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{
@@ -3132,6 +3202,7 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {

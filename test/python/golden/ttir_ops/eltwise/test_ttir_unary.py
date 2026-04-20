@@ -50,6 +50,10 @@ def asin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return asin_0
 
 
+def asinh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.asinh(in0, unit_attrs=unit_attrs)
+
+
 def atan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.atan(in0, unit_attrs=unit_attrs)
 
@@ -245,6 +249,7 @@ unary_ops = [
     abs,
     acos | Marks(pytest.mark.skip_config(["ttmetal"])),
     asin | Marks(pytest.mark.skip_config(["ttmetal"])),
+    asinh | Marks(pytest.mark.skip_config(["ttmetal"])),
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil,
@@ -267,7 +272,7 @@ unary_ops = [
     rsqrt,
     sigmoid,
     sign,
-    hardsigmoid | Marks(pytest.mark.skip_config(["emitpy"])),
+    hardsigmoid,
     silu,
     sin,
     sqrt,
@@ -495,6 +500,7 @@ def test_unaligned_shapes_neg(
         **get_request_kwargs(request),
         target=target,
         device=device,
+        print_ir=False,
     )
 
 
@@ -504,6 +510,7 @@ def test_unaligned_shapes_neg(
 hoisted_unary_ops_float = [
     acos,
     asin,
+    asinh,
     atan,
     cbrt,
     ceil,

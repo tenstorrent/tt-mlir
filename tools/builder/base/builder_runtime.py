@@ -580,14 +580,6 @@ def memory(callback_runtime_config, binary, program_context, op_context):
     callback_runtime_config.memory_report.append(op_memory_report)
 
 
-def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def pre_op_get_callback_fn(callback_runtime_config):
-    return partial(pre_op_callback, callback_runtime_config)
-
-
 def post_op_callback(callback_runtime_config, binary, program_context, op_context):
     if callback_runtime_config.verify_intermediates:
         golden(callback_runtime_config, binary, program_context, op_context)
@@ -721,8 +713,7 @@ def execute_fb(
 
     if verify_intermediates or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
-            pre_op_get_callback_fn(callback_runtime_config),
-            post_op_get_callback_fn(callback_runtime_config),
+            post_op=post_op_get_callback_fn(callback_runtime_config),
         )
 
     for program_index in program_indices:
@@ -775,9 +766,8 @@ def execute_fb(
             )
             tt_runtime.runtime.wait(runtime_outputs)
         except Exception as e:
-            raise TTBuilderRuntimeException(e)
-        finally:
             tt_runtime.runtime.unregister_hooks()
+            raise TTBuilderRuntimeException(e)
 
         golden_outputs_torch = []
         outputs_torch = []
@@ -898,6 +888,9 @@ def execute_fb(
 
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
+
+    if verify_intermediates or dump_memory:
+        tt_runtime.runtime.unregister_hooks()
 
     return golden_report, output_tensors
 

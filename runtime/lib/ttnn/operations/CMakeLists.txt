@@ -17,6 +17,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch_metadata.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_expert_token_remap.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/selective_reduce_combine.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp

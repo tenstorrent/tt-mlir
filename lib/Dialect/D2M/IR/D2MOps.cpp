@@ -1879,9 +1879,9 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     // Block arguments may only be semaphore type.
     // Semaphore block args are added by PreallocateMcastSemaphores.
     for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::SemaphoreType>(arg.getType())) {
+      if (!mlir::isa<d2m::LocalSemaphoreType>(arg.getType())) {
         return emitOpError(
-            "region block arguments must be of 'semaphore' type");
+            "region block arguments must be of local semaphore type");
       }
 
       if (arg.getType() !=
@@ -2507,10 +2507,13 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
 
   // If the derived grid shape is different from the requested newGrid,
   // compute the reblocked types again with the adjusted grid.
+  //
+  // Skip this adjustment when only block factors are changing (no explicit
+  // new grid): the output grid already incorporates the new blocking and
+  // feeding it back would double-apply the block factors.
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
-  if (numOutputs > 0) {
-    // derive grid from first output index
+  if (numOutputs > 0 && newGrid.has_value()) {
     auto [derivedGridShape, _] = getGridAndShardFromShapedType(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
@@ -2756,7 +2759,7 @@ void d2m::GenericOp::getAsmBlockArgumentNames(
     Region &region, function_ref<void(Value, StringRef)> setNameFn) {
   int semIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
-    if (mlir::isa<SemaphoreType>(arg.getType())) {
+    if (mlir::isa<LocalSemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
     }
   }
