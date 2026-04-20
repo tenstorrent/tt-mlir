@@ -36,18 +36,19 @@ ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern::matchAndRewrite(
   // so dim 0 is the batch dim and dim 2 is the heads dim.
   int64_t batch = queryType.getShape()[1];
   int64_t numHeads = queryType.getShape()[2];
-  int64_t maskBatch = maskType.getShape()[0];
+  int64_t maskBatch = maskType.getShape()[1];
   int64_t maskHeads = maskType.getShape()[2];
 
   bool needBatchBroadcast = (maskBatch == 1 && batch > 1);
   bool needHeadBroadcast = (maskHeads == 1 && numHeads > 1);
+
   if (!needBatchBroadcast && !needHeadBroadcast) {
     return failure();
   }
 
   SmallVector<int64_t> targetShape(maskType.getShape());
   if (needBatchBroadcast) {
-    targetShape[0] = batch;
+    targetShape[1] = batch;
   }
   if (needHeadBroadcast) {
     targetShape[2] = numHeads;
