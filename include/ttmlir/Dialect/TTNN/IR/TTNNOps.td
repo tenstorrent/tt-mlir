@@ -1688,6 +1688,14 @@ def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine", [OpModel
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSelectiveReduceCombineOpOperandsWorkarounds(
+                getOperation());
+      }
+    }];
+
     let hasVerifier = 1;
 }
 

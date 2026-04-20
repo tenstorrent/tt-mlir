@@ -756,5 +756,13 @@ const std::set<mlir::StringRef>
         ttnn::TopKOp::getOperationName(),
         // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
         // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName()};
+        ttnn::PrepareConv3dWeightsOp::getOperationName(),
+        // Experimental MoE CCL ops require explicit operand workarounds
+        // (RowMajor/UInt16 inputs, HeightSharded L1 outputs) to satisfy the
+        // tt-metal kernel layout requirements. Without workarounds, the
+        // optimizer may assign DRAM INTERLEAVED TILE layouts that trip the
+        // runtime sharded-tilize assert (tt-metal#30541).
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName()};
 } // namespace mlir::tt::ttnn

@@ -95,12 +95,16 @@ executeConstraintQuery(Callable &callable) {
     device->disable_and_clear_program_cache();
     query = callable();
   } catch (const std::exception &e) {
-    // We expect that query will handle exceptions and set error message. If
-    // not, we should not continue.
-    // TODO(rpavlovicTT): This should be a TT_FATAL.
+    // Surface the exception as a regular constraint-query error so callers can
+    // treat the op as unsupported and continue (e.g. stop RM propagation,
+    // skip fusion) instead of aborting the process. tt-metal's allocator
+    // throws for unsupported buffer types such as SYSTEM_MEMORY, and we don't
+    // want those to crash the whole compilation.
     llvm::errs() << "Exception thrown during op constraints query: " << e.what()
                  << "\n";
-    assert(false && "Exception thrown during op constraints query");
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        std::string("Op constraint query threw exception: ") + e.what());
   }
 
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
