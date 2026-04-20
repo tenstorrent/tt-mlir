@@ -139,6 +139,11 @@ table SelectiveReduceCombineOp {
   seq_size: uint32;
   select_experts_k: uint32;
   experts: uint32;
+  // Optional pre-zeroed output buffer. Mirrors tt-metal's fused_decode.py
+  // which explicitly feeds a zero-filled DRAM tensor to the combine op so
+  // the sparse-writing kernel cannot leak garbage (-inf / NaN) from
+  // uninitialized DRAM slots.
+  optional_output_tensor: tt.target.ttnn.TensorRef;
 }
 
 table MoeExpertTokenRemapOp {

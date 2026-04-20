@@ -1297,11 +1297,17 @@ createOp(FlatbufferObjectCache &cache, SelectiveReduceCombineOp op) {
   auto output = cache.getOrCreateNoSharding(
       op.getResult(), tensorValueToFlatbuffer, std::nullopt);
 
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> optionalOutputTensor = 0;
+  if (op.getOptionalOutputTensor()) {
+    optionalOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalOutputTensor()));
+  }
+
   return ::tt::target::ttnn::CreateSelectiveReduceCombineOp(
       *cache.fbb, denseInputTensor, denseActivationsTensor,
       denseTokenMapsTensor, denseTokenCountsTensor, output, op.getHiddenSize(),
       op.getBatchSize(), op.getSeqSize(), op.getSelectExpertsK(),
-      op.getExperts());
+      op.getExperts(), optionalOutputTensor);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>

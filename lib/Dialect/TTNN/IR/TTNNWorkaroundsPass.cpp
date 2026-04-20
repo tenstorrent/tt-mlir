@@ -1303,6 +1303,10 @@ TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
 //      stride assert fires (actual=12 vs expected=16 for GPT-OSS-120B).)
 //   dense_token_maps_tensor:   ROW_MAJOR, UINT32, L1 INTERLEAVED
 //   dense_token_counts_tensor: ROW_MAJOR, UINT32, L1 INTERLEAVED
+//   optional_output_tensor:    ROW_MAJOR, BF16,  DRAM INTERLEAVED
+//     (pre-zeroed output buffer matching fused_decode.py; the combine kernel
+//      writes directly into this tensor via sparse writes, so the allocation
+//      layout/dtype must match what the kernel expects for the output.)
 TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
     createSelectiveReduceCombineOpOperandsWorkarounds(Operation *op) {
   auto interleaved = TensorMemoryLayoutAttr::get(
@@ -1327,7 +1331,33 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   rowMajorL1InterleavedUint32Workaround.tensorMemoryLayoutWorkaround =
       interleaved;
 
+  TTNNOperandWorkarounds rowMajorDramInterleavedBf16Workaround;
+  rowMajorDramInterleavedBf16Workaround.tensorLayoutWorkaround =
+      Layout::RowMajor;
+  rowMajorDramInterleavedBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  rowMajorDramInterleavedBf16Workaround.tensorBufferTypeWorkaround =
+      BufferType::DRAM;
+  rowMajorDramInterleavedBf16Workaround.tensorMemoryLayoutWorkaround =
+      interleaved;
+
   TTNNOperandWorkarounds noOutputWorkaround;
+
+  auto selectiveOp = cast<ttnn::SelectiveReduceCombineOp>(op);
+  if (selectiveOp.getOptionalOutputTensor()) {
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(
+            rowMajorL1ShardedBf16Workaround) // dense_input_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_activations_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_token_maps_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_token_counts_tensor
+        .addInputOperandWorkaround(
+            rowMajorDramInterleavedBf16Workaround) // optional_output_tensor
+        .addOutputOperandWorkaround(noOutputWorkaround); // result
+  }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(

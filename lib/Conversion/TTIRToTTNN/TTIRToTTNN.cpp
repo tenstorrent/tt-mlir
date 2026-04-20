@@ -1825,10 +1825,27 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SelectiveReduceCombineOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    Type resultType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+
+    // Pre-allocate a zero-filled output buffer for the combine kernel.
+    // The kernel performs *sparse writes* into this buffer — only (token,
+    // K-slot) pairs routed to valid experts are actually written. Unwritten
+    // slots must start as zero, otherwise uninitialized DRAM values (often
+    // -inf / NaN) propagate into the downstream score-weighted sum and
+    // all_reduce and corrupt the final logits. This mirrors tt-metal's
+    // fused_decode.py reference which explicitly feeds a zero-filled DRAM
+    // tensor to `ttnn.selective_reduce_combine`. The workaround pass forces
+    // the tensor to ROW_MAJOR / BF16 / DRAM-INTERLEAVED to match the
+    // kernel's expected output layout.
+    mlir::Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto zeroOutput = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), resultType, rewriter.getF32FloatAttr(0.0f), device);
+
     rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getDenseInputTensor(), adaptor.getDenseActivationsTensor(),
-        adaptor.getDenseTokenMapsTensor(), adaptor.getDenseTokenCountsTensor(),
+        op, resultType, adaptor.getDenseInputTensor(),
+        adaptor.getDenseActivationsTensor(), adaptor.getDenseTokenMapsTensor(),
+        adaptor.getDenseTokenCountsTensor(), zeroOutput.getResult(),
         op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
         op.getSelectExpertsKAttr(), op.getExpertsAttr());
     return success();

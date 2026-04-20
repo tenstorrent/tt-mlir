@@ -42,6 +42,17 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
   tt::tt_metal::CoreRangeSet muxCores(
       {tt::tt_metal::CoreRange({4, 0}, {5, 3})});
 
+  // The combine kernel performs sparse writes into the output buffer; the
+  // compiler (TTIRToTTNN) is responsible for providing a zero-initialized
+  // tensor via `optional_output_tensor` (emitted as `ttnn.full(0)` prior to
+  // this op). Without that pre-zeroing, uninitialized DRAM slots would leak
+  // -inf / NaN into the downstream score-weighted sum and all_reduce.
+  std::optional<::ttnn::Tensor> optionalOutputTensor;
+  if (op->optional_output_tensor()) {
+    optionalOutputTensor =
+        tensorPool.getTTNNTensorAndValidate(op->optional_output_tensor());
+  }
+
   ::ttnn::Tensor output = ::ttnn::prim::selective_reduce_combine(
       denseInputTensor, denseActivationsTensor, denseTokenMapsTensor,
       denseTokenCountsTensor, op->hidden_size(), op->batch_size(),
@@ -54,7 +65,7 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       /*worker_cores=*/workerCores,
       /*mux_core_range_set=*/muxCores,
       /*output_memory_config=*/std::nullopt,
-      /*optional_output_tensor=*/std::nullopt,
+      /*optional_output_tensor=*/optionalOutputTensor,
       /*optional_cross_device_semaphore=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
