@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -75,6 +76,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static TypecastRuleBook typecast;
   static RotaryEmbeddingRuleBook rotaryEmbedding;
   static SplitQKVRuleBook splitQKV;
+  static RmsNormRuleBook rmsNorm;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -107,6 +109,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(RotaryEmbeddingOp::getOperationName(), &rotaryEmbedding);
     reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
+    reg(RMSNormOp::getOperationName(), &rmsNorm);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;
