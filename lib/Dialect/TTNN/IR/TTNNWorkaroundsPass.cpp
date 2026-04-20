@@ -1285,6 +1285,62 @@ TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
       .addOutputOperandWorkaround(rowMajorL1ShardedWorkaround); // tilize_out_rm
 }
 
+// Factory method to create workarounds for selective_reduce_combine op
+// operands.
+// tt-metal kernel requirements (selective_reduce_combine_device_operation.cpp)
+// mirrored from the reference integration at
+// models/demos/gpt_oss/tt/experts_throughput/fused_decode.py which feeds the
+// combine with `moe_gpt_outputs[4]` (= the RM-layout tilize output):
+//   dense_input_tensor:        ROW_MAJOR, BF16, L1 HEIGHT_SHARDED
+//     (the RM tilize output `tilize_out_rm` produced by moe_gpt; forcing TILE
+//      here would insert a tilize between moe_gpt and combine which is
+//      incompatible with the reference flow.)
+//   dense_activations_tensor:  ROW_MAJOR, UINT32, L1 INTERLEAVED
+//     (the `activation_records` buffer produced by moe_gpt; the kernel expects
+//      the last dim to equal `total_tokens * aligned-row-stride`, where the
+//      row stride is aligned to the *L1* alignment (16B). If the compiler
+//      inserts a TILE+DRAM round-trip, the alignment becomes 32B and the
+//      stride assert fires (actual=12 vs expected=16 for GPT-OSS-120B).)
+//   dense_token_maps_tensor:   ROW_MAJOR, UINT32, L1 INTERLEAVED
+//   dense_token_counts_tensor: ROW_MAJOR, UINT32, L1 INTERLEAVED
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createSelectiveReduceCombineOpOperandsWorkarounds(Operation *op) {
+  auto interleaved = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  auto heightSharded = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::HeightSharded);
+
+  TTNNOperandWorkarounds rowMajorL1ShardedBf16Workaround;
+  rowMajorL1ShardedBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorL1ShardedBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  rowMajorL1ShardedBf16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  rowMajorL1ShardedBf16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
+
+  TTNNOperandWorkarounds rowMajorL1InterleavedUint32Workaround;
+  rowMajorL1InterleavedUint32Workaround.tensorLayoutWorkaround =
+      Layout::RowMajor;
+  rowMajorL1InterleavedUint32Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt32;
+  rowMajorL1InterleavedUint32Workaround.tensorBufferTypeWorkaround =
+      BufferType::L1;
+  rowMajorL1InterleavedUint32Workaround.tensorMemoryLayoutWorkaround =
+      interleaved;
+
+  TTNNOperandWorkarounds noOutputWorkaround;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(
+          rowMajorL1ShardedBf16Workaround) // dense_input_tensor
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedUint32Workaround) // dense_activations_tensor
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedUint32Workaround) // dense_token_maps_tensor
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedUint32Workaround) // dense_token_counts_tensor
+      .addOutputOperandWorkaround(noOutputWorkaround); // result
+}
+
 // Factory method to create workarounds for all_to_all_combine op operands.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
 // tt-metal CCL requirements:
@@ -1416,6 +1472,35 @@ TTNNOperandsWorkaroundsFactory::createTopKRouterGptOpOperandsWorkarounds() {
       .addInputOperandWorkaround(biasWorkaround)
       .addOutputOperandWorkaround(indicesOutputWorkaround)
       .addOutputOperandWorkaround(weightsOutputWorkaround);
+}
+
+// tt-metal's typecast device op rejects ROW_MAJOR input tensors whose
+// innermost padded dim is not a multiple of 32 (TILE_WIDTH). In those cases we
+// force the input to TILE layout so the compiler inserts a tilize before the
+// typecast; downstream consumers can untilize again if they need ROW_MAJOR.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTypecastOpOperandsWorkarounds(
+    ttnn::TypecastOp op) {
+  TTNNOperandWorkarounds inputWorkaround;
+  TTNNOperandWorkarounds outputWorkaround;
+
+  auto inputType = mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+  auto inputLayout = mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
+
+  if (!inputLayout.isTiled()) {
+    // For ROW_MAJOR tensors the logical innermost dim matches the padded
+    // innermost dim that tt-metal validates against TILE_WIDTH (32).
+    mlir::ArrayRef<int64_t> shape = inputType.getShape();
+    bool innermostAligned = !shape.empty() && shape.back() % 32 == 0;
+    if (!innermostAligned) {
+      inputWorkaround.tensorLayoutWorkaround = Layout::Tile;
+      outputWorkaround.tensorLayoutWorkaround = Layout::Tile;
+    }
+  }
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputWorkaround);
 }
 
 template TTNNOperandsWorkarounds

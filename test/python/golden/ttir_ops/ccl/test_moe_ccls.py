@@ -767,12 +767,7 @@ def test_moe_dispatch_metadata_moe_gpt(
     # tile_mask_full is intentionally ignored: tilize_out / tilize_out_rm are
     # internal staging buffers whose layout is not directly modeled by the
     # golden for E_per_device > 2.
-    (
-        tc_mask_full,
-        act_mask_full,
-        et_mask_full,
-        _,
-    ) = _compute_moe_gpt_valid_masks(
+    (tc_mask_full, act_mask_full, et_mask_full, _,) = _compute_moe_gpt_valid_masks(
         valid_indices,
         valid_mapping,
         mesh_shape,
@@ -1016,13 +1011,7 @@ def test_moe_dispatch_metadata_moe_gpt(
             # them directly (test_moe_gpt_e2e.py comments: "only combine
             # cores have data ... Direct verification would read garbage").
             # Drop them from the returned outputs.
-            (
-                token_counts,
-                activation_records,
-                token_indices,
-                _,
-                _,
-            ) = builder.moe_gpt(
+            (token_counts, activation_records, token_indices, _, _,) = builder.moe_gpt(
                 input_2d,
                 indices_out,
                 scores_out,
