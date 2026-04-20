@@ -151,7 +151,7 @@ template <>
 struct OpModel<ErfOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfOp> {};
 
 template <>
-struct OpModel<ErfcOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfcOp> {};
+struct OpModel<ErfcOp> : UnaryEltwiseOpModel<ErfcOp> {};
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
