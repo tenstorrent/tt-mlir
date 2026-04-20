@@ -306,10 +306,33 @@ public:
         return false;
       }
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
-          return false;
+        bool sigNeedsPromotion =
+            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
+        if (!sigNeedsPromotion) {
+          return true;
         }
+        // Only promote the func signature if doing so will unblock a real
+        // rewrite inside the body. TTNN ops are declared legal above and are
+        // never rewritten, so a signature promotion that only services TTNN
+        // ops would just introduce a builtin.unrealized_conversion_cast at
+        // the func boundary that nothing downstream knows how to clean up.
+        bool bodyHasRewriteableOp = false;
+        funcOp.walk([&](Operation *inner) {
+          if (inner == funcOp.getOperation() || isa<func::ReturnOp>(inner)) {
+            return WalkResult::advance();
+          }
+          if (isa<ttnn::TTNNDialect>(inner->getDialect())) {
+            return WalkResult::advance();
+          }
+          if (llvm::any_of(inner->getOperandTypes(), needsRankExpansion) ||
+              llvm::any_of(inner->getResultTypes(), needsRankExpansion)) {
+            bodyHasRewriteableOp = true;
+            return WalkResult::interrupt();
+          }
+          return WalkResult::advance();
+        });
+        return !bodyHasRewriteableOp;
       }
       return true;
     });
