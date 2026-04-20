@@ -30,10 +30,8 @@ ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  // Query layout: [1, batch, num_heads, head_dim].
   // Mask layout (per ScaledDotProductAttentionDecodeOp::verify):
-  //   [batch_or_1, 1, num_heads_or_1, kv_seq_len]
-  // so dim 0 is the batch dim and dim 2 is the heads dim.
+  //   [1, batch_or_1, num_heads_or_1, kv_seq_len].
   int64_t batch = queryType.getShape()[1];
   int64_t numHeads = queryType.getShape()[2];
   int64_t maskBatch = maskType.getShape()[1];

@@ -6599,13 +6599,13 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != 1 &&
-        attentionMaskType.getShape()[0] != batchSize) {
+    if (attentionMaskType.getShape()[0] != 1) {
+      return emitOpError("Attention mask dim 0 must be 1");
+    }
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
-    }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {
