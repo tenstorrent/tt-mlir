@@ -1,6 +1,7 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-allocate --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
+// TODO: remove this test
 #l1_ = #ttcore.memory_space<l1>
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
@@ -17,9 +18,9 @@ func.func @matmul_single_core_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f
   // CHECK: d2m.generic
   "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1, 0>}> ({
   ^bb0:
-    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
     %lhs = d2m.wait %cb0 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     %rhs = d2m.wait %cb1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
     %out = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
@@ -35,9 +36,9 @@ func.func @matmul_multi_core(%arg0: memref<2x4x4x6x!ttcore.tile<32x32, f32>, #tt
   // CHECK: d2m.generic
   "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 4], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1, 0>}> ({
   ^bb0:
-    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>>
     %lhs = d2m.wait %cb0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
     %rhs = d2m.wait %cb1 : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<6x8x!ttcore.tile<32x32, f32>, #l1_>
     %out = d2m.reserve %cb2 : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x8x!ttcore.tile<32x32, f32>, #l1_>
@@ -53,9 +54,9 @@ func.func @matmul_multi_core_transpose(%arg0: memref<2x4x4x6x!ttcore.tile<32x32,
   // CHECK: d2m.generic
   "d2m.generic"(%0, %1, %alloc) <{block_factors = [1, 1, 4], grid = #ttcore.grid<2x4>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1, 0>}> ({
   ^bb0:
-    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb2 = d2m.get_cb(2) : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>>
     %lhs = d2m.wait %cb0 : !d2m.cb<memref<4x6x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x6x!ttcore.tile<32x32, f32>, #l1_>
     %rhs = d2m.wait %cb1 : !d2m.cb<memref<6x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<6x8x!ttcore.tile<32x32, f32>, #l1_>
     %out = d2m.reserve %cb2 : !d2m.cb<memref<4x8x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x8x!ttcore.tile<32x32, f32>, #l1_>

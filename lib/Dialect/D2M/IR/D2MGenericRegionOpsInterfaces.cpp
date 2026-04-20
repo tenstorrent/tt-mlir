@@ -54,15 +54,15 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
 
   // TODO: clean up
   // print cb usage info
-  for (auto &[cb, usageInfo] : cbUsageInfo) {
-    llvm::errs() << "cb: " << cb << "\n";
-    for (auto &producer : usageInfo.producers) {
-      llvm::errs() << "producer: " << producer << "\n";
-    }
-    for (auto &consumer : usageInfo.consumers) {
-      llvm::errs() << "consumer: " << consumer << "\n";
-    }
-  }
+  // for (auto &[cb, usageInfo] : cbUsageInfo) {
+  //  llvm::errs() << "cb: " << cb << "\n";
+  //  for (auto &producer : usageInfo.producers) {
+  //    llvm::errs() << "producer: " << producer << "\n";
+  //  }
+  //  for (auto &consumer : usageInfo.consumers) {
+  //    llvm::errs() << "consumer: " << consumer << "\n";
+  //  }
+  //}
 
   return cbUsageInfo;
 }
@@ -151,11 +151,6 @@ LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter,
   //  }
   //}
 
-  // print ir at this point
-  llvm::errs() << "IR at this point: " << "\n";
-  genericOp->print(llvm::errs());
-  llvm::errs() << "\n";
-
   // loop over memrefs in generic, separate out to separate pass or rewriter?
   // go through ops with synchronizable interface being used as input and
   // attach CB layout aatribute on their operands using interface to tell
@@ -163,10 +158,8 @@ LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter,
   // out handling for allocs inside generic and outside
   for (auto &[cb, usageInfo] : cbUsageInfo) {
     // TODO: add check on num consumers and producers
-    // llvm::errs() << "allocating CB for op x: true" << "\n";
     // TODO: this is is an inconsistency, most remote load/store will have to
     // correctly be bufferized to not return a result
-    llvm::errs() << "adding cb layout attr to: " << cb << "\n";
     if (failed(insertCBLayoutAttr(
             rewriter, mlir::cast<memref::AllocOp>(cb.getDefiningOp()),
             usageInfo.producers))) {
