@@ -330,6 +330,13 @@ class Run:
             choices=[True, False],
             help="disable ttrt callbacks",
         )
+        Run.register_arg(
+            name="--enable-chisel",
+            type=bool,
+            default=False,
+            choices=[True, False],
+            help="enable chisel op-level differential debugging (mutually exclusive with --enable-golden)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -559,6 +566,11 @@ class Run:
             if "--init" in sys.argv:
                 self["--enable-golden"] = False
 
+            if self["--enable-chisel"] and self["--enable-golden"]:
+                raise ValueError(
+                    "--enable-chisel and --enable-golden are mutually exclusive. Use one or the other."
+                )
+
             num_devices = len(self.query.device_ids)
             mesh_options = ttrt.runtime.MeshDeviceOptions()
             mesh_options.enable_program_cache = self["--enable-program-cache"]
@@ -618,7 +630,11 @@ class Run:
                         self["--debugger"],
                     )
 
-                    if not self["--disable-ttrt-callbacks"]:
+                    if self["--enable-chisel"]:
+                        import chisel
+
+                        chisel.bind()
+                    elif not self["--disable-ttrt-callbacks"]:
                         callback_env = ttrt.runtime.DebugHooks.get(
                             pre_op=pre_op_get_callback_fn(
                                 pre_op_callback_runtime_config
