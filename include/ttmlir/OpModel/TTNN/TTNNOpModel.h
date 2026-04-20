@@ -18,16 +18,14 @@
 // `lhs` may be either an existing l-value or a new variable declaration
 // (e.g. `Foo foo`). The macro expands to a single statement of the form
 // `lhs = (...);` so it is safe to use inside unbraced `if`/`else`/`for`/`while`
-// bodies. Implementation uses the GCC/Clang statement-expression extension
-// (`({ ... })`) which is required because the unwrapped value must escape the
-// macro's scope while still allowing an early `return` on the error path. Both
-// GCC and Clang support this extension; we silence Clang's
-// -Wgnu-statement-expression-from-macro-expansion at the macro definition site
-// so callers do not need to do anything.
+// bodies. Implementation uses Clang's statement-expression extension
+// (`({ ... })`) — required because the unwrapped value must escape the macro's
+// scope while still allowing an early `return` on the error path. tt-mlir is
+// a clang-only build (see top-level CMakeLists.txt); porting to GCC would
+// need a parallel definition that silences -Wpedantic the same way.
 // clang-format off
 #define TTMLIR_CONCAT_IMPL_(a, b) a##b
 #define TTMLIR_CONCAT_(a, b) TTMLIR_CONCAT_IMPL_(a, b)
-#if defined(__clang__)
 #define ASSIGN_OR_RETURN(lhs, expr)                                            \
   _Pragma("clang diagnostic push")                                             \
   _Pragma("clang diagnostic ignored \"-Wgnu-statement-expression-from-macro-expansion\"") \
@@ -38,15 +36,6 @@
     std::move(TTMLIR_CONCAT_(_tt_expected_, __LINE__).get());                  \
   });                                                                          \
   _Pragma("clang diagnostic pop")
-#else
-#define ASSIGN_OR_RETURN(lhs, expr)                                            \
-  lhs = ({                                                                     \
-    auto TTMLIR_CONCAT_(_tt_expected_, __LINE__) = (expr);                     \
-    if (!TTMLIR_CONCAT_(_tt_expected_, __LINE__))                              \
-      return TTMLIR_CONCAT_(_tt_expected_, __LINE__).takeError();              \
-    std::move(TTMLIR_CONCAT_(_tt_expected_, __LINE__).get());                  \
-  })
-#endif
 // clang-format on
 
 namespace mlir::tt::ttnn::op_model {
