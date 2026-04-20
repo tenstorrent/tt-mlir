@@ -87,6 +87,8 @@ struct OpModel<SinOp> : UnaryEltwiseOpModel<SinOp> {};
 
 template <>
 struct OpModel<AsinOp> : UnaryEltwiseOpModel<AsinOp> {};
+template <>
+struct OpModel<AsinhOp> : UnaryEltwiseOpModel<AsinhOp> {};
 
 template <>
 struct OpModel<AbsOp> : UnaryEltwiseOpModel<AbsOp> {};
@@ -295,7 +297,7 @@ template <>
 struct OpModel<BitwiseXorOp> : BinaryCompositeOpModel<BitwiseXorOp> {};
 
 template <>
-struct OpModel<RemainderOp> : BinaryCompositeOpModel<RemainderOp> {};
+struct OpModel<RemainderOp> : BinaryEltwiseOpModel<RemainderOp> {};
 
 template <>
 struct OpModel<Atan2Op> : BinaryCompositeOpModel<Atan2Op> {};
@@ -1585,6 +1587,28 @@ struct OpModel<RMSNormOp> {
       TTNNLayoutAttr outputLayout,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
           std::nullopt);
+};
+
+//===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<RMSNormPreAllGatherOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+               std::optional<TTNNLayoutAttr> residualInputLayout,
+               std::optional<ttcore::DataType> dtype,
+               std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

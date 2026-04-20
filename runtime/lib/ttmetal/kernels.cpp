@@ -144,19 +144,19 @@ createKernelConfig(
     computeConfig.compile_args = compileArgs;
     switch (fbComputeConfig->math_fidelity()) {
     case tt::target::MathFidelity::HiFi4: {
-      computeConfig.math_fidelity = MathFidelity::HiFi4;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::HiFi4;
       break;
     }
     case tt::target::MathFidelity::HiFi3: {
-      computeConfig.math_fidelity = MathFidelity::HiFi3;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::HiFi3;
       break;
     }
     case tt::target::MathFidelity::HiFi2: {
-      computeConfig.math_fidelity = MathFidelity::HiFi2;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::HiFi2;
       break;
     }
     case tt::target::MathFidelity::LoFi: {
-      computeConfig.math_fidelity = MathFidelity::LoFi;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::LoFi;
       break;
     }
     }

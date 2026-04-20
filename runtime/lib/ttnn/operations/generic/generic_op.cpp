@@ -115,7 +115,7 @@ createKernelConfigDescriptor(
   switch (kernelDesc.config_type()) {
   case ::tt::target::ttnn::KernelConfig::ComputeKernelConfig: {
     const auto *computeConfig = kernelDesc.config_as_ComputeKernelConfig();
-    std::vector<UnpackToDestMode> unpackToDestModes =
+    std::vector<::tt::tt_metal::UnpackToDestMode> unpackToDestModes =
         common::toUnpackToDestModes(computeConfig->unpack_to_dest_modes());
     return ::tt::tt_metal::ComputeConfigDescriptor{
         .math_fidelity = tt::runtime::ttnn::utils::toTTNNMathFidelity(

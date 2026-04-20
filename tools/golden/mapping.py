@@ -1210,6 +1210,105 @@ def ttir_distributed_rms_norm_golden(
     )
 
 
+def ttir_distributed_layer_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    residual: Optional[GoldenMapTensor],
+    cluster_axis_attr: IntegerAttr,
+    epsilon_attr: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """Distributed layer normalization golden.
+
+    Simulates the distributed layer_norm_pre_all_gather + all_gather +
+    layer_norm_post_all_gather pipeline: for each group of devices along
+    ``cluster_axis``, concatenate the per-device shards to compute
+    globally-correct mean and variance statistics, apply layer norm +
+    optional weight/bias on the full tensor, then chunk the result back
+    so each device gets only its local portion. The per-device output
+    shape equals the per-device input shape (only the stats are
+    all-gathered, not the data).
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Per-device input tensor shards.
+    weight : Optional[GoldenMapTensor]
+        Per-device weight (gamma) shards. If present, applied after normalization.
+    bias : Optional[GoldenMapTensor]
+        Per-device bias (beta) shards. If present, added after weight scaling.
+    residual : Optional[GoldenMapTensor]
+        Per-device residual shards. If present, added to input before
+        normalization.
+    cluster_axis_attr : IntegerAttr
+        Mesh axis (0 or 1) along which devices exchange layer norm statistics.
+    epsilon_attr : FloatAttr
+        Small constant added to the variance for numerical stability.
+    output_type_mlir : Type
+        MLIR element type used to determine the output torch dtype.
+
+    Returns
+    -------
+    GoldenMapTensor
+        Per-device normalized output shards, each with the same shape
+        as the corresponding input shard.
+    """
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    epsilon = unpack_mlir_attr(epsilon_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    num_shards = len(input.shard_map)
+    output_shards = [None] * num_shards
+    grouped_shards = input.group_by_axis(cluster_axis)
+
+    for group in grouped_shards:
+        group_ids = list(group.keys())
+        group_tensors = [group[id] for id in group_ids]
+
+        # Add residual per-shard if present
+        if residual is not None:
+            group_tensors = [
+                inp + residual.shard_map[id]
+                for inp, id in zip(group_tensors, group_ids)
+            ]
+
+        # Concatenate shards along last dim to get full tensor for global
+        # layer norm statistics (mean and variance)
+        full_tensor = torch.cat(group_tensors, dim=-1).float()
+
+        # Compute layer norm on full tensor
+        normalized_shape = [full_tensor.shape[-1]]
+        weight_tensor = None
+        if weight is not None:
+            weight_shards = [weight.shard_map[id] for id in group_ids]
+            weight_tensor = torch.cat(weight_shards, dim=-1)
+
+        bias_tensor = None
+        if bias is not None:
+            bias_shards = [bias.shard_map[id] for id in group_ids]
+            bias_tensor = torch.cat(bias_shards, dim=-1)
+
+        ln_result = torch.nn.functional.layer_norm(
+            full_tensor,
+            normalized_shape=normalized_shape,
+            weight=weight_tensor.float() if weight_tensor is not None else None,
+            bias=bias_tensor.float() if bias_tensor is not None else None,
+            eps=epsilon,
+        )
+
+        ln_result = ln_result.to(output_dtype)
+
+        # Split back into per-device chunks (output shape == input shape).
+        per_shard_chunks = torch.chunk(ln_result, len(group_ids), dim=-1)
+        for id, chunk in zip(group_ids, per_shard_chunks):
+            output_shards[id] = chunk.clone()
+
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
 def ttir_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -1333,6 +1432,99 @@ def all_to_all_dispatch_golden(
     dispatched = _to_dispatch_layout(input_tensor).repeat(1, D, 1, 1)
     metadata = _to_dispatch_layout(expert_indices).repeat(1, D, 1, 1)
     return dispatched, metadata
+
+
+def all_to_all_dispatch_metadata_golden(
+    input_tensor: GoldenMapTensor,
+    expert_indices: GoldenMapTensor,
+    expert_scores: GoldenMapTensor,
+    expert_mapping: GoldenMapTensor,
+    num_devices=2,
+    cluster_axis=0,
+) -> Tuple:
+    """Cross-shard golden for all_to_all_dispatch_metadata.
+
+    Mirrors tt-metal's gen_tensors_for_metadata_op / get_output_tensor:
+    - Dispatched: sparse routing — for each token and each of its K selected
+      experts, the token is placed on the device that owns that expert.
+      Non-routed slots are filled with zeros.
+    - Indices (metadata): all-gathered — every ring device gets the full set
+      of expert indices from all ring devices.
+    - Scores: all-gathered — same as indices.
+
+    expert_mapping has new format [1, 1, D, E] where entry [0, 0, d, e] is
+    the linearized device ID that owns expert e (same for all d).
+    """
+    num_devs = num_devices if isinstance(num_devices, int) else 2
+    mesh_shape = input_tensor.mesh_shape
+    grouped_inputs = input_tensor.group_by_axis(cluster_axis)
+    grouped_indices = expert_indices.group_by_axis(cluster_axis)
+    grouped_scores = expert_scores.group_by_axis(cluster_axis)
+
+    # expert_mapping is replicated — get from any device
+    mapping_tensor = list(expert_mapping._shard_map.values())[0]
+    # Shape is [1, 1, D, E] — squeeze to [D, E], use row 0 since all rows identical
+    mapping_2d = mapping_tensor.reshape(-1, mapping_tensor.shape[-1])  # [D, E]
+    mapping_row = mapping_2d[0]  # [E] — mapping_row[e] = device_id owning expert e
+
+    out_dispatched = {}
+    out_indices = {}
+    out_scores = {}
+
+    for ring_group_inp, ring_group_idx, ring_group_scr in zip(
+        grouped_inputs, grouped_indices, grouped_scores
+    ):
+        ring_device_ids = sorted(ring_group_inp.keys())
+        sample = ring_group_inp[ring_device_ids[0]]
+        M = sample.reshape(-1, sample.shape[-1]).shape[0]
+        H = sample.shape[-1]
+        K = ring_group_idx[ring_device_ids[0]].shape[-1]
+        total_tokens = num_devs * M
+
+        # Reconstruct full tensors across the ring in ring-position order
+        full_input = torch.cat(
+            [ring_group_inp[d].reshape(-1, H) for d in ring_device_ids], dim=0
+        )  # [total_tokens, H]
+        full_idx = torch.cat(
+            [ring_group_idx[d].reshape(-1, K) for d in ring_device_ids], dim=0
+        )  # [total_tokens, K]
+        full_scr = torch.cat(
+            [ring_group_scr[d].reshape(-1, K) for d in ring_device_ids], dim=0
+        )  # [total_tokens, K]
+
+        # --- Dispatched: sparse expert-based routing ---
+        # Initialize with zeros so non-routed slots are identifiable.
+        disp_per_dev = {
+            d: torch.zeros(1, total_tokens, H, dtype=full_input.dtype)
+            for d in ring_device_ids
+        }
+
+        for t in range(total_tokens):
+            token_data = full_input[t]  # [H]
+            for k in range(K):
+                expert_id = int(full_idx[t, k].item())
+                target_device_id = int(mapping_row[expert_id].item())
+                # Only route if target device is in this ring
+                if target_device_id in disp_per_dev:
+                    disp_per_dev[target_device_id][0, t, :] = token_data
+
+        # --- Indices/Scores: all-gathered (every device gets full set) ---
+        # 3D shapes matching metal kernel output: [1, tokens_global, C]
+        idx_out = full_idx.reshape(1, total_tokens, K)
+        scr_out = full_scr.reshape(1, total_tokens, K)
+
+        for dev_id in ring_device_ids:
+            out_dispatched[dev_id] = disp_per_dev[
+                dev_id
+            ]  # already [1, total_tokens, H]
+            out_indices[dev_id] = idx_out.clone()
+            out_scores[dev_id] = scr_out.clone()
+
+    return (
+        GoldenMapTensor(out_dispatched, mesh_shape),
+        GoldenMapTensor(out_indices, mesh_shape),
+        GoldenMapTensor(out_scores, mesh_shape),
+    )
 
 
 def all_to_all_combine_golden(
@@ -3257,6 +3449,13 @@ def ttir_asin_golden(
     return torch.asin(input_tensor).to(output_dtype)
 
 
+def ttir_asinh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.asinh(input_tensor).to(output_dtype)
+
+
 def ttir_sin_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5101,6 +5300,43 @@ def stablehlo_tanh_golden(
     return torch.tanh(input_tensor).to(output_dtype)
 
 
+def stablehlo_sign_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sign(input_tensor).to(output_dtype)
+
+
+def stablehlo_convert_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.to(output_dtype)
+
+
+def stablehlo_cbrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    golden_sign = torch.sign(input_tensor)
+    golden_cbrt = torch.pow(torch.abs(input_tensor), 1 / 3)
+    return torch.mul(golden_sign, golden_cbrt).to(output_dtype)
+
+
+def stablehlo_expm1_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.expm1(input_tensor).to(output_dtype)
+
+
+def stablehlo_isfinite_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.isfinite(input_tensor).to(output_dtype)
+
+
 def stablehlo_transpose_golden(
     input_tensor: GoldenMapTensor,
     permutation: DenseI64ArrayAttr,
@@ -5880,6 +6116,13 @@ def ttnn_asin_golden(
     return torch.asin(input_tensor).to(dtype)
 
 
+def ttnn_asinh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.asinh(input_tensor).to(dtype)
+
+
 def ttnn_sqrt_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -6142,6 +6385,32 @@ def ttnn_linear_golden(
     return torch.add(output, bias_tensor).to(output_dtype)
 
 
+def ttnn_rms_norm_pre_all_gather_golden(
+    input: GoldenMapTensor,
+    residual: Optional[GoldenMapTensor],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    TILE_WIDTH = 32
+
+    input_float = input.float()
+    if residual is not None:
+        input_float = input_float + residual.float()
+
+    # Compute per-row partial statistics: E(x^2).
+    # Build output per-shard to preserve GoldenMapTensor structure.
+    def compute_stats(shard):
+        shard_float = shard.float()
+        ex2 = shard_float.square().mean(dim=-1, keepdim=True)
+        output_shape = list(shard_float.shape)
+        output_shape[-1] = TILE_WIDTH
+        output = torch.zeros(output_shape, dtype=torch.float32)
+        output[..., :1] = ex2
+        return output.to(output_dtype)
+
+    return GoldenMapTensor.apply_shardwise(input_float, compute_stats)
+
+
 def ttnn_layer_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -6172,9 +6441,9 @@ def ttnn_layer_norm_pre_all_gather_golden(
 ) -> GoldenMapTensor:
     # `recip` is a precomputed reciprocal LUT [1/1, 1/2, ..., 1/width] used by
     # the Welford kernel path to replace expensive divisions with multiplies.
-    # It affects *how* the device computes E(x) and E(x^2) (numerical stability
+    # It affects *how* the device computes sum(x) and sum(x^2) (numerical stability
     # and performance), but not *what* the mathematical result is. The golden
-    # reference computes the same statistics via torch.mean(), so `recip` is
+    # reference computes the same statistics via torch.sum(), so `recip` is
     # intentionally unused here.
     del recip
 
@@ -6185,17 +6454,19 @@ def ttnn_layer_norm_pre_all_gather_golden(
     if residual_input is not None:
         input_float = input_float + residual_input.float()
 
-    # Compute per-row partial statistics: E(x^2) and E(x).
+    # Compute per-row partial statistics: sum(x^2) and sum(x).
+    # The hardware kernel uses PoolType::SUM with scaler=1.0, so it outputs
+    # raw sums (not means). These are combined post-all-gather.
     # Build output per-shard to preserve GoldenMapTensor structure.
     def compute_stats(shard):
         shard_float = shard.float()
-        ex2 = shard_float.square().mean(dim=-1, keepdim=True)
-        ex = shard_float.mean(dim=-1, keepdim=True)
+        sum_x2 = shard_float.square().sum(dim=-1, keepdim=True)
+        sum_x = shard_float.sum(dim=-1, keepdim=True)
         output_shape = list(shard_float.shape)
         output_shape[-1] = 2 * TILE_WIDTH
         output = torch.zeros(output_shape, dtype=torch.float32)
-        output[..., :1] = ex2
-        output[..., TILE_WIDTH : TILE_WIDTH + 1] = ex
+        output[..., :1] = sum_x2
+        output[..., TILE_WIDTH : TILE_WIDTH + 1] = sum_x
         return output.to(output_dtype)
 
     return GoldenMapTensor.apply_shardwise(input_float, compute_stats)
@@ -6874,6 +7145,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SiluOp: silu_golden,
     ttir.SinOp: ttir_sin_golden,
     ttir.AsinOp: ttir_asin_golden,
+    ttir.AsinhOp: ttir_asinh_golden,
     ttir.SqrtOp: ttir_sqrt_golden,
     ttir.LogOp: ttir_log_golden,
     ttir.Log1pOp: ttir_log1p_golden,
@@ -6953,6 +7225,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.GroupNormOp: ttir_group_norm_golden,
     ttir.RMSNormOp: ttir_rms_norm_golden,
     ttir.DistributedRMSNormOp: ttir_distributed_rms_norm_golden,
+    ttir.DistributedLayerNormOp: ttir_distributed_layer_norm_golden,
     # Type operations
     ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
@@ -7003,6 +7276,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Sparse MoE operations
     ttir.SparseMatmulOp: sparse_matmul_golden,
     ttir.AllToAllDispatchOp: all_to_all_dispatch_golden,
+    ttir.AllToAllDispatchMetadataOp: all_to_all_dispatch_metadata_golden,
     ttir.AllToAllCombineOp: all_to_all_combine_golden,
     ttir.MoeExpertTokenRemapOp: moe_expert_token_remap_golden,
     # Operations with parameter transformations
@@ -7041,6 +7315,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SqrtOp: stablehlo_sqrt_golden,
     stablehlo.TanOp: stablehlo_tan_golden,
     stablehlo.TanhOp: stablehlo_tanh_golden,
+    stablehlo.SignOp: stablehlo_sign_golden,
+    stablehlo.ConvertOp: stablehlo_convert_golden,
+    stablehlo.CbrtOp: stablehlo_cbrt_golden,
+    stablehlo.Expm1Op: stablehlo_expm1_golden,
+    stablehlo.IsFiniteOp: stablehlo_isfinite_golden,
     stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,
@@ -7108,6 +7387,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.SiluOp: ttnn_silu_golden,
     ttnn.SinOp: ttnn_sin_golden,
     ttnn.AsinOp: ttnn_asin_golden,
+    ttnn.AsinhOp: ttnn_asinh_golden,
     ttnn.SqrtOp: ttnn_sqrt_golden,
     ttnn.LogOp: ttnn_log_golden,
     ttnn.Log1pOp: ttnn_log1p_golden,
@@ -7156,6 +7436,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     ttnn.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
+    ttnn.RMSNormPreAllGatherOp: ttnn_rms_norm_pre_all_gather_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
     ttnn.RepeatOp: ttnn_repeat_golden,

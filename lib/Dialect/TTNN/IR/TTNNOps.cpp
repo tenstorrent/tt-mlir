@@ -2666,6 +2666,59 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllToAllDispatchMetadataOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType scoresType = getExpertScores().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType indicesOutType = getIndices().getType();
+  ::mlir::RankedTensorType scoresOutType = getScores().getType();
+
+  // Input tensors must be 4D, mapping must be 2D, outputs must be 3D.
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
+  }
+  if (scoresType.getRank() != 4) {
+    return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
+  }
+  if (mappingType.getRank() != 2) {
+    return emitOpError("expert_mapping must be a 2D tensor [D, E]");
+  }
+  if (dispatchedType.getRank() != 3) {
+    return emitOpError(
+        "dispatched output must be a 3D tensor [1, tokens_global, H]");
+  }
+  if (indicesOutType.getRank() != 3) {
+    return emitOpError(
+        "indices output must be a 3D tensor [1, tokens_global, K]");
+  }
+  if (scoresOutType.getRank() != 3) {
+    return emitOpError(
+        "scores output must be a 3D tensor [1, tokens_global, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllToAllCombineOp
 //===----------------------------------------------------------------------===//
 
@@ -2710,6 +2763,29 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   if (outputShardDim != 1 && outputShardDim != 2) {
     return emitOpError("output_shard_dim must be 1 or 2, got ")
            << outputShardDim;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SelectiveReduceCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult SelectiveReduceCombineOp::verify() {
+  // Verify select_experts_k > 0
+  if (getSelectExpertsK() == 0) {
+    return emitOpError("select_experts_k must be positive");
+  }
+
+  // Verify experts > 0
+  if (getExperts() == 0) {
+    return emitOpError("experts must be positive");
+  }
+
+  // Verify hidden_size > 0
+  if (getHiddenSize() == 0) {
+    return emitOpError("hidden_size must be positive");
   }
 
   return success();
@@ -3037,6 +3113,101 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
     if (weightElements != inputLastDim) {
       return emitOpError(
           "weight tensor total elements must match input's last dimension");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::RMSNormPreAllGatherOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank greater than 1");
+  }
+
+  // output shape containing the partial stats must match
+  // input shape except last dimension
+  RankedTensorType outputType = getResult().getType();
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+
+  if (inputType.getRank() != outputType.getRank()) {
+    emitOpError("input rank must match the output rank");
+  }
+
+  for (auto idx = 0; idx < inputType.getRank() - 1; idx++) {
+    if (inputShape[idx] != outputShape[idx]) {
+      return emitOpError() << "output dimension " << idx << " ("
+                           << outputShape[idx]
+                           << ") must match input dimension ("
+                           << inputShape[idx] << ")";
+    }
+  }
+
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError(
+          "residual tensor shape must match the input tensor shape");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// DistributedLayerNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::DistributedLayerNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("output shape must match input shape");
+  }
+
+  // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify epsilon is positive.
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  // Verify residual tensor shape matches input if present.
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input tensor shape");
+    }
+  }
+
+  int64_t inputLastDim = inputType.getShape().back();
+
+  // Verify weight tensor is 1D with size matching input's last dimension.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != inputLastDim) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  // Verify bias tensor is 1D with size matching input's last dimension.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != inputLastDim) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
     }
   }
 
@@ -3874,6 +4045,54 @@ mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
     return result;
   }
   return nullptr;
+}
+
+// PermuteOp canonicalizes to ReshapeOp when only size-1 dims are permuted.
+void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+
+  patterns.add(+[](PermuteOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    // Require ranked tensors so we can reason about shapes.
+    auto inputType = op.getInput().getType();
+    auto resultType = op.getResult().getType();
+
+    auto inShape = inputType.getShape();
+    auto outShape = resultType.getShape();
+    auto permutation = op.getPermutation();
+
+    // Collect indices of non-1 dims in the original order.
+    llvm::SmallVector<int64_t> origNonOne;
+    for (int64_t i = 0, e = inShape.size(); i < e; ++i) {
+      if (inShape[i] != 1) {
+        origNonOne.push_back(i);
+      }
+    }
+
+    // Collect indices of non-1 dims in the permuted order.
+    llvm::SmallVector<int64_t> permNonOne;
+    for (int64_t idx : permutation) {
+      if (inShape[idx] != 1) {
+        permNonOne.push_back(idx);
+      }
+    }
+
+    // If non-1 dims change relative order, this is a real permute.
+    if (!llvm::equal(origNonOne, permNonOne)) {
+      return mlir::failure();
+    }
+
+    // Only singleton dims are moved: we can safely rewrite as reshape.
+    llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
+
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+    auto memCfg = op.getMemoryConfigAttr();
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
+        op, resultType, op.getInput(), shapeAttr, memCfg);
+
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//

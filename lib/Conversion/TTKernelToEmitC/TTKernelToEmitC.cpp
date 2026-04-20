@@ -120,7 +120,7 @@ public:
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
       return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
     });
-    addConversion([ctx](mlir::tt::ttkernel::SemaphoreType type) -> Type {
+    addConversion([ctx](mlir::tt::ttkernel::LocalSemaphoreType type) -> Type {
       // Convert semaphore to an address type. (i32)
       return Builder(ctx).getI32Type();
     });
@@ -374,7 +374,8 @@ public:
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (
         std::is_same_v<SourceOp, ttkernel::ExperimentalWriteRowMaskTileOp> ||
-        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp>) {
+        std::is_same_v<SourceOp, ttkernel::ExperimentalWriteColMaskTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::ExperimentalFillArangeTileOp>) {
       auto cbType = mlir::cast<ttkernel::CBType>(op.getCb().getType());
       auto tileType = mlir::cast<ttcore::TileType>(cbType.getElementType());
       SmallVector<Attribute, 1> template_args;
@@ -998,6 +999,9 @@ public:
 // We bounce the scalar through a volatile variable to prevent this:
 //   volatile int32_t __scalar = param;
 //   mul_unary_tile(idx, __scalar);
+//
+// The TTKernelToCpp pass then checks the VerbatimOps for inserting kernel API
+// headers, on top of the CallOpaqueOps.
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelScalarUnaryTileOpRewriter : public OpConversionPattern<SourceOp> {
 public:

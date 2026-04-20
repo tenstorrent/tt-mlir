@@ -158,4 +158,72 @@ bool preservesDim(mlir::Operation *op, int64_t dim) {
       .Default([](mlir::Operation *) { return false; });
 }
 
+namespace {
+
+mlir::Type getTypecastInputElementType(mlir::Value value) {
+  if (auto typecast =
+          ttmlir::utils::findOpThrough<TypecastOp, ReshapeOp, PermuteOp>(
+              value)) {
+    return mlir::cast<mlir::RankedTensorType>(typecast.getInput().getType())
+        .getElementType();
+  }
+  return nullptr;
+}
+
+} // namespace
+
+mlir::Value revertTypecastFolding(mlir::PatternRewriter &rewriter,
+                                  mlir::Operation *originalOp,
+                                  mlir::Value newValue) {
+  llvm::SmallVector<mlir::Type> originalInputElementTypes;
+  for (mlir::Value operand : originalOp->getOperands()) {
+    if (!mlir::isa<mlir::RankedTensorType>(operand.getType())) {
+      continue;
+    }
+    if (mlir::Type elementType = getTypecastInputElementType(operand)) {
+      originalInputElementTypes.push_back(elementType);
+    }
+  }
+
+  if (originalInputElementTypes.empty() ||
+      !llvm::all_equal(originalInputElementTypes)) {
+    return newValue;
+  }
+
+  auto newValueType =
+      mlir::dyn_cast<mlir::RankedTensorType>(newValue.getType());
+  if (!newValueType) {
+    return newValue;
+  }
+
+  mlir::Type originalInputElementType = originalInputElementTypes.front();
+  if (newValueType.getElementType() == originalInputElementType) {
+    return newValue;
+  }
+
+  auto convertedType = mlir::RankedTensorType::get(newValueType.getShape(),
+                                                   originalInputElementType,
+                                                   newValueType.getEncoding());
+
+  rewriter.setInsertionPointAfterValue(newValue);
+  auto convertedValue =
+      rewriter.create<TypecastOp>(originalOp->getLoc(), convertedType, newValue,
+                                  /*conservative_folding=*/false);
+
+  rewriter.setInsertionPointAfter(convertedValue);
+  auto restoredValue = rewriter.create<TypecastOp>(
+      originalOp->getLoc(), newValueType, convertedValue,
+      /*conservative_folding=*/false);
+
+  mlir::Value valueToReplace =
+      originalOp->getNumResults() == 1 ? originalOp->getResult(0) : newValue;
+  rewriter.replaceUsesWithIf(valueToReplace, restoredValue,
+                             [&](mlir::OpOperand &operand) {
+                               mlir::Operation *owner = operand.getOwner();
+                               return owner != convertedValue.getOperation() &&
+                                      owner != restoredValue.getOperation();
+                             });
+  return convertedValue;
+}
+
 } // namespace mlir::tt::ttir::utils

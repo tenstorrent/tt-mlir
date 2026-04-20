@@ -486,6 +486,14 @@ def TTNN_AsinOp: TTNN_ElementwiseUnaryOp<"asin"> {
     }];
 }
 
+def TTNN_AsinhOp: TTNN_ElementwiseUnaryOp<"asinh"> {
+    let summary = "Eltwise inverse hyperbolic sine op.";
+    let description = [{
+      Performs an elementwise inverse hyperbolic sine (`asinh`) on the input
+      tensor. Accepts all real-valued inputs. Floating-point tensors.
+    }];
+}
+
 def TTNN_SqrtOp : TTNN_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise sqrt.";
     let description = [{
@@ -1649,6 +1657,53 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [OpModelExempt]> {
+    let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens along with expert scores to devices holding their selected
+      experts via all-to-all communication within a ring (cluster_axis).
+      Returns dispatched tokens (sparse — only routed token slots are filled),
+      all-gathered expert indices, and all-gathered expert scores.
+
+      Dimensions:
+        M = tokens per ring device
+        K = selected experts per token
+        D = total devices, E = total experts
+
+      Input shapes (per device, after mesh sharding):
+        - input_tensor:   [1, 1, M, H]
+        - expert_indices: [1, 1, M, K]
+        - expert_scores:  [1, 1, M, K]
+        - expert_mapping: [D, E]  entry [d, e] = device ID owning expert e
+
+      Output shapes (per device, num_devices * M = tokens_global):
+        - dispatched: [1, tokens_global, H]
+        - indices:    [1, tokens_global, K]  (all-gathered across ring)
+        - scores:     [1, tokens_global, K]  (all-gathered across ring)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_CoreCoordAttr>:$drain_core);
+
+    let results = (outs AnyRankedTensor:$dispatched,
+                       AnyRankedTensor:$indices,
+                       AnyRankedTensor:$scores);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createAllToAllDispatchMetadataOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine", [OpModelExempt]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
@@ -1672,6 +1727,29 @@ def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine", [OpModelExempt]> {
         return wa::TTNNOperandsWorkaroundsFactory::createAllToAllCombineOpOperandsWorkarounds();
       }
     }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine", [OpModelExempt]> {
+    let summary = "Reduce and combine phase of the MoE pipeline.";
+    let description = [{
+      Takes dense blocks of expert-computed tokens from the MoE compute kernel,
+      sparsifies them, and sends tokens back to their originating devices via
+      fabric.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$dense_input_tensor,
+                         AnyRankedTensor:$dense_activations_tensor,
+                         AnyRankedTensor:$dense_token_maps_tensor,
+                         AnyRankedTensor:$dense_token_counts_tensor,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$batch_size,
+                         UI32Attr:$seq_size,
+                         UI32Attr:$select_experts_k,
+                         UI32Attr:$experts);
+
+    let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
 }
@@ -2375,6 +2453,100 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     let hasVerifier = 1;
 }
 
+def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
+    [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    let summary = "Pre all-gather RMS normalization op.";
+    let description = [{
+      Computes local partial statistics for distributed RMS normalization across mesh devices.
+      This op performs the local pre-processing stage of RMSNorm when the normalized dimension
+      is sharded across devices. It computes the local RMS statistics (partial/local sum(x) and
+      sum(x²)) needed to form the globally-correct RMS normalization factor,
+      before an all-gather collects these statistics along the specified cluster_axis.
+
+      The gathered statistics are then consumed by the corresponding post-all-gather op, which
+      computes the final normalization factor ( x / sqrt(E(x²) + epsilon) ) and applies normalization
+      and optional weight scaling locally on each device.
+
+      Only statistics are communicated across devices; the input tensor itself is not all-gathered.
+
+      Maps to ttnn::rms_norm_pre_all_gather at runtime.
+
+      This operation requires the input tensor to be width-sharded across devices.
+
+      Inputs:
+        - input: Input tensor. Must be width-sharded in L1. Tiled layout required.
+        - residual: Optional Residual Input Tensor to add to input
+          before normalization (x + residual). If provided, it must match
+          input's padded shape and sharding.
+
+      Outputs:
+        - result: Intermediate/local statistics tensor that is later aggregated across
+          devices via all-gather. The result is in TILE layout.
+
+      Attributes:
+        - memory_config: Output memory configuration. Typically matches the
+            input's width-sharded shard spec.
+        - compute_config: Device compute kernel configuration. Controls math
+            fidelity, fp32_dest_acc_en, and packer L1 accumulation.
+        - program_config: LayerNormShardedMultiCoreProgramConfig derived from
+            the input's shard spec (core grid, block_h, block_w).
+        - dtype: Optional Output Datatype. Defaults to BFLOAT16
+        - use_2d_core_grid: Optional flag controlling 2D core-grid execution.
+           Defaults to None
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$residual,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<BoolAttr>:$use_2d_core_grid);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_DistributedLayerNormOp : TTNN_Op<"distributed_layer_norm",
+    [AttrSizedOperandSegments, OpModelExempt]> {
+    let summary = "Distributed layer normalization with all-gather op.";
+    let description = [{
+      Intermediate TTNN op for distributed layer normalization across mesh devices.
+
+      Always decomposes into:
+        layer_norm_pre_all_gather + all_gather + layer_norm_post_all_gather.
+
+      Does not reach serialization — no flatbuffer/runtime/EmitC needed.
+
+      Inputs:
+        - input: Input tensor, width-sharded across mesh devices along the
+            normalized (last) dimension.
+        - weight: Optional gamma (scale) tensor applied after normalization.
+        - bias: Optional beta (shift) tensor applied after normalization.
+        - residual: Optional residual tensor to add to input before
+            normalization. norm_input = input + residual.
+
+      Attributes:
+        - cluster_axis: Mesh dimension (0 or 1) along which to all-gather
+            the partial statistics across devices.
+        - epsilon: Small constant added to the denominator for numerical
+            stability. Defaults to 1e-05.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$residual,
+                         TTNN_Device:$device,
+                         UI32Attr:$cluster_axis,
+                         DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
     let summary = "Layer normalization op.";
     let description = [{
@@ -3030,6 +3202,7 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {

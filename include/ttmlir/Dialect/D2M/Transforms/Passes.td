@@ -7,25 +7,22 @@
 
 include "mlir/Pass/PassBase.td"
 
-// Add scratch inputs to d2m.generic ops (post-bufferization)
-def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
-  let summary = "Add scratch input operand to fused d2m.generic ops.";
+// Insert scratch buffers to d2m.generic ops (post-bufferization)
+def D2MInsertScratchBuffers : Pass<"d2m-insert-scratch-buffers", "::mlir::ModuleOp"> {
+  let summary = "Insert scratch buffers inside fused d2m.generic ops.";
   let description = [{
-    This pass adds a scratch memref input to fused `d2m.generic` operations
+    This pass inserts a scratch buffer inside fused `d2m.generic` operations
     that may need to spill intermediate results. A generic is considered to
-    need scratch when its compute region contains more than one binary FPU op
-    (`d2m.tile_add`, `d2m.tile_sub`, `d2m.tile_mul`).
+    need scratch when its compute region contains more than one `linalg.generic`
+    op (indicating elementwise fusion).
 
     The scratch buffer is a 128KB L1 buffer whose tile type matches the first
-    tiled input operand. Its shape is `[grid_dims..., 1, numTiles]`, where
+    tiled input operand. Its shard shape is `[1, numTiles]`, where
     `numTiles = 128KB / tile_size_bytes`.
 
     This pass runs after bufferization (in memref space) and before the
-    D2MAllocate pass. It creates a `memref.alloc` for the scratch buffer
-    before the generic and adds it as an input operand.
-
-    The scratch operand index is recorded in the `scratch_inputs` attribute
-    so that later passes (e.g. `D2MLowerScratchAllocate`) can identify it.
+    D2MAllocate pass. It inserts a `memref.alloc` with `CBLayoutAttr`
+    and a `d2m.scratch_init` anchor op at the start of the generic's region body.
 
     Example transformation:
     ```mlir
@@ -33,15 +30,17 @@ def D2MAddScratchInputs : Pass<"d2m-add-scratch-inputs", "::mlir::ModuleOp"> {
     d2m.generic { ... }
     ins(%A, %B : memref<...>, memref<...>)
     outs(%C : memref<...>) {
-    ^bb0(%cb_A, %cb_B, %cb_C):
+    ^bb0:
       // ...compute body...
     }
 
     // After:
-    %scratch = memref.alloc() : memref<1x1x1x32x!tile_f32, #shard, #l1>
-    d2m.generic { ..., scratch_inputs = array<i64: 2>, ... }
-    ins(%A, %B, %scratch : ...) outs(%C : ...) {
-    ^bb0(%cb_A, %cb_B, %cb_scratch, %cb_C):
+    d2m.generic { ... }
+    ins(%A, %B : memref<...>, memref<...>)
+    outs(%C : memref<...>) {
+    ^bb0:
+      %scratch = memref.alloc() : memref<1x32x!tile_f32, #l1>
+      d2m.scratch_init %scratch : memref<1x32x!tile_f32, #l1>
       // ...compute body...
     }
     ```
@@ -573,6 +572,10 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-buffer-size-policy",
           "std::string", /*default=*/"\"auto\"",
           "Set policy for sizing stream buffers ('auto', 'min', 'max').">,
+    Option<"testAllowAliasedEltwiseBlocking",
+          "test-allow-aliased-eltwise-blocking",
+          "bool", /*default=*/"true",
+          "Allow auto reblocking for eltwise generics even when blocked outputs must leave alias mode.">,
   ];
 }
 
@@ -912,11 +915,11 @@ def D2MPreallocateMcastSemaphores : Pass<"d2m-preallocate-mcast-semaphores", "::
 
     // After (semaphores pre-allocated):
     d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]} {
-    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.local_semaphore, %sem1: !d2m.local_semaphore):
       d2m.remote_load %cb0, %memref[%i] core[%c0] mcast[%c4]
         {preallocated_semaphores = [2, 3]} : ...
     }, {
-    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.local_semaphore, %sem1: !d2m.local_semaphore):
       ...
     }
     ```
@@ -1060,49 +1063,34 @@ def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
   ];
 }
 
-def D2MLowerLoadStoreOpsToExplicitCBForm : Pass<"d2m-lower-load-store-ops-to-explicit-cb-form", "::mlir::ModuleOp"> {
-  let summary = "Lower load/store operations to explicit CB form.";
-  let description = [{
-    This pass converts remote_load and remote_store operations from implicit form
-    to explicit CB form.
-  }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
-}
-
-def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store-ops-to-aliased-cbs", "::mlir::ModuleOp"> {
-  let summary = "Convert local load/store operations to aliased circular buffers.";
-  let description = [{
-    This pass converts local load/store operations to aliased circular buffers.
-  }];
-  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
-}
-
 def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {
   let summary = "Lower d2m.scratch_allocate ops to memref.subview of the scratch buffer.";
   let description = [{
     This pass lowers `d2m.scratch_allocate` operations inside `d2m.generic` ops
     into rank-reducing `memref.subview` operations of the scratch memref.
 
-    For each `d2m.generic` that has a `scratch_inputs` attribute, the pass:
-    1. Collects all `d2m.scratch_allocate` ops in the compute region and sorts
+    For each `d2m.generic` that contains a `d2m.scratch_init` op, the pass:
+    1. Obtains the scratch memref from the `d2m.scratch_init` op.
+    2. Collects all `d2m.scratch_allocate` ops in the compute region and sorts
        them by `slot` ID for deterministic layout.
-    2. Computes sequential element offsets for each allocation.
-    3. Validates that total allocations fit within the scratch buffer capacity.
-    4. Introduces a `d2m.get_scratch_from_cb` op at the start of the generic
-       and uses its result as the base scratch memref.
+    3. Computes sequential element offsets for each allocation.
+    4. Validates that total allocations fit within the scratch buffer capacity.
     5. Replaces each `d2m.scratch_allocate` with a rank-reducing
        `memref.subview` of the scratch memref at the computed offset.
+    6. Erases the `d2m.scratch_init` anchor op.
 
-    The scratch buffer has shape `[1, N]` (set by AddScratchInputs). Each
+    The scratch buffer has shape `[1, N]` with `CBLayoutAttr` (set by InsertScratchBuffers). Each
     `d2m.scratch_allocate` requests a 1D `memref<M x tile>`, which is lowered to
     `memref.subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>`.
 
     Example transformation:
     ```mlir
     // Before:
-    d2m.generic { scratch_inputs = array<i64: 1>, ... }
-    ins(%in, %scratch_buf : ...) outs(%out : ...) {
-    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
+    d2m.generic { ... }
+    ins(%in : ...) outs(%out : ...) {
+    ^bb0:
+      %scratch = memref.alloc() : memref<1x32x!tile_f32, #l1>
+      d2m.scratch_init %scratch : memref<1x32x!tile_f32, #l1>
       %s0 = d2m.scratch_allocate {slot = 0} : memref<1x!tile_f32, #l1>
       %s1 = d2m.scratch_allocate {slot = 1} : memref<2x!tile_f32, #l1>
       memref.store %val, %s0[%c0] : memref<1x!tile_f32, #l1>
@@ -1110,12 +1098,12 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
     }
 
     // After:
-    d2m.generic { scratch_inputs = array<i64: 1>, ... }
-    ins(%in, %scratch_buf : ...) outs(%out : ...) {
-    ^bb0(%cb0: ..., %cb1: ..., %cb2: ...):
-      %scratch = d2m.get_scratch_from_cb %cb1 : ... -> memref<1x32x!tile_f32, #l1>
-      %sv0 = memref.subview %scratch[0, 0][1, 1][1, 1] : memref<1x32x!tile_f32, #l1> to memref<1x!tile_f32, #l1>
-      %sv1 = memref.subview %scratch[0, 1][1, 2][1, 1] : memref<1x32x!tile_f32, #l1> to memref<2x!tile_f32, strided<[1], offset: 1>, #l1>
+    d2m.generic { ... }
+    ins(%in : ...) outs(%out : ...) {
+    ^bb0:
+      %scratch = memref.alloc() : memref<1x32x!tile_f32, #l1>
+      %sv0 = memref.subview %scratch[0, 0][1, 1][1, 1] : ... to memref<1x!tile_f32, #l1>
+      %sv1 = memref.subview %scratch[0, 1][1, 2][1, 1] : ... to memref<2x!tile_f32, strided<[1], offset: 1>, #l1>
       memref.store %val, %sv0[%c0] : memref<1x!tile_f32, #l1>
       // ...
     }
@@ -1123,7 +1111,6 @@ def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::Module
   }];
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
-    "::mlir::tt::ttcore::TTCoreDialect",
     "::mlir::memref::MemRefDialect"
   ];
 }

@@ -23,6 +23,7 @@ struct BlockFactorAnalysis {
   struct Options {
     BufferSizePolicy policy = BufferSizePolicy::Auto;
     uint32_t numBuffers = 2;
+    bool allowAliasedEltwiseBlocking = true;
   };
 
   struct Result {

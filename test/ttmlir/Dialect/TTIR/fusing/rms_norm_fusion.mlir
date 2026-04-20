@@ -136,6 +136,48 @@ module {
         return %18 : tensor<128x1024xbf16>
     }
 
+    // bf16->f32 typecasts on both add operands, then add and pow in f32. After
+    // folding there is no typecast between the add and pow for the matcher to
+    // look through (unlike fusion_3, which typecasts the bf16 add output).
+    // Fusion unfolds a typecast on the add result so rms_norm matches bf16 gamma.
+    // CHECK-LABEL: func.func @rms_norm_fusion_typecast_unfolding
+    func.func @rms_norm_fusion_typecast_unfolding(%arg0: tensor<32x1x2048xbf16>, %arg1: tensor<32x1x2048xbf16>, %arg2: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
+        // CHECK: "ttir.typecast"(%arg0)
+        // CHECK-SAME: (tensor<32x1x2048xbf16>) -> tensor<32x1x2048xf32>
+        // CHECK: "ttir.typecast"(%arg1)
+        // CHECK-SAME: (tensor<32x1x2048xbf16>) -> tensor<32x1x2048xf32>
+        // CHECK: %[[ADD:.*]] = "ttir.add"
+        // CHECK-SAME: tensor<32x1x2048xf32>
+        // CHECK: %[[TO_BF16:.*]] = "ttir.typecast"(%[[ADD]])
+        // CHECK-SAME: (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
+        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%[[TO_BF16]], %arg2)
+        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
+        // CHECK: return %[[RESULT]]
+        %3 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
+        %4 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
+        %5 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
+        %16 = "ttir.reshape"(%arg2) <{shape = [1 : i32, 1 : i32, 2048 : i32]}> : (tensor<2048xbf16>) -> tensor<1x1x2048xbf16>
+        %17 = "ttir.reshape"(%16) <{shape = [2048 : i32]}> : (tensor<1x1x2048xbf16>) -> tensor<2048xbf16>
+        %18 = "ttir.reshape"(%17) <{shape = [1 : i32, 1 : i32, 2048 : i32]}> : (tensor<2048xbf16>) -> tensor<1x1x2048xbf16>
+        %19 = "ttir.broadcast"(%18) <{broadcast_dimensions = array<i64: 32, 1, 1>}> : (tensor<1x1x2048xbf16>) -> tensor<32x1x2048xbf16>
+        %tc0 = "ttir.typecast"(%arg0) <{conservative_folding = false}> : (tensor<32x1x2048xbf16>) -> tensor<32x1x2048xf32>
+        %tc1 = "ttir.typecast"(%arg1) <{conservative_folding = false}> : (tensor<32x1x2048xbf16>) -> tensor<32x1x2048xf32>
+        %176 = "ttir.add"(%tc0, %tc1) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
+        %177 = "ttir.pow"(%176, %5) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
+        %178 = "ttir.sum"(%177) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1xf32>
+        %179 = "ttir.multiply"(%178, %4) : (tensor<32x1xf32>, tensor<32x1xf32>) -> tensor<32x1xf32>
+        %180 = "ttir.reshape"(%179) <{shape = [32 : i32, 1 : i32, 1 : i32]}> : (tensor<32x1xf32>) -> tensor<32x1x1xf32>
+        %181 = "ttir.add"(%180, %3) : (tensor<32x1x1xf32>, tensor<32x1x1xf32>) -> tensor<32x1x1xf32>
+        %182 = "ttir.rsqrt"(%181) : (tensor<32x1x1xf32>) -> tensor<32x1x1xf32>
+        %183 = "ttir.reshape"(%182) <{shape = [32 : i32, 1 : i32]}> : (tensor<32x1x1xf32>) -> tensor<32x1xf32>
+        %184 = "ttir.reshape"(%183) <{shape = [32 : i32, 1 : i32, 1 : i32]}> : (tensor<32x1xf32>) -> tensor<32x1x1xf32>
+        %185 = "ttir.broadcast"(%184) <{broadcast_dimensions = array<i64: 1, 1, 2048>}> : (tensor<32x1x1xf32>) -> tensor<32x1x2048xf32>
+        %186 = "ttir.multiply"(%176, %185) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
+        %187 = "ttir.typecast"(%186) <{conservative_folding = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
+        %188 = "ttir.multiply"(%19, %187) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
+        return %188 : tensor<32x1x2048xbf16>
+    }
+
     // RMS norm with bf16 input, different output shape (needs reshape only, no typecast).
     // Input is 32x2048xbf16, output should be 32x1x2048xbf16.
     // The fusion produces rms_norm -> reshape, but erase-inverse-ops commutes reshape before rms_norm.

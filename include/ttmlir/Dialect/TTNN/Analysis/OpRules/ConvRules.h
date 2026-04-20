@@ -46,6 +46,11 @@ struct Conv2dRuleBook : OpRuleBook {
   /// Tiebreaker: prefer lower act_block_h_override.
   bool preferCandidate(Operation *op, const BeamCandidate &a,
                        const BeamCandidate &b) const override;
+
+  /// Reject output hints that would mix sharding types with the input.
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 };
 
 /// Set L1Full slice config on all Conv2d ops before validation.

@@ -194,6 +194,26 @@ class TTIRBuilder(Builder):
         )
         return dispatched, metadata
 
+    def _build_all_to_all_dispatch_metadata_golden(
+        self,
+        input_tensor: GoldenMapTensor,
+        expert_indices: GoldenMapTensor,
+        expert_scores: GoldenMapTensor,
+        expert_mapping: GoldenMapTensor,
+        num_devices: int,
+        cluster_axis: int,
+    ) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+        from golden.mapping import all_to_all_dispatch_metadata_golden
+
+        return all_to_all_dispatch_metadata_golden(
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            num_devices=num_devices,
+            cluster_axis=cluster_axis,
+        )
+
     def _build_all_to_all_combine_golden(
         self,
         input_tensor: GoldenMapTensor,
@@ -3117,6 +3137,115 @@ class TTIRBuilder(Builder):
                 ]
 
         return asin_module, asin_builder
+
+    ############### ttir.AsinhOp ###############
+
+    @tag(ttir.AsinhOp)
+    def asinh(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.asinh)
+        input0 = self._get_golden_tensor(in0)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, loc=loc)
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.AsinhOp)
+    def asinh_parser(
+        self,
+        old_op: ttir.AsinhOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.asinh_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.AsinhOp)
+    def asinh_split(
+        self,
+        old_op: ttir.AsinhOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.asinh_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            asinh_module = Module.create()
+            asinh_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(asinh_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="asinh_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    asinh_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    asinh_builder._set_golden_tensor(in0, input0)
+                    asinh_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                asinh_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return asinh_module, asinh_builder
 
     ############### ttir.SqrtOp ###############
 
@@ -14822,6 +14951,250 @@ class TTIRBuilder(Builder):
 
         return dispatch_module, dispatch_builder
 
+    ############### ttir.AllToAllDispatchMetadataOp ###############
+
+    @tag(ttir.AllToAllDispatchMetadataOp)
+    def all_to_all_dispatch_metadata(
+        self,
+        input_tensor: Operand,
+        expert_indices: Operand,
+        expert_scores: Operand,
+        expert_mapping: Operand,
+        num_devices: int = 2,
+        cluster_axis: int = 0,
+        dispatched_shape: Optional[Shape] = None,
+        dispatched_type: Optional[torch.dtype] = None,
+        indices_shape: Optional[Shape] = None,
+        indices_type: Optional[torch.dtype] = None,
+        scores_shape: Optional[Shape] = None,
+        scores_type: Optional[torch.dtype] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult, OpResult]:
+        assert (
+            dispatched_shape is not None
+        ), "dispatched_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            dispatched_type is not None
+        ), "dispatched_type must be provided for all_to_all_dispatch_metadata"
+        assert (
+            indices_shape is not None
+        ), "indices_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            indices_type is not None
+        ), "indices_type must be provided for all_to_all_dispatch_metadata"
+        assert (
+            scores_shape is not None
+        ), "scores_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            scores_type is not None
+        ), "scores_type must be provided for all_to_all_dispatch_metadata"
+
+        mlir_dispatched_type = self._get_type_from_torch_dtype(dispatched_type)
+        mlir_indices_type = self._get_type_from_torch_dtype(indices_type)
+        mlir_scores_type = self._get_type_from_torch_dtype(scores_type)
+
+        dispatched_result = self._create_ranked_tensor_type(
+            dispatched_shape, mlir_dispatched_type
+        )
+        indices_result = self._create_ranked_tensor_type(
+            indices_shape, mlir_indices_type
+        )
+        scores_result = self._create_ranked_tensor_type(scores_shape, mlir_scores_type)
+
+        num_devices_attr = IntegerAttr.get(IntegerType.get_signless(64), num_devices)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_signless(64), cluster_axis)
+
+        loc = self._get_location()
+
+        op = ttir.AllToAllDispatchMetadataOp(
+            dispatched_result,
+            indices_result,
+            scores_result,
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            num_devices_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        in0 = self._get_golden_tensor(input_tensor)
+        in1 = self._get_golden_tensor(expert_indices)
+        in2 = self._get_golden_tensor(expert_scores)
+        in3 = self._get_golden_tensor(expert_mapping)
+        (
+            golden_dispatched,
+            golden_indices,
+            golden_scores,
+        ) = self._build_all_to_all_dispatch_metadata_golden(
+            in0, in1, in2, in3, num_devices, cluster_axis
+        )
+        self._set_golden_tensor(op.dispatched, golden_dispatched)
+        self._set_golden_tensor(op.indices, golden_indices)
+        self._set_golden_tensor(op.scores, golden_scores)
+
+        return op.dispatched, op.indices, op.scores
+
+    @parse(ttir.AllToAllDispatchMetadataOp)
+    def all_to_all_dispatch_metadata_parser(
+        self,
+        old_op: ttir.AllToAllDispatchMetadataOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.all_to_all_dispatch_metadata_parser
+        )
+
+        input_tensor = global_dict[old_op.input_tensor]
+        expert_indices = global_dict[old_op.expert_indices]
+        expert_scores = global_dict[old_op.expert_scores]
+        expert_mapping = global_dict[old_op.expert_mapping]
+        dispatched_type = old_op.dispatched.type
+        indices_type = old_op.indices.type
+        scores_type = old_op.scores.type
+        num_devices_attr = old_op.num_devices
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            dispatched_type,
+            indices_type,
+            scores_type,
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            num_devices_attr,
+            cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_dispatched = new_op.dispatched
+        new_op_indices = new_op.indices
+        new_op_scores = new_op.scores
+
+        input0 = self._get_golden_tensor(input_tensor)
+        input1 = self._get_golden_tensor(expert_indices)
+        input2 = self._get_golden_tensor(expert_scores)
+        input3 = self._get_golden_tensor(expert_mapping)
+        num_devices = int(unpack_mlir_attr(num_devices_attr))
+        cluster_axis = int(unpack_mlir_attr(cluster_axis_attr))
+        (
+            golden_dispatched,
+            golden_indices,
+            golden_scores,
+        ) = self._build_all_to_all_dispatch_metadata_golden(
+            input0, input1, input2, input3, num_devices, cluster_axis
+        )
+        self._set_golden_tensor(new_op_dispatched, golden_dispatched)
+        self._set_golden_tensor(new_op_indices, golden_indices)
+        self._set_golden_tensor(new_op_scores, golden_scores)
+
+        op_map_dictionary = {
+            old_op.dispatched: new_op_dispatched,
+            old_op.indices: new_op_indices,
+            old_op.scores: new_op_scores,
+        }
+        return new_op, op_map_dictionary
+
+    @split(ttir.AllToAllDispatchMetadataOp)
+    def all_to_all_dispatch_metadata_split(
+        self,
+        old_op: ttir.AllToAllDispatchMetadataOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(
+            TTIRBuilder.all_to_all_dispatch_metadata_split
+        )
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            dispatch_module = Module.create()
+            dispatch_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.input_tensor.type,
+                old_op.expert_indices.type,
+                old_op.expert_scores.type,
+                old_op.expert_mapping.type,
+            ]
+
+            with InsertionPoint(dispatch_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(
+                    *op_input_types,
+                    name="all_to_all_dispatch_metadata_module",
+                )
+                def decorated_func(*inputs):
+                    input_tensor = inputs[0]
+                    expert_indices = inputs[1]
+                    expert_scores = inputs[2]
+                    expert_mapping = inputs[3]
+                    dispatched_type = old_op.dispatched.type
+                    indices_type = old_op.indices.type
+                    scores_type = old_op.scores.type
+
+                    new_op = ttir_op(
+                        dispatched_type,
+                        indices_type,
+                        scores_type,
+                        input_tensor,
+                        expert_indices,
+                        expert_scores,
+                        expert_mapping,
+                        old_op.num_devices,
+                        old_op.cluster_axis,
+                        loc=old_op.location,
+                    )
+                    new_op_dispatched = new_op.dispatched
+                    new_op_indices = new_op.indices
+                    new_op_scores = new_op.scores
+
+                    input0 = self._get_golden_tensor(old_op.input_tensor)
+                    input1 = self._get_golden_tensor(old_op.expert_indices)
+                    input2 = self._get_golden_tensor(old_op.expert_scores)
+                    input3 = self._get_golden_tensor(old_op.expert_mapping)
+                    old_dispatched = self._get_golden_tensor(old_op.dispatched)
+                    old_indices = self._get_golden_tensor(old_op.indices)
+                    old_scores = self._get_golden_tensor(old_op.scores)
+
+                    dispatch_builder._set_golden_tensor(
+                        new_op_dispatched, old_dispatched
+                    )
+                    dispatch_builder._set_golden_tensor(new_op_indices, old_indices)
+                    dispatch_builder._set_golden_tensor(new_op_scores, old_scores)
+                    dispatch_builder._set_golden_tensor(input_tensor, input0)
+                    dispatch_builder._set_golden_tensor(expert_indices, input1)
+                    dispatch_builder._set_golden_tensor(expert_scores, input2)
+                    dispatch_builder._set_golden_tensor(expert_mapping, input3)
+                    ordered_inputs.extend(
+                        [
+                            input_tensor,
+                            expert_indices,
+                            expert_scores,
+                            expert_mapping,
+                        ]
+                    )
+                    ordered_outputs.extend(
+                        [new_op_dispatched, new_op_indices, new_op_scores]
+                    )
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dispatch_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dispatch_module, dispatch_builder
+
     ############### ttir.AllToAllCombineOp ###############
 
     @tag(ttir.AllToAllCombineOp)
@@ -16116,6 +16489,269 @@ class TTIRBuilder(Builder):
 
         op_map_dictionary = {old_op.result: new_op_result}
         return new_op, op_map_dictionary
+
+    ############### ttir.DistributedLayerNormOp ###############
+
+    @tag(ttir.DistributedLayerNormOp)
+    def distributed_layer_norm(
+        self,
+        input: Operand,
+        cluster_axis: int,
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        residual: Optional[Operand] = None,
+        epsilon: float = 1e-5,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.distributed_layer_norm``.
+
+        *Distributed layer normalization with all-gather operation.*
+
+        Performs a fused distributed layer normalization across mesh devices.
+        The operation decomposes into:
+        1. Optional residual addition (input + residual)
+        2. layer_norm_pre_all_gather: compute local partial statistics (Welford)
+        3. all_gather: gather statistics across devices along cluster_axis
+        4. layer_norm_post_all_gather: normalize using gathered global statistics,
+           optionally apply weight (gamma) and bias (beta)
+
+        This is a multi-device operation that requires the tensor to be sharded
+        across a device mesh along the normalized (last) dimension.
+
+        Parameters
+        ----------
+        input : Operand
+            Input tensor to be normalized (must be width-sharded)
+        cluster_axis : int
+            Mesh dimension to all-gather statistics across (0 or 1)
+        weight : Optional[Operand], optional
+            Scale parameter (gamma) tensor
+        bias : Optional[Operand], optional
+            Shift parameter (beta) tensor
+        residual : Optional[Operand], optional
+            Optional residual tensor for fused add before normalization
+        epsilon : float, optional
+            Small constant for numerical stability (default: 1e-5)
+        output_type : Optional[torch.dtype], optional
+            Output data type
+        loc : Optional[str], optional
+            Location string for debugging
+        unit_attrs : Optional[List[str]], optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+            The normalized tensor (same shape as input)
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.distributed_layer_norm)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+
+        input0 = self._get_golden_tensor(input)
+        weight0 = self._get_golden_tensor(weight) if weight is not None else None
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        residual0 = self._get_golden_tensor(residual) if residual is not None else None
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight=weight0,
+            bias=bias0,
+            residual=residual0,
+            cluster_axis_attr=cluster_axis_attr,
+            epsilon_attr=epsilon_attr,
+            output_type_mlir=mlir_output_type,
+        )
+
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            cluster_axis_attr,
+            weight=weight,
+            bias=bias,
+            residual=residual,
+            epsilon=epsilon_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttir.DistributedLayerNormOp)
+    def distributed_layer_norm_parser(
+        self,
+        old_op: ttir.DistributedLayerNormOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.distributed_layer_norm_parser)
+
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight] if old_op.weight else None
+        bias = global_dict[old_op.bias] if old_op.bias else None
+        residual = global_dict[old_op.residual] if old_op.residual else None
+        result = old_op.result.type
+        cluster_axis_attr = old_op.cluster_axis
+        epsilon_attr = old_op.epsilon
+
+        new_op = ttir_op(
+            result,
+            in0,
+            cluster_axis_attr,
+            weight=weight,
+            bias=bias,
+            residual=residual,
+            epsilon=epsilon_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight) if weight is not None else None
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        residual0 = self._get_golden_tensor(residual) if residual is not None else None
+
+        # Compute golden
+        norm_input = input0 + residual0 if residual0 is not None else input0
+        epsilon = epsilon_attr.value
+        golden_output = torch.nn.functional.layer_norm(
+            norm_input.float(),
+            normalized_shape=[norm_input.shape[-1]],
+            weight=weight0.float() if weight0 is not None else None,
+            bias=bias0.float() if bias0 is not None else None,
+            eps=epsilon,
+        ).to(norm_input.dtype)
+
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(ttir.DistributedLayerNormOp)
+    def distributed_layer_norm_split(
+        self,
+        old_op: ttir.DistributedLayerNormOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.distributed_layer_norm_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            distributed_layer_norm_module = Module.create()
+            distributed_layer_norm_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+            if old_op.weight is not None:
+                op_input_types.append(old_op.weight.type)
+            if old_op.bias is not None:
+                op_input_types.append(old_op.bias.type)
+            if old_op.residual is not None:
+                op_input_types.append(old_op.residual.type)
+
+            with InsertionPoint(distributed_layer_norm_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="distributed_layer_norm_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    idx = 1
+                    weight = None
+                    bias = None
+                    residual = None
+                    if old_op.weight is not None:
+                        weight = inputs[idx]
+                        idx += 1
+                    if old_op.bias is not None:
+                        bias = inputs[idx]
+                        idx += 1
+                    if old_op.residual is not None:
+                        residual = inputs[idx]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.cluster_axis,
+                        weight=weight,
+                        bias=bias,
+                        residual=residual,
+                        epsilon=old_op.epsilon,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    weight0 = (
+                        self._get_golden_tensor(old_op.weight)
+                        if old_op.weight is not None
+                        else None
+                    )
+                    bias0 = (
+                        self._get_golden_tensor(old_op.bias)
+                        if old_op.bias is not None
+                        else None
+                    )
+                    residual0 = (
+                        self._get_golden_tensor(old_op.residual)
+                        if old_op.residual is not None
+                        else None
+                    )
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    distributed_layer_norm_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    distributed_layer_norm_builder._set_golden_tensor(in0, input0)
+                    distributed_layer_norm_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    if weight is not None:
+                        distributed_layer_norm_builder._set_golden_tensor(
+                            weight, weight0
+                        )
+                        ordered_inputs.append(weight)
+                    if bias is not None:
+                        distributed_layer_norm_builder._set_golden_tensor(bias, bias0)
+                        ordered_inputs.append(bias)
+                    if residual is not None:
+                        distributed_layer_norm_builder._set_golden_tensor(
+                            residual, residual0
+                        )
+                        ordered_inputs.append(residual)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                distributed_layer_norm_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return distributed_layer_norm_module, distributed_layer_norm_builder
 
     ############### ttir.LayerNormOp ###############
 

@@ -17,12 +17,14 @@
 #include "operations/ccl/all_reduce_async.h"
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
+#include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/moe_expert_token_remap.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
+#include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
@@ -83,6 +85,7 @@
 #include "operations/normalization/layer_norm_post_all_gather.h"
 #include "operations/normalization/layer_norm_pre_all_gather.h"
 #include "operations/normalization/rms_norm.h"
+#include "operations/normalization/rms_norm_pre_all_gather.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
 #include "operations/pool/upsample.h"
@@ -156,9 +159,9 @@ ProgramExecutor::ProgramExecutor(
       std::move(deviceHandle), executableHandle, programIndex);
 }
 
-void ProgramExecutor::runCallback(
-    std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
-    const ::tt::target::ttnn::Operation *opContext,
+void ProgramExecutor::runOpCallback(
+    const std::optional<debug::Hooks::OperationCallbackFn> &callback,
+    Binary &executableHandle, const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
   if (callback) {
     std::shared_ptr<void> programContextPtr =
@@ -172,11 +175,24 @@ void ProgramExecutor::runCallback(
   }
 }
 
+void ProgramExecutor::runProgramCallback(
+    const std::optional<debug::Hooks::ProgramCallbackFn> &callback,
+    Binary &executableHandle, ProgramContext *programContext) {
+  if (callback) {
+    std::shared_ptr<void> programContextPtr =
+        ::tt::runtime::utils::unsafeBorrowShared(programContext);
+    (*callback)(executableHandle,
+                CallbackContext(programContextPtr, DeviceRuntime::TTNN));
+  }
+}
+
 void ProgramExecutor::execute() {
   ZoneScopedN("program_execute");
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+  runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
+                     executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -186,16 +202,18 @@ void ProgramExecutor::execute() {
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
+    runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
+                  executableHandle, op, context.get());
     runOperation(op);
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
-    runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
-                op, context.get());
+    runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
+                  executableHandle, op, context.get());
     dumpPerfCountersIfNeeded();
   }
+  runProgramCallback(debug::Hooks::get().getpostProgramCallback(),
+                     executableHandle, context.get());
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }
@@ -397,6 +415,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::RMSNormOp: {
     return operations::rms_norm::run(op->type_as_RMSNormOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
+    return operations::rms_norm_pre_all_gather::run(
+        op->type_as_RMSNormPreAllGatherOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     return operations::distributed_rms_norm::run(
         op->type_as_DistributedRMSNormOp(), getContext());
@@ -478,8 +500,16 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp: {
     return operations::ccl::run(op->type_as_AllToAllDispatchOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp: {
+    return operations::ccl::run(op->type_as_AllToAllDispatchMetadataOp(),
+                                getContext());
+  }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     return operations::ccl::run(op->type_as_AllToAllCombineOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::SelectiveReduceCombineOp: {
+    return operations::ccl::run(op->type_as_SelectiveReduceCombineOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
     return operations::ccl::run(op->type_as_MoeExpertTokenRemapOp(),

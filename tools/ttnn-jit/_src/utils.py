@@ -5,10 +5,46 @@
 import textwrap
 import inspect
 from typing import Callable
+from ttnn_jit.ttmlir.ir import *
 from ttnn_jit._src.tensor_translator import (
     _calculate_tile_shape,
     _get_logical_tensor_shape,
 )
+
+
+def discover_dialect_ops(dialect, denylist=None):
+    """
+    Return a mapping Dict[str, Callable] of available pybounded dialect ops.
+    """
+    # Convert string dialect names to their corresponding objects
+    if isinstance(dialect, str):
+        dialect = importlib.import_module(f"ttnn_jit.ttmlir.dialects.{dialect}")
+
+    denylist = set() if denylist is None else denylist
+    op_map = {}
+    ns = dialect.__name__.split("ttmlir.dialects.")[-1]
+    for attr_name in dir(dialect):
+        if attr_name.startswith("_"):
+            continue
+        op_obj = getattr(dialect, attr_name, None)
+        if (
+            op_obj is None
+            or not hasattr(op_obj, "OPERATION_NAME")
+            or not inspect.isclass(op_obj)
+        ):
+            continue
+
+        func_name = getattr(op_obj, "OPERATION_NAME")
+        name = func_name.removeprefix(ns + ".")
+        if name in denylist:
+            continue
+        func = getattr(dialect, name, None)
+
+        # must be the module-level function, and not the class
+        if inspect.isfunction(func):
+            op_map[name] = func
+
+    return op_map
 
 
 def cleanup_source_code(f: Callable):

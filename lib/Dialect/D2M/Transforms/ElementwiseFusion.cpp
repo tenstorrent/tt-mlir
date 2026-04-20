@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
@@ -277,8 +278,8 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
       consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
       mergedAdditionalArgs, consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
-      consumer.getThreads(), consumer.getScratchInputsAttr(),
-      consumer.getFabricConnectionConfigAttr(), /*regions=*/1);
+      consumer.getThreads(), consumer.getFabricConnectionConfigAttr(),
+      /*regions=*/1);
 
   /////////////////////////////////////////////////////////////////////////////
   // Map the block arguments of the fusedOp
@@ -542,6 +543,16 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   }
   rewriter.setInsertionPointToEnd(&fusedBlock);
   rewriter.create<YieldOp>(fusedOp.getLoc(), fusedYields);
+
+  // Tag inner linalg.generic ops with their output blocking map so that the
+  // allocator's reblocking can derive the correct shape for intermediate
+  // buffers that have no associated generic operand.
+  for (Operation &op : fusedBlock) {
+    if (auto linalgOp = dyn_cast<linalg::LinalgOp>(&op)) {
+      AffineMap outputMap = linalgOp.getIndexingMapsArray().back();
+      op.setAttr("d2m.blocking_map", AffineMapAttr::get(outputMap));
+    }
+  }
 
   return fusedOp;
 }

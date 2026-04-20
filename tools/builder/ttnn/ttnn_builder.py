@@ -3268,6 +3268,116 @@ class TTNNBuilder(Builder):
 
         return asin_module, asin_builder
 
+    ############### ttnn.AsinhOp ###############
+
+    @tag(ttnn.AsinhOp)
+    def asinh(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.asinh)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.AsinhOp)
+    def asinh_parser(
+        self,
+        old_op: ttnn.AsinhOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.asinh_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, result.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.AsinhOp)
+    def asinh_split(
+        self,
+        old_op: ttnn.AsinhOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.asinh_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            asinh_module = Module.create()
+            asinh_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(asinh_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="asinh_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    asinh_builder._set_golden_tensor(new_op_result, old_op_result)
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    asinh_builder._set_golden_tensor(in0, input0)
+                    asinh_builder._annotate_presharded_arg(in0)
+
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                asinh_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return asinh_module, asinh_builder
+
     ############### ttnn.SqrtOp ###############
 
     @tag(ttnn.SqrtOp)
@@ -8881,6 +8991,183 @@ class TTNNBuilder(Builder):
             f"No non-overlapping dimension found for input_rank={input_rank}, "
             f"shard_dims={shard_dims}, composer_dims={composer_dims}"
         )
+
+    ############### ttnn.RMSNormPreAllGatherOp ###############
+
+    @tag(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather(
+        self,
+        input: Operand,
+        residual: Optional[Operand] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.rms_norm_pre_all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_golden = self._get_golden_tensor(input)
+        residual_golden = (
+            self._get_golden_tensor(residual) if residual is not None else None
+        )
+        op_golden_function = get_golden_function(ttnn_op)
+
+        golden_output = op_golden_function(
+            input_golden,
+            residual_golden,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        output_dtype = self._get_data_type_attribute(input)
+
+        op = ttnn_op(
+            result,
+            input,
+            loc=loc,
+            residual=residual,
+            dtype=output_dtype,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather_parser(
+        self,
+        old_op: ttnn.RMSNormPreAllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(
+            TTNNBuilder.rms_norm_pre_all_gather_parser
+        )
+
+        in0 = global_dict[old_op.input]
+        residual = global_dict[old_op.residual] if old_op.residual is not None else None
+        result = old_op.result.type
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            loc=old_op.location,
+            residual=residual,
+            dtype=old_op.dtype,
+            memory_config=old_op.memory_config,
+            compute_config=old_op.compute_config,
+            program_config=old_op.program_config,
+            use_2d_core_grid=old_op.use_2d_core_grid,
+        )
+        new_op_result = new_op.result
+
+        input_golden = self._get_golden_tensor(in0)
+        residual_golden = (
+            self._get_golden_tensor(residual) if residual is not None else None
+        )
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input_golden,
+            residual_golden,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op, {old_op.result: new_op_result}
+
+    @split(ttnn.RMSNormPreAllGatherOp)
+    def rms_norm_pre_all_gather_split(
+        self,
+        old_op: ttnn.RMSNormPreAllGatherOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.rms_norm_pre_all_gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            rms_norm_pre_all_gather_module = Module.create()
+            rms_norm_pre_all_gather_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+            if old_op.residual is not None:
+                op_input_types.append(old_op.residual.type)
+
+            with InsertionPoint(rms_norm_pre_all_gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="rms_norm_pre_all_gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    input_idx = 1
+
+                    residual = None
+                    if old_op.residual is not None:
+                        residual = inputs[input_idx]
+
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        loc=old_op.location,
+                        residual=residual,
+                        dtype=old_op.dtype,
+                        memory_config=old_op.memory_config,
+                        compute_config=old_op.compute_config,
+                        program_config=old_op.program_config,
+                        use_2d_core_grid=old_op.use_2d_core_grid,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    rms_norm_pre_all_gather_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+
+                    input_golden = self._get_golden_tensor(old_op.input)
+                    rms_norm_pre_all_gather_builder._set_golden_tensor(
+                        in0, input_golden
+                    )
+                    rms_norm_pre_all_gather_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+
+                    if old_op.residual is not None:
+                        residual_golden = self._get_golden_tensor(old_op.residual)
+                        rms_norm_pre_all_gather_builder._set_golden_tensor(
+                            residual, residual_golden
+                        )
+                        rms_norm_pre_all_gather_builder._annotate_presharded_arg(
+                            residual
+                        )
+                        ordered_inputs.append(residual)
+
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                rms_norm_pre_all_gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return rms_norm_pre_all_gather_module, rms_norm_pre_all_gather_builder
 
     ############### ttnn.LayerNormPreAllGatherOp ###############
 

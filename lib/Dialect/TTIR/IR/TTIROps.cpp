@@ -16,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/CommonFolders.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -3208,16 +3209,158 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
   }
   return success();
 }
+
 //===----------------------------------------------------------------------===//
 // TypecastOp
 //===----------------------------------------------------------------------===//
 
+static ::mlir::OpFoldResult
+foldIdentityTypecast(mlir::tt::ttir::TypecastOp op) {
+  if (op.getType() == op.getInput().getType()) {
+    return op.getInput();
+  }
+  return nullptr;
+}
+
+// Helper to check if a float cast can be folded based on the conversion status.
+static bool isFloatCastFoldSuccessful(llvm::APFloat::opStatus status) {
+  // Don't fold if the conversion failed, as runtime semantics don't match IEEE
+  // 754 in some special cases (e.g. overflow, NaN). Fold if the status is not
+  // OK solely because the conversion is inexact.
+  return status == llvm::APFloat::opOK || status == llvm::APFloat::opInexact;
+}
+
+// Helper to check if an integer constant cast can be safely folded.
+static bool isIntCastFoldSafe(const llvm::APInt &value,
+                              mlir::IntegerType sourceType,
+                              mlir::IntegerType targetType) {
+  unsigned targetWidth = targetType.getWidth();
+
+  if (targetType.isUnsigned()) {
+    if (!sourceType.isUnsigned() && value.isNegative()) {
+      // Don't fold if the value is negative and the target type is unsigned.
+      return false;
+    }
+    // Don't fold if the value overflows.
+    return value.isIntN(targetWidth);
+  }
+
+  if (targetType.isSigned()) {
+    if (!sourceType.isSigned()) {
+      // Don't fold if the value overflows/underflows. This is checked
+      // separately for unsigned source to avoid casting large positive
+      // integers to negative.
+      return value.isIntN(targetWidth - 1);
+    }
+    // Don't fold if the value overflows/underflows.
+    return value.isSignedIntN(targetWidth);
+  }
+
+  // Fold conversion to signless integer type only if it would be correct for
+  // both signed and unsigned target types.
+  return value.isIntN(targetWidth - 1);
+}
+
+static ::mlir::OpFoldResult
+constantFoldTypecast(mlir::tt::ttir::TypecastOp op,
+                     mlir::tt::ttir::TypecastOp::FoldAdaptor adaptor) {
+  auto input =
+      mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getInput());
+  if (!input) {
+    return nullptr;
+  }
+  if (!input.isSplat() && !shouldFold(op)) {
+    return nullptr;
+  }
+
+  // We ignore `conservative_folding` attribute of typecast op here, because it
+  // is meant for folding of consecutive ops without the known input. Constant
+  // folding will not cause issues that this attribute is designed to prevent,
+  // like the removal of narrowing conversions in conversion chains.
+
+  auto outputType = op.getResult().getType();
+  auto outputElementType = outputType.getElementType();
+  auto inputElementType = input.getElementType();
+
+  if (inputElementType.isFloat()) {
+    if (auto targetType = mlir::dyn_cast<FloatType>(outputElementType)) {
+      return constFoldCastOp<mlir::FloatAttr, mlir::FloatAttr, llvm::APFloat,
+                             llvm::APFloat, void>(
+          adaptor.getOperands(), outputType,
+          [targetType](llvm::APFloat value, bool &castStatus) -> llvm::APFloat {
+            bool losesInfo{};
+            llvm::APFloat::opStatus status =
+                value.convert(targetType.getFloatSemantics(),
+                              llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+            castStatus = isFloatCastFoldSuccessful(status);
+            return value;
+          });
+    }
+
+    if (auto targetType = mlir::dyn_cast<IntegerType>(outputElementType)) {
+      return constFoldCastOp<mlir::FloatAttr, mlir::IntegerAttr, llvm::APFloat,
+                             llvm::APInt, void>(
+          adaptor.getOperands(), outputType,
+          [targetType](const llvm::APFloat &value,
+                       bool &castStatus) -> llvm::APInt {
+            llvm::APSInt intValue(targetType.getWidth(),
+                                  targetType.isUnsigned());
+            bool isExact{};
+            llvm::APFloat::opStatus status = value.convertToInteger(
+                intValue, llvm::APFloat::rmTowardZero, &isExact);
+            castStatus = isFloatCastFoldSuccessful(status);
+            return intValue;
+          });
+    }
+  }
+
+  if (auto sourceType = mlir::dyn_cast<mlir::IntegerType>(inputElementType)) {
+    if (auto targetType = mlir::dyn_cast<FloatType>(outputElementType)) {
+      return constFoldCastOp<mlir::IntegerAttr, mlir::FloatAttr, llvm::APInt,
+                             llvm::APFloat, void>(
+          adaptor.getOperands(), outputType,
+          [sourceType, targetType](const llvm::APInt &value,
+                                   bool &castStatus) -> llvm::APFloat {
+            llvm::APFloat floatValue(targetType.getFloatSemantics());
+            // If target type is a signless integer, we treat it as signed to
+            // keep negative floats negative after conversion.
+            bool isSigned = !sourceType.isUnsigned();
+            llvm::APFloat::opStatus status = floatValue.convertFromAPInt(
+                value, isSigned, llvm::APFloat::rmNearestTiesToEven);
+            castStatus = isFloatCastFoldSuccessful(status);
+            return floatValue;
+          });
+    }
+
+    if (auto targetType = mlir::dyn_cast<IntegerType>(outputElementType)) {
+      return constFoldCastOp<mlir::IntegerAttr, mlir::IntegerAttr, llvm::APInt,
+                             llvm::APInt, void>(
+          adaptor.getOperands(), outputType,
+          [sourceType, targetType](const llvm::APInt &value,
+                                   bool &castStatus) -> llvm::APInt {
+            castStatus = isIntCastFoldSafe(value, sourceType, targetType);
+            if (sourceType.isUnsigned()) {
+              return value.zextOrTrunc(targetType.getWidth());
+            }
+            return value.sextOrTrunc(targetType.getWidth());
+          });
+    }
+  }
+
+  return nullptr;
+}
+
 // TypecastOp folder
 mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
-  if (getType() == getInput().getType()) {
-    return getInput();
+  if (auto foldResult = foldIdentityTypecast(*this)) {
+    return foldResult;
   }
-  return {};
+
+  if (auto foldResult = constantFoldTypecast(*this, adaptor)) {
+    return foldResult;
+  }
+
+  return nullptr;
 }
 
 static bool isNarrowingConversion(const ::mlir::tt::ttcore::DataType srcDtype,
@@ -6217,6 +6360,60 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedLayerNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::DistributedLayerNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("output shape must match input shape");
+  }
+
+  // Verify cluster_axis is valid (must be 0 or 1 for 2D mesh).
+  uint32_t clusterAxis = getClusterAxis();
+  if (clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  // Verify epsilon is positive.
+  float epsilon = getEpsilon().convertToFloat();
+  if (epsilon <= 0) {
+    return emitOpError("epsilon must be positive");
+  }
+
+  // Verify residual tensor shape matches input if present.
+  if (getResidual()) {
+    RankedTensorType residualType = getResidual().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError("residual tensor shape must match input tensor shape");
+    }
+  }
+
+  int64_t inputLastDim = inputType.getShape().back();
+
+  // Verify weight tensor's last dimension matches input's last dimension.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getShape().back() != inputLastDim) {
+      return emitOpError(
+          "weight tensor's last dimension must match input's last dimension");
+    }
+  }
+
+  // Verify bias tensor's last dimension matches input's last dimension.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getShape().back() != inputLastDim) {
+      return emitOpError(
+          "bias tensor's last dimension must match input's last dimension");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::LayerNormOp::verify() {
@@ -6886,6 +7083,60 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::AllToAllDispatchMetadataOp::verify() {
+  ::mlir::RankedTensorType inputType = getInputTensor().getType();
+  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
+  ::mlir::RankedTensorType scoresType = getExpertScores().getType();
+  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
+  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
+  ::mlir::RankedTensorType indicesOutType = getIndices().getType();
+  ::mlir::RankedTensorType scoresOutType = getScores().getType();
+
+  // Inputs must be 4D
+  if (inputType.getRank() != 4) {
+    return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
+  }
+  if (indicesType.getRank() != 4) {
+    return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
+  }
+  if (scoresType.getRank() != 4) {
+    return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
+  }
+  if (mappingType.getRank() != 4) {
+    return emitOpError("expert_mapping must be a 4D tensor [1, 1, D, E]");
+  }
+  // Outputs are 3D matching the metal kernel output shapes
+  if (dispatchedType.getRank() != 3) {
+    return emitOpError(
+        "dispatched output must be a 3D tensor [1, tokens_global, H]");
+  }
+  if (indicesOutType.getRank() != 3) {
+    return emitOpError(
+        "indices output must be a 3D tensor [1, tokens_global, K]");
+  }
+  if (scoresOutType.getRank() != 3) {
+    return emitOpError(
+        "scores output must be a 3D tensor [1, tokens_global, K]");
+  }
+
+  // Verify num_devices > 0
+  if (getNumDevices() <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+
+  // Verify cluster_axis is 0 or 1.
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllToAllCombineOp
 //===----------------------------------------------------------------------===//
 
@@ -6923,6 +7174,29 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   // Verify num_experts_per_tok > 0
   if (getNumExpertsPerTok() <= 0) {
     return emitOpError("num_experts_per_tok must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SelectiveReduceCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::SelectiveReduceCombineOp::verify() {
+  // Verify select_experts_k > 0
+  if (getSelectExpertsK() == 0) {
+    return emitOpError("select_experts_k must be positive");
+  }
+
+  // Verify experts > 0
+  if (getExperts() == 0) {
+    return emitOpError("experts must be positive");
+  }
+
+  // Verify hidden_size > 0
+  if (getHiddenSize() == 0) {
+    return emitOpError("hidden_size must be positive");
   }
 
   return success();
