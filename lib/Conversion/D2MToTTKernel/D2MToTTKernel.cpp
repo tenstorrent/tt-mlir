@@ -1700,28 +1700,35 @@ public:
   static_assert(std::is_same_v<D2MCBOp, d2m::WaitOp> ||
                 std::is_same_v<D2MCBOp, d2m::ReserveOp>);
 
-  // Check if there's an explicit push/pop for this CB in the same block
+  // Check if there's an explicit push/pop for this CB in the enclosing block,
+  // including nested regions.
   static bool hasExplicitRelease(D2MCBOp op) {
     Block *block = op->getBlock();
     Value cb = op.getCb();
 
-    // Check for explicit d2m.push (for reserve) or d2m.pop (for wait)
-    for (Operation &blockOp : *block) {
+    bool found = false;
+    block->walk([&](Operation *blockOp) {
+      if (found) {
+        return WalkResult::interrupt();
+      }
       if constexpr (std::is_same_v<D2MCBOp, d2m::ReserveOp>) {
-        if (auto pushOp = dyn_cast<d2m::PushOp>(&blockOp)) {
+        if (auto pushOp = dyn_cast<d2m::PushOp>(blockOp)) {
           if (pushOp.getCb() == cb) {
-            return true;
+            found = true;
+            return WalkResult::interrupt();
           }
         }
       } else if constexpr (std::is_same_v<D2MCBOp, d2m::WaitOp>) {
-        if (auto popOp = dyn_cast<d2m::PopOp>(&blockOp)) {
+        if (auto popOp = dyn_cast<d2m::PopOp>(blockOp)) {
           if (popOp.getCb() == cb) {
-            return true;
+            found = true;
+            return WalkResult::interrupt();
           }
         }
       }
-    }
-    return false;
+      return WalkResult::advance();
+    });
+    return found;
   }
 
   LogicalResult
