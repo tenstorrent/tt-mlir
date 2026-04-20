@@ -1,4 +1,3 @@
-# tools/chisel/chisel/executor.py
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -18,7 +17,8 @@ from ttmlir.ir import Operation
 
 from golden import get_chisel_golden_function, GoldenMapTensor
 
-from .ops import IRModule, get_op_inputs
+from .ops import IRModule, get_op_inputs, get_op_outputs
+from .tensors import TensorPool
 
 
 def execute_golden(
@@ -58,4 +58,34 @@ def execute_golden(
         return result.golden_map_tensor_as_torch_tensors()[0]
     if isinstance(result, torch.Tensor):
         return result
+    return result
+
+
+def execute_golden_from_pool(
+    op: Operation,
+    ir_module: IRModule,
+    function_name: str,
+    tensor_pool: TensorPool,
+) -> torch.Tensor:
+    """
+    Pool-aware golden execution.
+
+    Pulls input tensors from tensor_pool by SSA name, calls execute_golden,
+    stores the torch.Tensor result back in the pool under the output SSA name,
+    and returns it.
+    """
+    asm_state = ir_module.get_asm_state(function_name)
+    op_inputs = get_op_inputs(op)
+    inputs = {
+        inp.get_name(asm_state): tensor_pool[inp.get_name(asm_state)]
+        for inp in op_inputs
+    }
+
+    result = execute_golden(op, ir_module, function_name, inputs)
+
+    op_outputs = get_op_outputs(op)
+    if op_outputs:
+        out_name = op_outputs[0].get_name(asm_state)
+        tensor_pool[out_name] = result
+
     return result
