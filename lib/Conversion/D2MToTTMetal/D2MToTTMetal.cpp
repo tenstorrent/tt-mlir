@@ -231,9 +231,13 @@ CoreRangeAttr D2MGenericRewriter::coreRangeAttrFromOp(Builder &builder,
     virtToPhysMap = virtToPhysMap.getSubMap({1, 2});
   }
 
+  llvm::SmallVector<int64_t> start(gridShape.size(), 0);
+  llvm::SmallVector<int64_t> end;
+  for (auto dim : gridShape) {
+    end.push_back(dim - 1);
+  }
   d2m::utils::BoundingBox physBox = d2m::utils::getProjectedBoundingBox(
-      d2m::utils::BoundingBox{{0, 0}, {gridShape[0] - 1, gridShape[1] - 1}},
-      virtToPhysMap);
+      d2m::utils::BoundingBox{start, end}, virtToPhysMap);
 
   const int64_t y0 = physBox.start[0];
   const int64_t x0 = physBox.start[1];
