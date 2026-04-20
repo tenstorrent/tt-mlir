@@ -154,21 +154,18 @@ GridAnalysis::normalizeOperandGridsForGeneric(
 }
 
 GenericGridAnalysisResult
-GridAnalysis::analyzeGenericOp(GenericOp genericOp, const GridConfig &config) {
+GridAnalysis::analyzeGenericOp(GenericOp genericOp,
+                               ArrayRef<int64_t> targetGridShape) {
   OpBuilder builder(genericOp->getContext());
   GenericGridAnalysisResult result;
-  result.ttnnMode = config.ttnnMode;
-
-  // The effective target grid is the full device grid, used for virtual grid
-  // physical mapping (findLegalPhysicalGridForVolume).
-  result.effectiveTargetGrid =
-      llvm::SmallVector<int64_t>(config.targetGridShape);
+  result.ttnnMode = ttnnMode;
+  result.deviceGrid = llvm::SmallVector<int64_t>(targetGridShape);
 
   // Build per-operand target grids. When a loop dimension maps to different
   // operand-dim positions across operands (e.g. matmul K is dim 1 of LHS but
   // dim 0 of RHS), those positions must use min(gridDims) so that
   // computeGridAwareDimAlignments produces consistent alignments.
-  int64_t minGridDim = *llvm::min_element(config.targetGridShape);
+  int64_t minGridDim = *llvm::min_element(targetGridShape);
   auto indexingMaps = genericOp.getIndexingMapsValue();
   unsigned numLoopDims = indexingMaps.front().getNumDims();
 
@@ -217,7 +214,7 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp, const GridConfig &config) {
     unsigned rank = gridShape.size();
 
     // Start from the full device grid, then cap cross-axis positions.
-    SmallVector<int64_t> opTarget(config.targetGridShape);
+    SmallVector<int64_t> opTarget(targetGridShape);
     // targetGridShape is 2D; cross-axis positions index into the last 2 dims
     // of the operand shape. Map them to the 2D target grid.
     for (unsigned pos : crossAxisPositions[operandIdx]) {
@@ -241,67 +238,36 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp, const GridConfig &config) {
                "GridSelection expects GenericOp inputs/outputs to have "
                "MetalLayoutAttr");
 
-    unsigned idx = static_cast<unsigned>(operandIndex);
     ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
-    llvm::SmallVector<int64_t> physShape = utils::computePhysicalShape(
-        operand, targetGrid, config.ttnnMode, builder);
+    llvm::SmallVector<int64_t> physShape =
+        utils::computePhysicalShape(operand, targetGrid, ttnnMode, builder);
     physicalShapes.push_back(physShape);
     auto optimalGrid =
         utils::computeOptimalGrid(operandType, physShape, targetGrid);
     optimalOperandGrids.push_back(optimalGrid);
 
     OperandGridInfo info;
-    info.operandIndex = idx;
+    info.operand = operand;
     info.selectedGrid = optimalGrid; // Will be updated after normalization.
     info.targetGrid = perOperandTargetGrids[operandIndex];
 
-    if (isTTNNOperand(operand)) {
-      info.updateKind = OperandUpdateKind::TTNNTensor;
-      info.ttnnOperand = operand;
-    } else if (auto viewLayout = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      // Track non-reinterpret views so their output type can be updated to
-      // match the normalized grid. Reinterpret views are just type casts and
-      // their grid must match the input — don't update them.
-      if (!viewLayout.getReinterpretLayout()) {
-        info.updateKind = OperandUpdateKind::ViewLayout;
-        info.viewLayoutOp = viewLayout;
-      } else {
-        info.updateKind = OperandUpdateKind::None;
-      }
-
-      // If the view's input is a ToLayoutOp, also compute the optimal grid for
-      // that ToLayoutOp independently.
+    // If the operand is a view over a ToLayoutOp (not fronting a TTNN cast),
+    // pre-compute the ToLayoutOp's own optimal grid so it can be updated
+    // independently at apply time.
+    if (auto viewLayout = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
       if (auto toLayoutOp =
               viewLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
         if (!toLayoutOp.getInput()
                  .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
           auto inputType = mlir::cast<mlir::RankedTensorType>(
               viewLayout.getInput().getType());
-
           llvm::SmallVector<int64_t> inputPhysShape =
               utils::computePhysicalShape(viewLayout.getInput(), targetGrid,
-                                          config.ttnnMode, builder);
-          auto inputOptimalGrid =
+                                          ttnnMode, builder);
+          info.behindViewToLayoutGrid =
               utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
-
-          info.behindViewToLayoutOp = toLayoutOp;
-          info.toLayoutGrid = inputOptimalGrid;
         }
       }
-    } else if (auto compositeViewOp =
-                   operand.getDefiningOp<d2m::CompositeViewOp>()) {
-      info.updateKind = OperandUpdateKind::CompositeView;
-      info.compositeViewOp = compositeViewOp;
-    } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {
-      info.updateKind = OperandUpdateKind::ToLayout;
-      info.toLayoutOp = toLayoutOp;
-    } else if (auto emptyOp = operand.getDefiningOp<d2m::EmptyOp>()) {
-      info.updateKind = OperandUpdateKind::Empty;
-      info.emptyOp = emptyOp;
-    } else {
-      // Block arguments or producers we don't rewrite: record the selected
-      // grid but skip the per-op update phase.
-      info.updateKind = OperandUpdateKind::None;
     }
 
     result.operandInfos.push_back(std::move(info));
@@ -311,13 +277,18 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp, const GridConfig &config) {
   result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
       genericOp, optimalOperandGrids, physicalShapes);
 
-  // Propagate normalized grids back to ViewLayout operand infos only.
-  // Other operand kinds (ToLayout, Empty, TTNN, CompositeView) use their
-  // independently computed optimal grids — normalization may produce grids
-  // that exceed what the individual tensor can physically support.
-  for (auto &info : result.operandInfos) {
-    if (info.updateKind == OperandUpdateKind::ViewLayout) {
-      info.selectedGrid = result.normalizedOperandGrids[info.operandIndex];
+  // Propagate normalized grids back to non-reinterpret ViewLayout operands
+  // only. Other operand kinds use their independently computed optimal
+  // grids — normalization may produce grids that exceed what the individual
+  // tensor can physically support.
+  for (unsigned idx = 0; idx < result.operandInfos.size(); ++idx) {
+    OperandGridInfo &info = result.operandInfos[idx];
+    if (isTTNNOperand(info.operand)) {
+      continue;
+    }
+    auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+    if (view && !view.getReinterpretLayout()) {
+      info.selectedGrid = result.normalizedOperandGrids[idx];
     }
   }
 
@@ -341,7 +312,7 @@ GridAnalysis::getTargetGridShape(GenericOp genericOp) const {
 }
 
 GridAnalysis::GridAnalysis(Operation *moduleOp, const Options &opts)
-    : deviceGridShape(opts.deviceGridShape) {
+    : deviceGridShape(opts.deviceGridShape), ttnnMode(opts.ttnnMode) {
   moduleOp->walk([&](GenericOp genericOp) {
     // Skip explicit datamovement form — users manage grids manually.
     if (genericOp.isExplicitDatamovementForm()) {
@@ -352,11 +323,9 @@ GridAnalysis::GridAnalysis(Operation *moduleOp, const Options &opts)
     }
 
     llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape(genericOp);
-    GridConfig config{targetGridShape, opts.ttnnMode};
-
     results[genericOp.getOperation()] =
         std::make_unique<GenericGridAnalysisResult>(
-            analyzeGenericOp(genericOp, config));
+            analyzeGenericOp(genericOp, targetGridShape));
   });
 }
 

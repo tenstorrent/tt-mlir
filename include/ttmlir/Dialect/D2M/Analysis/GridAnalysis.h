@@ -16,55 +16,26 @@
 
 namespace mlir::tt::d2m {
 
-/// Configuration for GridAnalysis grid computation.
-struct GridConfig {
-  llvm::SmallVector<int64_t> targetGridShape;
-  bool ttnnMode;
-};
-
-/// Classification of how a GenericOp operand should be updated during the
-/// grid selection transform phase.
-enum class OperandUpdateKind {
-  ToLayout,
-  TTNNTensor,
-  Empty,
-  ViewLayout,
-  CompositeView,
-  None,
-};
-
-/// Per-operand analysis result describing the chosen grid and which op needs
-/// updating.
+/// Per-operand analysis result describing the chosen grid for a GenericOp
+/// operand. The concrete update strategy is recovered at apply time from the
+/// operand's defining op.
 struct OperandGridInfo {
-  unsigned operandIndex;
+  Value operand;
   llvm::SmallVector<int64_t> selectedGrid;
-  llvm::SmallVector<int64_t> targetGrid; // Per-operand target grid used for
-                                         // grid computation and alignment.
-  OperandUpdateKind updateKind;
+  llvm::SmallVector<int64_t> targetGrid;
 
-  // Op handles — only the relevant one is set based on updateKind.
-  d2m::ToLayoutOp toLayoutOp;
-  Value ttnnOperand;
-  d2m::EmptyOp emptyOp;
-  d2m::ViewLayoutOp viewLayoutOp;
-  d2m::CompositeViewOp compositeViewOp;
-
-  // For ViewLayout operands whose input is a ToLayoutOp: the ToLayoutOp's
-  // independently computed optimal grid and op handle.
-  llvm::SmallVector<int64_t> toLayoutGrid;
-  d2m::ToLayoutOp behindViewToLayoutOp;
+  // Set only when the operand is a ViewLayoutOp whose input is a ToLayoutOp
+  // that should have its grid optimized independently; empty otherwise.
+  llvm::SmallVector<int64_t> behindViewToLayoutGrid;
 };
 
 /// Per-GenericOp analysis result containing all grid decisions.
 struct GenericGridAnalysisResult {
   llvm::SmallVector<OperandGridInfo, 4> operandInfos;
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids;
+  // Device grid shape used for virtual grid physical mapping.
+  llvm::SmallVector<int64_t> deviceGrid;
   bool ttnnMode;
-
-  // The effective target grid used for grid computation. Defaults to the full
-  // device grid; per-op/operand decisions can constrain it (e.g. square for
-  // matmul k-dim).
-  llvm::SmallVector<int64_t> effectiveTargetGrid;
 };
 
 /// Module-level analysis that computes optimal grid assignments for all
@@ -88,10 +59,14 @@ struct GridAnalysis {
   /// Returns nullptr if the generic was skipped.
   const GenericGridAnalysisResult *lookup(GenericOp genericOp) const;
 
+  /// Check if an operand traces back to a TTNNMetalLayoutCastOp through
+  /// ViewLayoutOp chains.
+  static bool isTTNNOperand(Value operand);
+
 private:
   /// Analyze a single GenericOp and compute grid decisions for all operands.
   GenericGridAnalysisResult analyzeGenericOp(GenericOp genericOp,
-                                             const GridConfig &config);
+                                             ArrayRef<int64_t> targetGridShape);
 
   /// Compute the target grid shape for a generic, accounting for spatial
   /// region grid ranges.
@@ -106,13 +81,10 @@ private:
       ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids,
       ArrayRef<llvm::SmallVector<int64_t>> physicalShapes);
 
-  /// Check if an operand traces back to a TTNNMetalLayoutCastOp through
-  /// ViewLayoutOp chains.
-  static bool isTTNNOperand(Value operand);
-
   llvm::DenseMap<Operation *, std::unique_ptr<GenericGridAnalysisResult>>
       results;
   llvm::SmallVector<int64_t> deviceGridShape;
+  bool ttnnMode;
 };
 
 } // namespace mlir::tt::d2m
