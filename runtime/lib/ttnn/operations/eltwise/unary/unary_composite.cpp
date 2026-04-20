@@ -22,9 +22,9 @@ static void runEltwiseUnaryCompositeOp(
   op->UnPackTo(&eltwiseUnaryCompositeOpT);
 
   unifiedOpLib::EltwiseUnaryCompositeOpResult result =
-      unifiedOpLib::callEltwiseUnaryComposite(
-          unifiedOpLib::CallType::EXECUTE, eltwiseUnaryCompositeOpT,
-          std::forward<Fn>(ttnnOp), &in);
+      unifiedOpLib::callEltwiseUnaryComposite(unifiedOpLib::CallType::EXECUTE,
+                                              eltwiseUnaryCompositeOpT,
+                                              std::forward<Fn>(ttnnOp), &in);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected output Tensor from callEltwiseUnaryComposite execution");
@@ -121,8 +121,8 @@ void run(const ::tt::target::ttnn::EltwiseUnaryCompositeOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryCompositeOpType::Log1p: {
-    runEltwiseUnaryCompositeWithFastAndApproximateModeOp(op, tensorPool,
-                                                         WRAP_OP(::ttnn::log1p));
+    runEltwiseUnaryCompositeWithFastAndApproximateModeOp(
+        op, tensorPool, WRAP_OP(::ttnn::log1p));
     break;
   }
   }

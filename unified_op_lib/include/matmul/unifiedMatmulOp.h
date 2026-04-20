@@ -77,13 +77,12 @@ struct SparseMatmulResolvedParams {
 SparseMatmulResolvedParams resolveSparseMatmulParams(
     const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT);
 
-SparseMatmulOpResult
-callSparseMatmul(CallType callType,
-                 const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT,
-                 TensorArg a, TensorArg b, TensorArg sparsity,
-                 ::ttnn::MeshDevice *device = nullptr,
-                 std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
-                 std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
+SparseMatmulOpResult callSparseMatmul(
+    CallType callType,
+    const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT, TensorArg a,
+    TensorArg b, TensorArg sparsity, ::ttnn::MeshDevice *device = nullptr,
+    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
+    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 
 } // namespace unifiedOpLib
 
