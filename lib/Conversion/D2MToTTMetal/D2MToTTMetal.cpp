@@ -177,9 +177,19 @@ public:
         // MemrefAllocRewriter).
         if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
                 op.getOperands()[operandIndex].getDefiningOp())) {
-          assert(
-              mlir::isa<memref::AllocOp>(aliasOp.getMemref().getDefiningOp()) &&
-              "expected OperandAliasOp input to be a CreateBufferOp");
+          // OperandAliasOp's input is the generic's operand that this CB
+          // aliases. It could be a function argument of the parent func or an
+          // AllocOp.
+          Value aliasedMemref = aliasOp.getMemref();
+          auto parentFunc = op->getParentOfType<func::FuncOp>();
+          bool isFuncArg =
+              mlir::isa<BlockArgument>(aliasedMemref) &&
+              mlir::cast<BlockArgument>(aliasedMemref).getOwner() ==
+                  &parentFunc.getBody().front();
+          assert((isFuncArg ||
+                  mlir::isa<memref::AllocOp>(aliasedMemref.getDefiningOp())) &&
+                 "expected OperandAliasOp input to be a func argument or "
+                 "memref::AllocOp");
           cbs.push_back(adaptedOperand);
           cbOperandIndexToPort[operandIndex] = cbPort;
           cbPorts.push_back(cbPort++);
@@ -464,7 +474,8 @@ public:
   LogicalResult
   matchAndRewrite(d2m::OperandAliasOp op, d2m::OperandAliasOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.eraseOp(op);
+    rewriter.replaceOpWithNewOp<ttmetal::OperandAliasOp>(
+        op, op.getResult().getType(), adaptor.getMemref());
     return success();
   }
 };
@@ -481,9 +492,12 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
       ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
       ttmetal::D2MMeshShardRewriter, ttmetal::D2MCreateGlobalSemaphoreRewriter,
-      ttmetal::D2MResetGlobalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter,
-      ttmetal::D2MOperandAliasRewriter>(ctx);
+      ttmetal::D2MResetGlobalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
+      ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
+
+  // remove alias op after generic conversion
+  patterns.add<ttmetal::D2MOperandAliasRewriter>(ctx);
 }
 
 } // namespace mlir::tt

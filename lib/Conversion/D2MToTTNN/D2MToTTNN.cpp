@@ -293,6 +293,16 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
   return kernelConfigs;
 }
 
+static std::optional<unsigned> getCapturedOperandIndex(d2m::GenericOp op,
+                                                       Value operand) {
+  for (OpOperand &opOperand : op->getOpOperands()) {
+    if (opOperand.get() == operand) {
+      return opOperand.getOperandNumber();
+    }
+  }
+  return std::nullopt;
+}
+
 static std::pair<SmallVector<ttnn::KernelCBAttr>, DenseMap<size_t, size_t>>
 createCBDescriptors(Builder &builder, d2m::GenericOp op,
                     const ttcore::DeviceAttr &device,
@@ -325,11 +335,10 @@ createCBDescriptors(Builder &builder, d2m::GenericOp op,
     ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
     if (auto aliasOp =
             mlir::dyn_cast<d2m::OperandAliasOp>(operand.getDefiningOp())) {
-      assert(mlir::isa<memref::AllocOp>(aliasOp.getMemref().getDefiningOp()) &&
-             "expected OperandAliasOp input to be a CreateBufferOp");
-      // get operand index of aliased operand
+      // OperandAliasOp's input is the generic's operand that this CB aliases.
       globalCBIndexOfTensor =
-          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(
+              ctx, *getCapturedOperandIndex(op, aliasOp.getMemref()));
     } else {
       assert(mlir::isa<memref::AllocOp>(operand.getDefiningOp()) &&
              "expected alloc or alias op for cb memref");
@@ -1017,7 +1026,7 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
             d2m::ResetGlobalSemaphoreOp, d2m::CreateGlobalSemaphoreOp,
-            memref::DeallocOp, memref::AllocOp>(op)) {
+            memref::DeallocOp, memref::AllocOp, d2m::OperandAliasOp>(op)) {
       opsToErase.push_back(op);
     }
   });
