@@ -66,11 +66,18 @@ def TTMetal_CreateBufferOp : TTMetal_Op<"create_buffer", [MemoryEffects<[MemAllo
       `virtualGridForwardMapping` stores the forward affine map (virtual to
       physical grid coordinates).  Both are propagated from d2m.empty through
       bufferization.
+
+      When this buffer backs a circular buffer (CB) on device L1, optional
+      `cb_core_range` records the tensix core rectangle (same shape as
+      `ttmetal.core_range` on kernels) where that CB should be created at
+      runtime. When omitted, serializers may fall back to device-wide worker
+      grid behavior for CB placement.
     }];
 
     let arguments = (ins I64Attr:$address,
                          OptionalAttr<AffineMapAttr>:$virtualGridInverseMapping,
-                         OptionalAttr<AffineMapAttr>:$virtualGridForwardMapping);
+                         OptionalAttr<AffineMapAttr>:$virtualGridForwardMapping,
+                         OptionalAttr<TTMetal_CoreRangeAttr>:$cb_core_range);
     let results = (outs AnyNon0RankedMemRef:$result);
 }
 

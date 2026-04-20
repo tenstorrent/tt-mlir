@@ -278,7 +278,8 @@ public:
           op->getAttrOfType<IntegerAttr>("d2m.cb_for_operand");
       auto cbOp = rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
           op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
-          /*virtualGridForwardMapping=*/fwd);
+          /*virtualGridForwardMapping=*/fwd,
+          /*cb_core_range=*/CoreRangeAttr());
       if (cbForOperandAttr) {
         cbOp->setAttr("d2m.cb_for_operand", cbForOperandAttr);
       }
@@ -291,7 +292,8 @@ public:
 
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
         op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
-        /*virtualGridForwardMapping=*/fwd);
+        /*virtualGridForwardMapping=*/fwd,
+        /*cb_core_range=*/CoreRangeAttr());
 
     return success();
   };
