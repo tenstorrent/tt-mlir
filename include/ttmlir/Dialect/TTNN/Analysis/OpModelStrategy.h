@@ -114,10 +114,15 @@ struct BeamCandidate {
 };
 
 /// Score a backend validation result. Per-op customization via TypeSwitch.
+/// `inputLayouts` is the full per-operand input layout set for this candidate
+/// (or empty if the op has no inputs); passed through to
+/// `OpRuleBook::adjustScore` so per-op overrides can inspect and make
+/// decisions based on input layouts.
 LayoutScore
 scoreCandidate(Operation *op, const OpConfig &config,
                const op_constraint_validation::ValidationResult &result,
-               bool requiresReshard);
+               bool requiresReshard,
+               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts = {});
 
 /// Op-specific tiebreaker when two candidates have equal LayoutScores.
 /// Returns true if candidate a is preferred over b.

@@ -144,7 +144,8 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     BeamCandidate candidate;
     candidate.configHint =
         OpConfig(result.getFirstActualOutputLayout(), hint.opSpecificAttrs);
-    candidate.score = scoreCandidate(op, hint, result, anyReshard);
+    candidate.score =
+        scoreCandidate(op, hint, result, anyReshard, inputLayouts);
     candidate.score.inputDramBytes = computeInputDramBytes(inputLayouts);
     candidate.validationResult = result;
     candidate.inputLayouts = inputLayouts;
