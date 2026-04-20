@@ -15,6 +15,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LinalgToAffine.cpp
         LowerScratchAllocate.cpp
         LowerToLayout.cpp
+        LowerToLayoutPlan.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
         OpScheduler.cpp
