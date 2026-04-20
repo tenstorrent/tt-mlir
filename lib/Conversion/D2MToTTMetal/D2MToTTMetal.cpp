@@ -488,6 +488,47 @@ public:
   }
 };
 
+/// Peel view_layout so we reach the buffer producer (e.g.
+/// ttmetal.create_buffer) used as an enqueue_program CB operand.
+static Value stripEnqueueCbProducer(Value v) {
+  while (Operation *def = v.getDefiningOp()) {
+    if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
+      v = view.getInput();
+      continue;
+    }
+    break;
+  }
+  return v;
+}
+
+/// For each CB operand of this region's enqueue_program, if the backing buffer
+/// is a hoisted CB (CBLayoutAttr), set ttmetal.create_buffer's cb_core_range to
+/// this spatial region's tensix rectangle. Returns failure if a CBLayout buffer
+/// is not defined by ttmetal.create_buffer or cb_core_range would conflict.
+static LogicalResult
+stampSpatialRegionCbCoreRanges(ttmetal::EnqueueProgramOp enqueueProgram,
+                               CoreRangeAttr spatialMetalRange) {
+  for (Value cbVal : enqueueProgram.getCbs()) {
+    Value root = stripEnqueueCbProducer(cbVal);
+    auto createBuffer = root.getDefiningOp<ttmetal::CreateBufferOp>();
+    if (!createBuffer) {
+      return failure();
+    }
+    auto memrefTy = mlir::cast<MemRefType>(createBuffer.getType());
+    if (!mlir::isa<ttcore::CBLayoutAttr>(memrefTy.getLayout())) {
+      continue;
+    }
+    if (auto existing = createBuffer.getCbCoreRange()) {
+      if (*existing != spatialMetalRange) {
+        return failure();
+      }
+      continue;
+    }
+    createBuffer.setCbCoreRangeAttr(spatialMetalRange);
+  }
+  return success();
+}
+
 /// Second-phase lowering for d2m.spatial:
 /// - Merge all nested ttmetal.enqueue_program ops into one enqueue_program.
 /// - Keep cb_ports unchanged (concatenated per region). CB hardware ids are
@@ -530,6 +571,15 @@ public:
       }
       ttmetal::EnqueueProgramOp enqueueProgram = *maybeEnqueue;
       remapTable.addEnqueueArgs(enqueueProgram);
+
+      if (failed(stampSpatialRegionCbCoreRanges(enqueueProgram,
+                                                spatialMetalRange))) {
+        return rewriter.notifyMatchFailure(
+            op,
+            "failed to stamp spatial CB core ranges (CBLayout buffers must be "
+            "defined by ttmetal.create_buffer with consistent cb_core_range "
+            "across spatial merge)");
+      }
 
       llvm::append_range(mergedCbs, enqueueProgram.getCbs());
       llvm::append_range(mergedCbPorts, enqueueProgram.getCbPorts());
