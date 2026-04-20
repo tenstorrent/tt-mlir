@@ -326,22 +326,37 @@ public:
     });
 
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
-      // Any op nested inside a non-participating func is legal as-is.
-      if (auto parentFunc = op->getParentOfType<func::FuncOp>()) {
-        if (!participatingFuncs.contains(parentFunc)) {
-          return true;
-        }
-      }
-      // The funcOp itself: legal iff it isn't participating.
+      // Per-op test: does this op carry any rank<2 type that the patterns
+      // would want to rewrite? `func::FuncOp` has no SSA operands or results
+      // of its own; its sig types live inside the `FunctionType` attribute,
+      // so it needs its own check.
+      bool needsRewrite;
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        return !participatingFuncs.contains(funcOp);
+        needsRewrite =
+            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
+      } else {
+        needsRewrite =
+            llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
+            llvm::any_of(op->getResultTypes(), needsRankExpansion);
       }
-      // Original generic rule for ops in participating funcs.
-      if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
-          llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
-        return false;
+      if (!needsRewrite) {
+        return true;
       }
-      return true;
+      // Op needs a rewrite. Suppress it if the op lives in (or is) a func
+      // that has no TTIR ops to normalize -- promoting that func's sig or
+      // any of its ops would only insert a builtin.unrealized_conversion_cast
+      // at the boundary that nothing downstream knows how to clean up. This
+      // prevents both (a) the flatbuffer crash on stray casts and (b) the
+      // verifier mismatch between an unmodified func sig and a rewritten
+      // func.return operand.
+      func::FuncOp parentFunc = isa<func::FuncOp>(op)
+                                    ? cast<func::FuncOp>(op)
+                                    : op->getParentOfType<func::FuncOp>();
+      if (parentFunc && !participatingFuncs.contains(parentFunc)) {
+        return true;
+      }
+      return false;
     });
 
     RewritePatternSet patterns(ctx);
