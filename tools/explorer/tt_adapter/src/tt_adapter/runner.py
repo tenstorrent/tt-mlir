@@ -409,7 +409,7 @@ class ModelRunner:
             "--mlir-print-debuginfo",
         ]
 
-        self.log("Running TTNN Common to Runtime Pipeline")
+        self.log("Running ttnn-common-to-runtime-pipeline")
 
         runtime_process = self.run_in_subprocess(runtime_command)
         if runtime_process.returncode != 0:

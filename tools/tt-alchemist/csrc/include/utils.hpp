@@ -5,9 +5,10 @@
 #ifndef TT_ALCHEMIST_UTILS_HPP
 #define TT_ALCHEMIST_UTILS_HPP
 
+#include "llvm/Support/Error.h"
+
 #include <dlfcn.h>
 #include <filesystem>
-#include <llvm/Support/Error.h>
 
 namespace mlir {
 class ModuleOp;

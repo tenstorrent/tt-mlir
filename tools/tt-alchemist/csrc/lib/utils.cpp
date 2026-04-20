@@ -4,13 +4,13 @@
 
 #include "utils.hpp"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 
 #include "llvm/Support/Error.h"
-#include "llvm/Support/LogicalResult.h"
 
 #include <iostream>
 
@@ -42,10 +42,8 @@ mlir::ModuleOp extractInnerModule(mlir::ModuleOp module) {
     return nullptr;
   }
 
-  return *(*ops.begin())
-              .getBodyRegion()
-              .template getOps<mlir::ModuleOp>()
-              .begin();
+  return *(
+      (*ops.begin()).getBodyRegion().template getOps<mlir::ModuleOp>().begin());
 }
 
 } // namespace
