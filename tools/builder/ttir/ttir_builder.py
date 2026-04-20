@@ -11171,13 +11171,16 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    @tag(ttir.FillCacheOp)
     def fill_cache(
         self,
         in0: Operand,
         in1: Operand,
         batch_offset: int = 0,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.fill_cache``.
 
@@ -11189,16 +11192,17 @@ class TTIRBuilder(Builder):
 
         .. code-block:: mlir
 
-            // Fill cache with new values at batch offset 1
-            %result = ttir.fill_cache(%new_values, %cache, batch_offset = 1) : tensor<2x3xf32>, tensor<4x3xf32> -> tensor<4x3xf32>
-            // New values tensor:
-            // [[1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0]]
+            // Fill cache with input values at batch offset 1
+            %result = ttir.fill_cache(%cache, %input) {batch_offset = 1 : i32} :
+                tensor<4x3xf32>, tensor<2x3xf32> -> tensor<4x3xf32>
             // Cache tensor before:
             // [[0.1, 0.2, 0.3],
             //  [0.4, 0.5, 0.6],
             //  [0.7, 0.8, 0.9],
             //  [1.0, 1.1, 1.2]]
+            // Input tensor:
+            // [[1.0, 2.0, 3.0],
+            //  [4.0, 5.0, 6.0]]
             // Cache tensor after:
             // [[0.1, 0.2, 0.3],
             //  [1.0, 2.0, 3.0],
@@ -11208,30 +11212,62 @@ class TTIRBuilder(Builder):
         Parameters
         ----------
         in0 : Operand
-            New values to fill into cache
-        in1 : Operand
             Cache tensor to be filled
+        in1 : Operand
+            Input tensor containing new values
         batch_offset : int, optional
             Starting position in batch dimension (default: 0)
+        output_type : Optional[torch.dtype], optional
+            Output tensor dtype
+        loc : Optional[str], optional
+            Location name for the op
         unit_attrs : *Optional[List[str]]*, optional
             Optional list of unit attributes
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The updated cache tensor
         """
-        return self._op_proxy(
-            ttir.FillCacheOp,
-            [in0, in1],
-            ttir_kwargs={"batch_offset": batch_offset},
-            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
-            organize_golden_args=lambda i: (
-                self._get_golden_tensor(i[0]),
-                self._get_golden_tensor(i[1]),
-            ),
-            unit_attrs=unit_attrs,
+        ttir_op = self.get_opview_from_method(TTIRBuilder.fill_cache)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        batch_offset_attr = IntegerAttr.get(IntegerType.get_signless(32), batch_offset)
+
+        input_cache = self._get_golden_tensor(in0)
+        input_values = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input_cache,
+            input_values,
         )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            in1,
+            batch_offset_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     @parse(ttir.FillCacheOp)
     def fill_cache_parser(
