@@ -68,6 +68,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static ConcatRuleBook concat;
   static SliceRuleBook slice;
   static ReshapeRuleBook reshape;
+  static PermuteRuleBook permute;
   static PadRuleBook pad;
   static ConcatenateHeadsRuleBook concatHeads;
   static SDPARuleBook sdpa;
@@ -91,10 +92,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SliceStaticOp::getOperationName(), &slice);
     reg(SliceDynamicOp::getOperationName(), &slice);
     reg(ReshapeOp::getOperationName(), &reshape);
-
-    // TODO(rpavlovicTT): split permute's from reshape's rule book
-    // https://github.com/tenstorrent/tt-mlir/issues/7988
-    reg(PermuteOp::getOperationName(), &reshape);
+    reg(PermuteOp::getOperationName(), &permute);
     reg(PadOp::getOperationName(), &pad);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
     reg(NLPConcatHeadsDecodeOp::getOperationName(), &sdpa);

@@ -21,7 +21,13 @@ namespace mlir::tt::ttnn {
 //     (round-trip through interleaved internally in tt-metal)
 //
 // Output hints:
-//   All: non-sharded only
+//   ReshapeOp (non-view): interleaved + block/height-sharded (exclude
+//     width-sharded, which reshape_tiled round-trips through interleaved).
+//   ReshapeOp (view-eligible): NULL hint only, to preserve tt-metal's
+//     zero-cost view path.
+//   PermuteOp: non-sharded only — the interleaved permute writer kernel
+//     does not accept sharded TensorAccessors.
+//   Others: non-sharded only
 //     PadOp: invoke_tile crashes with sharded output + interleaved input
 //     https://github.com/tenstorrent/tt-metal/issues/40898
 //     SliceOps: https://github.com/tenstorrent/tt-metal/issues/38016
@@ -56,10 +62,23 @@ struct SliceRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
+/// ReshapeOp: reject width-sharded inputs, no reshards.
 /// View-eligible reshapes use NULL hint only (inherit input memory config).
-/// Non-view reshapes use non-sharded output hints.
+/// Non-view reshapes emit interleaved + block/height-sharded output hints.
 struct ReshapeRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// PermuteOp: reject width-sharded inputs, no reshards, non-sharded output.
+/// Split from ReshapeRuleBook because the two ops have diverging backend
+/// behavior: reshape has a view optimization with different NOP conditions,
+/// and tt-metal's interleaved permute writer kernel does not accept sharded
+/// TensorAccessors.
+struct PermuteRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints

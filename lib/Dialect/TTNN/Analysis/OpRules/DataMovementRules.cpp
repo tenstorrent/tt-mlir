@@ -161,14 +161,8 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 
 /// Check if a reshape can be optimized to a view (no kernel launch) by
 /// tt-metal. Mirrors the `this_is_view` condition in tt-metal's
-/// reshape.cpp:378-384. Only applies to ReshapeOp — PermuteOp has its own
-/// NOP optimization (is_permute_nop) with different conditions.
-/// TODO(#7988): Split PermuteOp into its own PermuteRuleBook to avoid this
-/// op-kind check.
+/// reshape.cpp:378-384.
 static bool canReshapeBeView(Operation *op) {
-  if (!mlir::isa<ReshapeOp>(op)) {
-    return false;
-  }
   auto inputType =
       mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
   auto outputType =
@@ -208,8 +202,8 @@ static bool canReshapeBeView(Operation *op) {
 
 LayoutFilterFn
 ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
-  // Reshape/Permute: width-sharded inputs round-trip through interleaved
-  // internally in tt-metal; height/block sharding is handled natively.
+  // Width-sharded inputs round-trip through interleaved internally in
+  // tt-metal; height/block sharding is handled natively.
   // https://github.com/tenstorrent/tt-mlir/issues/7681
   return layout_filter_utils::rejectWidthSharded;
 }
@@ -233,14 +227,29 @@ OutputHints ReshapeRuleBook::getOutputHints(
   // tt-metal's reshape_tiled round-trips width-sharded outputs through
   // interleaved internally.
   // https://github.com/tenstorrent/tt-mlir/issues/7681
-  //
-  // Scoped to ReshapeOp only: PermuteOp shares this rule book
-  // (https://github.com/tenstorrent/tt-mlir/issues/7988) but its interleaved
-  // writer kernel (writer_permute_interleaved_tiled_generic) does not accept
-  // sharded TensorAccessors and fails brisc compilation.
-  if (mlir::isa<ReshapeOp>(op)) {
-    return layout_filter_utils::nonWidthShardedOutputHints(legalConfigs);
-  }
+  return layout_filter_utils::nonWidthShardedOutputHints(legalConfigs);
+}
+
+//===----------------------------------------------------------------------===//
+// PermuteRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+PermuteRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  // Width-sharded inputs round-trip through interleaved internally in
+  // tt-metal; height/block sharding is handled natively.
+  // https://github.com/tenstorrent/tt-mlir/issues/7681
+  return layout_filter_utils::rejectWidthSharded;
+}
+
+bool PermuteRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints
+PermuteRuleBook::getOutputHints(Operation * /*op*/,
+                                const std::vector<OpConfig> &legalConfigs) const {
+  // Permute's interleaved writer kernel (writer_permute_interleaved_tiled_generic)
+  // does not accept sharded TensorAccessors, so sharded output hints would fail
+  // brisc compilation on downstream consumers that take the interleaved path.
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 
