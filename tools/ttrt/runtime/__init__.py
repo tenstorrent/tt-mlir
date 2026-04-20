@@ -70,6 +70,7 @@ try:
         get_op_loc_info,
         unregister_hooks,
         FabricConfig,
+        get_worker_debug_stats,
     )
 except ModuleNotFoundError:
     raise ImportError(
