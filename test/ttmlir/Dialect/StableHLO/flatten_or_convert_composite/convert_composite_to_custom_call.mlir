@@ -4,7 +4,7 @@
 
 module @jit_rms_norm attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
-  // CHECK: stablehlo.custom_call @tenstorrent.rms_norm(%{{.*}}, %{{.*}})
+  // CHECK: stablehlo.custom_call @tenstorrent.rms_norm
   // CHECK-SAME: tt.composite_attributes = {epsilon = {{.*}} : f32, normalized_shape = dense<128> : tensor<1xi64>}
   // CHECK-SAME: tt.has_custom_sharding
   // CHECK-SAME: (tensor<1x1x32x128xbf16>, tensor<128xbf16>) -> tensor<1x1x32x128xbf16>
