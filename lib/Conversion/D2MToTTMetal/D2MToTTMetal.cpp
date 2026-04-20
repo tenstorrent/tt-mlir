@@ -17,12 +17,10 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <cstdint>
@@ -490,14 +488,11 @@ public:
 
 /// Second-phase lowering for d2m.spatial:
 /// - Merge all nested ttmetal.enqueue_program ops into one enqueue_program.
-/// - Concatenate per-region `cbs`. Temporary workaround: remap hardware
-/// `cb_ports` to globally unique ids (sequential 0..N-1) so merged regions do
-/// not reuse the same CB port id when circular-buffer placement is
-/// over-approximated to the full worker grid (see TTMetalToFlatbuffer
-/// circular_buffer_config).
-/// - Remap kernel-arg indices for merged enqueue: BufferAddress,
-/// GlobalSemaphore, and CBPort. Runtime resolves CBPort by indexing the merged
-/// `cbs` list, then reads that entry's hardware port.
+/// - Keep cb_ports unchanged (concatenated per region). CB hardware ids are
+/// per-core; spatial regions use disjoint core ranges, so CBPort kernel-arg
+/// indices are not shifted across regions.
+/// - Remap enqueue args indices in kernel args when args lists are
+/// concatenated.
 class SpatialOpRewriter : public OpConversionPattern<d2m::SpatialOp> {
 public:
   using OpConversionPattern<d2m::SpatialOp>::OpConversionPattern;
@@ -512,26 +507,6 @@ public:
     }
 
     ArrayAttr gridRanges = op.getGridRanges();
-    unsigned chipNumCbs = 0;
-    bool foundSystemDesc = false;
-    for (Operation *walk = op->getParentOp(); walk;
-         walk = walk->getParentOp()) {
-      if (auto mod = dyn_cast<mlir::ModuleOp>(walk)) {
-        if (auto systemDesc = mod->getAttrOfType<ttcore::SystemDescAttr>(
-                ttcore::SystemDescAttr::name)) {
-          chipNumCbs = systemDesc.getChipDesc(0).getNumCBs();
-          foundSystemDesc = true;
-          break;
-        }
-      }
-    }
-    if (!foundSystemDesc) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "missing ttcore.system_desc on an enclosing module for spatial CB "
-          "port remap");
-    }
-
     SpatialRemapTable remapTable;
     SmallVector<Value> mergedCbs;
     SmallVector<int64_t> mergedCbPorts;
@@ -554,23 +529,11 @@ public:
       ttmetal::EnqueueProgramOp enqueueProgram = *maybeEnqueue;
       remapTable.addEnqueueArgs(enqueueProgram);
 
-      const size_t mergedCbSlotBase = mergedCbs.size();
       llvm::append_range(mergedCbs, enqueueProgram.getCbs());
-      // Workaround: rebuild cb_ports as a contiguous global range when merging.
-      const size_t regionCbPortCount = enqueueProgram.getCbPorts().size();
-      if (mergedCbPorts.size() + regionCbPortCount > chipNumCbs) {
-        return rewriter.notifyMatchFailure(
-            op, "merged spatial enqueue_program cb_ports exceed chip num_cbs");
-      }
-      const int64_t portBase = static_cast<int64_t>(mergedCbPorts.size());
-      llvm::append_range(
-          mergedCbPorts,
-          llvm::seq<int64_t>(
-              portBase, portBase + static_cast<int64_t>(regionCbPortCount)));
+      llvm::append_range(mergedCbPorts, enqueueProgram.getCbPorts());
       for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
-        mergedKernelConfigs.push_back(
-            remapKernelConfig(kernelConfig, spatialMetalRange, enqueueProgram,
-                              remapTable, mergedCbSlotBase));
+        mergedKernelConfigs.push_back(remapKernelConfig(
+            kernelConfig, spatialMetalRange, enqueueProgram, remapTable));
       }
 
       auto enqueueFabricConfig = enqueueProgram.getFabricConnectionConfigAttr();
@@ -664,8 +627,7 @@ private:
 
   static KernelArgAttr remapKernelArg(Builder &builder, KernelArgAttr kernelArg,
                                       ttmetal::EnqueueProgramOp enqueueProgram,
-                                      const SpatialRemapTable &remapTable,
-                                      size_t mergedCbSlotBase) {
+                                      const SpatialRemapTable &remapTable) {
     size_t operandIndex = kernelArg.getOperandIndex();
     if (kernelArg.getType() == ttkernel::ArgType::BufferAddress) {
       if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
@@ -676,8 +638,6 @@ private:
               remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
-    } else if (kernelArg.getType() == ttkernel::ArgType::CBPort) {
-      operandIndex += mergedCbSlotBase;
     }
     return builder.getAttr<KernelArgAttr>(kernelArg.getType(), operandIndex);
   }
@@ -685,21 +645,19 @@ private:
   static KernelArgsAttr
   remapKernelArgs(Builder &builder, KernelArgsAttr kernelArgs,
                   ttmetal::EnqueueProgramOp enqueueProgram,
-                  const SpatialRemapTable &remapTable,
-                  size_t mergedCbSlotBase) {
+                  const SpatialRemapTable &remapTable) {
     SmallVector<KernelArgAttr> remappedRuntimeArgs;
     SmallVector<KernelArgAttr> remappedCompileTimeArgs;
     remappedRuntimeArgs.reserve(kernelArgs.getRtArgs().size());
     remappedCompileTimeArgs.reserve(kernelArgs.getCtArgs().size());
 
     for (KernelArgAttr runtimeArg : kernelArgs.getRtArgs()) {
-      remappedRuntimeArgs.push_back(remapKernelArg(
-          builder, runtimeArg, enqueueProgram, remapTable, mergedCbSlotBase));
+      remappedRuntimeArgs.push_back(
+          remapKernelArg(builder, runtimeArg, enqueueProgram, remapTable));
     }
     for (KernelArgAttr compileTimeArg : kernelArgs.getCtArgs()) {
       remappedCompileTimeArgs.push_back(
-          remapKernelArg(builder, compileTimeArg, enqueueProgram, remapTable,
-                         mergedCbSlotBase));
+          remapKernelArg(builder, compileTimeArg, enqueueProgram, remapTable));
     }
 
     return builder.getAttr<KernelArgsAttr>(remappedRuntimeArgs,
@@ -709,8 +667,7 @@ private:
   static Attribute remapKernelConfig(Attribute kernelConfig,
                                      CoreRangeAttr spatialCoreRange,
                                      ttmetal::EnqueueProgramOp enqueueProgram,
-                                     const SpatialRemapTable &remapTable,
-                                     size_t mergedCbSlotBase) {
+                                     const SpatialRemapTable &remapTable) {
     Builder builder(kernelConfig.getContext());
     return TypeSwitch<Attribute, Attribute>(kernelConfig)
         .Case<ComputeConfigAttr>([&](ComputeConfigAttr computeConfig) {
@@ -718,7 +675,7 @@ private:
               computeConfig.getContext(), computeConfig.getKernelSymbol(),
               spatialCoreRange,
               remapKernelArgs(builder, computeConfig.getKernelArgs(),
-                              enqueueProgram, remapTable, mergedCbSlotBase),
+                              enqueueProgram, remapTable),
               computeConfig.getMathFidelity(), computeConfig.getFp32DestAccEn(),
               computeConfig.getDstFullSyncEn(),
               computeConfig.getMathApproxMode(),
@@ -729,7 +686,7 @@ private:
               nocConfig.getContext(), nocConfig.getKernelSymbol(),
               spatialCoreRange,
               remapKernelArgs(builder, nocConfig.getKernelArgs(),
-                              enqueueProgram, remapTable, mergedCbSlotBase),
+                              enqueueProgram, remapTable),
               nocConfig.getNocIndex());
         })
         .Case<EthernetConfigAttr>([&](EthernetConfigAttr ethernetConfig) {
@@ -737,7 +694,7 @@ private:
               ethernetConfig.getContext(), ethernetConfig.getKernelSymbol(),
               spatialCoreRange,
               remapKernelArgs(builder, ethernetConfig.getKernelArgs(),
-                              enqueueProgram, remapTable, mergedCbSlotBase),
+                              enqueueProgram, remapTable),
               ethernetConfig.getEthType(), ethernetConfig.getNocIndex());
         })
         .Default([](Attribute) -> Attribute {

@@ -7,9 +7,8 @@
 // 2) Per-region core ranges are preserved in merged kernel configs.
 // 3) Index-based kernel args (global_semaphore operand index) are remapped
 //    when args from multiple enqueues are concatenated.
-// 4) CBPort operand_idx remaps into the merged `cbs` list per region; hardware
-//    cb_ports are reassigned to sequential globally unique ids (temporary
-//    workaround for spatial merge).
+// 4) CBPort indices and cb_ports hardware ids are per-core; disjoint spatial
+//    regions keep local 0,1,... CBPort args (cb_ports arrays concatenate).
 
 // Single-region merge smoke test.
 #l1 = #ttcore.memory_space<l1>
@@ -50,8 +49,8 @@ module {
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
   // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <global_semaphore[2]>]>, noc0>
   // CHECK-SAME: #ttmetal.compute_config<@cp_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <global_semaphore[2]>]>, hifi4, true, false, false, [default]>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>, <global_semaphore[5]>]>, noc0>
-  // CHECK-SAME: #ttmetal.compute_config<@cp_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>, <global_semaphore[5]>]>, hifi4, true, false, false, [default]>]
+  // CHECK-SAME: #ttmetal.noc_config<@dm_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <global_semaphore[5]>]>, noc0>
+  // CHECK-SAME: #ttmetal.compute_config<@cp_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <global_semaphore[5]>]>, hifi4, true, false, false, [default]>]
   // CHECK-NOT: d2m.spatial
   func.func @spatial_two_regions_global_semaphore_remap(
       %arg0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>,
@@ -111,7 +110,7 @@ module {
   // CHECK-LABEL: func.func @spatial_two_regions_buffer_address_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
   // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_b0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args<rt_args = [<buffer_address[0]>] ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_b1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args<rt_args = [<buffer_address[2]>] ct_args = [<cb_port[2]>, <cb_port[3]>]>, noc0>]
+  // CHECK-SAME: #ttmetal.noc_config<@dm_b1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args<rt_args = [<buffer_address[2]>] ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>]
   // CHECK-NOT: d2m.spatial
   func.func @spatial_two_regions_buffer_address_remap(
       %arg0: memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>,
@@ -147,15 +146,15 @@ module {
 // -----
 
 // Two-region CBPort index remap: second region kernels must reference merged
-// cbs slots [2,3], not [0,1]. Hardware cb_ports are 0,1,2,3 after merge remap.
+// cbs slots [2,3], not [0,1]. Hardware cb_ports ids stay 0,1 per region.
 #l1 = #ttcore.memory_space<l1>
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
   // CHECK-LABEL: func.func @spatial_two_regions_cb_port_remap
   // CHECK-COUNT-1: "ttmetal.enqueue_program"
-  // CHECK: cb_ports = array<i64: 0, 1, 2, 3>
+  // CHECK: cb_ports = array<i64: 0, 1, 0, 1>
   // CHECK: kernelConfigs = [#ttmetal.noc_config<@dm_cbport_r0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>
-  // CHECK-SAME: #ttmetal.noc_config<@dm_cbport_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[2]>, <cb_port[3]>]>, noc0>]
+  // CHECK-SAME: #ttmetal.noc_config<@dm_cbport_r1, #ttmetal.core_range<1x1, 1x1>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>]>, noc0>]
   // CHECK: operandSegmentSizes = array<i32: 4, 4>
   // CHECK-NOT: @dm_cbport_r1{{.*}}cb_port[0]
   // CHECK-NOT: d2m.spatial
