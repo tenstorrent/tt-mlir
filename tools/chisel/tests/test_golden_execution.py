@@ -10,10 +10,11 @@ vs skipped counts.
 """
 import pytest
 import torch
-import ttrt.binary
 
 from chisel.executor import execute_golden
-from chisel.ops import IRModule, get_op_inputs, get_op_outputs
+from chisel.ops import get_op_inputs, get_op_outputs
+from golden import is_non_executable_op
+from golden.mapping import mlir_type_to_torch_dtype as _mlir_type_to_torch_dtype
 
 
 _DTYPE_MAP = {
@@ -25,23 +26,18 @@ _DTYPE_MAP = {
     "i8": torch.int8,
     "i64": torch.int64,
     "i1": torch.bool,
+    "ui8": torch.uint8,
+    "ui16": torch.uint16,
+    "ui32": torch.uint32,
+    "ui64": torch.uint64,
 }
 
 
 def _element_type_to_torch_dtype(element_type) -> torch.dtype:
-    return _DTYPE_MAP.get(str(element_type), torch.float32)
-
-
-@pytest.fixture
-def binary(binary_path):
-    return ttrt.binary.load_binary_from_path(binary_path)
-
-
-@pytest.fixture
-def ir_module(binary):
-    mlir_json = ttrt.binary.mlir_as_dict(binary)
-    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
-    return IRModule(mlir_source=mlir_json["source"], functions=functions)
+    try:
+        return _mlir_type_to_torch_dtype(element_type)
+    except TypeError:
+        return torch.float32
 
 
 def _iterate_programs(binary):
@@ -50,13 +46,19 @@ def _iterate_programs(binary):
         yield i, binary.get_program_name(i)
 
 
-def test_golden_execution(subtests, ir_module, binary):
+def test_golden_execution(subtests, ir_module, binary, mlir_source_path):
     """Execute each TTNN op on the meta device; verify output shape and dtype."""
     for _prog_idx, prog_name in _iterate_programs(binary):
         asm_state = ir_module.get_asm_state(prog_name)
 
         for op in ir_module.get_function_ops(prog_name):
             with subtests.test(prog=prog_name, op=op.name):
+                if is_non_executable_op(type(op.opview)):
+                    pytest.skip(f"golden not applicable for {type(op.opview).__name__}")
+
+                if op.name in ("ttnn.quantize", "ttnn.requantize"):
+                    pytest.skip("quantize/requantize golden not supported")
+
                 inputs = {}
                 for operand in get_op_inputs(op):
                     name = operand.get_name(asm_state)
@@ -65,9 +67,9 @@ def test_golden_execution(subtests, ir_module, binary):
                     inputs[name] = torch.empty(shape, dtype=dtype, device="meta")
 
                 try:
-                    result = execute_golden(op, ir_module, prog_name, inputs)
+                    result = execute_golden(op.opview, ir_module, prog_name, inputs)
                 except RuntimeError:
-                    pytest.skip("no golden implementation")
+                    pytest.skip(f"no golden implementation for {type(op.opview).__name__}")
 
                 op_outputs = get_op_outputs(op)
                 if op_outputs:
@@ -77,7 +79,9 @@ def test_golden_execution(subtests, ir_module, binary):
                     )
                     assert list(result.shape) == expected_shape, (
                         f"shape mismatch: got {list(result.shape)}, expected {expected_shape}"
+                        f"\nMLIR source: {mlir_source_path}"
                     )
                     assert result.dtype == expected_dtype, (
                         f"dtype mismatch: got {result.dtype}, expected {expected_dtype}"
+                        f"\nMLIR source: {mlir_source_path}"
                     )

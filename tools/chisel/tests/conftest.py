@@ -2,8 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import os
+from pathlib import Path
 
 import pytest
+import ttrt.binary
+
+from chisel.ops import IRModule
 
 
 def pytest_addoption(parser):
@@ -45,3 +49,24 @@ def pytest_generate_tests(metafunc):
             else:
                 pytest.fail(f"No .ttnn flatbuffers found under '{binary_opt}'.")
         metafunc.parametrize("binary_path", paths)
+
+
+@pytest.fixture
+def binary(binary_path):
+    return ttrt.binary.load_binary_from_path(binary_path)
+
+
+@pytest.fixture
+def ir_module(binary):
+    mlir_json = ttrt.binary.mlir_as_dict(binary)
+    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
+    return IRModule(mlir_source=mlir_json["source"], functions=functions)
+
+
+@pytest.fixture
+def mlir_source_path(binary, binary_path):
+    """Write the MLIR embedded in the flatbuffer to a .mlir file next to the binary."""
+    mlir_json = ttrt.binary.mlir_as_dict(binary)
+    out = Path(binary_path).with_suffix(".mlir")
+    out.write_text(mlir_json.get("source", ""))
+    return out
