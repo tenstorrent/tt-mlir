@@ -13,6 +13,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRRANKNORMALIZATION
@@ -300,39 +301,45 @@ public:
     ConversionTarget target(*ctx);
     target.addLegalDialect<ttnn::TTNNDialect>();
 
+    // A func participates in rank normalization iff its body contains at least
+    // one TTIR-dialect op. Funcs without any TTIR op (e.g. pure-TTNN
+    // const-eval helpers, external decls, or already-lowered subgraphs) are
+    // left entirely untouched: signature, block args, body, and return op all
+    // keep their original ranks. This avoids inserting
+    // `builtin.unrealized_conversion_cast` ops at func boundaries that nothing
+    // downstream knows how to clean up, and prevents the verifier mismatch
+    // between a (legal, unmodified) func signature and a (rewritten)
+    // `func.return` operand.
+    DenseSet<func::FuncOp> participatingFuncs;
+    module.walk([&](func::FuncOp funcOp) {
+      bool hasTTIROp = false;
+      funcOp.walk([&](Operation *inner) {
+        if (isa<ttir::TTIRDialect>(inner->getDialect())) {
+          hasTTIROp = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (hasTTIROp) {
+        participatingFuncs.insert(funcOp);
+      }
+    });
+
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+      // Any op nested inside a non-participating func is legal as-is.
+      if (auto parentFunc = op->getParentOfType<func::FuncOp>()) {
+        if (!participatingFuncs.contains(parentFunc)) {
+          return true;
+        }
+      }
+      // The funcOp itself: legal iff it isn't participating.
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        return !participatingFuncs.contains(funcOp);
+      }
+      // Original generic rule for ops in participating funcs.
       if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
           llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
         return false;
-      }
-      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        bool sigNeedsPromotion =
-            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
-        if (!sigNeedsPromotion) {
-          return true;
-        }
-        // Only promote the func signature if doing so will unblock a real
-        // rewrite inside the body. TTNN ops are declared legal above and are
-        // never rewritten, so a signature promotion that only services TTNN
-        // ops would just introduce a builtin.unrealized_conversion_cast at
-        // the func boundary that nothing downstream knows how to clean up.
-        bool bodyHasRewriteableOp = false;
-        funcOp.walk([&](Operation *inner) {
-          if (inner == funcOp.getOperation() || isa<func::ReturnOp>(inner)) {
-            return WalkResult::advance();
-          }
-          if (isa<ttnn::TTNNDialect>(inner->getDialect())) {
-            return WalkResult::advance();
-          }
-          if (llvm::any_of(inner->getOperandTypes(), needsRankExpansion) ||
-              llvm::any_of(inner->getResultTypes(), needsRankExpansion)) {
-            bodyHasRewriteableOp = true;
-            return WalkResult::interrupt();
-          }
-          return WalkResult::advance();
-        });
-        return !bodyHasRewriteableOp;
       }
       return true;
     });
