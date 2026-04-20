@@ -52,7 +52,7 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
 
   unifiedOpLib::LinearOpResult result = unifiedOpLib::callLinear(
       unifiedOpLib::CallType::EXECUTE, linearOpT, &lhs, &rhs,
-      bias.has_value() ? &bias.value() : nullptr);
+      bias.has_value() ? std::make_optional(&bias.value()) : std::nullopt);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected output Tensor from callLinear execution");
