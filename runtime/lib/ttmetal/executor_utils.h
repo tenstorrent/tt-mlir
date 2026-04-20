@@ -266,7 +266,7 @@ inline void writeFile(const std::string &fileName, const std::string &source) {
 }
 
 inline tt_metal::CircularBufferConfig createCircularBufferConfig(
-    const target::metal::CBRef *cbRef, int portNumber,
+    const target::metal::CBRef *cbRef,
     const std::unordered_map<
         std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers) {
   const auto *bufferDesc = cbRef->buffer_ref()->desc();
@@ -280,15 +280,15 @@ inline tt_metal::CircularBufferConfig createCircularBufferConfig(
 
   ::tt::DataFormat dataFormat = common::toDataFormat(bufferDesc->data_type());
   LOG_TRACE(logger::LogRuntimeTTMetalCircularBufferCreation,
-            "Creating circular buffer ", logger::Port(portNumber), " ",
+            "Creating circular buffer ", logger::Port(cbRef->port()), " ",
             logger::Buffer(cbRef->buffer_ref()->global_id()), " ",
             logger::Address(cbRef->buffer_ref()->address()), ": ",
             metalBuffer->circular_buffer_config());
   auto meshBuffer = meshBuffers.at(cbRef->buffer_ref()->global_id());
   return tt_metal::CircularBufferConfig(
              metalBuffer->circular_buffer_config()->total_size(),
-             {{portNumber, dataFormat}}, *meshBuffer->get_reference_buffer())
-      .set_page_size(portNumber,
+             {{cbRef->port(), dataFormat}}, *meshBuffer->get_reference_buffer())
+      .set_page_size(cbRef->port(),
                      metalBuffer->circular_buffer_config()->page_size());
 }
 

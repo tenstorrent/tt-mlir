@@ -39,9 +39,10 @@ public:
   D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
       : OpConversionPattern<d2m::GenericOp>(ctx), mathFidelity_(mathFidelity) {}
 
-  static KernelArgsAttr evalKernelArgsFromSpec(Builder &builder,
-                                               const SymbolTable &symbolTable,
-                                               SymbolRefAttr kernelSymbol) {
+  static KernelArgsAttr
+  evalKernelArgsFromSpec(Builder &builder, const SymbolTable &symbolTable,
+                         SymbolRefAttr kernelSymbol,
+                         const DenseMap<size_t, size_t> &cbOperandIndexToPort) {
     auto kernelFunc =
         symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
     ttkernel::ArgSpecAttr kernelSpec =
@@ -50,12 +51,22 @@ public:
     SmallVector<ttmetal::KernelArgAttr> rtArgs;
     SmallVector<ttmetal::KernelArgAttr> ctArgs;
     for (ttkernel::ArgAttr arg : kernelSpec.getRtArgs()) {
-      rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
-          arg.getArgType(), arg.getOperandIndex()));
+      if (arg.getArgType() == ttkernel::ArgType::CB) {
+        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
+      } else {
+        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), arg.getOperandIndex()));
+      }
     }
     for (ttkernel::ArgAttr arg : kernelSpec.getCtArgs()) {
-      ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
-          arg.getArgType(), arg.getOperandIndex()));
+      if (arg.getArgType() == ttkernel::ArgType::CB) {
+        ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
+      } else {
+        ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), arg.getOperandIndex()));
+      }
     }
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
@@ -63,7 +74,8 @@ public:
   static ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
       ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
-      ttmetal::MathFidelity mathFidelity) {
+      ttmetal::MathFidelity mathFidelity,
+      const DenseMap<size_t, size_t> &cbOperandIndexToPort) {
     SmallVector<Attribute> kernelConfigs;
     int unassignedNocCounter = 0;
 
@@ -73,7 +85,7 @@ public:
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
       KernelArgsAttr kernelArgs = evalKernelArgsFromSpec(
-          builder, symbolTable, thread.getKernelSymbol());
+          builder, symbolTable, thread.getKernelSymbol(), cbOperandIndexToPort);
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case d2m::ThreadType::Compute: {
@@ -138,43 +150,52 @@ public:
               operand.getDefiningOp());
           view) {
         args.push_back(view.getInput());
+        remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
       } else {
         args.push_back(operand);
+        remappedBuffers.push_back(rewriter.getRemappedValue(operand));
       }
     }
 
     // Add additional args.
+    llvm::SmallVector<Value> cbs;
+    llvm::SmallVector<int64_t> cbPorts;
+    int64_t cbPort = 0;
+    DenseMap<size_t, size_t> cbOperandIndexToPort;
     unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
-      auto operand = adaptor.getOperands()[ioSize + i];
-      if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
-        args.push_back(operand);
-      } else if (auto memrefType =
-                     mlir::dyn_cast_if_present<MemRefType>(operand.getType());
+      auto operandIndex = ioSize + i;
+      auto adaptedOperand = adaptor.getOperands()[operandIndex];
+      if (mlir::isa<ttmetal::GlobalSemaphoreType>(adaptedOperand.getType())) {
+        args.push_back(adaptedOperand);
+      } else if (auto memrefType = mlir::dyn_cast_if_present<MemRefType>(
+                     adaptedOperand.getType());
                  memrefType) {
         assert(mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
                "expected cb layout");
         // Hoisted CB buffer (already converted to CreateBufferOp by
         // MemrefAllocRewriter).
-        if (auto aliasOp = mlir::dyn_cast<ttmetal::OperandAliasOp>(
-                operand.getDefiningOp())) {
-          assert(mlir::isa<ttmetal::CreateBufferOp>(
-                     aliasOp.getMemref().getDefiningOp()) &&
-                 "expected OperandAliasOp input to be a CreateBufferOp");
-          args.push_back(operand);
-        } else if (auto allocOp =
-                       mlir::dyn_cast_if_present<ttmetal::CreateBufferOp>(
-                           operand.getDefiningOp());
+        if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
+                op.getOperands()[operandIndex].getDefiningOp())) {
+          assert(
+              mlir::isa<memref::AllocOp>(aliasOp.getMemref().getDefiningOp()) &&
+              "expected OperandAliasOp input to be a CreateBufferOp");
+          cbs.push_back(adaptedOperand);
+          cbOperandIndexToPort[operandIndex] = cbPort;
+          cbPorts.push_back(cbPort++);
+        } else if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
+                       op.getOperands()[operandIndex].getDefiningOp());
                    allocOp) {
-          args.push_back(operand);
+          cbs.push_back(adaptedOperand);
+          cbOperandIndexToPort[operandIndex] = cbPort;
+          cbPorts.push_back(cbPort++);
         } else {
-          llvm::errs() << "operand: " << operand << "\n";
           llvm_unreachable("expected alloc or aliad op for cb memref");
         }
       } else {
         op.emitOpError(
             "unexpected operand type in d2m.generic's additionalArgs: ")
-            << operand.getType();
+            << adaptedOperand.getType();
         return failure();
       }
     }
@@ -183,9 +204,10 @@ public:
     auto physicalGridShape = op.getPhysicalGridShape();
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, physicalGridShape,
-        symbolTable, mathFidelity_);
+        symbolTable, mathFidelity_, cbOperandIndexToPort);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
-        op, args, kernelConfigs, op.getFabricConnectionConfigAttr());
+        op, args, cbs, cbPorts, kernelConfigs,
+        op.getFabricConnectionConfigAttr());
     return success();
   };
 
@@ -442,8 +464,7 @@ public:
   LogicalResult
   matchAndRewrite(d2m::OperandAliasOp op, d2m::OperandAliasOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    rewriter.replaceOpWithNewOp<ttmetal::OperandAliasOp>(
-        op, op.getResult().getType(), adaptor.getMemref());
+    rewriter.eraseOp(op);
     return success();
   }
 };

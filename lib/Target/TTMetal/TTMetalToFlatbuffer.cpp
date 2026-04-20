@@ -612,9 +612,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   flatbuffers::Offset<void> arg;
   switch (kernelArg.getType()) {
   case ttkernel::ArgType::CB: {
-    argType = target::metal::KernelArgType::KernelArgCB;
-    arg = target::metal::CreateKernelArgCB(*cache.fbb,
-                                           kernelArg.getOperandIndex())
+    argType = target::metal::KernelArgType::KernelArgCBPort;
+    arg = target::metal::CreateKernelArgCBPort(*cache.fbb,
+                                               kernelArg.getOperandIndex())
               .Union();
     break;
   }
@@ -874,39 +874,23 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         std::vector<flatbuffers::Offset<void>> args;
         argTypes.reserve(enqueueProgramOp.getArgs().size());
         args.reserve(enqueueProgramOp.getArgs().size());
-        unsigned cbPort = 0;
         for (auto arg : enqueueProgramOp.getArgs()) {
-          if (auto memrefType =
-                  mlir::dyn_cast_if_present<MemRefType>(arg.getType());
-              memrefType) {
-            if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-              if (auto aliasOp = mlir::dyn_cast<ttmetal::OperandAliasOp>(
-                      arg.getDefiningOp())) {
-                args.push_back(
-                    target::metal::CreateCBRef(
-                        *cache.fbb, cbPort,
-                        cache.at<target::metal::BufferRef>(aliasOp.getMemref()))
-                        .Union());
-              } else if (auto allocOp =
-                             mlir::dyn_cast_if_present<ttmetal::CreateBufferOp>(
-                                 arg.getDefiningOp())) {
-                args.push_back(
-                    target::metal::CreateCBRef(
-                        *cache.fbb, cbPort,
-                        cache.at<target::metal::BufferRef>(allocOp.getResult()))
-                        .Union());
-              }
-              argTypes.push_back(target::metal::ArgRef::CBRef);
-              cbPort++;
-            } else {
-              argTypes.push_back(target::metal::ArgRef::BufferRef);
-              args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
-            }
+          if (mlir::isa<MemRefType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::BufferRef);
+            args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
           } else if (mlir::isa<GlobalSemaphoreType>(arg.getType())) {
             argTypes.push_back(target::metal::ArgRef::GlobalSemaphoreRef);
             args.push_back(
                 cache.at<target::metal::GlobalSemaphoreRef>(arg).Union());
           }
+        }
+
+        std::vector<flatbuffers::Offset<target::metal::CBRef>> cbs;
+        cbs.reserve(enqueueProgramOp.getCbs().size());
+        for (auto [port, cb] : llvm::zip(enqueueProgramOp.getCbPorts(),
+                                         enqueueProgramOp.getCbs())) {
+          auto buffer = cache.at<target::metal::BufferRef>(cb);
+          cbs.push_back(target::metal::CreateCBRef(*cache.fbb, port, buffer));
         }
 
         std::vector<flatbuffers::Offset<target::metal::KernelConfig>>
@@ -927,7 +911,7 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
         cqBuilder.appendCommand(
             target::metal::CreateEnqueueProgramCommandDirect(
-                fbb, &argTypes, &args,
+                fbb, &argTypes, &args, &cbs,
                 target::metal::CreateProgramDescDirect(fbb, &kernelConfigs),
                 fabricConnectionConfig),
             op);
@@ -1089,17 +1073,12 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                     resetGlobalSemaphoreOp.getSemaphore()),
                 resetGlobalSemaphoreOp.getValue()),
             op);
-      } else if (auto operandAliasOp =
-                     dyn_cast_if_present<ttmetal::OperandAliasOp>(op);
-                 operandAliasOp) {
-        // Underlying buffer of alias is correctly taken by enqueue program op
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
         return;
       } else {
-        llvm::report_fatal_error(llvm::Twine("Encountered unsupported op: ") +
-                                 op->getName().getStringRef());
+        llvm_unreachable("Encountered unsupported op.");
       }
     });
 

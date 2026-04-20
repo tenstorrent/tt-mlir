@@ -21,13 +21,15 @@ class AtLeastRegion<int numBlocks> : Region<
   CPred<"$_self.getBlocks().size() >= " # numBlocks>,
   "region with " # numBlocks # " blocks">;
 
-def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[MemRead, MemWrite]>]> {
+def TTMetal_EnqueueProgramOp : TTMetal_Op<"enqueue_program", [MemoryEffects<[MemRead, MemWrite]>, AttrSizedOperandSegments]> {
     let summary = "Enqueue program op.";
     let description = [{
       Enqueue program operation
     }];
 
     let arguments = (ins Variadic<AnyType>:$args,
+                         Variadic<AnyNon0RankedMemRef>:$cbs,
+                         DenseI64ArrayAttr:$cb_ports,
                          TTMetal_KernelConfigArrayAttr:$kernelConfigs,
                          OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
     let hasVerifier = 1;
@@ -122,16 +124,6 @@ def TTMetal_FinishOp : TTMetal_Op<"finish", [MemoryEffects<[MemRead, MemWrite]>]
     let description = [{
       Global barrier op, used to wait for all commands on queue to finish.
     }];
-}
-
-def TTMetal_OperandAliasOp : TTMetal_Op<"operand_alias", [MemoryEffects<[MemRead, MemWrite]>]> {
-    let summary = "Operand alias op.";
-    let description = [{
-      Operand alias op.
-    }];
-
-    let arguments = (ins AnyNon0RankedMemRef:$memref);
-    let results = (outs AnyNon0RankedMemRef:$result);
 }
 
 #endif

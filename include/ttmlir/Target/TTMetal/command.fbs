@@ -15,6 +15,7 @@ table ReturnCommand {
 
 table EnqueueProgramCommand {
   arg_refs: [ArgRef];
+  cbs: [CBRef];
   program: ProgramDesc;
   fabric_connection_config: tt.target.FabricConnectionConfig;
 }

@@ -2168,7 +2168,7 @@ public:
       if (mlir::isa<ttkernel::CBType>(convertedType)) {
         // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
         // Handle identically to D2MGetCBRewriter: CBPort compile-time arg.
-        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+        arg = rewriter.getAttr<ArgAttr>(ArgType::CB, op.getOperandIndex());
         argResultType = convertedType;
 
         rewriter.modifyOpInPlace(entry, [&]() {

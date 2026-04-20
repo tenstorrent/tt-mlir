@@ -359,14 +359,14 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           program, kernelSourceString, coreRangeSet,
           createKernelConfig(kernelConfig, command->arg_refs_type(),
                              command->arg_refs(), meshBuffers,
-                             global_semaphores, deviceAddressValidator,
-                             createSemaphore),
+                             global_semaphores, command->cbs(),
+                             deviceAddressValidator, createSemaphore),
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->arg_refs_type(),
-          command->arg_refs(), meshBuffers, global_semaphores,
+          command->arg_refs(), meshBuffers, global_semaphores, command->cbs(),
           deviceAddressValidator, createSemaphore);
 
       if (command->fabric_connection_config() &&
@@ -387,38 +387,28 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       }
     }
 
-    // for additional args that are CBs, we need to create CB configs for them
-    // in the program
-    for (unsigned i = 0; i < command->arg_refs_type()->size(); i++) {
-      const target::metal::ArgRef argRefType = command->arg_refs_type()->Get(i);
-      if (argRefType == target::metal::ArgRef::CBRef) {
-        // Get the cb port from the cb ref in argRefs.
-        const target::metal::CBRef *cbRef =
-            reinterpret_cast<const target::metal::CBRef *>(
-                command->arg_refs()->Get(i));
-        const target::metal::BufferDesc *bufferDesc =
-            cbRef->buffer_ref()->desc();
-        LOG_ASSERT(bufferDesc->buffer_detail_type() ==
-                   target::metal::BufferDetail::MetalBuffer);
-        const target::metal::MetalBuffer *metalBuffer =
-            bufferDesc->buffer_detail_as_MetalBuffer();
+    for (const target::metal::CBRef *cbRef : *command->cbs()) {
+      const target::metal::BufferDesc *bufferDesc = cbRef->buffer_ref()->desc();
+      LOG_ASSERT(bufferDesc->buffer_detail_type() ==
+                 target::metal::BufferDetail::MetalBuffer);
+      const target::metal::MetalBuffer *metalBuffer =
+          bufferDesc->buffer_detail_as_MetalBuffer();
 
-        assert((metalBuffer->buffer_config_type() !=
-                    target::metal::BufferConfig::InterleavedBufferConfig ||
-                !metalBuffer->circular_buffer_config()) &&
-               "Interleaved buffer configs should not have a CB config");
+      assert((metalBuffer->buffer_config_type() !=
+                  target::metal::BufferConfig::InterleavedBufferConfig ||
+              !metalBuffer->circular_buffer_config()) &&
+             "Interleaved buffer configs should not have a CB config");
 
-        // skip init if CircularBufferConfig is not present
-        if (!metalBuffer->circular_buffer_config()) {
-          continue;
-        }
-
-        tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
-            metalBuffer->circular_buffer_config()->core_range_set());
-        tt_metal::CircularBufferConfig config =
-            createCircularBufferConfig(cbRef, cbRef->port(), meshBuffers);
-        tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+      // skip init if CircularBufferConfig is not present
+      if (!metalBuffer->circular_buffer_config()) {
+        continue;
       }
+
+      tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
+          metalBuffer->circular_buffer_config()->core_range_set());
+      tt_metal::CircularBufferConfig config =
+          createCircularBufferConfig(cbRef, meshBuffers);
+      tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
     // fabric connected cores all have separate runtime args so we add a
