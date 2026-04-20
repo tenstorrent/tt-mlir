@@ -16,5 +16,4 @@ __all__ = [
     "compute_pcc",
     "compute_atol",
     "compute_rtol",
-    "_to_common_shape"
 ]
