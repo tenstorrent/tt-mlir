@@ -433,9 +433,10 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOpT &op) {
 }
 
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
-createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::SparseMatmulOpT &op) {
+createMatmulProgramConfigIfNeeded(
+    const ::tt::target::ttnn::SparseMatmulOpT &op) {
   ::tt::target::ttnn::MatmulProgramConfigUnion matmul_program_config;
-  if(op.program_config) {
+  if (op.program_config) {
     matmul_program_config.Set(*op.program_config);
   }
   return createMatmulProgramConfigIfNeeded(matmul_program_config);

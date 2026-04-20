@@ -84,7 +84,8 @@ std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
 createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOpT &op);
 
 std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
-createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::SparseMatmulOpT &op);
+createMatmulProgramConfigIfNeeded(
+    const ::tt::target::ttnn::SparseMatmulOpT &op);
 
 std::optional<::ttnn::MemoryConfig>
 createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg);

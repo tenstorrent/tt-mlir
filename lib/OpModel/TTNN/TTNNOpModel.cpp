@@ -1021,14 +1021,16 @@ UnaryCompositeEltwiseOpModel<OpTy>::getOpConstraints(
 
   // Create query closure
   auto query = [=]() {
-    unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnaryComposite(
-        unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryCompositeOpT,
-        detail::getOpSymbol<OpTy>(), inputSpec, device,
-        detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryComposite(
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseUnaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpec,
+            device, detail::getNullableMemoryConfig(outputLayout));
 
-    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
-               result) &&
-           "Expected ConstraintQueryResponse from EltwiseUnaryCompositeOp query");
+    assert(
+        std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+            result) &&
+        "Expected ConstraintQueryResponse from EltwiseUnaryCompositeOp query");
 
     return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
@@ -1060,10 +1062,11 @@ llvm::Expected<size_t> UnaryCompositeEltwiseOpModel<OpTy>::getOpRuntime(
 
   // Create query closure
   auto query = [=]() {
-    unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnaryComposite(
-        unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
-        detail::getOpSymbol<OpTy>(), inputSpec, device,
-        detail::getNullableMemoryConfig(outputLayout));
+    unifiedOpLib::EltwiseUnaryOpResult result =
+        unifiedOpLib::callEltwiseUnaryComposite(
+            unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
+            detail::getOpSymbol<OpTy>(), inputSpec, device,
+            detail::getNullableMemoryConfig(outputLayout));
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1101,9 +1104,9 @@ UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
   auto query = [=]() {
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryCompositeWithFastAndApproximateMode(
-            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryCompositeOpT,
-            detail::getOpSymbol<OpTy>(), inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+            eltwiseUnaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpec,
+            device, detail::getNullableMemoryConfig(outputLayout));
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -4647,20 +4650,6 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // // Convert activation string to optional
-  // std::optional<std::string> activationStr =
-  //     activation ? std::make_optional(activation->str()) : std::nullopt;
-
-  // // Convert program config attribute
-  // auto programConfig =
-  //     programConfigAttr ?
-  //     conversion::getMatmulProgramConfig(*programConfigAttr)
-  //                       : std::nullopt;
-
-  // std::optional<::ttnn::DeviceComputeKernelConfig>
-  //     computeKernelConfigConverted =
-  //         conversion::getDeviceComputeKernelConfig(computeKernelConfig);
-
   // Create query closure
   auto linearOpQuery = [=]() {
     unifiedOpLib::LinearOpResult result = unifiedOpLib::callLinear(
@@ -4675,13 +4664,6 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
            "Expected ConstraintQueryResponse from LinearOp query");
 
     return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
-    // return QUERY_OP_CONSTRAINTS(
-    //     ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,
-    //     transposeA, transposeB, outputMemoryConfig, outputDType,
-    //     programConfig, activationStr, computeKernelConfigConverted,
-    //     /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-    //     /*optional_output_tensor=*/std::nullopt,
-    //     /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4738,14 +4720,6 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
         "Expected RuntimeQueryResponse from LinearOp query");
     return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
-    // return QUERY_OP_RUNTIME(
-    //     ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor,
-    //     transposeA, transposeB, outputMemoryConfig, outputDType,
-    //     /*program_config=*/std::nullopt,
-    //     /*activation=*/std::nullopt, /*compute_kernel_config=*/std::nullopt,
-    //     /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-    //     /*optional_output_tensor=*/std::nullopt,
-    //     /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
   return operation::getOpRuntime(linearOpQuery);

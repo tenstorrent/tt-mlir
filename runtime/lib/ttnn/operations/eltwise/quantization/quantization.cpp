@@ -56,9 +56,9 @@ getZeroPointValueFromQuantizationParams(
 }
 
 // Helper to unify Quantize and Dequantize
-static void runQuantizeDequantize(
-    const ::tt::target::ttnn::EltwiseQuantizationOp *op,
-    ProgramContext &context) {
+static void
+runQuantizeDequantize(const ::tt::target::ttnn::EltwiseQuantizationOp *op,
+                      ProgramContext &context) {
   const auto *const params = op->params_as_QuantizeDequantizeOpParams();
   auto scale = getScaleValueFromQuantizationParams(params, context);
   auto zeroPoint = getZeroPointValueFromQuantizationParams(params, context);
@@ -146,9 +146,8 @@ static void runRequantize(const ::tt::target::ttnn::EltwiseQuantizationOp *op,
           unifiedOpLib::CallType::EXECUTE, eltwiseQuantizationOpT, &input,
           inScale, inZeroPoint, outScale, outZeroPoint);
 
-  LOG_ASSERT(
-      std::holds_alternative<::ttnn::Tensor>(result),
-      "Expected output Tensor from callEltwiseRequantize execution");
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseRequantize execution");
 
   ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
 

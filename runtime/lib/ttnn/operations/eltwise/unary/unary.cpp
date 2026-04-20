@@ -120,7 +120,8 @@ static void runEltwiseUnaryWithFloatParameterOp(
           std::forward<Fn>(ttnnOp), &in);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
-             "Expected output Tensor from callEltwiseUnaryWithFloatParameter execution");
+             "Expected output Tensor from callEltwiseUnaryWithFloatParameter "
+             "execution");
 
   ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
 
@@ -250,7 +251,8 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::LeakyRelu: {
-    runEltwiseUnaryWithFloatParameterOp(op, tensorPool, WRAP_OP(::ttnn::leaky_relu));
+    runEltwiseUnaryWithFloatParameterOp(op, tensorPool,
+                                        WRAP_OP(::ttnn::leaky_relu));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::BitwiseNot: {

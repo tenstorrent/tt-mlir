@@ -40,8 +40,10 @@ EltwiseUnaryResolvedParams resolveEltwiseUnaryParams(
         static_cast<int32_t>(::ttnn::operations::unary::VecMode::RC);
   }
 
-  if (eltwiseUnaryOpT.type == ::tt::target::ttnn::EltwiseUnaryOpType::LeakyRelu) {
-    params.parameter = eltwiseUnaryOpT.params.AsEltwiseOpWithFloatParams()->parameter;
+  if (eltwiseUnaryOpT.type ==
+      ::tt::target::ttnn::EltwiseUnaryOpType::LeakyRelu) {
+    params.parameter =
+        eltwiseUnaryOpT.params.AsEltwiseOpWithFloatParams()->parameter;
   }
 
   return params;

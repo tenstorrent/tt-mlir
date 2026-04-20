@@ -165,7 +165,8 @@ template <>
 struct OpModel<AtanOp> : UnaryEltwiseOpModel<AtanOp> {};
 
 template <>
-struct OpModel<Log1pOp> : UnaryCompositeEltwiseWithFastApproxModeOpModel<Log1pOp> {};
+struct OpModel<Log1pOp>
+    : UnaryCompositeEltwiseWithFastApproxModeOpModel<Log1pOp> {};
 
 template <>
 struct OpModel<Expm1Op> : UnaryEltwiseOpModel<Expm1Op> {};
