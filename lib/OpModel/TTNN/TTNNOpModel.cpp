@@ -258,6 +258,34 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
   return conversion::getMemoryConfig(layout);
 }
 
+std::optional<::tt::target::ttnn::MemoryConfigT>
+getNullableMemoryConfigT(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return conversion::getMemoryConfigT(layout);
+}
+
+std::unique_ptr<::tt::target::ttnn::TensorRefT>
+getOutputTensorRefT(TTNNLayoutAttr layout) {
+  auto memoryConfigT = getNullableMemoryConfigT(layout);
+  if (!memoryConfigT.has_value()) {
+    return nullptr;
+  }
+
+  auto tensorRefT = std::make_unique<::tt::target::ttnn::TensorRefT>();
+  tensorRefT->desc = std::make_unique<::tt::target::ttnn::TensorDescT>();
+  tensorRefT->desc->layout =
+      std::make_unique<::tt::target::ttnn::LayoutDescT>();
+  tensorRefT->desc->layout->memory_desc =
+      std::make_unique<::tt::target::ttnn::MemoryDescT>();
+  tensorRefT->desc->layout->memory_desc->memory_config =
+      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+          memoryConfigT.value());
+
+  return tensorRefT;
+}
+
 /**
  * @brief Reorder pool2d padding from IR convention to tt-metal convention.
  *
@@ -823,6 +851,7 @@ llvm::Expected<bool> Device::getDeviceConstraints(ttcore::GridAttr workerGrid) {
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
 static ::tt::target::ttnn::EltwiseUnaryOpT buildEltwiseUnaryOpTFromMLIR(
+    TTNNLayoutAttr outputLayout,
     std::optional<llvm::APFloat> slope = std::nullopt) {
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
 
@@ -837,6 +866,8 @@ static ::tt::target::ttnn::EltwiseUnaryOpT buildEltwiseUnaryOpTFromMLIR(
     eltwiseOpWithFloatParamsT.parameter = slope.value().convertToFloat();
     eltwiseUnaryOpT.params.Set(eltwiseOpWithFloatParamsT);
   }
+
+  eltwiseUnaryOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return eltwiseUnaryOpT;
 }
@@ -859,7 +890,7 @@ llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -899,7 +930,7 @@ UnaryEltwiseOpModel<OpTy>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -938,7 +969,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -980,7 +1011,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1010,8 +1041,10 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
 static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-buildEltwiseUnaryCompositeOpTFromMLIR() {
+buildEltwiseUnaryCompositeOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
+
+  eltwiseUnaryCompositeOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return eltwiseUnaryCompositeOpT;
 }
@@ -1035,7 +1068,7 @@ UnaryCompositeEltwiseOpModel<OpTy>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1076,7 +1109,7 @@ llvm::Expected<size_t> UnaryCompositeEltwiseOpModel<OpTy>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1116,7 +1149,7 @@ UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1158,7 +1191,7 @@ UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>();
+      buildEltwiseUnaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1234,7 +1267,7 @@ llvm::Expected<OpConstraints> OpModel<TanhOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<TanhOp>();
+      buildEltwiseUnaryOpTFromMLIR<TanhOp>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1274,7 +1307,7 @@ OpModel<TanhOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<TanhOp>();
+      buildEltwiseUnaryOpTFromMLIR<TanhOp>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1315,7 +1348,7 @@ llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<SigmoidOp>();
+      buildEltwiseUnaryOpTFromMLIR<SigmoidOp>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1356,7 +1389,7 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<SigmoidOp>();
+      buildEltwiseUnaryOpTFromMLIR<SigmoidOp>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1398,7 +1431,7 @@ llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<LeakyReluOp>(slope);
+      buildEltwiseUnaryOpTFromMLIR<LeakyReluOp>(outputLayout, slope);
 
   // Create query closure
   auto leakyReluOpQuery = [=]() {
@@ -1438,7 +1471,7 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   ::tt::target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT =
-      buildEltwiseUnaryOpTFromMLIR<LeakyReluOp>(slope);
+      buildEltwiseUnaryOpTFromMLIR<LeakyReluOp>(outputLayout, slope);
 
   // Create query closure
   auto leakyReluOpQuery = [=]() {
@@ -1467,9 +1500,11 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
-static ::tt::target::ttnn::EltwiseBinaryOpT buildEltwiseBinaryOpTFromMLIR() {
+static ::tt::target::ttnn::EltwiseBinaryOpT
+buildEltwiseBinaryOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT;
 
+  eltwiseBinaryOpT.out = detail::getOutputTensorRefT(outputLayout);
   // eltwiseBinaryOpT.type = detail::toEltwiseBinaryOpType<OpTy>();
 
   return eltwiseBinaryOpT;
@@ -1509,7 +1544,7 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
-      buildEltwiseBinaryOpTFromMLIR<OpTy>();
+      buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1562,7 +1597,7 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
-      buildEltwiseBinaryOpTFromMLIR<OpTy>();
+      buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1588,8 +1623,10 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
 static ::tt::target::ttnn::EltwiseBinaryCompositeOpT
-buildEltwiseBinaryCompositeOpTFromMLIR() {
+buildEltwiseBinaryCompositeOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT;
+
+  eltwiseBinaryCompositeOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return eltwiseBinaryCompositeOpT;
 }
@@ -1623,7 +1660,7 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
-      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>();
+      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1675,7 +1712,7 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
-      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>();
+      buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1814,7 +1851,8 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 static ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
-buildEltwiseBinaryCompositeScalarOpTFromMLIR(mlir::Attribute exponent) {
+buildEltwiseBinaryCompositeScalarOpTFromMLIR(mlir::Attribute exponent,
+                                             TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
       eltwiseBinaryCompositeScalarOpT;
   eltwiseBinaryCompositeScalarOpT.type =
@@ -1831,6 +1869,9 @@ buildEltwiseBinaryCompositeScalarOpTFromMLIR(mlir::Attribute exponent) {
   } else {
     assert(false && "Invalid exponent");
   }
+
+  eltwiseBinaryCompositeScalarOpT.out =
+      detail::getOutputTensorRefT(outputLayout);
 
   return eltwiseBinaryCompositeScalarOpT;
 }
@@ -1857,7 +1898,7 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
 
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
       eltwiseBinaryCompositeScalarOpT =
-          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent);
+          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent, outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1902,7 +1943,7 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
 
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
       eltwiseBinaryCompositeScalarOpT =
-          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent);
+          buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent, outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -1932,8 +1973,10 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
 static ::tt::target::ttnn::EltwiseTernaryWhereOpT
-buildEltwiseTernaryOpTFromMLIR() {
+buildEltwiseTernaryOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT;
+
+  eltwiseTernaryWhereOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return eltwiseTernaryWhereOpT;
 }
@@ -1974,7 +2017,7 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT =
-      buildEltwiseTernaryOpTFromMLIR<OpTy>();
+      buildEltwiseTernaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -2032,7 +2075,7 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT =
-      buildEltwiseTernaryOpTFromMLIR<OpTy>();
+      buildEltwiseTernaryOpTFromMLIR<OpTy>(outputLayout);
 
   // Create query closure
   auto query = [=]() {
@@ -4738,6 +4781,8 @@ buildEltwiseQuantizationOpTFromMLIR(std::optional<int32_t> axis,
                          toNative(outputLayout.getDataType()))
                    : ::flatbuffers::nullopt;
 
+  eltwiseQuantizationOpT.out = detail::getOutputTensorRefT(outputLayout);
+
   return eltwiseQuantizationOpT;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -5065,7 +5110,8 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
 static ::tt::target::ttnn::LinearOpT buildLinearOpTFromMLIR(
     bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
     std::optional<mlir::Attribute> programConfigAttr,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 
   ::tt::target::ttnn::LinearOpT linearOpT;
 
@@ -5091,6 +5137,8 @@ static ::tt::target::ttnn::LinearOpT buildLinearOpTFromMLIR(
           ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
                 toNative(*computeKernelConfig))
           : nullptr;
+
+  linearOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return linearOpT;
 }
@@ -5132,7 +5180,7 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
 
   ::tt::target::ttnn::LinearOpT linearOpT =
       buildLinearOpTFromMLIR(transposeA, transposeB, activation,
-                             programConfigAttr, computeKernelConfig);
+                             programConfigAttr, computeKernelConfig, outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -5195,7 +5243,7 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 
   ::tt::target::ttnn::LinearOpT linearOpT = buildLinearOpTFromMLIR(
       transposeA, transposeB, /*activation=*/std::nullopt,
-      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt);
+      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt, outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -5230,7 +5278,7 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 static ::tt::target::ttnn::MatmulOpT buildMatmulOpTFromMLIR(
     bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
     std::optional<mlir::Attribute> programConfigAttr,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig, TTNNLayoutAttr outputLayout) {
 
   ::tt::target::ttnn::MatmulOpT matmulOpT;
 
@@ -5256,6 +5304,8 @@ static ::tt::target::ttnn::MatmulOpT buildMatmulOpTFromMLIR(
           ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
                 toNative(*computeKernelConfig))
           : nullptr;
+
+  matmulOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return matmulOpT;
 }
@@ -5288,7 +5338,7 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
 
   ::tt::target::ttnn::MatmulOpT matmulOpT =
       buildMatmulOpTFromMLIR(transposeA, transposeB, activation,
-                             programConfigAttr, computeKernelConfig);
+                             programConfigAttr, computeKernelConfig, outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -5339,7 +5389,7 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 
   ::tt::target::ttnn::MatmulOpT matmulOpT = buildMatmulOpTFromMLIR(
       transposeA, transposeB, /*activation=*/std::nullopt,
-      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt);
+      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt, outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -5842,6 +5892,8 @@ static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
           ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
                 toNative(*conv2dSliceConfig))
           : nullptr;
+  conv2dOpT.out = detail::getOutputTensorRefT(outputLayout);
+
   return conv2dOpT;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7870,7 +7922,7 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
 static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
 buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(mlir::Attribute min,
-                                                 mlir::Attribute max) {
+                                                 mlir::Attribute max, TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
   eltwiseUnaryCompositeOpT.type =
       ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
@@ -7905,6 +7957,8 @@ buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(mlir::Attribute min,
 
   eltwiseUnaryCompositeOpT.params.Set(paramsT);
 
+  eltwiseUnaryCompositeOpT.out = detail::getOutputTensorRefT(outputLayout);
+
   return eltwiseUnaryCompositeOpT;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7929,7 +7983,7 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max);
+      buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max, outputLayout);
 
   auto query = [=]() {
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
@@ -7971,7 +8025,7 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max);
+      buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max, outputLayout);
 
   auto query = [=]() {
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
@@ -7998,10 +8052,12 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 #ifdef TTMLIR_ENABLE_OPMODEL
 static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-buildEltwiseUnaryCompositeClampTensorOpTFromMLIR() {
+buildEltwiseUnaryCompositeClampTensorOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
   eltwiseUnaryCompositeOpT.type =
       ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor;
+
+  eltwiseUnaryCompositeOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return eltwiseUnaryCompositeOpT;
 }
@@ -8040,7 +8096,7 @@ llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeClampTensorOpTFromMLIR();
+      buildEltwiseUnaryCompositeClampTensorOpTFromMLIR(outputLayout);
 
   auto query = [=]() {
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
@@ -8097,7 +8153,7 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
       detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
-      buildEltwiseUnaryCompositeClampTensorOpTFromMLIR();
+      buildEltwiseUnaryCompositeClampTensorOpTFromMLIR(outputLayout);
 
   auto query = [=]() {
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
