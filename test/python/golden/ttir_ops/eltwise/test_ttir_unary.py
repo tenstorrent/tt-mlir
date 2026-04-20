@@ -495,6 +495,7 @@ def test_unaligned_shapes_neg(
         **get_request_kwargs(request),
         target=target,
         device=device,
+        print_ir=False,
     )
 
 
