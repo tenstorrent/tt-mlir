@@ -1278,10 +1278,6 @@ void MemoryLayoutPropagation::applyToIR() {
   fixupConvDeallocate(func);
   insertReturnDramSpills();
 
-  // Sync D2M subgraph function types to match dispatch op's current inputs
-  // (e.g. after reshard insertion, operand types may have changed).
-  d2m_optimizer_utils::syncAllD2MFuncTypes(func);
-
   // Third pass: update function return types.
   updateFunctionReturnTypes();
 }
