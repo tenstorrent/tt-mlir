@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_FLATTENORCONVERTCOMPOSITESPASS
@@ -220,12 +221,7 @@ static void eraseDeadPrivateCallees(mlir::ModuleOp module) {
 // Returns true if the given composite name has a custom sharding rule
 // registered in kCompositesWithCustomSharding.
 static bool hasCustomShardingRule(llvm::StringRef name) {
-  for (const auto &entry : utils::kCompositesWithCustomSharding) {
-    if (entry == name) {
-      return true;
-    }
-  }
-  return false;
+  return llvm::is_contained(utils::kCompositesWithCustomSharding, name);
 }
 
 // Converts a composite op with a custom sharding rule to a

@@ -41,6 +41,7 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kHasCustomShardingAttr("tt.has_custom_sharding");
 
+// Target name for the RMS norm custom_call op.
 inline constexpr llvm::StringLiteral
     kTTRMSNormCustomCallTargetName("tenstorrent.rms_norm");
 
