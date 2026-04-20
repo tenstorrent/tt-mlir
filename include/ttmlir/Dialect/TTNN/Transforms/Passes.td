@@ -432,6 +432,39 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   ];
 }
 
+def TTNNDRAMShardedMatmul : Pass<"ttnn-dram-sharded-matmul", "::mlir::ModuleOp"> {
+  let summary = "Convert eligible matmul weight tensors to DRAM WIDTH_SHARDED layout.";
+  let description = [{
+    This pass identifies matmul/linear operations whose weight operand (B) is a
+    bfp8 tensor in DRAM interleaved layout, and converts them to use DRAM
+    WIDTH_SHARDED across all DRAM banks for higher memory bandwidth.
+
+    For each eligible matmul:
+      - Inserts a ttnn.to_memory_config (InterleavedToSharded) in the weight's
+        const_eval function to reshard weights to DRAM WIDTH_SHARDED
+      - Inserts ttnn.to_memory_config before the matmul to shard the activation
+        (in0) to L1 WIDTH_SHARDED across compute cores
+      - Sets the matmul_program_config to
+        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig
+      - Inserts ttnn.to_memory_config after the matmul to reshard/deshard the output
+        back to original layout for downstream ops
+      - Unfuses activation (e.g. silu) from the matmul op attribute into the
+        program config's fused_activation field
+
+    The pass computes per-shape parameters (in0_block_w, per_core_n, shard
+    dimensions) based on the weight shape and device L1 capacity.
+  }];
+
+  let options = [
+    Option<"numDRAMBanks", "num-dram-banks", "uint32_t",
+           /*default=*/"12",
+           "Number of DRAM banks for weight sharding (default: 12 for Wormhole B0).">,
+    Option<"numComputeCores", "num-compute-cores", "uint32_t",
+           /*default=*/"8",
+           "Number of compute cores for activation sharding (default: 8).">,
+  ];
+}
+
 def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
   let summary = "Force const-eval function inputs to system memory.";
   let description = [{

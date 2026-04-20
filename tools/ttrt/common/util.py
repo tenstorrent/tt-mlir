@@ -1176,6 +1176,8 @@ class Binary(Flatbuffer):
                 return torch.int8
             if dtype == "Bool":
                 return torch.bool
+            if dtype in ("BFP_BFloat8", "BFP_BFloat4", "BFP_BFloat2"):
+                return torch.bfloat16
 
             raise ValueError(f"unsupported dtype: {dtype}")
 

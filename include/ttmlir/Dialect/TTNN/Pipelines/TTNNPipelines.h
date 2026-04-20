@@ -286,6 +286,13 @@ struct TTIRToTTNNDevicePipelineOptions
                                llvm::cl::desc("Enable D2M fusing pass."),
                                llvm::cl::init(false)};
 
+  Option<bool> enableDRAMShardedMatmul{
+      *this, "enable-dram-sharded-matmul",
+      llvm::cl::desc(
+          "Enable DRAM sharded matmul pass. Converts eligible bfp8 weight "
+          "matmuls to use DRAM WIDTH_SHARDED layout for higher bandwidth."),
+      llvm::cl::init(true)};
+
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> enableFusingConv2dWithMultiplyPattern{

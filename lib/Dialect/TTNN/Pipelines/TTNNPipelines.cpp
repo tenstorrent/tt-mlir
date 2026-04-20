@@ -389,6 +389,13 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(createCanonicalizerPass());
     }
 
+    // Convert eligible bfp8 weight matmuls to DRAM WIDTH_SHARDED layout.
+    // Must run after optimizer (knows layouts) and before const-eval re-hoist
+    // (which picks up the new I2S ops added to constevals).
+    if (options.enableDRAMShardedMatmul) {
+      devicePm.addPass(createTTNNDRAMShardedMatmul());
+    }
+
     // We need to re-run const-eval to pick up const prepare conv2d weight ops
     // split during the analysis passes.
     if (options.enableConstEval) {

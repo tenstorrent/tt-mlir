@@ -80,11 +80,19 @@ bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
 
 // Checks:
 // 1. If buffer type is L1, then any grid shape is allowed.
-// 2. Otherwise, unit grid is expected.
-llvm::LogicalResult
-verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
-                mlir::tt::ttcore::GridAttr gridAttr, BufferType bufferType) {
+// 2. If buffer type is DRAM and memory layout is WidthSharded (DRAM-sharded
+//    matmul weights across DRAM banks), any grid shape is allowed.
+// 3. Otherwise, unit grid is expected.
+llvm::LogicalResult verifyGridShape(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    mlir::tt::ttcore::GridAttr gridAttr, BufferType bufferType,
+    TensorMemoryLayoutAttr memLayoutAttr = TensorMemoryLayoutAttr{}) {
   if (isL1BufferType(bufferType)) {
+    return llvm::success();
+  }
+
+  if (isDRAMBufferType(bufferType) && memLayoutAttr &&
+      memLayoutAttr.getValue() == TensorMemoryLayout::WidthSharded) {
     return llvm::success();
   }
 
@@ -101,7 +109,8 @@ verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
 // Checks:
 // 1. If memory layout is present then:
 //   - System memory buffer type is not allowed
-//   - DRAM buffer type must have Interleaved memory layout
+//   - DRAM buffer type must have Interleaved or WidthSharded memory layout
+//     (WidthSharded supports DRAM-sharded matmul weights across DRAM banks)
 // 2. If memory layout is not present then:
 //   - Buffer type must be SystemMemory
 llvm::LogicalResult verifyBufferAndMemoryLayout(
@@ -114,9 +123,11 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
     }
 
     if (bufferType == BufferType::DRAM &&
-        memLayoutAttr.getValue() != TensorMemoryLayout::Interleaved) {
+        memLayoutAttr.getValue() != TensorMemoryLayout::Interleaved &&
+        memLayoutAttr.getValue() != TensorMemoryLayout::WidthSharded) {
       return emitError()
-             << "DRAM buffer type must have Interleaved memory layout.";
+             << "DRAM buffer type must have Interleaved or WidthSharded "
+                "memory layout.";
     }
   } else if (bufferType != BufferType::SystemMemory) {
     return emitError()
@@ -128,7 +139,8 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
 
 // Checks:
 // 1. If shard spec is present then:
-//   - Buffer type must be L1
+//   - Buffer type must be L1, or DRAM with WidthSharded layout (DRAM-sharded
+//     matmul weights spread across DRAM banks)
 //   - Tensor memory layout must be sharded: HeightSharded, WidthSharded,
 //   BlockSharded
 llvm::LogicalResult
@@ -136,8 +148,12 @@ verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr,
                std::optional<ShardSpecAttr> shardSpec) {
   if (shardSpec && *shardSpec) {
-    if (bufferType != BufferType::L1) {
-      return emitError() << "Sharding is only valid for L1 buffer type";
+    bool isDramWidthSharded =
+        isDRAMBufferType(bufferType) && memLayoutAttr &&
+        memLayoutAttr.getValue() == TensorMemoryLayout::WidthSharded;
+    if (bufferType != BufferType::L1 && !isDramWidthSharded) {
+      return emitError() << "Sharding is only valid for L1 buffer type or DRAM "
+                            "WidthSharded";
     }
 
     if (!memLayoutAttr) {
@@ -660,7 +676,7 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
   llvm::LogicalResult status = ::llvm::success();
-  if (llvm::failed(verifyGridShape(emitError, grid, bufferType))) {
+  if (llvm::failed(verifyGridShape(emitError, grid, bufferType, memLayout))) {
     status = llvm::failure();
   }
   if (llvm::failed(
