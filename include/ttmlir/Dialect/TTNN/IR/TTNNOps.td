@@ -95,6 +95,13 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
       }]>
     ];
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return
+          wa::TTNNOperandsWorkaroundsFactory::createTypecastOpOperandsWorkarounds(*this);
+      }
+    }];
+
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;
     let hasVerifier = 1;
@@ -1750,6 +1757,14 @@ def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine"> {
                          UI32Attr:$experts);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSelectiveReduceCombineOpOperandsWorkarounds(
+                getOperation());
+      }
+    }];
 
     let hasVerifier = 1;
 }

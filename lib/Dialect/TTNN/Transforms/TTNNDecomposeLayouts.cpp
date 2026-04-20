@@ -450,6 +450,19 @@ private:
     // Metal issue reference:
     // https://github.com/tenstorrent/tt-metal/issues/41689
     bool needsWorkaround = dataType == ttcore::DataType::UInt16;
+
+    // tt-metal's typecast rejects ROW_MAJOR inputs whose innermost padded dim
+    // is not a multiple of TILE_WIDTH (typecast_device_op.cpp:107). In that
+    // case the ui16→ui32 round-trip would crash at runtime, so skip it and
+    // rely on to_memory_config being able to rearrange the sharded ui16
+    // tensor directly without going through the copy kernel.
+    if (needsWorkaround && !currentLayout.isTiled()) {
+      ArrayRef<int64_t> shape = currentInputType.getShape();
+      if (!shape.empty() && shape.back() % TILE_WIDTH != 0) {
+        needsWorkaround = false;
+      }
+    }
+
     if (needsWorkaround) {
       ttcore::DataType workaroundDtype = ttcore::DataType::UInt32;
       ttcore::DataTypeAttr workaroundDtypeAttr =

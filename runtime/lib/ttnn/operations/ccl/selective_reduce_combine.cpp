@@ -5,6 +5,7 @@
 #include "operations/ccl/selective_reduce_combine.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttnn/operations/creation/creation.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
 
@@ -42,6 +43,20 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
   tt::tt_metal::CoreRangeSet muxCores(
       {tt::tt_metal::CoreRange({4, 0}, {5, 3})});
 
+  // Allocate a pre-zeroed DRAM output buffer, matching tt-metal's
+  // fused_decode.py reference. The combine kernel performs sparse writes —
+  // only (token, K-slot) pairs actually routed to valid experts are written.
+  // Without zero-initialization, unwritten slots retain DRAM garbage
+  // (-inf / NaN) and poison the downstream score-weighted sum + all_reduce.
+  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
+  ::ttnn::Shape outputShape =
+      ::tt::runtime::ttnn::operations::utils::toTTNNShape(
+          *op->out()->desc()->shape());
+  ::ttnn::Tensor combineOutputZeroed =
+      ::ttnn::full(outputShape, 0.0f, ::ttnn::DataType::BFLOAT16,
+                   ::ttnn::Layout::ROW_MAJOR, std::ref(meshDevice),
+                   ::ttnn::DRAM_MEMORY_CONFIG);
+
   ::ttnn::Tensor output = ::ttnn::prim::selective_reduce_combine(
       denseInputTensor, denseActivationsTensor, denseTokenMapsTensor,
       denseTokenCountsTensor, op->hidden_size(), op->batch_size(),
@@ -54,7 +69,7 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       /*worker_cores=*/workerCores,
       /*mux_core_range_set=*/muxCores,
       /*output_memory_config=*/std::nullopt,
-      /*optional_output_tensor=*/std::nullopt,
+      /*optional_output_tensor=*/combineOutputZeroed,
       /*optional_cross_device_semaphore=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);

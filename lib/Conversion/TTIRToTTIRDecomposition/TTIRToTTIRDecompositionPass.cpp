@@ -18,6 +18,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -37,6 +38,8 @@ struct TTIRToTTIRDecompositionPass
   using TTIRToTTIRDecompositionBase::TTIRToTTIRDecompositionBase;
 
   void runOnOperation() override {
+    llvm::errs() << "[TTIRToTTIRDecompositionPass] START decompConfig="
+                 << static_cast<int>(decompConfig.getValue()) << "\n";
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<mlir::func::FuncDialect>();
@@ -75,6 +78,9 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
       target.addIllegalOp<ttir::ReverseOp>();
+      // Decompose the placeholder MoE decode op into the three low-level
+      // TTIR ops that have direct TTNN lowerings.
+      target.addIllegalOp<ttir::MoeGPTDecodeOp>();
 
       // Conv2d and ConvTranspose2d are legal only if already in NHWC format.
       // Non-NHWC ops will be decomposed with permutes to NHWC.
@@ -154,9 +160,11 @@ struct TTIRToTTIRDecompositionPass
     //
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {
+      llvm::errs() << "[TTIRToTTIRDecompositionPass] FAIL\n";
       signalPassFailure();
       return;
     }
+    llvm::errs() << "[TTIRToTTIRDecompositionPass] END\n";
   }
 };
 
