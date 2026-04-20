@@ -18,6 +18,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
 #include <cassert>
@@ -1914,6 +1915,252 @@ struct NegativePadOpDecompositionPattern
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// MoeGPTDecodeOp decomposition
+//===----------------------------------------------------------------------===//
+
+namespace {
+// Decompose `ttir.moe_gpt_decode` into the three underlying TTIR ops that
+// directly map to the tt-metal MoE kernels:
+//   1. `ttir.all_to_all_dispatch_metadata` — token dispatch across the ring.
+//   2. `ttir.moe_gpt` — fused expert compute (tilize + gate/up + SwiGLU + w2).
+//   3. `ttir.selective_reduce_combine` — sparsify and combine back.
+//
+// The op is kept as a placeholder during sharding propagation. At this point
+// we materialize the three-stage pipeline so that the existing TTIR→TTNN
+// patterns can lower each stage. Shape adapters (reshape/permute/typecast)
+// bridge the 4D decode layout used at the composite boundary with the 2D/3D
+// kernel-native layouts expected by the individual TTIR ops.
+//
+// Decomposes `ttir.moe_gpt_decode` into the dispatch / moe_gpt / combine
+// TTIR op triple, mirroring tt-metal's fused decode pipeline. When the
+// frontend supplies preprocessed 6D fused kernel weights via the optional
+// `fused_w0_w1` / `fused_w2` operands, those are bound directly to
+// ttir.moe_gpt's 6D weight inputs; otherwise we fall back to zero-filled
+// placeholders to keep the pipeline legalizable for ops that do not yet
+// plumb the fused layout through.
+struct MoeGPTDecodeDecompositionPattern
+    : public OpConversionPattern<ttir::MoeGPTDecodeOp> {
+  using OpConversionPattern<ttir::MoeGPTDecodeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeGPTDecodeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    auto hiddenType =
+        cast<RankedTensorType>(adaptor.getHiddenStates().getType());
+    auto indicesType =
+        cast<RankedTensorType>(adaptor.getTopkIndices().getType());
+    auto scoresType = cast<RankedTensorType>(adaptor.getTopkScores().getType());
+    auto dispatchMappingType =
+        cast<RankedTensorType>(adaptor.getDispatchMapping().getType());
+    auto moeGptMappingType =
+        cast<RankedTensorType>(adaptor.getMoeGptMapping().getType());
+    auto gateUpType = cast<RankedTensorType>(adaptor.getGateUpProj().getType());
+    auto resultType = cast<RankedTensorType>(op.getResult().getType());
+
+    Type bf16 = rewriter.getBF16Type();
+    Type ui32 = rewriter.getIntegerType(32, /*isSigned=*/false);
+
+    // Extract logical dimensions from operand shapes.
+    // The mapping tensor follows tt-metal's fused decode convention
+    // [1, 1, D_total, E] with linearized global device ids (see
+    // `build_expert_mapping_linearized` in the Python frontend and
+    // `gen_expert_mapping` in tt-metal). D_total spans *all* mesh devices;
+    // D_ring (the dispatch-axis ring size) is read from the op attribute.
+    int64_t B = hiddenType.getShape()[0];
+    int64_t S = hiddenType.getShape()[2];
+    int64_t H = hiddenType.getShape()[3];
+    int64_t KSel = indicesType.getShape()[3];
+    int64_t Dtotal = dispatchMappingType.getShape()[2];
+    int64_t Eglobal = dispatchMappingType.getShape()[3];
+    int64_t Elocal = gateUpType.getShape()[0];
+
+    int64_t numDevices = static_cast<int64_t>(op.getNumDevices());
+    int64_t clusterAxis = static_cast<int64_t>(op.getClusterAxis());
+    int64_t numExpertsPerTok = static_cast<int64_t>(op.getNumExpertsPerTok());
+    int64_t numExperts = static_cast<int64_t>(op.getNumExperts());
+    int64_t Dring = numDevices;
+    int64_t Ttokens = Dring * B * S;
+    (void)Dtotal;
+
+    auto i32Arr = [&](ArrayRef<int64_t> dims) {
+      SmallVector<int32_t> v;
+      v.reserve(dims.size());
+      for (int64_t d : dims) {
+        v.push_back(static_cast<int32_t>(d));
+      }
+      return rewriter.getI32ArrayAttr(v);
+    };
+    auto i32DenseArr = [&](ArrayRef<int64_t> dims) {
+      SmallVector<int32_t> v;
+      v.reserve(dims.size());
+      for (int64_t d : dims) {
+        v.push_back(static_cast<int32_t>(d));
+      }
+      return rewriter.getDenseI32ArrayAttr(v);
+    };
+
+    // Step 1: Reshape routing inputs from the composite 4D layout
+    // [B, 1, S, X] to the dispatch 4D layout [1, 1, B*S, X]. Because dim 1 is
+    // already size 1 and X is the last dim, this is a pure reshape with the
+    // row-major element order preserved.
+    auto dispHiddenType =
+        RankedTensorType::get({1, 1, B * S, H}, hiddenType.getElementType());
+    Value dispHidden = rewriter.create<ttir::ReshapeOp>(
+        loc, dispHiddenType, adaptor.getHiddenStates(),
+        i32Arr({1, 1, B * S, H}));
+
+    auto dispIndicesType = RankedTensorType::get({1, 1, B * S, KSel},
+                                                 indicesType.getElementType());
+    Value dispIndices = rewriter.create<ttir::ReshapeOp>(
+        loc, dispIndicesType, adaptor.getTopkIndices(),
+        i32Arr({1, 1, B * S, KSel}));
+
+    auto dispScoresType =
+        RankedTensorType::get({1, 1, B * S, KSel}, scoresType.getElementType());
+    Value dispScores = rewriter.create<ttir::ReshapeOp>(
+        loc, dispScoresType, adaptor.getTopkScores(),
+        i32Arr({1, 1, B * S, KSel}));
+
+    // Step 2: Forward dispatch_mapping directly — the Python side now
+    // produces [1, 1, D_total, E] linearized mapping matching
+    // AllToAllDispatchMetadataOp's expected [1, 1, D, E] layout
+    // (the TTIR→TTNN conversion reshapes it to the [D_total, E] layout the
+    // tt-metal kernel requires).
+    Value dispMapping = adaptor.getDispatchMapping();
+
+    // Step 3: Emit `ttir.all_to_all_dispatch_metadata`.
+    auto dispatchedType = RankedTensorType::get({1, Ttokens, H}, bf16);
+    auto dispatchedIdxType =
+        RankedTensorType::get({1, Ttokens, KSel}, indicesType.getElementType());
+    auto dispatchedScoresType = RankedTensorType::get({1, Ttokens, KSel}, bf16);
+
+    auto dispatchOp = rewriter.create<ttir::AllToAllDispatchMetadataOp>(
+        loc, TypeRange{dispatchedType, dispatchedIdxType, dispatchedScoresType},
+        dispHidden, dispIndices, dispScores, dispMapping,
+        rewriter.getI64IntegerAttr(numDevices),
+        rewriter.getI64IntegerAttr(clusterAxis));
+
+    // Step 4: Adapt dispatch outputs to moe_gpt inputs (2D layout, ui16
+    // indices/mapping).
+    auto moeInputType = RankedTensorType::get({Ttokens, H}, bf16);
+    Value moeInput = rewriter.create<ttir::ReshapeOp>(
+        loc, moeInputType, dispatchOp.getDispatched(), i32Arr({Ttokens, H}));
+
+    // `ttir.moe_gpt` verifier only checks rank (>=2 for indices, no constraint
+    // on mapping element type), and test_moe_ccls.py passes through si32/bf16
+    // indices without explicit ui16 casts. Emitting `ttir.typecast` to ui16 is
+    // unnecessary and breaks later constraint queries on targets where ui16
+    // device buffers are unsupported; keep native element types.
+    auto dispatchedIdx2DType =
+        RankedTensorType::get({Ttokens, KSel}, indicesType.getElementType());
+    Value moeIndices = rewriter.create<ttir::ReshapeOp>(
+        loc, dispatchedIdx2DType, dispatchOp.getIndices(),
+        i32Arr({Ttokens, KSel}));
+
+    auto moeScoresType = RankedTensorType::get({Ttokens, KSel}, bf16);
+    Value moeScores = rewriter.create<ttir::ReshapeOp>(
+        loc, moeScoresType, dispatchOp.getScores(), i32Arr({Ttokens, KSel}));
+
+    // moe_gpt device op reads mapping_shape[-1] as experts_total. Use
+    // [D_total, E] to mirror tt-metal's `tt_moe_gpt_mapping` layout
+    // (generated by `gen_expert_mapping` in fused_decode.py).
+    auto moeMapFlatType = RankedTensorType::get(
+        {Dtotal, Eglobal}, moeGptMappingType.getElementType());
+    Value moeMapping = rewriter.create<ttir::ReshapeOp>(
+        loc, moeMapFlatType, adaptor.getMoeGptMapping(),
+        i32Arr({Dtotal, Eglobal}));
+
+    // Step 5: Obtain 6D fused kernel weights.
+    // Prefer the preprocessed weights that the frontend plumbs through as
+    // optional operands - this is the only path that survives the TTNN
+    // allocator because ZerosOp buffers in the 6D shape below are not
+    // materializable. The ZerosOp fallback remains for completeness (ops that
+    // have not yet plumbed the fused weights through), but any real test run
+    // is expected to take the adaptor path.
+    constexpr int64_t kNumDramCores = 12;
+    constexpr int64_t kTileSize = 32;
+    constexpr int64_t kGroupsPerCore = 4;
+
+    Value w0w1 = adaptor.getFusedW0W1();
+    Value w2 = adaptor.getFusedW2();
+    if (!w0w1 || !w2) {
+      int64_t Kbias = H + kTileSize;
+      int64_t Nbias = H + kTileSize; // assumes intermediate_size==hidden_size
+
+      SmallVector<int64_t> w0w1Shape = {kNumDramCores,  1,     Elocal,
+                                        kGroupsPerCore, Kbias, 4 * kTileSize};
+      auto w0w1Type = RankedTensorType::get(w0w1Shape, bf16);
+      w0w1 =
+          rewriter.create<ttir::ZerosOp>(loc, w0w1Type, i32DenseArr(w0w1Shape));
+
+      SmallVector<int64_t> w2Shape = {kNumDramCores, 1, Elocal, 2, Nbias,
+                                      4 * kTileSize};
+      auto w2Type = RankedTensorType::get(w2Shape, bf16);
+      w2 = rewriter.create<ttir::ZerosOp>(loc, w2Type, i32DenseArr(w2Shape));
+    }
+
+    // Step 6: Emit `ttir.moe_gpt`.
+    // Output sizes follow compute_output_specs() in moe_gpt_device_operation.
+    // L1_ALIGN = 16 bytes on Wormhole.
+    auto alignU32 = [](int64_t nBytes) -> int64_t {
+      return ((nBytes + 15) / 16) * 16 / 4;
+    };
+    int64_t tcElems = alignU32(Elocal * 4);
+    int64_t actRowStride = alignU32((2 * Elocal + 1) * 4);
+    int64_t actElems = (Ttokens + 1) * actRowStride;
+    int64_t etRowElems = (Ttokens + 1) * alignU32(4);
+
+    // Worker-core grid count is arch-specific (9*8=72 on Wormhole). The kernel
+    // allocates tilize outputs across every worker core. We hard-code 72 here
+    // because the TTIR pass has no direct system-desc access; if the target
+    // differs this shape can be adjusted in a follow-up.
+    constexpr int64_t kNumWorkerCores = 72;
+
+    auto tokenCountsType = RankedTensorType::get({1, tcElems}, ui32);
+    auto actRecordsType = RankedTensorType::get({1, actElems}, ui32);
+    auto tokenIndicesType = RankedTensorType::get({Elocal, etRowElems}, ui32);
+    auto tilizeOutType =
+        RankedTensorType::get({kNumWorkerCores, 2, kTileSize, H}, bf16);
+    auto tilizeOutRmType = tilizeOutType;
+
+    auto moeGptOp = rewriter.create<ttir::MoeGptOp>(
+        loc,
+        TypeRange{tokenCountsType, actRecordsType, tokenIndicesType,
+                  tilizeOutType, tilizeOutRmType},
+        moeInput, moeIndices, moeScores, moeMapping, w0w1, w2,
+        /*output_height_shard_dim=*/rewriter.getUI32IntegerAttr(4),
+        /*output_width_shard_dim=*/rewriter.getUI32IntegerAttr(3),
+        /*hidden_size=*/rewriter.getUI32IntegerAttr(H),
+        /*cluster_axis=*/rewriter.getUI32IntegerAttr(clusterAxis));
+
+    // Step 7: Emit `ttir.selective_reduce_combine` producing the original
+    // decode result type directly.
+    // `batch_size` must equal the post-dispatch total token count per cluster
+    // (= Dring * B). The tt-metal kernel derives per-device tokens via
+    // `total_tokens = batch_size * seq_size` for stride checks and
+    // `total_tokens_per_device = batch_size * seq_size / num_devices_cluster`
+    // for the output shape. Passing only B (pre-dispatch) mis-sizes the stride
+    // against `activation_records` which is allocated with (Dring*B*S + 1)
+    // rows in moe_gpt's compute_output_specs.
+    auto combineOp = rewriter.create<ttir::SelectiveReduceCombineOp>(
+        loc, resultType, moeGptOp.getTilizeOutRm(),
+        moeGptOp.getActivationRecords(), moeGptOp.getTokenIndices(),
+        moeGptOp.getTokenCounts(),
+        /*hidden_size=*/rewriter.getUI32IntegerAttr(H),
+        /*batch_size=*/rewriter.getUI32IntegerAttr(Dring * B),
+        /*seq_size=*/rewriter.getUI32IntegerAttr(S),
+        /*select_experts_k=*/rewriter.getUI32IntegerAttr(numExpertsPerTok),
+        /*experts=*/rewriter.getUI32IntegerAttr(numExperts));
+
+    rewriter.replaceOp(op, combineOp.getResult());
+    return success();
+  }
+};
+} // namespace
+
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -1951,6 +2198,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
       typeConverter, ctx);
   patterns.add<ConvChannelLastDecompositionPattern<ttir::ConvTranspose2dOp>>(
       typeConverter, ctx);
+  patterns.add<MoeGPTDecodeDecompositionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
