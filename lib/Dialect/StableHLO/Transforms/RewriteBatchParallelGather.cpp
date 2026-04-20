@@ -98,7 +98,6 @@ struct RewriteBatchParallelGatherPattern
         mlir::cast<mlir::RankedTensorType>(gatherOp.getOperand().getType());
     auto sliceSizes = gatherOp.getSliceSizes();
     auto collapsedSliceDims = dn.getCollapsedSliceDims();
-    auto dimShardings = operandSharding.getDimShardings();
 
     // (e) For each axis in startIndexMap, detect iota pass-through slots.
     llvm::SmallVector<size_t> keepSlots;         // slots to keep in concat
@@ -111,13 +110,6 @@ struct RewriteBatchParallelGatherPattern
       // Candidate axis must be collapsed with slice_size == 1.
       if (!llvm::is_contained(collapsedSliceDims, axis) ||
           sliceSizes[axis] != 1) {
-        keepSlots.push_back(slot);
-        newStartIndexMap.push_back(axis);
-        continue;
-      }
-      // Candidate axis must be sharded on the operand.
-      if (static_cast<size_t>(axis) >= dimShardings.size() ||
-          dimShardings[axis].getAxes().empty()) {
         keepSlots.push_back(slot);
         newStartIndexMap.push_back(axis);
         continue;
@@ -184,8 +176,12 @@ struct RewriteBatchParallelGatherPattern
       }
       auto newConcat = rewriter.create<mlir::stablehlo::ConcatenateOp>(
           concat.getLoc(), newConcatInputs, concat.getDimension());
-      // Copy discardable attributes (reoutline.group, sdy.sharding_per_value).
+      // Copy only discardable attributes; skip "dimension" which is a property.
+      static constexpr std::array<llvm::StringRef, 1> kConcatPropNames = {
+          "dimension"};
       for (auto namedAttr : concat->getAttrs()) {
+        if (llvm::is_contained(kConcatPropNames, namedAttr.getName().strref()))
+          continue;
         newConcat->setAttr(namedAttr.getName(), namedAttr.getValue());
       }
       newIndices = newConcat.getResult();
@@ -209,9 +205,14 @@ struct RewriteBatchParallelGatherPattern
             llvm::SmallVector<int64_t>(sliceSizes.begin(), sliceSizes.end())),
         gatherOp.getIndicesAreSortedAttr());
 
-    // Copy all discardable attributes from the old gather (reoutline.group,
-    // reoutline.seed, reoutline.comp_attrs, sdy.sharding_per_value, etc.).
+    // Copy only discardable attributes from the old gather; skip property names
+    // (dimension_numbers, slice_sizes, indices_are_sorted) which were set
+    // correctly during creation and must not be overwritten with old values.
+    static constexpr std::array<llvm::StringRef, 3> kGatherPropNames = {
+        "dimension_numbers", "slice_sizes", "indices_are_sorted"};
     for (auto namedAttr : gatherOp->getAttrs()) {
+      if (llvm::is_contained(kGatherPropNames, namedAttr.getName().strref()))
+        continue;
       newGather->setAttr(namedAttr.getName(), namedAttr.getValue());
     }
 
@@ -220,6 +221,24 @@ struct RewriteBatchParallelGatherPattern
     // Erase the old concat (now use-empty after gather replacement).
     if (concat->use_empty()) {
       rewriter.eraseOp(concat.getOperation());
+    }
+
+    // If the seed op (which carries reoutline.orig_name / reoutline.comp_attrs
+    // set by FlattenCompositePass) is among the ops we're about to erase,
+    // transfer those attrs to newGather so ReoutlineCompositePass can still
+    // recover the original composite name ("tenstorrent.gather").
+    for (mlir::Operation *op : toErase) {
+      if (op->hasAttr(utils::kReoutlineSeedAttr)) {
+        newGather->setAttr(utils::kReoutlineSeedAttr,
+                           op->getAttr(utils::kReoutlineSeedAttr));
+        if (auto origName = op->getAttrOfType<mlir::StringAttr>(
+                utils::kReoutlineOrigNameAttr))
+          newGather->setAttr(utils::kReoutlineOrigNameAttr, origName);
+        if (auto compAttrs = op->getAttrOfType<mlir::DictionaryAttr>(
+                utils::kReoutlineCompAttrsAttr))
+          newGather->setAttr(utils::kReoutlineCompAttrsAttr, compAttrs);
+        break;
+      }
     }
 
     // Erase dead iota/broadcast producers so the reoutline group stays
