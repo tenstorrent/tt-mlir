@@ -213,7 +213,7 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Asinh: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::asinh);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::asinh));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal: {
