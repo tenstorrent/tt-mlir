@@ -824,19 +824,10 @@ public:
     int64_t seqLen = inputType.getShape()[2];
     int64_t maxCacheLen = cacheType.getShape()[2];
 
-    // Workaround for tt-metal issue #7998 (fill_cache_multi_core cross-head
-    // tile corruption): the kernel distributes input tiles across cores and
-    // computes each core's cache write offset as:
-    //   cache_start = start_idx
-    //               + (num_blocks_written / input_Ht) * cache_HtWt  // head
-    //               + (num_blocks_written % input_Ht) * Wt;         // row
-    // When input_Ht != cache_Ht, a core whose block range spans a head
-    // boundary in the input writes sequentially past that boundary into the
-    // wrong cache head, while the skipped tile-rows in the next head are never
-    // written (left zero). Padding input to maxCacheLen forces
-    // input_Ht == cache_Ht so head boundaries align and no core crosses them.
-    // Padding with zeros is safe: prefill starts on a zero-initialised cache
-    // and rows beyond seqLen are -inf masked in attention.
+    // Workaround for ttmlir issue #7998: when input_Ht != cache_Ht, cores
+    // whose block range spans a head boundary write into the wrong cache head.
+    // Padding input to maxCacheLen forces input_Ht == cache_Ht so head
+    // boundaries align. Zeros are safe: rows beyond seqLen are -inf masked.
     if (seqLen < maxCacheLen) {
       int64_t padRows = maxCacheLen - seqLen;
       llvm::SmallVector<int64_t> paddedShape(inputType.getShape());
