@@ -796,7 +796,7 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
+def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill", [D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Fill Tile Op";
     let description = [{
         The `tile_fill` operation creates a tile filled with a constant scalar value.

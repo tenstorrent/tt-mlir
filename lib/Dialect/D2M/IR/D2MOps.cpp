@@ -3158,6 +3158,14 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
           ++idx;
         }
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&op)) {
+        // Scratch buffers are not operand allocs.
+        bool isScratchBuffer =
+            llvm::any_of(allocOp.getResult().getUsers(), [](Operation *user) {
+              return mlir::isa<d2m::ScratchInitOp>(user);
+            });
+        if (isScratchBuffer) {
+          continue;
+        }
         LocalBufferAssociation assoc =
             analyzeLocalBufferAssociation(allocOp.getResult());
         if (assoc.hasRemoteUse) {
