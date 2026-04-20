@@ -653,6 +653,53 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::evictValue(Value victim, int64_t pos,
+                                                  const ScheduleData &data) {
+  liveValues.erase(victim);
+  Operation *victimOp = victim.getDefiningOp();
+  uint64_t freedBytes = memoryTracker.getTensorSize(victim);
+
+  // Save original L1 layout before spilling.
+  auto tensorType = mlir::cast<RankedTensorType>(victim.getType());
+  TTNNLayoutAttr originalL1Layout =
+      mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    EVICT: {0} (L1: {1} bytes)", ttmlir::opToString(victimOp),
+               freedBytes);
+  observer_->onEviction(victimOp, pos, freedBytes);
+
+  spillToDram(victim);
+  memoryTracker.removeTensorFromSizes(victim);
+  markEvictedAndRebuild(victim);
+
+  // Insert reshards for already-processed consumers instead of cascade
+  // revalidation. This preserves downstream ops' sharded layouts.
+  if (originalL1Layout.hasL1BufferType()) {
+    for (Operation *consumer : collectDownstreamConsumers(victimOp)) {
+      auto posIt = data.positionMap.find(consumer);
+      if (posIt == data.positionMap.end() || posIt->second >= pos) {
+        continue;
+      }
+      if (!mlir::dyn_cast<OpModel>(consumer)) {
+        continue;
+      }
+      if (isa<ToLayoutOp>(consumer)) {
+        continue;
+      }
+      for (unsigned i = 0; i < consumer->getNumOperands(); ++i) {
+        Value operand = consumer->getOperand(i);
+        Operation *defOp = operand.getDefiningOp();
+        if (isa_and_nonnull<ToMemoryConfigOp>(defOp) &&
+            defOp->getOperand(0) == victim) {
+          insertReshardForConsumer(consumer, i, originalL1Layout);
+        }
+      }
+    }
+  }
+}
+
+template <typename MemoryTracker>
 bool L1SpillManagement<MemoryTracker>::evictUntil(
     int64_t pos, const ScheduleData &data, std::function<bool()> shouldStop) {
   while (!shouldStop() && !liveValues.empty()) {
@@ -660,48 +707,7 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
     if (!victim) {
       break;
     }
-
-    Operation *victimOp = victim.getDefiningOp();
-    uint64_t freedBytes = memoryTracker.getTensorSize(victim);
-
-    // Save original L1 layout before spilling.
-    auto tensorType = mlir::cast<RankedTensorType>(victim.getType());
-    TTNNLayoutAttr originalL1Layout =
-        mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
-
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    EVICT: {0} (L1: {1} bytes)", ttmlir::opToString(victimOp),
-                 freedBytes);
-    observer_->onEviction(victimOp, pos, freedBytes);
-
-    spillToDram(victim);
-    memoryTracker.removeTensorFromSizes(victim);
-    markEvictedAndRebuild(victim);
-
-    // Insert reshards for already-processed consumers instead of cascade
-    // revalidation. This preserves downstream ops' sharded layouts.
-    if (originalL1Layout.hasL1BufferType()) {
-      for (Operation *consumer : collectDownstreamConsumers(victimOp)) {
-        auto posIt = data.positionMap.find(consumer);
-        if (posIt == data.positionMap.end() || posIt->second >= pos) {
-          continue;
-        }
-        if (!mlir::dyn_cast<OpModel>(consumer)) {
-          continue;
-        }
-        if (isa<ToLayoutOp>(consumer)) {
-          continue;
-        }
-        for (unsigned i = 0; i < consumer->getNumOperands(); ++i) {
-          Value operand = consumer->getOperand(i);
-          Operation *defOp = operand.getDefiningOp();
-          if (isa_and_nonnull<ToMemoryConfigOp>(defOp) &&
-              defOp->getOperand(0) == victim) {
-            insertReshardForConsumer(consumer, i, originalL1Layout);
-          }
-        }
-      }
-    }
+    evictValue(victim, pos, data);
   }
   return shouldStop();
 }
@@ -813,6 +819,37 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
     memoryTracker.logState();
     return freshL1;
+  }
+
+  // If validation failed with a backend constraint error (not OOM) after
+  // partial eviction, some ops (e.g. concat) require homogeneous input
+  // layouts and now see a mix of DRAM (spilled) and L1 (still live) inputs.
+  // Spill all remaining L1 operands of the op to DRAM so the op sees
+  // homogeneous DRAM inputs, then fall through to demoteToDram to also
+  // put the output in DRAM. We intentionally do NOT validate with the
+  // original (possibly sharded) output config after sibling spill:
+  // tt-metal concat does not reject interleaved inputs paired with a
+  // sharded output memory config at validation time, but runtime will
+  // crash with a JIT kernel build failure
+  // (https://github.com/tenstorrent/tt-metal/issues/41469). Keeping the
+  // op all-DRAM avoids that runtime bug.
+  if (freshResult.status !=
+      op_constraint_validation::ValidationStatus::OutOfMemoryError) {
+    // Collect L1 operands that need spilling (can't mutate liveValues
+    // while iterating op operands via liveSet).
+    llvm::SmallVector<Value> toEvict;
+    for (Value operand : op->getOperands()) {
+      if (liveValues.count(operand)) {
+        toEvict.push_back(operand);
+      }
+    }
+    for (Value victim : toEvict) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                   "    SPILL_SIBLING_OPERAND: evicting {0} to DRAM to "
+                   "resolve backend constraint failure for {1}",
+                   ttmlir::opToString(victim.getDefiningOp()), op->getName());
+      evictValue(victim, pos, data);
+    }
   }
 
   demoteToDram(op);
@@ -1121,7 +1158,8 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
     }
     TTNNLayoutAttr dramLayout =
         layoutAttr.withBufferType(BufferType::DRAM)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved);
+            .withMemoryLayout(TensorMemoryLayout::Interleaved)
+            .withTensorShape(tensorType.getShape());
     RankedTensorType newType =
         utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
     opResult.setType(newType);
@@ -1245,9 +1283,19 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
   }
 
   // Create DRAM interleaved layout.
+  // Use withTensorShape to recompute the memref dimensions from the full tensor
+  // shape. A plain withBufferType(DRAM) would preserve the per-core shard
+  // dimensions in the memref, producing an incorrect layout (e.g., 32x4 tiles
+  // instead of 2048x4 for a 65536x128 tensor that was height-sharded on 64
+  // cores).
   TTNNLayoutAttr dramLayout =
       layoutAttr.withBufferType(BufferType::DRAM)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved);
+          .withMemoryLayout(TensorMemoryLayout::Interleaved)
+          .withTensorShape(tensorType.getShape());
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    SPILL_TO_DRAM: {0}, new layout: {1}",
+               ttmlir::opToString(defOp), dramLayout);
+
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
 
