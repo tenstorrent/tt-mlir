@@ -833,7 +833,7 @@ public:
     // boundary in the input writes sequentially past that boundary into the
     // wrong cache head, while skipped tile-rows in the next head are never
     // written. Padding input to maxCacheLen forces input_Ht == cache_Ht so
-    // head boundaries align. Zeros are safe: rows beyond seqLen are -inf masked.
+    // head boundaries align.
     if (seqLen < maxCacheLen) {
       int64_t padRows = maxCacheLen - seqLen;
       llvm::SmallVector<int64_t> paddedShape(inputType.getShape());
