@@ -6,6 +6,7 @@ declare_mlir_python_sources(ChiselSources
     __init__.py
     ops.py
     executor.py
+    tensors.py
 )
 
 add_mlir_python_modules(ChiselPythonModules
