@@ -387,8 +387,7 @@ TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
     if (inputElementType.isInteger()) {
       // tt-metal where only works with si32 among integer types.
       // Cast all operands to si32 (lossless round-trip for i8/ui8/ui32).
-      predicateTypeWorkaround =
-          TTNNOperandWorkarounds(ttcore::DataType::Int32);
+      predicateTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
       inputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
       outputTypeWorkaround = TTNNOperandWorkarounds(ttcore::DataType::Int32);
     } else {
