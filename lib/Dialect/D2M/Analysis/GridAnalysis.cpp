@@ -158,7 +158,6 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
                                ArrayRef<int64_t> targetGridShape) {
   OpBuilder builder(genericOp->getContext());
   GenericGridAnalysisResult result;
-  result.ttnnMode = ttnnMode;
   result.deviceGrid = llvm::SmallVector<int64_t>(targetGridShape);
 
   // Build per-operand target grids. When a loop dimension maps to different
@@ -311,8 +310,9 @@ GridAnalysis::getTargetGridShape(GenericOp genericOp) const {
   return llvm::SmallVector<int64_t>(deviceGridShape);
 }
 
-GridAnalysis::GridAnalysis(Operation *moduleOp, const Options &opts)
-    : deviceGridShape(opts.deviceGridShape), ttnnMode(opts.ttnnMode) {
+GridAnalysis::GridAnalysis(Operation *moduleOp,
+                           ArrayRef<int64_t> deviceGridShape, bool ttnnMode)
+    : deviceGridShape(deviceGridShape), ttnnMode(ttnnMode) {
   moduleOp->walk([&](GenericOp genericOp) {
     // Skip explicit datamovement form — users manage grids manually.
     if (genericOp.isExplicitDatamovementForm()) {

@@ -288,224 +288,187 @@ optimizeTTNNMetalLayoutCastOpGrid(ttir::TTNNMetalLayoutCastOp castOp,
 // Transform phases — apply pre-computed grid decisions to the IR.
 // ----------------------------------------------------------------------------
 
-static void applyToLayoutUpdates(ArrayRef<const OperandGridInfo *> toLayouts,
-                                 ArrayRef<int64_t> deviceGrid, bool ttnnMode) {
-  if (toLayouts.empty()) {
-    return;
-  }
+static void applyToLayoutUpdate(const OperandGridInfo &info,
+                                ArrayRef<int64_t> deviceGrid, bool ttnnMode,
+                                OpBuilder &builder) {
+  auto toLayoutOp = info.operand.getDefiningOp<d2m::ToLayoutOp>();
+  optimizeToLayoutGrid(toLayoutOp, info.targetGrid, deviceGrid, ttnnMode,
+                       info.selectedGrid, builder);
+}
 
-  OpBuilder builder(toLayouts.front()->operand.getContext());
-  for (const auto *info : toLayouts) {
-    auto toLayoutOp = info->operand.getDefiningOp<d2m::ToLayoutOp>();
-    optimizeToLayoutGrid(toLayoutOp, info->targetGrid, deviceGrid, ttnnMode,
-                         info->selectedGrid, builder);
+static void applyBehindViewToLayoutUpdate(const OperandGridInfo &info,
+                                          ArrayRef<int64_t> deviceGrid,
+                                          bool ttnnMode, OpBuilder &builder) {
+  auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+  auto toLayoutOp = view.getInput().getDefiningOp<d2m::ToLayoutOp>();
+  optimizeToLayoutGrid(toLayoutOp, info.targetGrid, deviceGrid, ttnnMode,
+                       info.behindViewToLayoutGrid, builder);
+}
+
+static void applyTTNNTensorUpdate(const OperandGridInfo &info,
+                                  OpBuilder &builder) {
+  Value ttnnOperand = info.operand;
+  auto metalTensor = mlir::cast<mlir::RankedTensorType>(ttnnOperand.getType());
+  auto metalLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
+  if (metalLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM) {
+    insertViewForTTNNDRAMTensor(ttnnOperand, info.selectedGrid, builder);
+  } else if (auto castOp =
+                 ttnnOperand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+    optimizeTTNNMetalLayoutCastOpGrid(castOp, info.selectedGrid, builder);
+  } else if (auto viewOp = ttnnOperand.getDefiningOp<d2m::ViewLayoutOp>()) {
+    auto originalOperand = viewOp.getInput();
+    auto castOp = originalOperand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
+    TT_assertv(castOp,
+               "Expected a TTNNMetalLayoutCastOp as the input of the view op.");
+    viewOp.getResult().replaceAllUsesWith(originalOperand);
+    viewOp.erase();
+    optimizeTTNNMetalLayoutCastOpGrid(castOp, info.selectedGrid, builder);
+  } else {
+    llvm_unreachable("Expected a TTNNMetalLayoutCastOp or a ViewLayoutOp");
   }
 }
 
-static void
-applyBehindViewToLayoutUpdates(ArrayRef<const OperandGridInfo *> infos,
-                               ArrayRef<int64_t> deviceGrid, bool ttnnMode) {
-  if (infos.empty()) {
-    return;
-  }
+static void applyCompositeViewUpdate(const OperandGridInfo &info,
+                                     ArrayRef<int64_t> deviceGrid,
+                                     bool ttnnMode, OpBuilder &builder) {
+  auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
+  int32_t concatDim = compositeView.getDim();
 
-  OpBuilder builder(infos.front()->operand.getContext());
-  for (const auto *info : infos) {
-    auto view = info->operand.getDefiningOp<d2m::ViewLayoutOp>();
-    auto toLayoutOp = view.getInput().getDefiningOp<d2m::ToLayoutOp>();
-    optimizeToLayoutGrid(toLayoutOp, info->targetGrid, deviceGrid, ttnnMode,
-                         info->behindViewToLayoutGrid, builder);
-  }
-}
+  // Compute the output type first — its grid-aware dim alignments determine
+  // what physical shapes the inputs must match on non-concat dimensions.
+  auto outType =
+      mlir::cast<RankedTensorType>(compositeView.getResult().getType());
+  RankedTensorType newOutType = utils::tensorWithOptimalGrid(
+      outType, info.targetGrid, ttnnMode, info.selectedGrid, builder);
+  auto outLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
 
-static void
-applyTTNNTensorUpdates(ArrayRef<const OperandGridInfo *> ttnnTensors) {
-  if (ttnnTensors.empty()) {
-    return;
-  }
+  // Build per-input dim alignments that are coordinated with the output:
+  //  - Non-concat dims use the output's grid-aware alignment (so physical
+  //    sizes match).
+  //  - The concat dim uses tile-only alignment (so each input's contribution
+  //    isn't independently inflated, keeping sum <= output).
+  auto outDimAlignments = outLayout.getDimAlignments();
 
-  OpBuilder builder(ttnnTensors.front()->operand.getContext());
-  for (const auto *info : ttnnTensors) {
-    Value ttnnOperand = info->operand;
-    auto metalTensor =
-        mlir::cast<mlir::RankedTensorType>(ttnnOperand.getType());
-    auto metalLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
-    if (metalLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM) {
-      insertViewForTTNNDRAMTensor(ttnnOperand, info->selectedGrid, builder);
-    } else if (auto castOp =
-                   ttnnOperand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-      optimizeTTNNMetalLayoutCastOpGrid(castOp, info->selectedGrid, builder);
-    } else if (auto viewOp = ttnnOperand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      auto originalOperand = viewOp.getInput();
-      auto castOp =
-          originalOperand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>();
-      TT_assertv(
-          castOp,
-          "Expected a TTNNMetalLayoutCastOp as the input of the view op.");
-      viewOp.getResult().replaceAllUsesWith(originalOperand);
-      viewOp.erase();
-      optimizeTTNNMetalLayoutCastOpGrid(castOp, info->selectedGrid, builder);
-    } else {
-      llvm_unreachable("Expected a TTNNMetalLayoutCastOp or a ViewLayoutOp");
+  SmallVector<Value> reblockedInputs;
+  for (Value input : compositeView.getInputs()) {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputLayout =
+        mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+    if (!inputLayout) {
+      reblockedInputs.push_back(input);
+      continue;
     }
-  }
-}
 
-static void
-applyCompositeViewUpdates(ArrayRef<const OperandGridInfo *> compositeViews,
-                          ArrayRef<int64_t> deviceGrid, bool ttnnMode) {
-  if (compositeViews.empty()) {
-    return;
-  }
+    auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
+    auto tileShape = tileType.getShape();
 
-  OpBuilder builder(compositeViews.front()->operand.getContext());
-  for (const auto *info : compositeViews) {
-    auto compositeView = info->operand.getDefiningOp<d2m::CompositeViewOp>();
-    int32_t concatDim = compositeView.getDim();
+    // Derive input dim alignments from the output, overriding the concat
+    // dim with tile-only alignment so each input's contribution isn't
+    // independently inflated. concatDim is already normalized to
+    // [0, logicalRank) by TTIRToD2M; the trailing two logical dims map to
+    // the tile's height/width (tileIdx 0/1), earlier dims are batch dims
+    // where tile alignment isn't required (fall back to 1).
+    llvm::SmallVector<int64_t> inputAlignments(outDimAlignments.begin(),
+                                               outDimAlignments.end());
+    int64_t logicalRank = inputLayout.getLogicalShape().size();
+    int64_t tileIdx = concatDim - (logicalRank - 2);
+    inputAlignments[concatDim] = (tileIdx >= 0) ? tileShape[tileIdx] : 1;
 
-    // Compute the output type first — its grid-aware dim alignments determine
-    // what physical shapes the inputs must match on non-concat dimensions.
-    auto outType =
-        mlir::cast<RankedTensorType>(compositeView.getResult().getType());
-    RankedTensorType newOutType = utils::tensorWithOptimalGrid(
-        outType, info->targetGrid, ttnnMode, info->selectedGrid, builder);
-    auto outLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
+    auto coordLayout = ttcore::MetalLayoutAttr::get(
+        builder.getContext(), inputLayout.getLogicalShape(),
+        inputLayout.getOobVal(), inputLayout.getMemorySpace(),
+        inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
+        inputAlignments);
 
-    // Build per-input dim alignments that are coordinated with the output:
-    //  - Non-concat dims use the output's grid-aware alignment (so physical
-    //    sizes match).
-    //  - The concat dim uses tile-only alignment (so each input's contribution
-    //    isn't independently inflated, keeping sum <= output).
-    auto outDimAlignments = outLayout.getDimAlignments();
+    auto inputPhysShape = coordLayout.getPhysicalShape(tileShape);
+    auto inputOptimalGrid =
+        utils::computeOptimalGrid(inputType, inputPhysShape, info.targetGrid);
 
-    SmallVector<Value> reblockedInputs;
-    for (Value input : compositeView.getInputs()) {
-      auto inputType = mlir::cast<RankedTensorType>(input.getType());
-      auto inputLayout =
-          mlir::dyn_cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-      if (!inputLayout) {
-        reblockedInputs.push_back(input);
+    llvm::SmallVector<int64_t> deviceShape =
+        coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
+    auto newInputType = RankedTensorType::get(
+        deviceShape, inputType.getElementType(), coordLayout);
+
+    // When the input comes directly from a to_layout op with a single use,
+    // update the to_layout's grid so that data is physically distributed
+    // across multiple cores, preventing L1 overflow when multiple concat
+    // inputs must coexist in L1 on a single core.
+    if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
+        toLayoutOp && input.hasOneUse()) {
+      auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
+      if (emptyOp) {
+        builder.setInsertionPoint(emptyOp);
+        auto newEmptyOp = builder.create<d2m::EmptyOp>(
+            emptyOp.getLoc(), newInputType.getShape(),
+            newInputType.getElementType(), newInputType.getEncoding(),
+            deviceGrid);
+        builder.setInsertionPoint(toLayoutOp);
+        auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
+            toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
+        toLayoutOp.getResult(0).replaceAllUsesWith(newToLayoutOp.getResult(0));
+        toLayoutOp.erase();
+        if (emptyOp.getResult().use_empty()) {
+          emptyOp.erase();
+        }
+        reblockedInputs.push_back(newToLayoutOp.getResult(0));
         continue;
       }
-
-      auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
-      auto tileShape = tileType.getShape();
-
-      // Derive input dim alignments from the output, overriding the concat
-      // dim with tile-only alignment so each input's contribution isn't
-      // independently inflated. concatDim is already normalized to
-      // [0, logicalRank) by TTIRToD2M; the trailing two logical dims map to
-      // the tile's height/width (tileIdx 0/1), earlier dims are batch dims
-      // where tile alignment isn't required (fall back to 1).
-      llvm::SmallVector<int64_t> inputAlignments(outDimAlignments.begin(),
-                                                 outDimAlignments.end());
-      int64_t logicalRank = inputLayout.getLogicalShape().size();
-      int64_t tileIdx = concatDim - (logicalRank - 2);
-      inputAlignments[concatDim] = (tileIdx >= 0) ? tileShape[tileIdx] : 1;
-
-      auto coordLayout = ttcore::MetalLayoutAttr::get(
-          builder.getContext(), inputLayout.getLogicalShape(),
-          inputLayout.getOobVal(), inputLayout.getMemorySpace(),
-          inputLayout.getMemoryLayout(), inputLayout.getCollapsedIntervals(),
-          inputAlignments);
-
-      auto inputPhysShape = coordLayout.getPhysicalShape(tileShape);
-      auto inputOptimalGrid = utils::computeOptimalGrid(
-          inputType, inputPhysShape, info->targetGrid);
-
-      llvm::SmallVector<int64_t> deviceShape =
-          coordLayout.getDeviceShape(inputOptimalGrid, tileShape);
-      auto newInputType = RankedTensorType::get(
-          deviceShape, inputType.getElementType(), coordLayout);
-
-      // When the input comes directly from a to_layout op with a single use,
-      // update the to_layout's grid so that data is physically distributed
-      // across multiple cores, preventing L1 overflow when multiple concat
-      // inputs must coexist in L1 on a single core.
-      if (auto toLayoutOp = input.getDefiningOp<d2m::ToLayoutOp>();
-          toLayoutOp && input.hasOneUse()) {
-        auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
-        if (emptyOp) {
-          builder.setInsertionPoint(emptyOp);
-          auto newEmptyOp = builder.create<d2m::EmptyOp>(
-              emptyOp.getLoc(), newInputType.getShape(),
-              newInputType.getElementType(), newInputType.getEncoding(),
-              deviceGrid);
-          builder.setInsertionPoint(toLayoutOp);
-          auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-              toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
-          toLayoutOp.getResult(0).replaceAllUsesWith(
-              newToLayoutOp.getResult(0));
-          toLayoutOp.erase();
-          if (emptyOp.getResult().use_empty()) {
-            emptyOp.erase();
-          }
-          reblockedInputs.push_back(newToLayoutOp.getResult(0));
-          continue;
-        }
-      }
-
-      builder.setInsertionPoint(compositeView);
-      auto view = builder.create<d2m::ViewLayoutOp>(compositeView.getLoc(),
-                                                    newInputType, input);
-      reblockedInputs.push_back(view.getResult());
     }
 
     builder.setInsertionPoint(compositeView);
-    auto newCompositeView = builder.create<d2m::CompositeViewOp>(
-        compositeView.getLoc(), newOutType, reblockedInputs,
-        compositeView.getDim());
-
-    compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
-    compositeView.erase();
+    auto view = builder.create<d2m::ViewLayoutOp>(compositeView.getLoc(),
+                                                  newInputType, input);
+    reblockedInputs.push_back(view.getResult());
   }
+
+  builder.setInsertionPoint(compositeView);
+  auto newCompositeView = builder.create<d2m::CompositeViewOp>(
+      compositeView.getLoc(), newOutType, reblockedInputs,
+      compositeView.getDim());
+
+  compositeView.getResult().replaceAllUsesWith(newCompositeView.getResult());
+  compositeView.erase();
 }
 
-static void applyEmptyOpUpdates(ArrayRef<const OperandGridInfo *> emptyOps,
-                                ArrayRef<int64_t> deviceGrid, bool ttnnMode) {
-  if (emptyOps.empty()) {
-    return;
-  }
+static void applyEmptyOpUpdate(const OperandGridInfo &info,
+                               ArrayRef<int64_t> deviceGrid, bool ttnnMode,
+                               OpBuilder &builder) {
+  EmptyOp emptyOp = info.operand.getDefiningOp<d2m::EmptyOp>();
+  auto emptyType =
+      mlir::cast<mlir::RankedTensorType>(emptyOp.getResult().getType());
+  RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
+      emptyType, info.targetGrid, ttnnMode, info.selectedGrid, builder);
+  builder.setInsertionPoint(emptyOp);
 
-  OpBuilder builder(emptyOps.front()->operand.getContext());
-  for (const auto *info : emptyOps) {
-    EmptyOp emptyOp = info->operand.getDefiningOp<d2m::EmptyOp>();
-    auto emptyType =
-        mlir::cast<mlir::RankedTensorType>(emptyOp.getResult().getType());
-    RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
-        emptyType, info->targetGrid, ttnnMode, info->selectedGrid, builder);
-    builder.setInsertionPoint(emptyOp);
-
-    mlir::AffineMapAttr virtualGridInverseMapping =
-        emptyOp.getVirtualGridInverseMappingAttr();
-    mlir::AffineMapAttr virtualGridForwardMapping =
-        emptyOp.getVirtualGridForwardMappingAttr();
-    if (!virtualGridInverseMapping) {
-      auto device = ttcore::lookupDevice(emptyOp);
-      auto workerGridShape = device.getWorkerGrid().getShape();
-      bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
-          info->selectedGrid, workerGridShape);
-      if (isVirtual) {
-        auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
-            ttmlir::utils::volume<int64_t>(info->selectedGrid), deviceGrid);
-        TT_assertv(!physicalGridShape.empty(),
-                   "Unable to find 2D rect that can fit virtual grid");
-        auto [forwardMap, inverseMap] =
-            ttmlir::d2m::utils::grids::createCoreVirtMaps(
-                builder.getContext(), info->selectedGrid, physicalGridShape);
-        virtualGridInverseMapping = AffineMapAttr::get(inverseMap);
-        virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
-      }
+  mlir::AffineMapAttr virtualGridInverseMapping =
+      emptyOp.getVirtualGridInverseMappingAttr();
+  mlir::AffineMapAttr virtualGridForwardMapping =
+      emptyOp.getVirtualGridForwardMappingAttr();
+  if (!virtualGridInverseMapping) {
+    auto device = ttcore::lookupDevice(emptyOp);
+    auto workerGridShape = device.getWorkerGrid().getShape();
+    bool isVirtual = ttmlir::d2m::utils::grids::requiresVirtualGrid(
+        info.selectedGrid, workerGridShape);
+    if (isVirtual) {
+      auto physicalGridShape = utils::findLegalPhysicalGridForVolume(
+          ttmlir::utils::volume<int64_t>(info.selectedGrid), deviceGrid);
+      TT_assertv(!physicalGridShape.empty(),
+                 "Unable to find 2D rect that can fit virtual grid");
+      auto [forwardMap, inverseMap] =
+          ttmlir::d2m::utils::grids::createCoreVirtMaps(
+              builder.getContext(), info.selectedGrid, physicalGridShape);
+      virtualGridInverseMapping = AffineMapAttr::get(inverseMap);
+      virtualGridForwardMapping = AffineMapAttr::get(forwardMap);
     }
-
-    auto newEmptyOp = builder.create<d2m::EmptyOp>(
-        emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
-        virtualGridForwardMapping);
-    emptyOp.getResult().replaceAllUsesWith(newEmptyOp.getResult());
-    emptyOp.erase();
   }
+
+  auto newEmptyOp = builder.create<d2m::EmptyOp>(
+      emptyOp.getLoc(), newTensorType, virtualGridInverseMapping,
+      virtualGridForwardMapping);
+  emptyOp.getResult().replaceAllUsesWith(newEmptyOp.getResult());
+  emptyOp.erase();
 }
 
 // Derive grid (including virtual grid mapping) from the
@@ -566,64 +529,55 @@ deriveGenericGridAttr(d2m::GenericOp genericOp,
   return deriveGridAttrForOutput(output, gridShape, builder);
 }
 
-// Update ViewLayoutOps by recreating them with a new output type that matches
+// Update a ViewLayoutOp by recreating it with a new output type that matches
 // the normalized grid. The remapping is composed with a reblock map that
 // accounts for the shape change from the old grid to the new grid.
-static void
-applyViewLayoutUpdates(ArrayRef<const OperandGridInfo *> viewLayouts,
-                       bool ttnnMode) {
-  if (viewLayouts.empty()) {
-    return;
+static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
+                                  OpBuilder &builder) {
+  d2m::ViewLayoutOp viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+  auto oldResultType =
+      mlir::cast<RankedTensorType>(viewOp.getResult().getType());
+  auto oldLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
+  RankedTensorType newResultType = utils::tensorWithOptimalGrid(
+      oldResultType, info.targetGrid, ttnnMode, info.selectedGrid, builder);
+
+  // Compose the original remapping with a reblock map that maps from the
+  // old output shape to the new output shape.
+  llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
+  llvm::SmallVector<int64_t> newShape(newResultType.getShape());
+
+  // If dim alignments changed, align-up the old shape to match.
+  auto newLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
+  if (!llvm::equal(oldLayout.getDimAlignments(),
+                   newLayout.getDimAlignments())) {
+    llvm::SmallVector<int64_t> tileShape;
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
+      tileShape = llvm::to_vector(tileType.getShape());
+    }
+    TT_assert(ttmlir::utils::volume(oldLayout.getGridShape(oldResultType)) ==
+              1);
+    oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
+                                        tileShape);
   }
 
-  OpBuilder builder(viewLayouts.front()->operand.getContext());
-  for (const auto *info : viewLayouts) {
-    d2m::ViewLayoutOp viewOp = info->operand.getDefiningOp<d2m::ViewLayoutOp>();
-    auto oldResultType =
-        mlir::cast<RankedTensorType>(viewOp.getResult().getType());
-    auto oldLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
-    RankedTensorType newResultType = utils::tensorWithOptimalGrid(
-        oldResultType, info->targetGrid, ttnnMode, info->selectedGrid, builder);
-
-    // Compose the original remapping with a reblock map that maps from the
-    // old output shape to the new output shape. This mirrors what
-    // the old grid selection did for view storage.
-    llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
-    llvm::SmallVector<int64_t> newShape(newResultType.getShape());
-
-    // If dim alignments changed, align-up the old shape to match.
-    auto newLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
-    if (!llvm::equal(oldLayout.getDimAlignments(),
-                     newLayout.getDimAlignments())) {
-      llvm::SmallVector<int64_t> tileShape;
-      if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
-              oldResultType.getElementType())) {
-        tileShape = llvm::to_vector(tileType.getShape());
-      }
-      TT_assert(ttmlir::utils::volume(oldLayout.getGridShape(oldResultType)) ==
-                1);
-      oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
-                                          tileShape);
-    }
-
-    mlir::AffineMap newRemapping = viewOp.getRemapping();
-    if (!llvm::equal(oldShape, newShape)) {
-      TT_assert(ttmlir::utils::volume<int64_t>(oldShape) ==
-                ttmlir::utils::volume<int64_t>(newShape));
-      mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-          oldShape, newShape, builder.getContext());
-      newRemapping = newRemapping.compose(reblockMap);
-    }
-
-    builder.setInsertionPoint(viewOp);
-    auto newViewOp = builder.create<d2m::ViewLayoutOp>(
-        viewOp.getLoc(), newResultType, viewOp.getInput(), newRemapping,
-        viewOp.getReinterpretLayout());
-    viewOp.getResult().replaceAllUsesWith(newViewOp.getResult());
-    viewOp.erase();
+  mlir::AffineMap newRemapping = viewOp.getRemapping();
+  if (!llvm::equal(oldShape, newShape)) {
+    TT_assert(ttmlir::utils::volume<int64_t>(oldShape) ==
+              ttmlir::utils::volume<int64_t>(newShape));
+    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+        oldShape, newShape, builder.getContext());
+    newRemapping = newRemapping.compose(reblockMap);
   }
+
+  builder.setInsertionPoint(viewOp);
+  auto newViewOp = builder.create<d2m::ViewLayoutOp>(
+      viewOp.getLoc(), newResultType, viewOp.getInput(), newRemapping,
+      viewOp.getReinterpretLayout());
+  viewOp.getResult().replaceAllUsesWith(newViewOp.getResult());
+  viewOp.erase();
 }
 
 // Recreate the d2m.generic with updated operands.
@@ -663,50 +617,79 @@ recreateGenericOp(d2m::GenericOp genericOp,
 // ----------------------------------------------------------------------------
 
 static void applyGridDecisions(d2m::GenericOp genericOp,
-                               const GenericGridAnalysisResult &result) {
-  // Classify each operand by its defining op and bucket into per-kind lists.
-  SmallVector<const OperandGridInfo *> toLayouts;
-  SmallVector<const OperandGridInfo *> behindViewToLayouts;
-  SmallVector<const OperandGridInfo *> ttnnTensors;
-  SmallVector<const OperandGridInfo *> emptyOps;
-  SmallVector<const OperandGridInfo *> viewLayouts;
-  SmallVector<const OperandGridInfo *> compositeViews;
+                               const GenericGridAnalysisResult &result,
+                               bool ttnnMode) {
+  // deviceGrid is the generic's target grid (full device grid, or the range
+  // scoped by an enclosing d2m.spatial region), used for virtual grid
+  // physical mapping. Per-operand target grids (info.targetGrid) are used
+  // for alignment computation.
+  ArrayRef<int64_t> deviceGrid = result.deviceGrid;
+  OpBuilder builder(genericOp->getContext());
 
+  // Classify operands upfront: once apply* mutates IR, defining ops for
+  // operand values may be erased, so we can't re-query the kind mid-pass.
+  enum class Kind {
+    TTNNTensor,
+    ViewLayout,
+    CompositeView,
+    ToLayout,
+    Empty,
+    Skip
+  };
+  llvm::SmallVector<Kind, 4> kinds;
+  kinds.reserve(result.operandInfos.size());
   for (const auto &info : result.operandInfos) {
     Value operand = info.operand;
     if (GridAnalysis::isTTNNOperand(operand)) {
-      ttnnTensors.push_back(&info);
+      kinds.push_back(Kind::TTNNTensor);
     } else if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
       // Reinterpret views are type casts only; their grid must match the
-      // input, so skip them here.
-      if (!view.getReinterpretLayout()) {
-        viewLayouts.push_back(&info);
-      }
+      // input, so don't rewrite them.
+      kinds.push_back(view.getReinterpretLayout() ? Kind::Skip
+                                                  : Kind::ViewLayout);
     } else if (operand.getDefiningOp<d2m::CompositeViewOp>()) {
-      compositeViews.push_back(&info);
+      kinds.push_back(Kind::CompositeView);
     } else if (operand.getDefiningOp<d2m::ToLayoutOp>()) {
-      toLayouts.push_back(&info);
+      kinds.push_back(Kind::ToLayout);
     } else if (operand.getDefiningOp<d2m::EmptyOp>()) {
-      emptyOps.push_back(&info);
-    }
-
-    if (!info.behindViewToLayoutGrid.empty()) {
-      behindViewToLayouts.push_back(&info);
+      kinds.push_back(Kind::Empty);
+    } else {
+      kinds.push_back(Kind::Skip);
     }
   }
 
-  // deviceGrid is the full device grid, used for virtual grid physical
-  // mapping. Per-operand target grids (info->targetGrid) are used for
-  // alignment computation.
-  ArrayRef<int64_t> deviceGrid = result.deviceGrid;
-  bool ttnnMode = result.ttnnMode;
+  // Pass 1: producer-side rewrites. View layouts are handled in pass 2 so
+  // they see the final state after upstream producers are rewritten.
+  for (auto [info, kind] : llvm::zip_equal(result.operandInfos, kinds)) {
+    switch (kind) {
+    case Kind::TTNNTensor:
+      applyTTNNTensorUpdate(info, builder);
+      break;
+    case Kind::CompositeView:
+      applyCompositeViewUpdate(info, deviceGrid, ttnnMode, builder);
+      break;
+    case Kind::ToLayout:
+      applyToLayoutUpdate(info, deviceGrid, ttnnMode, builder);
+      break;
+    case Kind::Empty:
+      applyEmptyOpUpdate(info, deviceGrid, ttnnMode, builder);
+      break;
+    case Kind::ViewLayout:
+    case Kind::Skip:
+      break;
+    }
+    if (!info.behindViewToLayoutGrid.empty()) {
+      applyBehindViewToLayoutUpdate(info, deviceGrid, ttnnMode, builder);
+    }
+  }
 
-  applyToLayoutUpdates(toLayouts, deviceGrid, ttnnMode);
-  applyBehindViewToLayoutUpdates(behindViewToLayouts, deviceGrid, ttnnMode);
-  applyTTNNTensorUpdates(ttnnTensors);
-  applyEmptyOpUpdates(emptyOps, deviceGrid, ttnnMode);
-  applyCompositeViewUpdates(compositeViews, deviceGrid, ttnnMode);
-  applyViewLayoutUpdates(viewLayouts, ttnnMode);
+  // Pass 2: view layout rewrites.
+  for (auto [info, kind] : llvm::zip_equal(result.operandInfos, kinds)) {
+    if (kind == Kind::ViewLayout) {
+      applyViewLayoutUpdate(info, ttnnMode, builder);
+    }
+  }
+
   recreateGenericOp(genericOp, result.normalizedOperandGrids);
 }
 
@@ -790,10 +773,7 @@ public:
     ModuleOp module = getOperation();
 
     // Phase 1: Analyze all generics (no IR mutation).
-    GridAnalysis::Options opts;
-    opts.deviceGridShape = getDeviceGridShape();
-    opts.ttnnMode = this->ttnnMode;
-    GridAnalysis gridAnalysis(module, opts);
+    GridAnalysis gridAnalysis(module, getDeviceGridShape(), this->ttnnMode);
 
     // Phase 2: Apply transforms using pre-computed analysis.
     // Collect generics first because the walk is invalidated by IR mutation.
@@ -806,7 +786,7 @@ public:
       if (!result) {
         continue;
       }
-      applyGridDecisions(genericOp, *result);
+      applyGridDecisions(genericOp, *result, this->ttnnMode);
     }
 
     // Phase 3: Rebuild each SpatialOp's ins/outs from the operands actually

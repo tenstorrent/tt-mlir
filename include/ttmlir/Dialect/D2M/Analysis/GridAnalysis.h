@@ -33,27 +33,24 @@ struct OperandGridInfo {
 struct GenericGridAnalysisResult {
   llvm::SmallVector<OperandGridInfo, 4> operandInfos;
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids;
-  // Device grid shape used for virtual grid physical mapping.
+  // Generic's target grid shape: the full device grid by default, or the
+  // scoped range when the generic is nested in a d2m.spatial region. Used
+  // for virtual grid physical mapping.
   llvm::SmallVector<int64_t> deviceGrid;
-  bool ttnnMode;
 };
 
 /// Module-level analysis that computes optimal grid assignments for all
 /// d2m.generic ops before any IR modification.
 ///
 /// Usage pattern (matches BlockFactorAnalysis):
-///   GridAnalysis gridAnalysis(moduleOp, options);
+///   GridAnalysis gridAnalysis(moduleOp, deviceGridShape, ttnnMode);
 ///   for (auto genericOp : ...) {
 ///     const auto *result = gridAnalysis.lookup(genericOp);
 ///     // apply transforms using result
 ///   }
 struct GridAnalysis {
-  struct Options {
-    llvm::SmallVector<int64_t> deviceGridShape;
-    bool ttnnMode = false;
-  };
-
-  GridAnalysis(Operation *moduleOp, const Options &opts);
+  GridAnalysis(Operation *moduleOp, ArrayRef<int64_t> deviceGridShape,
+               bool ttnnMode);
 
   /// Look up the pre-computed grid analysis for a generic op.
   /// Returns nullptr if the generic was skipped.
