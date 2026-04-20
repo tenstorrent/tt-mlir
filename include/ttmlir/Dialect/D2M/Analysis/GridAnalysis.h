@@ -33,10 +33,10 @@ struct OperandGridInfo {
 struct GenericGridAnalysisResult {
   llvm::SmallVector<OperandGridInfo, 4> operandInfos;
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids;
-  // Generic's target grid shape: the full device grid by default, or the
-  // scoped range when the generic is nested in a d2m.spatial region. Used
-  // for virtual grid physical mapping.
-  llvm::SmallVector<int64_t> deviceGrid;
+  // The effective target grid for this generic: the full device grid by
+  // default, or the range scoped by an enclosing d2m.spatial region. Used
+  // as the 2D placement bound for virtual grid physical mapping.
+  llvm::SmallVector<int64_t> effectiveTargetGrid;
 };
 
 /// Module-level analysis that computes optimal grid assignments for all

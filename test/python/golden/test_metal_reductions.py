@@ -13,7 +13,7 @@ from ttmlir.ir import *
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from conftest import get_request_kwargs
+from conftest import get_request_kwargs, get_board_id
 
 pytestmark = pytest.mark.frontend("ttir")
 torch.manual_seed(0)
@@ -231,6 +231,7 @@ def test_reduce_outer_4d(
     dtype: torch.dtype,
     request,
     device,
+    system_desc,
 ):
     total_tiles = a * b * m * n
     if dim_arg == [0] and total_tiles >= 128:
@@ -246,7 +247,7 @@ def test_reduce_outer_4d(
     # TODO: (a=3, b=8, dim_arg=[1]) fails on p150 with L1 OOM after the
     # non-square grid selection changes. Re-enable once grid selection handles
     # this combination without exhausting L1.
-    if dim_arg == [1] and a == 3 and b == 8:
+    if dim_arg == [1] and a == 3 and b == 8 and get_board_id(system_desc) == "p150":
         pytest.skip("L1 OOM on p150 with current grid selection")
 
     reduce_type = _4D_OUTER_REDUCE[(a, b, m, n, dim_arg[0])]

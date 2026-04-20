@@ -39,11 +39,11 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
   return grid;
 }
 
-// Find which dimension has the maximum aspect ratio relative to others.
-static std::pair<unsigned, double>
-findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
-  double aspectRatio = 1.0;
-  unsigned maxDimIndex = 0;
+// Find the dimension whose size-to-(product-of-others) ratio is largest.
+// Returns 0 if no dim exceeds ratio 1.0 (i.e. balanced shape).
+static unsigned findShardedDimIndex(ArrayRef<int64_t> physicalShape) {
+  double bestRatio = 1.0;
+  unsigned bestIndex = 0;
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     double ratio = physicalShape[i];
     for (size_t j = 0; j < physicalShape.size(); ++j) {
@@ -52,12 +52,12 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
       }
       ratio /= physicalShape[j];
     }
-    if (ratio > aspectRatio) {
-      aspectRatio = ratio;
-      maxDimIndex = i;
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      bestIndex = i;
     }
   }
-  return {maxDimIndex, aspectRatio};
+  return bestIndex;
 }
 
 llvm::SmallVector<int64_t>
@@ -96,7 +96,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   }
 
   // If not ND sharded, compute grid for 2D height or width sharding (Nx1, 1xN).
-  auto [shardedDimIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
+  unsigned shardedDimIndex = findShardedDimIndex(physicalShape);
 
   // Find the largest factor of the sharded dimension that fits within the
   // target grid volume.

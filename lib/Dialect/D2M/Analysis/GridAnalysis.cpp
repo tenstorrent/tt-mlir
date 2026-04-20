@@ -158,7 +158,7 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
                                ArrayRef<int64_t> targetGridShape) {
   OpBuilder builder(genericOp->getContext());
   GenericGridAnalysisResult result;
-  result.deviceGrid = llvm::SmallVector<int64_t>(targetGridShape);
+  result.effectiveTargetGrid = llvm::SmallVector<int64_t>(targetGridShape);
 
   // Build per-operand target grids. When a loop dimension maps to different
   // operand-dim positions across operands (e.g. matmul K is dim 1 of LHS but
