@@ -18,6 +18,11 @@ namespace mlir::tt::d2m::utils {
 struct DSTPackingPerResultInfo {
   int64_t numDstFlips = 0;
   int64_t numTilesPerFlip = 0;
+  // Per-result tile count per outer iteration. May differ across results
+  // within the same region when outputs have heterogeneous shapes (e.g.
+  // an elementwise op fused with a reduction). For the homogeneous-output
+  // case this always equals the region's numTilesPerResult.
+  int64_t numTilesPerResult = 0;
 };
 
 struct DSTPackingRegionInfo {
