@@ -73,7 +73,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   }
 
   RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
-      outputType, targetGrid, ttnnMode, optimalGrid, builder);
+      outputType, targetGrid, ttnnMode, optimalGrid);
   builder.setInsertionPoint(emptyOp);
 
   // Determine if the chosen grid is virtual (exceeds 2D device bounds or is
@@ -340,7 +340,7 @@ static void applyCompositeViewUpdate(const OperandGridInfo &info,
   auto outType =
       mlir::cast<RankedTensorType>(compositeView.getResult().getType());
   RankedTensorType newOutType = utils::tensorWithOptimalGrid(
-      outType, info.targetGrid, ttnnMode, info.selectedGrid, builder);
+      outType, info.targetGrid, ttnnMode, info.selectedGrid);
   auto outLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(newOutType.getEncoding());
 
@@ -439,7 +439,7 @@ static void applyEmptyOpUpdate(const OperandGridInfo &info,
   auto emptyType =
       mlir::cast<mlir::RankedTensorType>(emptyOp.getResult().getType());
   RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
-      emptyType, info.targetGrid, ttnnMode, info.selectedGrid, builder);
+      emptyType, info.targetGrid, ttnnMode, info.selectedGrid);
   builder.setInsertionPoint(emptyOp);
 
   mlir::AffineMapAttr virtualGridInverseMapping =
@@ -541,7 +541,7 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
   auto oldLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
   RankedTensorType newResultType = utils::tensorWithOptimalGrid(
-      oldResultType, info.targetGrid, ttnnMode, info.selectedGrid, builder);
+      oldResultType, info.targetGrid, ttnnMode, info.selectedGrid);
 
   // Compose the original remapping with a reblock map that maps from the
   // old output shape to the new output shape.

@@ -169,8 +169,7 @@ llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
 
 llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
                                                 ArrayRef<int64_t> targetGrid,
-                                                bool ttnnMode,
-                                                mlir::OpBuilder &builder) {
+                                                bool ttnnMode) {
 
   auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
@@ -196,7 +195,7 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
           layout.getNormalizedIntervals());
 
   auto tempLayout = ttcore::MetalLayoutAttr::get(
-      builder.getContext(), layout.getLogicalShape(), layout.getOobVal(),
+      operand.getContext(), layout.getLogicalShape(), layout.getOobVal(),
       layout.getMemorySpace(), layout.getMemoryLayout(),
       layout.getCollapsedIntervals(), alignments);
 
@@ -206,9 +205,7 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
 
 ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
                                               ArrayRef<int64_t> targetGrid,
-                                              bool ttnnMode,
-                                              ArrayRef<int64_t> optimalGrid,
-                                              mlir::OpBuilder &builder) {
+                                              bool ttnnMode) {
   llvm::SmallVector<int64_t> newDimAlignments;
   if (ttnnMode) {
     // TTNN tensors use simple tile-aligned dim alignments without grid-aware
@@ -224,16 +221,16 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
   }
 
   return ttcore::MetalLayoutAttr::get(
-      builder.getContext(), oldLayout.getLogicalShape(), oldLayout.getOobVal(),
-      oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
-      oldLayout.getCollapsedIntervals(), newDimAlignments);
+      oldLayout.getContext(), oldLayout.getLogicalShape(),
+      oldLayout.getOobVal(), oldLayout.getMemorySpace(),
+      oldLayout.getMemoryLayout(), oldLayout.getCollapsedIntervals(),
+      newDimAlignments);
 }
 
 mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
                                              ArrayRef<int64_t> targetGrid,
                                              bool ttnnMode,
-                                             ArrayRef<int64_t> optimalGrid,
-                                             mlir::OpBuilder &builder) {
+                                             ArrayRef<int64_t> optimalGrid) {
   auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
 
   llvm::SmallVector<int64_t> tileShape;
@@ -243,8 +240,8 @@ mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
     elementType = tileType.getElementType();
   }
 
-  ttcore::MetalLayoutAttr newLayout = layoutWithOptimalGrid(
-      oldLayout, targetGrid, ttnnMode, optimalGrid, builder);
+  ttcore::MetalLayoutAttr newLayout =
+      layoutWithOptimalGrid(oldLayout, targetGrid, ttnnMode);
 
   llvm::SmallVector<int64_t> deviceShape = newLayout.getDeviceShape(
       optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));

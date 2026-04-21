@@ -156,7 +156,6 @@ GridAnalysis::normalizeOperandGridsForGeneric(
 GenericGridAnalysisResult
 GridAnalysis::analyzeGenericOp(GenericOp genericOp,
                                ArrayRef<int64_t> targetGridShape) {
-  OpBuilder builder(genericOp->getContext());
   GenericGridAnalysisResult result;
   result.effectiveTargetGrid = llvm::SmallVector<int64_t>(targetGridShape);
 
@@ -239,7 +238,7 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
 
     ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
     llvm::SmallVector<int64_t> physShape =
-        utils::computePhysicalShape(operand, targetGrid, ttnnMode, builder);
+        utils::computePhysicalShape(operand, targetGrid, ttnnMode);
     physicalShapes.push_back(physShape);
     auto optimalGrid =
         utils::computeOptimalGrid(operandType, physShape, targetGrid);
@@ -262,7 +261,7 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
               viewLayout.getInput().getType());
           llvm::SmallVector<int64_t> inputPhysShape =
               utils::computePhysicalShape(viewLayout.getInput(), targetGrid,
-                                          ttnnMode, builder);
+                                          ttnnMode);
           info.behindViewToLayoutGrid =
               utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
         }

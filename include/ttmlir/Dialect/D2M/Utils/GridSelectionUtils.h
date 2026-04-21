@@ -51,24 +51,20 @@ llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
 // dimension alignments and derives the physical shape (always tile-aligned).
 llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
                                                 ArrayRef<int64_t> targetGrid,
-                                                bool ttnnMode,
-                                                mlir::OpBuilder &builder);
+                                                bool ttnnMode);
 
-// Create a new MetalLayoutAttr with the given optimal grid and proper dimension
-// alignments.
+// Create a new MetalLayoutAttr with grid-aware dimension alignments for the
+// given target grid.
 ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
                                               ArrayRef<int64_t> targetGrid,
-                                              bool ttnnMode,
-                                              ArrayRef<int64_t> optimalGrid,
-                                              mlir::OpBuilder &builder);
+                                              bool ttnnMode);
 
 // Create a new RankedTensorType with the given optimal grid, recomputing the
 // device shape and layout accordingly.
 mlir::RankedTensorType tensorWithOptimalGrid(mlir::RankedTensorType oldTensor,
                                              ArrayRef<int64_t> targetGrid,
                                              bool ttnnMode,
-                                             ArrayRef<int64_t> optimalGrid,
-                                             mlir::OpBuilder &builder);
+                                             ArrayRef<int64_t> optimalGrid);
 
 } // namespace utils
 } // namespace mlir::tt::d2m
