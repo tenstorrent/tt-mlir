@@ -5109,7 +5109,7 @@ private:
   }
 };
 
-// Converts batched StableHLO gather into ttir.gather_dim when the gather is a
+// Converts batched StableHLO gather into ttir.gather when the gather is a
 // simple batched index-select along a single dimension.
 // This handles the common case where:
 // - operand_batching_dims and start_indices_batching_dims are present
@@ -5120,7 +5120,7 @@ private:
 // Example:
 //   operand: tensor<256x24x3xf32>, indices: tensor<256x1x1xi32>
 //   batching_dims = [0], start_index_map = [1], collapsed_slice_dims = [1]
-//   -> ttir.gather_dim(%operand, %reshaped_indices) {dim = 1}
+//   -> ttir.gather(%operand, %reshaped_indices) {dim = 1}
 //      : (tensor<256x24x3xf32>, tensor<256x1x3xi32>) -> tensor<256x1x3xf32>
 class StableHLOGatherToGatherDimPattern
     : public OpConversionPattern<mlir::stablehlo::GatherOp> {
@@ -5271,7 +5271,7 @@ public:
     }
 
     // Step 3: Create gather_dim with the appropriate dimension.
-    rewriter.replaceOpWithNewOp<ttir::GatherDimOp>(
+    rewriter.replaceOpWithNewOp<ttir::GatherOp>(
         srcOp, outputType, operand, indices,
         rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim)));
 
