@@ -362,6 +362,11 @@ def test_hoisted_layer_norm(
         (1, 1, 128, 128),
         (1, 1, 32, 68),
         (1, 1, 37, 72),
+        # Shapes below exercise the relaxed fused-kernel eligibility check and
+        # the canonical-shape reshape workaround: dim -2 == 32 and dim -1 % 32
+        # == 0 with all leading dims equal to 1, but rank != 4.
+        (32, 128),
+        (1, 32, 128),
     ],
     ids=shape_str,
 )
@@ -399,8 +404,8 @@ def test_distributed_rms_norm(
     if has_residual:
         shapes.append(shape)
 
-    # Shard dimensions for width sharding (dim 3)
-    shard_dims = [-1, 3]
+    # Width-shard the last dimension across mesh axis 1.
+    shard_dims = [-1, len(shape) - 1]
 
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.bfloat16] * len(shapes))

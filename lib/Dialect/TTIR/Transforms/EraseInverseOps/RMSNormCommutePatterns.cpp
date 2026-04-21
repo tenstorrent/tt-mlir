@@ -90,6 +90,11 @@ private:
   }
 };
 
+// Mirrors TTIRCommuteReshapeThroughRMSNorm, but for distributed_rms_norm.
+// distributed_rms_norm also normalizes along the last dim, so the same
+// last-dim-preserving reshape constraint applies. The optional residual
+// operand must match the input shape per the op verifier, so we reshape it
+// alongside the input to keep shapes consistent.
 template <CommuteDirection commuteDirection>
 class TTIRCommuteReshapeThroughDistributedRMSNorm
     : public TTIRCommuteOpRewritePattern<ReshapeOp, DistributedRMSNormOp,
@@ -99,11 +104,6 @@ public:
       ReshapeOp, DistributedRMSNormOp,
       commuteDirection>::TTIRCommuteOpRewritePattern;
 
-  // Mirrors TTIRCommuteReshapeThroughRMSNorm, but for distributed_rms_norm.
-  // distributed_rms_norm normalizes along the last dim, so the same
-  // last-dim-preserving reshape constraint applies. A residual operand (if
-  // present) must already match the input shape per the op verifier, so we
-  // also reshape it alongside the input to keep shapes consistent.
   void performCommuteUpwardsRewrite(DistributedRMSNormOp op,
                                     ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
@@ -119,10 +119,9 @@ public:
         rewriter.create<ReshapeOp>(op.getLoc(), newInputType, op.getInput(),
                                    rewriter.getI32ArrayAttr(newInputShape));
 
-    Value newResidual = nullptr;
+    Value newResidual;
     if (op.getResidual()) {
-      auto residualType =
-          cast<RankedTensorType>(op.getResidual().getType());
+      auto residualType = cast<RankedTensorType>(op.getResidual().getType());
       auto newResidualType = RankedTensorType::get(
           outputReshapeType.getShape(), residualType.getElementType(),
           residualType.getEncoding());
@@ -135,6 +134,8 @@ public:
         op.getLoc(), outputReshapeType, newInputReshape, op.getWeight(),
         newResidual, op.getClusterAxisAttr(), op.getEpsilonAttr());
 
+    // All users must be identical TMs. We must not reference `reshapeUser`
+    // during/after replacements, as it will be erased on its turn.
     SmallVector<Operation *> users(op->getUsers());
     assert(llvm::all_of(users,
                         [&](Operation *user) {
@@ -158,6 +159,8 @@ private:
 
   bool isCommuteUpwardsFavorable(DistributedRMSNormOp op,
                                  ReshapeOp reshapeUser) const override {
+    // Commute when all users are identical reshapes, so they may cancel
+    // with reshapes upstream via other commute patterns.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
@@ -178,8 +181,8 @@ template <CommuteDirection commuteDirection>
 void populateRMSNormCommutePatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns) {
   patterns.add<TTIRCommuteReshapeThroughRMSNorm<commuteDirection>>(ctx);
-  patterns
-      .add<TTIRCommuteReshapeThroughDistributedRMSNorm<commuteDirection>>(ctx);
+  patterns.add<TTIRCommuteReshapeThroughDistributedRMSNorm<commuteDirection>>(
+      ctx);
 }
 
 template void populateRMSNormCommutePatterns<CommuteDirection::UPWARDS>(

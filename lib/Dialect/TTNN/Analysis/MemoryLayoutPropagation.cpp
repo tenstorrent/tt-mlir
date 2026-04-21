@@ -1201,6 +1201,19 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   if (!currentLayout) {
     return nullptr;
   }
+  // If the op has a non-null memory_config attribute it was pinned by an
+  // earlier workaround / lowering pass that knows the exact layout the
+  // backend requires (e.g. the L1 width-sharded config the fused RMS-norm
+  // kernel needs). For ops without an OpModel we have no way to validate an
+  // alternative, and silently rewriting the output encoding to DRAM
+  // interleaved here would leave memory_config out of sync with the result
+  // type and fail TTNNMemoryConfigOpInterface verification. Preserve the
+  // current layout instead.
+  if (auto memConfigOp = mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op)) {
+    if (memConfigOp.getMemoryConfigAttr()) {
+      return currentLayout;
+    }
+  }
   return currentLayout.withBufferType(BufferType::DRAM)
       .withMemoryLayout(TensorMemoryLayout::Interleaved)
       .withTensorShape(tensorType.getShape());
