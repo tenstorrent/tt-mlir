@@ -180,11 +180,11 @@ module @test_sdpa_workaround attributes {} {
     %query: tensor<1x32x32x64xbf16>,
     %key: tensor<32x32x128x64xbf16>,
     %value: tensor<32x32x128x64xbf16>,
-    %mask: tensor<32x1x1x128xbf16>
+    %mask: tensor<1x32x1x128xbf16>
   ) -> tensor<1x32x32x64xbf16> {
     // CHECK-LABEL: func.func public @test_sdpa_decode_workaround_broadcast_mask_heads
 
-    // Mask should be broadcast from [32, 1, 1, 128] to [32, 1, 32, 128]
+    // Mask should be broadcast from [1, 32, 1, 128] to [1, 32, 32, 128]
     // CHECK: %[[BROADCAST_MASK:[0-9]+]] = "ttnn.repeat"(%arg3)
     // CHECK-SAME: repeat_dims = #ttnn.shape<1x1x32x1>
 
@@ -195,7 +195,7 @@ module @test_sdpa_workaround attributes {} {
       is_causal = false,
       scale = 0.125 : f32
     }> : (tensor<1x32x32x64xbf16>, tensor<32x32x128x64xbf16>,
-         tensor<32x32x128x64xbf16>, tensor<32x1x1x128xbf16>)
+         tensor<32x32x128x64xbf16>, tensor<1x32x1x128xbf16>)
       -> tensor<1x32x32x64xbf16>
     return %result : tensor<1x32x32x64xbf16>
   }
@@ -205,7 +205,7 @@ module @test_sdpa_workaround attributes {} {
     %query: tensor<1x32x32x64xbf16>,
     %key: tensor<32x32x128x64xbf16>,
     %value: tensor<32x32x128x64xbf16>,
-    %mask: tensor<32x1x32x128xbf16>
+    %mask: tensor<1x32x32x128xbf16>
   ) -> tensor<1x32x32x64xbf16> {
     // CHECK-LABEL: func.func public @test_sdpa_decode_no_workaround_mask_heads_match
 
@@ -218,7 +218,7 @@ module @test_sdpa_workaround attributes {} {
       is_causal = false,
       scale = 0.125 : f32
     }> : (tensor<1x32x32x64xbf16>, tensor<32x32x128x64xbf16>,
-         tensor<32x32x128x64xbf16>, tensor<32x1x32x128xbf16>)
+         tensor<32x32x128x64xbf16>, tensor<1x32x32x128xbf16>)
       -> tensor<1x32x32x64xbf16>
     return %result : tensor<1x32x32x64xbf16>
   }
