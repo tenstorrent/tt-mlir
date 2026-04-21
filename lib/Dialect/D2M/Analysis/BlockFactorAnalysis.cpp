@@ -9,6 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <functional>
 
@@ -89,15 +90,6 @@ classifyAutoSearch(GenericOp genericOp,
                    ArrayRef<int64_t> shardFactors) {
   if (genericOp.isDMAOnlyForm() || genericOp.isExplicitDatamovementForm() ||
       genericOp.getOutputs().size() != 1) {
-    return std::nullopt;
-  }
-
-  // Skip fused generics until repairParallelizedRegionTypes can retype
-  // intermediate allocs nested inside affine.for loops.
-  // TODO(anuragsingh): https://github.com/tenstorrent/tt-mlir/issues/7984
-  unsigned linalgCount = 0;
-  genericOp->walk([&](linalg::GenericOp) { ++linalgCount; });
-  if (linalgCount > 1) {
     return std::nullopt;
   }
 
@@ -235,7 +227,7 @@ static std::optional<CandidateScore> evaluateCandidate(
   const llvm::BitVector scaledDims =
       hasNonTrivialScale ? getBlockedDimMask(dimScales)
                          : getDimMask(dimScales.size(), candidateDims);
-  bool sawAffectedOperand = false;
+  bool sawAffectedBuffer = false;
   uint64_t totalCBBytes = 0;
 
   // Iterate over all operands and check if they are affected by the reblocked
@@ -246,7 +238,7 @@ static std::optional<CandidateScore> evaluateCandidate(
     if (!isIndexingMapBlocked(indexingMaps[operandIndex], scaledDims)) {
       continue;
     }
-    sawAffectedOperand = true;
+    sawAffectedBuffer = true;
 
     auto [operandGridShape, operandShardShape] = getOperandGridAndShardExtents(
         genericOp, operandIndex, candidateGridExtents, candidateShardExtents);
@@ -276,7 +268,40 @@ static std::optional<CandidateScore> evaluateCandidate(
     totalCBBytes += getCBBufferSizeBytes(bufferType, device);
   }
 
-  if (!sawAffectedOperand) {
+  // Walk over annotated allocs inside the region with similar checks.
+  WalkResult walkResult = genericOp->walk([&](memref::AllocOp allocOp) {
+    auto blockingMapAttr =
+        allocOp->getAttrOfType<mlir::AffineMapAttr>("d2m.blocking_map");
+    if (!blockingMapAttr ||
+        !isIndexingMapBlocked(blockingMapAttr.getValue(), scaledDims)) {
+      return WalkResult::advance();
+    }
+
+    sawAffectedBuffer = true;
+
+    const AffineMap canonicalMap =
+        canonicalizeBroadcasts(blockingMapAttr.getValue());
+    SmallVector<int64_t> intermediateGridShape =
+        canonicalMap.compose(candidateGridExtents);
+    SmallVector<int64_t> intermediateShardShape =
+        canonicalMap.compose(candidateShardExtents);
+
+    if (ttmlir::utils::volume<int64_t>(intermediateShardShape) < 4) {
+      return WalkResult::interrupt();
+    }
+
+    const MemRefType bufferType =
+        getCBBufferType(intermediateGridShape, intermediateShardShape,
+                        allocOp.getType().getElementType(), l1Attr, numBuffers);
+    totalCBBytes += getCBBufferSizeBytes(bufferType, device);
+    return WalkResult::advance();
+  });
+
+  if (walkResult.wasInterrupted()) {
+    return std::nullopt;
+  }
+
+  if (!sawAffectedBuffer) {
     return std::nullopt;
   }
 
