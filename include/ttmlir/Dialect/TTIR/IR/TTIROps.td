@@ -3121,6 +3121,39 @@ def TTIR_SortOp : TTIR_NamedOp<"sort"> {
   let hasVerifier = 1;
 }
 
+def TTIR_SamplingOp : TTIR_NamedOp<"sampling"> {
+  let summary = "Sampling operation.";
+  let description = [{
+    Performs fused top-k + top-p + multinomial sampling on pre-filtered
+    candidate logits. Takes the top-k values and their global vocab indices
+    (from a prior topk stage), per-request top-k, top-p, temperature
+    parameters, and an optional random seed. Returns one sampled global
+    token index per request.
+
+    Inputs:
+      - `input_values`: Pre-filtered candidate logit values [batch, candidates] bf16
+      - `input_indices`: Global vocab indices for each candidate [batch, candidates] int32
+      - `k`: Per-request top-k values [batch] uint32
+      - `p`: Per-request top-p values [batch] bf16
+      - `temp`: Per-request temperature values [batch] bf16
+      - `seed`: Optional random seed (uint32 scalar attribute)
+
+    Output:
+      - `result`: Sampled global token indices [batch] int32
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input_values,
+                       AnyRankedTensor:$input_indices,
+                       AnyRankedTensor:$k,
+                       AnyRankedTensor:$p,
+                       AnyRankedTensor:$temp,
+                       OptionalAttr<UI32Attr>:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
     let summary = "Tensor transpose operation.";
     let description = [{

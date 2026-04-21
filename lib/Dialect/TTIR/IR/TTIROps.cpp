@@ -5230,6 +5230,30 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::SamplingOp::verify() {
+  auto inputValuesType = getInputValues().getType();
+  auto inputIndicesType = getInputIndices().getType();
+
+  if (inputValuesType.getRank() < 2) {
+    return emitOpError("input_values must have at least 2 dimensions");
+  }
+
+  if (inputIndicesType.getRank() < 2) {
+    return emitOpError("input_indices must have at least 2 dimensions");
+  }
+
+  if (inputValuesType.getShape() != inputIndicesType.getShape()) {
+    return emitOpError(
+        "input_values and input_indices must have the same shape");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // FillCacheOp
 //===----------------------------------------------------------------------===//
 
