@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormReshapeToCanonicalShapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
@@ -618,6 +619,11 @@ public:
           workarounds::decomposition::
               AllToAllDispatchMetadataDrainCoreRewritePattern>(&getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
+          &getContext(), /*benefit=*/2);
+      // Run the reshape-to-canonical-shape workaround before the
+      // width-shard workaround so the latter sees a (1,1,32,M) input.
+      patterns.add<workarounds::decomposition::
+                       DistributedRMSNormReshapeToCanonicalShapeRewritePattern>(
           &getContext(), /*benefit=*/2);
       patterns
           .add<workarounds::decomposition::LinearOpOutputShapeRewritePattern>(

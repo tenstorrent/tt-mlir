@@ -5,6 +5,8 @@
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 64 + d1, d2 * 128 + d3), <1x1>, memref<64x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout_weight = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout_supported = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1 + d1, d2 * 128 + d3), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout_supported_rank3 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout_unsupported_leading = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2 + d1, d2 * 128 + d3), <1x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
 // Test: Non-(1,1,32,M) shape decomposes into primitive ops.
 module @test_distributed_rms_norm_decomposition attributes {} {
@@ -40,6 +42,34 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x1x32x128xbf16, #ttnn_layout_supported>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x1x32x128xbf16, #ttnn_layout_supported>
     return %1 : tensor<1x1x32x128xbf16, #ttnn_layout_supported>
+  }
+
+  func.func public @test_no_decompose_rank3_supported_shape(
+      %arg0: tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>,
+      %arg1: tensor<128xbf16, #ttnn_layout_weight>) -> tensor<1x32x128xbf16, #ttnn_layout_supported_rank3> {
+    // CHECK-LABEL: func.func public @test_no_decompose_rank3_supported_shape
+    // Rank-3 (1, 32, M) is reshapable to (1, 1, 32, M); the workaround
+    // pass (not this pass) handles it, so the op must survive here.
+    // CHECK: "ttnn.distributed_rms_norm"
+    // CHECK-NOT: "ttnn.rsqrt"
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>
+    return %1 : tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>
+  }
+
+  func.func public @test_decompose_unsupported_leading_dim(
+      %arg0: tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>,
+      %arg1: tensor<128xbf16, #ttnn_layout_weight>) -> tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading> {
+    // CHECK-LABEL: func.func public @test_decompose_unsupported_leading_dim
+    // Leading dim != 1 means the input cannot be reshaped to (1,1,32,M)
+    // without data movement, so the op must be decomposed here.
+    // CHECK: "ttnn.multiply"
+    // CHECK: "ttnn.mean"
+    // CHECK: "ttnn.all_gather"
+    // CHECK-NOT: "ttnn.distributed_rms_norm"
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>
+    return %1 : tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>
   }
 
   func.func public @test_decompose_with_residual(

@@ -89,12 +89,97 @@ private:
     return false;
   }
 };
+
+template <CommuteDirection commuteDirection>
+class TTIRCommuteReshapeThroughDistributedRMSNorm
+    : public TTIRCommuteOpRewritePattern<ReshapeOp, DistributedRMSNormOp,
+                                         commuteDirection> {
+public:
+  using TTIRCommuteOpRewritePattern<
+      ReshapeOp, DistributedRMSNormOp,
+      commuteDirection>::TTIRCommuteOpRewritePattern;
+
+  // Mirrors TTIRCommuteReshapeThroughRMSNorm, but for distributed_rms_norm.
+  // distributed_rms_norm normalizes along the last dim, so the same
+  // last-dim-preserving reshape constraint applies. A residual operand (if
+  // present) must already match the input shape per the op verifier, so we
+  // also reshape it alongside the input to keep shapes consistent.
+  void performCommuteUpwardsRewrite(DistributedRMSNormOp op,
+                                    ReshapeOp reshapeUser,
+                                    PatternRewriter &rewriter) const override {
+    auto inputType = cast<RankedTensorType>(op.getInput().getType());
+    auto outputReshapeType = cast<RankedTensorType>(reshapeUser.getType());
+
+    SmallVector<int32_t> newInputShape(outputReshapeType.getShape());
+    auto newInputType = RankedTensorType::get(outputReshapeType.getShape(),
+                                              inputType.getElementType(),
+                                              inputType.getEncoding());
+
+    auto newInputReshape =
+        rewriter.create<ReshapeOp>(op.getLoc(), newInputType, op.getInput(),
+                                   rewriter.getI32ArrayAttr(newInputShape));
+
+    Value newResidual = nullptr;
+    if (op.getResidual()) {
+      auto residualType =
+          cast<RankedTensorType>(op.getResidual().getType());
+      auto newResidualType = RankedTensorType::get(
+          outputReshapeType.getShape(), residualType.getElementType(),
+          residualType.getEncoding());
+      newResidual = rewriter.create<ReshapeOp>(
+          op.getLoc(), newResidualType, op.getResidual(),
+          rewriter.getI32ArrayAttr(newInputShape));
+    }
+
+    auto newRmsNorm = rewriter.create<DistributedRMSNormOp>(
+        op.getLoc(), outputReshapeType, newInputReshape, op.getWeight(),
+        newResidual, op.getClusterAxisAttr(), op.getEpsilonAttr());
+
+    SmallVector<Operation *> users(op->getUsers());
+    assert(llvm::all_of(users,
+                        [&](Operation *user) {
+                          return checkIdenticalTms(reshapeUser, user);
+                        }) &&
+           "isCommuteUpwardsViable/Favorable should have ensured all users "
+           "are identical TMs");
+
+    for (auto *user : users) {
+      rewriter.replaceOp(user, newRmsNorm);
+    }
+  }
+
+private:
+  bool isCommuteUpwardsViable(DistributedRMSNormOp op,
+                              ReshapeOp reshapeUser) const override {
+    // distributed_rms_norm normalizes along the last dim, so it must be
+    // preserved by the reshape.
+    return utils::preservesDim(reshapeUser, -1);
+  }
+
+  bool isCommuteUpwardsFavorable(DistributedRMSNormOp op,
+                                 ReshapeOp reshapeUser) const override {
+    SmallVector<Operation *> users(op->getUsers());
+    return !users.empty() && checkAllUsersAreIdenticalTms(users);
+  }
+
+  bool isCommuteDownwardsViable(DistributedRMSNormOp,
+                                ReshapeOp) const override {
+    return false;
+  }
+
+  bool isCommuteDownwardsFavorable(DistributedRMSNormOp,
+                                   ReshapeOp) const override {
+    return false;
+  }
+};
 } // namespace
 
 template <CommuteDirection commuteDirection>
 void populateRMSNormCommutePatterns(MLIRContext *ctx,
                                     RewritePatternSet &patterns) {
   patterns.add<TTIRCommuteReshapeThroughRMSNorm<commuteDirection>>(ctx);
+  patterns
+      .add<TTIRCommuteReshapeThroughDistributedRMSNorm<commuteDirection>>(ctx);
 }
 
 template void populateRMSNormCommutePatterns<CommuteDirection::UPWARDS>(
