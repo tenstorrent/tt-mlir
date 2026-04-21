@@ -10,12 +10,12 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 namespace {
 
-// Returns true if the op is eligible for the fused_rms_minimal kernel
-// after a shape-only reshape into (1, 1, 32, M):
+// Returns true if the op is eligible for the tt-metal fused_rms_minimal
+// kernel after a shape-only reshape into (1, 1, 32, M):
 //   - weight is present,
 //   - dim -2 is 32,
 //   - dim -1 is a multiple of 32,
-//   - all leading dims (i.e. everything before -2) are 1.
+//   - all leading dims (everything before dim -2) are 1.
 //
 // Must stay in sync with isSupportedByFusedKernel in
 // DistributedRMSNormDecompositionRewritePattern.cpp.
@@ -61,52 +61,50 @@ mlir::Value reshapeTo(PatternRewriter &rewriter, Location loc, mlir::Value v,
 
 LogicalResult
 DistributedRMSNormReshapeToCanonicalShapeRewritePattern::matchAndRewrite(
-    ttnn::DistributedRMSNormOp op, PatternRewriter &rewriter) const {
-  if (!isReshapableToCanonicalShape(op)) {
+    ttnn::DistributedRMSNormOp srcOp, PatternRewriter &rewriter) const {
+  if (!isReshapableToCanonicalShape(srcOp)) {
     return rewriter.notifyMatchFailure(
-        op, "input is not eligible for reshape to (1, 1, 32, M)");
+        srcOp, "input is not eligible for reshape to (1, 1, 32, M)");
   }
 
-  RankedTensorType inputType =
-      mlir::cast<RankedTensorType>(op.getInput().getType());
-  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> inputShape =
+      mlir::cast<RankedTensorType>(srcOp.getInput().getType()).getShape();
   if (isAlreadyCanonicalShape(inputShape)) {
-    return rewriter.notifyMatchFailure(op,
-                                       "input is already (1, 1, 32, M)");
+    return rewriter.notifyMatchFailure(srcOp, "input is already (1, 1, 32, M)");
   }
 
-  Location loc = op.getLoc();
+  Location loc = srcOp.getLoc();
   SmallVector<int64_t> canonicalShape = {1, 1, 32, inputShape.back()};
 
   mlir::Value reshapedInput =
-      reshapeTo(rewriter, loc, op.getInput(), canonicalShape);
+      reshapeTo(rewriter, loc, srcOp.getInput(), canonicalShape);
 
-  mlir::Value reshapedResidual = op.getResidual();
+  mlir::Value reshapedResidual = srcOp.getResidual();
   if (reshapedResidual) {
     reshapedResidual =
         reshapeTo(rewriter, loc, reshapedResidual, canonicalShape);
   }
 
   RankedTensorType originalResultType =
-      mlir::cast<RankedTensorType>(op.getResult().getType());
-  RankedTensorType canonicalResultType =
-      utils::RankedTensorTypeFactory::create(originalResultType,
-                                             canonicalShape);
+      mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+  RankedTensorType canonicalResultType = utils::RankedTensorTypeFactory::create(
+      originalResultType, canonicalShape);
 
-  // Stats is a scratch tensor created by the WidthShard workaround; it is
-  // not present yet at this stage, so we forward whatever is currently set
-  // (typically nullptr) and let later workarounds populate it.
+  // The stats scratch tensor is created later by
+  // DistributedRMSNormWidthShardInputRewritePattern, so it is typically
+  // null here; forward whatever the source op currently has.
   auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
-      loc, canonicalResultType, reshapedInput, op.getWeight(),
-      reshapedResidual, op.getStats(), op.getDevice(), op.getClusterAxis(),
-      op.getEpsilon(), op.getSubDeviceIdAttr(), op.getMemoryConfigAttr(),
-      op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
-      op.getProgramConfigAttr());
+      loc, canonicalResultType, reshapedInput, srcOp.getWeight(),
+      reshapedResidual, srcOp.getStats(), srcOp.getDevice(),
+      srcOp.getClusterAxis(), srcOp.getEpsilon(), srcOp.getSubDeviceIdAttr(),
+      srcOp.getMemoryConfigAttr(), srcOp.getNumLinksAttr(),
+      srcOp.getTopologyAttr(), srcOp.getComputeConfigAttr(),
+      srcOp.getProgramConfigAttr());
 
-  mlir::Value reshapedResult = reshapeTo(
-      rewriter, loc, newOp.getResult(), originalResultType.getShape());
+  mlir::Value reshapedResult = reshapeTo(rewriter, loc, newOp.getResult(),
+                                         originalResultType.getShape());
 
-  rewriter.replaceOp(op, reshapedResult);
+  rewriter.replaceOp(srcOp, reshapedResult);
   return success();
 }
 
