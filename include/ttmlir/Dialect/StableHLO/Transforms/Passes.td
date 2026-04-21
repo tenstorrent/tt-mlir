@@ -297,6 +297,32 @@ def DecomposeCustomCallTuplesPass : Pass<"decompose-custom-call-tuples", "::mlir
   ];
 }
 
+def RewriteCompositeDecompFunctionsPass : Pass<"rewrite-composite-decomp-functions", "::mlir::ModuleOp"> {
+  let summary = "Rewrite bodies of decomposition functions referenced by targeted stablehlo.composite ops.";
+  let description = [{
+    For each `stablehlo.composite` op whose name is present in an internal
+    registry (composite name -> rewriter function), resolves the composite's
+    `decomposition` SymbolRefAttr to a `func::FuncOp` and invokes the
+    registered rewriter on that function. The rewriter replaces the
+    function's body while preserving its name, input types, and output
+    types.
+
+    The registry currently has one entry ("tenstorrent.gather"). Adding a
+    new composite requires one new rewriter function and one new map entry.
+
+    Multiple composites may reference the same decomposition function; each
+    unique target is rewritten exactly once.
+
+    Must run after `decompose-custom-call-tuples` and before
+    `flatten-or-convert-composites`, so the new body is what gets inlined.
+  }];
+
+  let dependentDialects = [
+    "::mlir::func::FuncDialect",
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def FlattenOrConvertCompositesPass : Pass<"flatten-or-convert-composites", "::mlir::ModuleOp"> {
   let summary = "Flatten or convert stablehlo.composite ops depending on whether they have custom sharding rules.";
   let description = [{
