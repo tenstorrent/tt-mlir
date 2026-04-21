@@ -366,7 +366,9 @@ static void setInsertionPointToFuncStart(OpBuilder &rewriter,
   if (firstLoop) {
     rewriter.setInsertionPoint(firstLoop);
   } else {
-    rewriter.setInsertionPointToEnd(&entry);
+    // Keep insertion before the block terminator (func.return). Using
+    // setInsertionPointToEnd can place new ops after return in loopless kernels.
+    rewriter.setInsertionPoint(entry.getTerminator());
   }
 }
 
@@ -804,13 +806,13 @@ public:
       if (auto func = op->template getParentOfType<func::FuncOp>();
           !hasMatmulInit(func)) {
         setInsertionPointToFuncStart(rewriter, func);
-        auto transpose = i32(rewriter, op->getLoc(), 0);
+        auto transposeInit = i32(rewriter, op->getLoc(), 0);
         rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
-                                                transpose);
+                                                transposeInit);
       }
 
-      auto transpose = i32(rewriter, op->getLoc(), 0);
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      auto transpose = i32(rewriter, op->getLoc(), 0);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
