@@ -262,7 +262,7 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
           llvm::SmallVector<int64_t> inputPhysShape =
               utils::computePhysicalShape(viewLayout.getInput(), targetGrid,
                                           ttnnMode);
-          info.behindViewToLayoutGrid =
+          info.viewSourceGrid =
               utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
         }
       }

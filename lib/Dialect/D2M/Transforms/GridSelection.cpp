@@ -302,7 +302,7 @@ static void applyBehindViewToLayoutUpdate(const OperandGridInfo &info,
   auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
   auto toLayoutOp = view.getInput().getDefiningOp<d2m::ToLayoutOp>();
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGrid,
-                       ttnnMode, info.behindViewToLayoutGrid, builder);
+                       ttnnMode, info.viewSourceGrid, builder);
 }
 
 static void applyTTNNTensorUpdate(const OperandGridInfo &info,
@@ -679,7 +679,7 @@ static void applyGridDecisions(d2m::GenericOp genericOp,
     case Kind::Skip:
       break;
     }
-    if (!info.behindViewToLayoutGrid.empty()) {
+    if (!info.viewSourceGrid.empty()) {
       applyBehindViewToLayoutUpdate(info, effectiveTargetGrid, ttnnMode,
                                     builder);
     }

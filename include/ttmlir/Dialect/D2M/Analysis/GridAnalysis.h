@@ -25,8 +25,9 @@ struct OperandGridInfo {
   llvm::SmallVector<int64_t> targetGrid;
 
   // Set only when the operand is a ViewLayoutOp whose input is a ToLayoutOp
-  // that should have its grid optimized independently; empty otherwise.
-  llvm::SmallVector<int64_t> behindViewToLayoutGrid;
+  // that should have its grid optimized independently. Carries the optimal
+  // grid for that upstream ToLayoutOp's own tensor shape. Empty otherwise.
+  llvm::SmallVector<int64_t> viewSourceGrid;
 };
 
 /// Per-GenericOp analysis result containing all grid decisions.
