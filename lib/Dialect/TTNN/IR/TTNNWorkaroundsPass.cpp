@@ -467,6 +467,27 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 }
 
 TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds(
+    Operation *op) {
+  // input_values: bf16 TILE (no workaround needed)
+  // input_indices: int32 ROW_MAJOR
+  // k: uint32 ROW_MAJOR
+  // p: bf16 ROW_MAJOR
+  // temp: bf16 ROW_MAJOR
+  TTNNOperandWorkarounds empty;
+  TTNNOperandWorkarounds rowMajor;
+  rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(empty)    // input_values
+      .addInputOperandWorkaround(rowMajor) // input_indices
+      .addInputOperandWorkaround(rowMajor) // k
+      .addInputOperandWorkaround(rowMajor) // p
+      .addInputOperandWorkaround(rowMajor) // temp
+      .addOutputOperandWorkaround(empty);  // result
+}
+
+TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(
     Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;
