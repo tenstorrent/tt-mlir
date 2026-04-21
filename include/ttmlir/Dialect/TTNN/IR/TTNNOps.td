@@ -23,7 +23,7 @@ include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
 include "mlir/IR/CommonAttrConstraints.td"
 
-def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait]> {
+def TTNN_GetDeviceOp : TTNN_Op<"get_device", [TTCore_DuplicateConstEvalTrait, OpModelExempt]> {
     let summary = "Get Device op.";
     let description = [{
       This op returns a submesh carved out from the parent runtime device.
@@ -122,7 +122,7 @@ def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
+def TTNN_ToDeviceOp : TTNN_Op<"to_device", [OpModelExempt]> {
     let summary = "ToDevice op.";
     let description = [{
       This op sends the input tensor to the given device with the given memory config.
@@ -134,7 +134,7 @@ def TTNN_ToDeviceOp : TTNN_Op<"to_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
+def TTNN_FromDeviceOp : TTNN_Op<"from_device", [OpModelExempt]> {
     let summary = "FromDevice op.";
     let description = [{
       This op retrieves the input tensor from the given device.
@@ -1581,7 +1581,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
+def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul", [OpModelExempt]> {
     let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{
       The `sparse_matmul` operation performs batched matrix multiplication where
@@ -1632,7 +1632,7 @@ def TTNN_SparseMatmulOp : TTNN_Op<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
+def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch", [OpModelExempt]> {
     let summary = "Dispatch tokens to expert devices for MoE computation.";
     let description = [{
       Routes tokens to devices holding their selected experts via all-to-all
@@ -1657,7 +1657,7 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [OpModelExempt]> {
     let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
     let description = [{
       Routes tokens along with expert scores to devices holding their selected
@@ -1704,7 +1704,7 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
+def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine", [OpModelExempt]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
       Inverse of dispatch: gathers expert computation results from expert devices
@@ -1731,7 +1731,7 @@ def TTNN_AllToAllCombineOp : TTNN_Op<"all_to_all_combine"> {
     let hasVerifier = 1;
 }
 
-def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine"> {
+def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine", [OpModelExempt]> {
     let summary = "Reduce and combine phase of the MoE pipeline.";
     let description = [{
       Takes dense blocks of expert-computed tokens from the MoE compute kernel,
@@ -1754,7 +1754,7 @@ def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine"> {
     let hasVerifier = 1;
 }
 
-def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap"> {
+def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap", [OpModelExempt]> {
     let summary = "Remap global expert routing to local device experts with sparsity.";
     let description = [{
       Converts global expert routing scores to local per-device expert mapping
@@ -2386,7 +2386,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
 }
 
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
-    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
+    [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";
     let description = [{
       Fused distributed RMS normalization operation across mesh devices.
@@ -2509,7 +2509,7 @@ def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
 }
 
 def TTNN_DistributedLayerNormOp : TTNN_Op<"distributed_layer_norm",
-    [AttrSizedOperandSegments]> {
+    [AttrSizedOperandSegments, OpModelExempt]> {
     let summary = "Distributed layer normalization with all-gather op.";
     let description = [{
       Intermediate TTNN op for distributed layer normalization across mesh devices.
@@ -2973,7 +2973,7 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
     let hasVerifier = 1;
 }
 
-def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait]> {
+def TTNN_AllocOp : TTNN_Op<"alloc", [TTCore_CreationOpTrait, OpModelExempt]> {
     let summary = "Alloc op.";
     let description = [{
       Tensor Alloc operation
@@ -3055,7 +3055,7 @@ def TTNN_GatherOp : TTNN_Op<"gather", [TTNN_MemoryConfigOpInterface]> {
     }];
 }
 
-def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface, OpModelExempt]> {
     let summary = "All gather op.";
     let description = [{
         Tensor All Gather operation
@@ -3078,7 +3078,7 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
     [TTNN_MemoryConfigOpInterface,
-     TTNN_ComputeKernelConfigOpInterface]> {
+     TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
@@ -3101,7 +3101,7 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface, OpModelExempt]> {
     let summary = "All reduce op.";
     let description = [{
         Tensor All Reduce operation
@@ -3122,7 +3122,7 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInterface, OpModelExempt]> {
     let summary = "Asynchronous all reduce op.";
     let description = [{
         Asynchronous all-reduce collective communication operation. Performs a
@@ -3144,7 +3144,7 @@ def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [TTNN_MemoryConfigOpInter
     let hasVerifier = 1;
 }
 
-def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
+def TTNN_MeshShardOp: TTNN_Op<"mesh_shard", [OpModelExempt]> {
     let summary = "Mesh shard op.";
     let description = [{
         Tensor Mesh Shard operation
@@ -3372,7 +3372,7 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
+def TTNN_PointToPointOp: TTNN_Op<"point_to_point", [OpModelExempt]> {
   let summary = "Point To Point operation.";
   let description = [{
     Performs point-to-point communication by copying a tensor shard from one device to another
@@ -3394,7 +3394,7 @@ def TTNN_PointToPointOp: TTNN_Op<"point_to_point"> {
   let hasVerifier = 1;
 }
 
-def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor"> {
+def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor", [OpModelExempt]> {
   let summary = "Write tensor op.";
   let description = [{
     Copies host_tensor data into device_tensor through cq_id.
@@ -3414,7 +3414,7 @@ def TTNN_WriteTensorOp : TTNN_InplaceOp<"write_tensor"> {
   let hasVerifier = 1;
 }
 
-def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
+def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture", [OpModelExempt]> {
   let summary = "Begin trace capture.";
   let description = [{
     Begins trace capture. Returns a scalar tensor containing the trace id.
@@ -3433,7 +3433,7 @@ def TTNN_BeginTraceCaptureOp : TTNN_MemoryEffectOp<"begin_trace_capture"> {
   let hasVerifier = 1;
 }
 
-def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
+def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture", [OpModelExempt]> {
   let summary = "End trace capture.";
   let description = [{
     Ends trace capture for the given trace id. Consumes a scalar tensor containing the trace id.
@@ -3453,7 +3453,7 @@ def TTNN_EndTraceCaptureOp : TTNN_MemoryEffectOp<"end_trace_capture"> {
   let hasVerifier = 1;
 }
 
-def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace"> {
+def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace", [OpModelExempt]> {
   let summary = "Execute trace.";
   let description = [{
     Executes the captured trace. Consumes a scalar tensor containing the trace id.
@@ -3474,7 +3474,7 @@ def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace"> {
   let hasVerifier = 1;
 }
 
-def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace"> {
+def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace", [OpModelExempt]> {
   let summary = "Capture or execute trace.";
   let description = [{
     Captures or executes the trace. Will have read/write memory effects on the cached trace data.
@@ -3500,7 +3500,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let hasVerifier = 1;
 }
 
-def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait]> {
+def TTNN_GenericOp : TTNN_Op<"generic", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, MemoryEffects<[MemRead, MemWrite]>, TTCore_NonCacheableTrait, OpModelExempt]> {
     let summary = "Generic operation.";
     let description = [{
       Generic operation capable of running a program with custom kernels. Each kernel is described with a
@@ -3662,7 +3662,7 @@ def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads", [TTNN_MemoryConfigOpInte
   let hasVerifier = 1;
 }
 
-def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor"> {
+def TTNN_DumpTensorOp : TTNN_InplaceOp<"dump_tensor", [OpModelExempt]> {
   let summary = "Saves a tensor to disk in the TTNN binary format";
   let description = [{
     Saves a tensor to disk in the TTNN binary format. Files must use the `.tensorbin` extension.
@@ -3702,7 +3702,7 @@ def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode", [TTNN_Mem
   let hasVerifier = 1;
 }
 
-def TTNN_LoadTensorOp : TTNN_Op<"load_tensor"> {
+def TTNN_LoadTensorOp : TTNN_Op<"load_tensor", [OpModelExempt]> {
   let summary = "Loads a tensor from disk";
   let description = [{
     Loads a tensor from disk, optionally placing it directly on a device.
@@ -3942,7 +3942,7 @@ def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface, TTNN_DtypeO
     let hasVerifier = 1;
 }
 
-def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor"> {
+def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor", [OpModelExempt]> {
   let summary = "Distribute tensor across mesh devices";
   let description = [{
     Distributes a host-side tensor across multiple devices in a mesh
@@ -3978,7 +3978,7 @@ def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor"> {
   let results = (outs AnyRankedTensor:$result); // Distributed tensor
 }
 
-def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor"> {
+def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor", [OpModelExempt]> {
   let summary = "Aggregate distributed tensor back to host";
   let description = [{
     Aggregates a multi-device tensor back into a single host-side tensor
@@ -4078,7 +4078,7 @@ def TTNN_TopKRouterGptOp : TTNN_Op<"topk_router_gpt"> {
   let hasVerifier = 1;
 }
 
-def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
+def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [OpModelExempt]> {
     let summary = "Create global semaphore op.";
     let description = [{
       Creates a global semaphore with the specified core range and initial value.
@@ -4108,7 +4108,7 @@ def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore"> {
     let results = (outs TTNN_GlobalSemaphore:$result);
 }
 
-def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore"> {
+def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExempt]> {
     let summary = "Reset global semaphore op.";
     let description = [{
       Resets a global semaphore to the specified value.

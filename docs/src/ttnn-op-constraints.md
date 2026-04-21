@@ -147,9 +147,17 @@ llvm::Expected<OpConstraints>
 OpModel<YourOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid,
     // operation-specific parameters
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout) {
   #ifdef TTMLIR_ENABLE_OPMODEL
-  // 1. Perform necessary conversions, create Tensor objects, etc.
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // 1. Convert inputs to TensorSpecs using ASSIGN_OR_RETURN.
+  //    This macro unwraps llvm::Expected and returns the error
+  //    on failure, avoiding repetitive error-checking boilerplate.
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // 2. Create query closure
   // Here the ultimate goal is to enable the optimizer to call the
@@ -165,12 +173,13 @@ OpModel<YourOp>::getOpConstraints(
   //      inputs are expected to match the invoke function of the
   //      op in metal.
   auto yourOpQuery = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::yourOp, device, /* other converted parameters */);
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::yourOp, device, inputSpec,
+        /* other converted parameters */);
   };
 
   // 3. Call getOpConstraints and pass the callable.
-  return operation::getOpConstraints(getContext(), deviceGrid,
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
                                      yourOpQuery);
 #else
   return OpConstraints{};
@@ -180,13 +189,19 @@ OpModel<YourOp>::getOpConstraints(
 llvm::Expected<size_t>
 OpModel<YourOp>::getOpRuntime(
     // operation-specific parameters
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // Similar to the previous function.
-  // Create query closure
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
   auto yourOpQuery = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::yourOp, device, /* other converted parameters */);
+    return QUERY_OP_RUNTIME(
+        ::ttnn::yourOp, device, inputSpec,
+        /* other converted parameters */);
   };
 
   return operation::getOpRuntime(yourOpQuery);
@@ -326,45 +341,36 @@ INSTANTIATE_TEST_SUITE_P(
 
 ## Key Considerations
 
-### Error handling: Operations Not Supported
-For operations that cannot support these APIs, use the provided error helpers in `TTNNOpModelInterface.cpp`.
-We're keeping track of such ops in [this issue](https://github.com/tenstorrent/tt-mlir/issues/4392).
-So please either update the issue or add comments to it.
+### Operations Not Supported by OpModel
 
-```cpp
-llvm::Expected<op_model::OpConstraints>
-YourOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                         const OpConfig &opConfig) {
-  return detail::issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::/*..*/);
-}
+If an operation does not need OpModel support (e.g., it has no metal backend
+implementation, requires multi-device support, or simply doesn't benefit from
+constraint analysis), mark it with the `OpModelExempt` trait in its TableGen
+definition:
 
-llvm::Expected<size_t>
-YourOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                     const OpConfig &opConfig) {
-  return detail::issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::/*..*/);
+```tablegen
+def TTNN_YourOp : TTNN_Op<"your_op", [OpModelExempt]> {
+  // ...
 }
 ```
 
-Available error reasons:
-- `NeedsMemoryIO`: Operation requires memory I/O during trace capture
-- `MissingMetalDefinition`: Metal backend implementation is missing
-- `NeedsMultiDevice`: Operation requires multi-device support
-- `NoNeedForConstraintAPI`: Operation doesn't benefit from constraint analysis
-- `ArchitecturalMismatch`: Mismatch in Operation's definition in metal and mlir
+The `OpModelExempt` trait prevents the base op class from adding
+`DeclareOpInterfaceMethods<TTNN_OpModelInterface>`, so no stub
+implementation in `TTNNOpModelInterface.cpp` is needed.
+
+We're keeping track of ops that lack OpModel support in
+[this issue](https://github.com/tenstorrent/tt-mlir/issues/4392).
+Please either update the issue or add comments to it when exempting an op.
 
 ### Device Grid Validation
 
-Validate the device worker grid before proceeding:
+Validate the device worker grid before proceeding using the
+`ASSIGN_OR_RETURN` macro (defined in `ttmlir/OpModel/TTNN/TTNNOpModel.h`)
+combined with `detail::getValidatedDeviceGrid`:
 
 ```cpp
-llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-if (!check) {
-  return check.takeError();
-}
-ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
+    detail::getValidatedDeviceGrid(op.getOperation()));
 ```
 
 ### Caching

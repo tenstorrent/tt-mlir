@@ -703,11 +703,19 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
         llvm::to_vector(kToDecodePermutation), rewriter,
         c.attentionMatmul.getLoc());
 
+    Value permutedMask = c.mask;
+    if (permutedMask) {
+      permutedMask = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<RankedTensorType>>(permutedMask),
+          llvm::to_vector(kToDecodePermutation), rewriter,
+          c.attentionMatmul.getLoc());
+    }
+
     auto validationResult =
         validator.validateFusion<ScaledDotProductAttentionDecodeOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
             {permutedQuery.getType()}, permutedQuery, c.key, c.value,
-            /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
+            /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
             /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
             /*memory_config=*/MemoryConfigAttr(),
             /*program_config=*/SDPAProgramConfigAttr());
@@ -722,7 +730,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
         c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
         c.key, c.value,
-        /*is_causal=*/rewriter.getBoolAttr(false), c.mask,
+        /*is_causal=*/rewriter.getBoolAttr(false), permutedMask,
         /*cur_pos_tensor=*/Value(), c.attentionSink, scaleAttr,
         /*memory_config=*/MemoryConfigAttr(),
         /*program_config=*/SDPAProgramConfigAttr());
