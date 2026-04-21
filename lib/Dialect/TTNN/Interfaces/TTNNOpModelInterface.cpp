@@ -3635,6 +3635,42 @@ PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       batchIdxShape, batchIdxLayout, opConfig.outputLayout);
 }
 //===----------------------------------------------------------------------===//
+// SamplingOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+SamplingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 5);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::SamplingOp>::getOpConstraints, *this,
+      deviceGrid, getInputValues().getType().getShape(), inputs[0],
+      getInputIndices().getType().getShape(), inputs[1],
+      getK().getType().getShape(), inputs[2], getP().getType().getShape(),
+      inputs[3], getTemp().getType().getShape(), inputs[4], getSeed(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SamplingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 5);
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::SamplingOp>::getOpRuntime, *this,
+      getInputValues().getType().getShape(), inputs[0],
+      getInputIndices().getType().getShape(), inputs[1],
+      getK().getType().getShape(), inputs[2], getP().getType().getShape(),
+      inputs[3], getTemp().getType().getShape(), inputs[4], getSeed(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // WriteTensorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
