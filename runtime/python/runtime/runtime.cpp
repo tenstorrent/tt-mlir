@@ -480,15 +480,15 @@ void registerRuntimeBindings(nb::module_ &m) {
          std::optional<uint8_t> cqId) { ::tt::runtime::wait(tensors, cqId); },
       nb::arg("tensors"), nb::arg("cq_id") = nb::none());
   m.def(
-      "get_op_output_tensor",
+      "get_op_output_tensors",
       [](tt::runtime::OpContext &opContextHandle,
          tt::runtime::CallbackContext &programContextHandle) {
-        return tt::runtime::getOpOutputTensor(opContextHandle,
+        return tt::runtime::getOpOutputTensors(opContextHandle,
                                               programContextHandle);
       },
       "Get the output tensor of the op");
   m.def(
-      "get_op_output_ref",
+      "get_op_output_refs",
       [](tt::runtime::OpContext &op_context_handle,
          tt::runtime::CallbackContext &program_context_handle) {
         return tt::runtime::getOpOutputRef(op_context_handle,
@@ -496,7 +496,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       },
       nb::arg("op_context_handle"), nb::arg("program_context_handle"),
       R"(
-    Return a reference to the *output* tensor produced by an operator.
+    Return references to the output tensor(s) produced by an operator.
 
     Parameters
     ----------
@@ -505,9 +505,11 @@ void registerRuntimeBindings(nb::module_ &m) {
 
     Returns
     -------
-    Optional[tt.runtime.TensorRef]
-        A reference that uniquely identifies the output tensor, or ``None`` if the
-        operator has no outputs.
+    List[tt.runtime.TensorRef]
+        References that uniquely identify the output tensor(s). Empty list if
+        the operator has no outputs (e.g. DeallocateOp). Single-output ops
+        return a list of length 1. Multi-output ops (e.g. SortOp) return a
+        list of length N.
     )");
 
   m.def(
@@ -550,7 +552,7 @@ void registerRuntimeBindings(nb::module_ &m) {
     ----------
     program_context_handle : ttrt.runtime.CallbackContext
     tensor_ref : ttrt.runtime.TensorRef
-        Reference to the tensor of interest (from get_op_output_ref/get_op_input_refs).
+        Reference to the tensor of interest (from get_op_output_refs/get_op_input_refs).
     untilize : bool, default ``True``
         If the tensor is stored in a tilized format, de-tilize it before returning. If the untilize flag is ``False``, tensor will be with padding so shape will be different from the original shape
 

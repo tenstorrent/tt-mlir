@@ -238,14 +238,14 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 std::unordered_map<std::uint32_t, Tensor>
-getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle);
+getOpOutputTensors(OpContext opContextHandle,
+                   CallbackContext programContextHandle);
 
-// Returns the reference to the output tensor of the current operation.
-// In case that operation does not have an output tensor, returns nullopt
-// instead.
-std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
-                                        CallbackContext programContextHandle);
+// Returns references to the output tensor(s) of the current operation.
+// Single-output ops return a vector of size 1. Multi-output ops return a
+// vector of size N. No-output ops (e.g. DeallocateOp) return an empty vector.
+std::vector<TensorRef> getOpOutputRefs(OpContext opContextHandle,
+                                      CallbackContext programContextHandle);
 
 // Returns the vector of references to the input tensors of the current
 // operation

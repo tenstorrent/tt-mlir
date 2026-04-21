@@ -58,11 +58,10 @@ def postop(binary, programContext, opContext):
     if "ttnn.linear" not in debug_op_str:
         return
 
-    tensor_ref: ttrt.runtime.TensorRef = ttrt.runtime.get_op_output_ref(
-        opContext, programContext
-    )
-    if tensor_ref is None:
+    output_refs = ttrt.runtime.get_op_output_refs(opContext, programContext)
+    if not output_refs:
         return
+    tensor_ref: ttrt.runtime.TensorRef = output_refs[0]
 
     tensor: ttrt.runtime.Tensor = ttrt.runtime.retrieve_tensor_from_pool(
         programContext, tensor_ref

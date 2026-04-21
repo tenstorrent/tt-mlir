@@ -1051,42 +1051,42 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::unordered_map<std::uint32_t, Tensor>
-getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+getOpOutputTensors(OpContext opContextHandle,
+                   CallbackContext programContextHandle) {
   using RetType = std::unordered_map<std::uint32_t, Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getOpOutputTensor(opContextHandle,
-                                                      programContextHandle);
+        return ::tt::runtime::ttnn::getOpOutputTensors(opContextHandle,
+                                                       programContextHandle);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getOpOutputTensor(opContextHandle,
-                                                         programContextHandle);
+        return ::tt::runtime::ttmetal::getOpOutputTensors(opContextHandle,
+                                                          programContextHandle);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getOpOutputTensor",
+        detail::fatalNotImplemented("getOpOutputTensors",
                                     HostRuntime::Distributed);
       });
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
+std::vector<tt::runtime::TensorRef>
+getOpOutputRefs(OpContext opContextHandle,
                CallbackContext programContextHandle) {
 
-  using RetType = std::optional<tt::runtime::TensorRef>;
+  using RetType = std::vector<tt::runtime::TensorRef>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
+        return ::tt::runtime::ttnn::getOpOutputRefs(opContextHandle,
                                                    programContextHandle);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
+        return ::tt::runtime::ttmetal::getOpOutputRefs(opContextHandle,
                                                       programContextHandle);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getOpOutputRef", HostRuntime::Distributed);
+        detail::fatalNotImplemented("getOpOutputRefs", HostRuntime::Distributed);
       });
 }
 

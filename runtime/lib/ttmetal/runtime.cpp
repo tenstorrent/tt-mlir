@@ -732,19 +732,19 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::unordered_map<std::uint32_t, Tensor>
-getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+getOpOutputTensors(OpContext opContextHandle,
+                   CallbackContext programContextHandle) {
   // Not implemented
   LOG_WARNING("obtaining op output tensor for metal runtime not implemented");
   return {};
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
+std::vector<tt::runtime::TensorRef>
+getOpOutputRefs(OpContext opContextHandle,
                CallbackContext programContextHandle) {
   // Not implemented
   LOG_FATAL("Obtaining op output ref for metal runtime is not implemented");
-  return std::nullopt;
+  return {};
 }
 
 std::vector<tt::runtime::TensorRef>

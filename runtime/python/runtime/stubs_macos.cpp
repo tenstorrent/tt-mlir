@@ -224,13 +224,13 @@ std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
   __builtin_trap();
 }
 std::string getOpLocInfo(OpContext opContextHandle) { __builtin_trap(); }
-std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
-                                        CallbackContext programContextHandle) {
+std::vector<TensorRef> getOpOutputRefs(OpContext opContextHandle,
+                                      CallbackContext programContextHandle) {
   __builtin_trap();
 }
 std::unordered_map<std::uint32_t, Tensor>
-getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+getOpOutputTensors(OpContext opContextHandle,
+                   CallbackContext programContextHandle) {
   __builtin_trap();
 }
 size_t getProgramIndex(CallbackContext programContextHandle) { __builtin_trap(); }
