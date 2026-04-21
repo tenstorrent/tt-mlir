@@ -27,6 +27,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -1618,6 +1619,75 @@ public:
     return success();
   }
 };
+
+// Lower `d2m.tile_rand` to `ttkernel.rand_tile_init(seed)` + `rand_tile`.
+// `from`/`scale` are the uint32 bit patterns of the f32 attributes (see
+// tt_metal/hw/inc/api/compute/eltwise_unary/rand.h). Mirrors ttnn::rand's
+// per-core seed perturbation at runtime via my_logical_{x,y}_, hoisted above
+// the tile loop so each core's PRNG advances across tiles.
+class D2MTileRandRewriter : public OpConversionPattern<d2m::TileRandOp> {
+public:
+  using OpConversionPattern<d2m::TileRandOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileRandOp op, d2m::TileRandOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+    ensureDominatesInsertionPoint(rewriter, dstIdx);
+
+    Location loc = op->getLoc();
+    Value outCB = getOutCB(rewriter, op);
+    auto insertionPoint = rewriter.getInsertionPoint();
+
+    // Hoist HW startup and rand_tile_init above the tile loop.
+    setInsertionPointAfterOperands(rewriter, {outCB}, /*allowHoisting*/ true);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, outCB, nullptr,
+                                                        outCB);
+
+    // LLK takes uint32 seed / uint32 bit-cast of f32 from/scale; materialize
+    // as i32 constants carrying the raw 32-bit pattern.
+    auto i32Ty = rewriter.getI32Type();
+    auto i32FromBits = [&](llvm::APInt bits) -> Value {
+      assert(bits.getBitWidth() == 32);
+      return rewriter
+          .create<arith::ConstantOp>(loc, i32Ty,
+                                     rewriter.getIntegerAttr(i32Ty, bits))
+          .getResult();
+    };
+
+    // Per-core seed perturbation (mirrors ttnn::rand): mix the core's
+    // logical coords into the user seed so each core gets a distinct stream,
+    // even when seed=0.
+    //   effective_seed = user_seed ^ (x * kPrimeX) ^ (y * kPrimeY)
+    // where x, y are `my_logical_{x,y}` and kPrime* are distinct odd 32-bit
+    // hash primes (kPrimeX = phi * 2^32) used to spread small, structured
+    // coordinates across the full 32-bit range before XOR-folding.
+    constexpr uint32_t kPrimeX = 0x9E3779B1u;
+    constexpr uint32_t kPrimeY = 0x85EBCA77u;
+    Value userSeed = i32FromBits(llvm::APInt(32, op.getSeed()));
+    Value primeX = i32FromBits(llvm::APInt(32, kPrimeX));
+    Value primeY = i32FromBits(llvm::APInt(32, kPrimeY));
+    Value logicalX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    Value logicalY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value xI32 = rewriter.create<arith::IndexCastOp>(loc, i32Ty, logicalX);
+    Value yI32 = rewriter.create<arith::IndexCastOp>(loc, i32Ty, logicalY);
+    Value mulX = rewriter.create<arith::MulIOp>(loc, xI32, primeX);
+    Value mulY = rewriter.create<arith::MulIOp>(loc, yI32, primeY);
+    Value seedWithX = rewriter.create<arith::XOrIOp>(loc, userSeed, mulX);
+    Value effSeed = rewriter.create<arith::XOrIOp>(loc, seedWithX, mulY);
+    rewriter.create<ttkernel::RandTileInitOp>(loc, effSeed);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    Value fromVal = i32FromBits(op.getFrom().bitcastToAPInt());
+    Value scaleVal = i32FromBits(op.getScale().bitcastToAPInt());
+
+    rewriter.create<ttkernel::RandTileOp>(loc, dstIdx, fromVal, scaleVal);
+
+    rewriter.replaceOp(op, dstIdx);
+    return success();
+  }
+};
+
 class D2MExperimentalFillArangeTileRewriter
     : public OpConversionPattern<d2m::FillArangeTileOp> {
 public:
@@ -2695,6 +2765,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalPackUntilizeBlockOp>,
                ttkernel::D2MTileFillRewriter,
+               ttkernel::D2MTileRandRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,

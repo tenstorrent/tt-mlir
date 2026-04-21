@@ -2412,6 +2412,40 @@ def TTKernel_FillTileIntOp : TTKernel_SFPUOp<"fill_tile_int", [TTKernel_UnaryOpT
     }];
 }
 
+def TTKernel_RandTileInitOp : TTKernel_InitOp<"rand_tile_init"> {
+    let summary = "Init function for rand_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Initializes the PRNG seed for the SFPU. Must be run before rand_tile.
+    }];
+
+    let arguments = (ins IndexLike:$seed);
+
+    let assemblyFormat = [{
+      `(` $seed `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_RandTileOp : TTKernel_SFPUOp<"rand_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Rand tile operation";
+    let description = [{
+      Performs element-wise rand on each element of a tile in DST register at
+      index tile_index. That is each element is overwritten with a randomly
+      generated float in the range [from, from + scale).
+
+      `from` and `scale` are passed as the uint32_t bit pattern of their
+      corresponding f32 values. The DST register buffer must be in acquired
+      state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index,
+                         IndexLike:$from,
+                         IndexLike:$scale);
+
+    let assemblyFormat = [{
+      `(` $tile_index `,` $from `,` $scale `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of sigmoid_tile.";
     let description = [{

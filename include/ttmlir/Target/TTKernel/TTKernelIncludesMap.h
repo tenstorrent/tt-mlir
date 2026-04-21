@@ -189,6 +189,8 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"power_binary_tile_init",                         {"api/compute/eltwise_binary_sfpu.h", ""}},
         {"power_tile",                                     {"api/compute/compute_kernel_api.h", ""}},
         {"power_tile_init",                                {"api/compute/compute_kernel_api.h", ""}},
+        {"rand_tile",                                      {"api/compute/eltwise_unary/rand.h", ""}},
+        {"rand_tile_init",                                 {"api/compute/eltwise_unary/rand.h", ""}},
         {"recip_tile",                                     {"api/compute/eltwise_unary/recip.h", ""}},
         {"recip_tile_init",                                {"api/compute/eltwise_unary/recip.h", ""}},
         {"reduce_init",                                    {"api/compute/reduce.h", ""}},
