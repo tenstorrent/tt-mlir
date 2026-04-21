@@ -12,6 +12,7 @@ import pytest
 import torch
 from typing import List, Tuple
 from conftest import get_request_kwargs
+from test_utils import SkipIf
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -273,10 +274,10 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((2, 128, 64), (2, 64, 128)),
     # ==================== WEIRD SHAPES ====================
     # Shapes with prime numbers and odd dimensions
-    ((7, 7, 7), (49, 7)),
-    ((49, 7), (7, 7, 7)),
-    ((3, 11, 13), (33, 13)),
-    ((33, 13), (3, 11, 13)),
+    ((7, 7, 7), (49, 7)) | SkipIf("sim"),
+    ((49, 7), (7, 7, 7)) | SkipIf("sim"),
+    ((3, 11, 13), (33, 13)) | SkipIf("sim"),
+    ((33, 13), (3, 11, 13)) | SkipIf("sim"),
     # 1D tensor shapes
     ((1,), (1, 1, 1)),
     ((1,), (1, 1, 1, 1)),
@@ -298,13 +299,13 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((1, 64), (1, 64, 1)),
     # GPT OSS 120B
     ((1, 128), (128, 1)),
-    ((1, 16), (1, 16, 1, 1)),
+    ((1, 16), (1, 16, 1, 1)) | SkipIf("sim"),
     # Kimi K2 1T
     ((1, 32), (32, 1)),
     ((32,), (32, 1)),
     # DeepSeek 671B
     ((1, 32), (1, 32, 1)),
-    ((8,), (8, 1, 1)),
+    ((8,), (8, 1, 1)) | SkipIf("sim"),
     # GLM 358B
     ((1, 32, 8), (1, 32, 8, 1)),
     ((1, 96, 32), (1, 96, 32, 1)),
@@ -328,7 +329,13 @@ def shapes_to_id(shapes) -> str:
 )
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32, torch.int64, torch.bool],
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+        torch.int64 | SkipIf("sim"),
+        torch.bool,
+    ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])

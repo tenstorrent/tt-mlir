@@ -290,7 +290,15 @@ unary_ops_dtypes = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal",
+        "emitc" | SkipIf("sim"),
+        "emitpy" | SkipIf("sim"),
+    ],
+)
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -375,7 +383,13 @@ unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitc", "emitpy"]
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal" | SkipIf("sim"),
+        "emitc" | SkipIf("sim"),
+        "emitpy" | SkipIf("sim"),
+    ],
 )
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
 @pytest.mark.parametrize("parameter", [0.01, 0.1, 0.2])
@@ -421,7 +435,7 @@ def get_dimension_size(
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 @pytest.mark.parametrize("dimension", [0, 1])
 def test_get_dimension_size(
     dimension: int,
@@ -557,7 +571,10 @@ hoisted_shapes = [
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_unary_ops_float(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -582,7 +599,10 @@ def test_cpu_hoistable_unary_ops_float(
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_unary_ops_float_integer(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -606,7 +626,10 @@ def test_cpu_hoistable_unary_ops_float_integer(
 @x86_only
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_hoisted_leaky_relu(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
