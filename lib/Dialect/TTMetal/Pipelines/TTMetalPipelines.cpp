@@ -86,7 +86,6 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(ttir::createPredicateTypeAlignment());
   pm.addPass(ttir::createElementTypeNormalization());
-  pm.addPass(ttir::createTTIRDecomposeMinReduction());
   pm.addPass(ttir::createTTIRDecomposeComposites());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
   pm.addPass(ttir::createTTIRExplicateTMs());

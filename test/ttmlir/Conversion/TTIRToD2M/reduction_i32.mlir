@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Integer reductions lower to the SFPU tile_sfpu_reduce_* ops (no scaler tile).
@@ -36,12 +36,15 @@ module {
     return %0 : tensor<128x1xsi32>
   }
 
-  // i32 min decomposes to neg → max → neg via --ttir-decompose-min-reduction,
-  // so we still end up with an SFPU max reduce surrounded by tile_negative.
+  // i32 min decomposes to bitwise_not → max → bitwise_not inside --ttir-to-d2m
+  // (D2MInnerMinDecompositionRewriter uses bitwise_not for integers since
+  // -INT_MIN == INT_MIN in two's complement), so we end up with an SFPU max
+  // reduce surrounded by tile_bitwise_not.
   // CHECK-LABEL: func @min_i32_reduce_R
-  // CHECK: d2m.tile_negative
+  // CHECK: d2m.tile_bitwise_not
   // CHECK: d2m.tile_sfpu_reduce_max{{.+}}d2m<reduce_dim R>
-  // CHECK: d2m.tile_negative
+  // CHECK: d2m.tile_bitwise_not
+  // CHECK-NOT: d2m.tile_negative
   func.func @min_i32_reduce_R(%arg: tensor<128x96xsi32>) -> tensor<128x1xsi32> {
     %0 = "ttir.min"(%arg) <{dim_arg = [-1 : i32], keep_dim = true}> : (tensor<128x96xsi32>) -> tensor<128x1xsi32>
     return %0 : tensor<128x1xsi32>
