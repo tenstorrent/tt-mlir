@@ -15,7 +15,7 @@ def bind():
     import _ttmlir_runtime as tt_runtime
 
     ChiselContext.get_instance()
-    tt_runtime.runtime.DebugHooks.get(
+    tt_runtime.DebugHooks.get(
         chisel_pre_op_callback,
         chisel_post_op_callback,
     )
@@ -23,5 +23,5 @@ def bind():
 
 def unbind():
     """Tear down ChiselContext singleton. Safe to call even if bind() was not called."""
-    tt_runtime.runtime.DebugHooks.unregister_hooks()
+    tt_runtime.DebugHooks.unregister_hooks()
     ChiselContext.reset_instance()

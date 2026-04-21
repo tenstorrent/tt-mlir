@@ -95,7 +95,7 @@ if system_desc != None:
     if len(system_desc["chip_desc_indices"]) == 1:
         config.targets = {"n150"}
     elif len(system_desc["chip_desc_indices"]) == 2:
-        config.targets = {"n300"}
+        config.targets = {"n150", "n300"}
     elif len(system_desc["chip_desc_indices"]) == 8:
         config.targets = {"llmbox"}
     elif len(system_desc["chip_desc_indices"]) == 32:

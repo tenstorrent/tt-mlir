@@ -30,12 +30,13 @@ class ChiselContext:
         self._current_binary_id: Optional[int] = None
         self._current_program_index: Optional[int] = None
         self.strict: bool = False
+        self.results_path: Optional[str] = "chisel_results.jsonl"
 
     def ensure_ir_module(self, binary, program_context) -> None:
         """Lazily create IRModule from the binary's MLIR source on first preOp."""
-        import _ttmlir_runtime as tt_runtime
+        from ttrt import runtime as tt_runtime
 
-        program_index = tt_runtime.runtime.get_program_index(program_context)
+        program_index = tt_runtime.get_program_index(program_context)
 
         if self._current_binary_id != binary.id:
             self._current_binary_id = binary.id
