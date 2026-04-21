@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import List, Callable, Any
 import torch
+import numpy as np
 
 from ttmlir.ir import *
 from ttmlir import util
@@ -7810,7 +7811,9 @@ class TTNNBuilder(Builder):
     def constant(
         self,
         value: Union[torch.Tensor, List, float, int],
+        device: Optional[Operand] = None,
         output_type: Optional[torch.dtype] = None,
+        layout: Optional[ttnn.ir.LayoutAttr] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
@@ -7828,20 +7831,28 @@ class TTNNBuilder(Builder):
 
         # Create DenseElementsAttr from the tensor
         value_shape = list(value.shape)
-        print("VALUE", value)
         mlir_value_type = RankedTensorType.get(value_shape, mlir_output_type)
-        print("MLIR VALUE TYPE", mlir_value_type)
-        # value_attr = DenseElementsAttr.get(np.array(value.flatten()), mlir_value_type)
+
+        if layout is None or layout == ttnn.Layout.Tile:
+            layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile)
+            memory_config = self._create_dram_memory_config()
+            result = self._create_dram_tiled_ttnn_tensor(value_shape, mlir_output_type)
+        elif layout == ttnn.Layout.RowMajor:
+            layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.RowMajor)
+            memory_config = self._create_system_memory_memory_config()
+            result = self._create_host_row_major_ttnn_tensor(
+                value_shape, mlir_output_type
+            )
 
         if value.dtype == torch.bfloat16:
             u16 = value.detach().cpu().view(torch.int16).numpy().astype(np.uint16)
-            value_attr = DenseElementsAttr.get(u16, type=mlir_value_type)
+            value_attr = DenseElementsAttr.get(u16, type=result)
         else:
             value_attr = DenseElementsAttr.get(value.numpy())
 
+        dtype = self._get_data_type_attribute(result)
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(value_attr, mlir_output_type)
-        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -7851,6 +7862,10 @@ class TTNNBuilder(Builder):
         op = ttnn_op(
             result,
             value=value_attr,
+            device=device,
+            dtype=dtype,
+            layout=layout_attr,
+            memory_config=memory_config,
             loc=loc,
         )
         op_result = op.result
@@ -7871,10 +7886,15 @@ class TTNNBuilder(Builder):
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.constant_parser)
         result = old_op.result.type
+        device = global_dict[old_op.device] if old_op.device is not None else None
 
         new_op = ttnn_op(
             result,
             value=old_op.value,
+            device=device,
+            dtype=old_op.dtype,
+            layout=old_op.layout,
+            memory_config=old_op.memory_config,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -7911,9 +7931,27 @@ class TTNNBuilder(Builder):
                 def decorated_func():
                     result = old_op.result.type
 
+                    mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                        old_ctx, *self._mesh_shape
+                    )
+                    mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                        old_ctx, *self._mesh_offset
+                    )
+                    new_get_device_op = ttnn.GetDeviceOp(
+                        mesh_shape=mesh_shape_attr,
+                        mesh_offset=mesh_offset_attr,
+                    )
+
+                    result = old_op.result.type
+                    device = new_get_device_op.device
+
                     new_op = ttnn_op(
                         result,
                         value=old_op.value,
+                        device=device,
+                        dtype=old_op.dtype,
+                        layout=old_op.layout,
+                        memory_config=old_op.memory_config,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result

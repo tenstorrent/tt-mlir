@@ -3040,3 +3040,24 @@ def test_paged_flash_multi_latent_attention_decode(
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_constant(
+    shape: Shape,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def constant(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+            constant_tensor = torch.randn(shape, dtype=dtype)
+            return builder.constant(constant_tensor)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )

@@ -3672,18 +3672,42 @@ def ttir_pad_golden(
 
 
 def ttir_constant_golden(
-    value: DenseElementsAttr, mesh_shape_attr: ArrayAttr
+    value_attr: DenseElementsAttr, mesh_shape_attr: ArrayAttr
 ) -> GoldenMapTensor:
-    shape = list(value.type.shape)
+    shape = list(value_attr.type.shape)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
-    dtype = mlir_type_to_torch_dtype(value.type.element_type)
+    dtype = mlir_type_to_torch_dtype(value_attr.type.element_type)
 
-    if value.is_splat:
-        value = value.get_splat_value()
-        torch_tensor = torch.full(shape, value.value, dtype=dtype)
+    if value_attr.is_splat:
+        value_attr = value_attr.get_splat_value()
+        torch_tensor = torch.full(shape, value_attr.value, dtype=dtype)
     else:
-        flat_values = [elem for elem in value]
-        torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
+        # PyTorch bfloat16 is packed as uint16 bits in DenseElementsAttr
+        # MLIR's Python bindings don't support np.array() on bf16 DenseElementsAttr
+        # Extract the hex-encoded data instead
+        if dtype == torch.bfloat16:
+            attr_str = str(value_attr)
+            # MLIR uses hex encoding for large tensors: dense<"0xHEXDATA"> : tensor<...xbf16>
+            match = re.search(r'"0x([0-9A-F]+)"', attr_str, re.IGNORECASE)
+            if match:
+                hex_str = match.group(1)
+                byte_data = bytes.fromhex(hex_str)
+                u16_array = np.frombuffer(byte_data, dtype=np.uint16)
+                torch_tensor = (
+                    torch.from_numpy(u16_array.astype(np.int16))
+                    .view(torch.bfloat16)
+                    .reshape(shape)
+                )
+            else:
+                # Small tensors might use dense<[[value_attr, ...]]> format
+                # Parse the float values and convert to bfloat16
+                raise NotImplementedError(
+                    f"Non-hex bfloat16 constant not yet supported: {attr_str[:100]}"
+                )
+        else:
+            torch_tensor = torch.tensor(np.array(value_attr), dtype=dtype).reshape(
+                shape
+            )
 
     result = torch_tensor.reshape(shape)
     return GoldenMapTensor(
@@ -6416,18 +6440,43 @@ def ttnn_full_golden(
 def ttnn_constant_golden(
     value_attr: DenseElementsAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
-    value = unpack_mlir_attr(value_attr)  # ***********************
     shape = list(value_attr.type.shape)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    dtype = mlir_type_to_torch_dtype(value_attr.type.element_type)
 
     if value_attr.is_splat:
-        value = value_attr.get_splat_value()
-        torch_tensor = torch.full(shape, value.value, dtype=output_dtype)
+        value_attr = value_attr.get_splat_value()
+        torch_tensor = torch.full(shape, value_attr.value, dtype=dtype)
     else:
-        flat_values = [elem for elem in value]
-        torch_tensor = torch.tensor(flat_values, dtype=output_dtype).reshape(shape)
+        # PyTorch bfloat16 is packed as uint16 bits in DenseElementsAttr
+        # MLIR's Python bindings don't support np.array() on bf16 DenseElementsAttr
+        # Extract the hex-encoded data instead
+        if dtype == torch.bfloat16:
+            attr_str = str(value_attr)
+            # MLIR uses hex encoding for large tensors: dense<"0xHEXDATA"> : tensor<...xbf16>
+            match = re.search(r'"0x([0-9A-F]+)"', attr_str, re.IGNORECASE)
+            if match:
+                hex_str = match.group(1)
+                byte_data = bytes.fromhex(hex_str)
+                u16_array = np.frombuffer(byte_data, dtype=np.uint16)
+                torch_tensor = (
+                    torch.from_numpy(u16_array.astype(np.int16))
+                    .view(torch.bfloat16)
+                    .reshape(shape)
+                )
+            else:
+                # Small tensors might use dense<[[value_attr, ...]]> format
+                # Parse the float values and convert to bfloat16
+                raise NotImplementedError(
+                    f"Non-hex bfloat16 constant not yet supported: {attr_str[:100]}"
+                )
+        else:
+            torch_tensor = torch.tensor(np.array(value_attr), dtype=dtype).reshape(
+                shape
+            )
 
-    return torch_tensor
+    result = torch_tensor.reshape(shape)
+    # ADD MESH SHAPE HANDLING *********
+    return GoldenMapTensor({0: torch_tensor}, mesh_shape=(1, 1))
 
 
 def ttnn_reshape_golden(

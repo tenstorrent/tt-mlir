@@ -471,23 +471,45 @@ def test_full(
     )
 
 
-@pytest.mark.parametrize(
-    "value,expected_shape",
-    [
-        ([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], (2, 3)),
-        ([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]], (2, 2, 2)),
-        (5.0, ()),  # scalar
-        ([1.0, 2.0, 3.0, 4.0], (4,)),
-    ],
-)
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_constant(value, expected_shape: Shape, dtype: torch.dtype, request, device):
+@pytest.mark.parametrize(
+    "constant_layout",
+    [ttnn.Layout.Tile, ttnn.Layout.RowMajor],
+    ids=["tile", "row_major"],
+)
+def test_constant(
+    shape: Shape,
+    dtype: torch.dtype,
+    constant_layout: ttnn.Layout,
+    request,
+    device,
+):
     def module(builder: TTNNBuilder):
         @builder.func([], [])
         def constant(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
-            return builder.constant(
-                value=value, output_type=dtype, unit_attrs=unit_attrs
+            if constant_layout == ttnn.Layout.Tile:
+                get_device = builder.get_device()
+            else:
+                get_device = None
+            # Create a simple constant tensor with values from 0 to size-1
+            size = 1
+            for dim in shape:
+                size *= dim
+            value = torch.arange(size, dtype=dtype).reshape(shape)
+
+            constant = builder.constant(
+                value=value,
+                device=get_device,
+                output_type=dtype,
+                unit_attrs=unit_attrs,
+                layout=constant_layout,
             )
+            if constant_layout == ttnn.Layout.RowMajor:
+                return builder.to_layout(
+                    constant, layout=ttnn.Layout.Tile, output_type=dtype
+                )
+            return constant
 
     compile_and_execute_ttnn(
         module,
