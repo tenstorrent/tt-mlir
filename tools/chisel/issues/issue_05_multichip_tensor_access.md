@@ -65,4 +65,3 @@ Update `runtime/python/runtime/runtime.cpp` binding to return
 `getOpOutputTensor` (`runtime/lib/ttnn/runtime.cpp:958`) already returns
 `std::unordered_map<std::uint32_t, Tensor>` using the same logical-device-ID
 keying convention with the same `toHost()` decomposition and index-based loop.
-

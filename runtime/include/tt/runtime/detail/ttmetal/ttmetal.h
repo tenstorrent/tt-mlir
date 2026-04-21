@@ -160,17 +160,17 @@ getOpOutputTensors(OpContext opContextHandle,
                    CallbackContext programContextHandle);
 
 std::vector<tt::runtime::TensorRef>
-getOpOutputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+getOpOutputRefs(OpContext opContextHandle,
+                CallbackContext programContextHandle);
 
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
-std::optional<Tensor>
-retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize);
+std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
+                                           TensorRef tensorRef, bool untilize);
 
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor);
+                        TensorRef tensorRef, std::vector<Tensor> srcTensors);
 
 size_t getProgramIndex(CallbackContext programContextHandle);
 

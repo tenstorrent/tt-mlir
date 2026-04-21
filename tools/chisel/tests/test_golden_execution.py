@@ -69,7 +69,9 @@ def test_golden_execution(subtests, ir_module, binary, mlir_source_path):
                 try:
                     result = execute_golden(op.opview, ir_module, prog_name, inputs)
                 except RuntimeError:
-                    pytest.skip(f"no golden implementation for {type(op.opview).__name__}")
+                    pytest.skip(
+                        f"no golden implementation for {type(op.opview).__name__}"
+                    )
 
                 op_outputs = get_op_outputs(op)
                 if op_outputs:

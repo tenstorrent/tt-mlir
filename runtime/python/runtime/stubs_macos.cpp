@@ -225,7 +225,7 @@ std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
 }
 std::string getOpLocInfo(OpContext opContextHandle) { __builtin_trap(); }
 std::vector<TensorRef> getOpOutputRefs(OpContext opContextHandle,
-                                      CallbackContext programContextHandle) {
+                                       CallbackContext programContextHandle) {
   __builtin_trap();
 }
 std::unordered_map<std::uint32_t, Tensor>
@@ -233,7 +233,9 @@ getOpOutputTensors(OpContext opContextHandle,
                    CallbackContext programContextHandle) {
   __builtin_trap();
 }
-size_t getProgramIndex(CallbackContext programContextHandle) { __builtin_trap(); }
+size_t getProgramIndex(CallbackContext programContextHandle) {
+  __builtin_trap();
+}
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor) { __builtin_trap(); }
 tt::target::DataType getTensorDataType(Tensor tensor) { __builtin_trap(); }
 TensorDesc getTensorDesc(Tensor tensor) { __builtin_trap(); }
@@ -257,9 +259,8 @@ void releaseTrace(Device meshDevice, std::uint64_t binaryId,
                   size_t mainProgramId) {
   __builtin_trap();
 }
-std::optional<Tensor>
-retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize) {
+std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
+                                           TensorRef tensorRef, bool untilize) {
   __builtin_trap();
 }
 void setCompatibleDeviceRuntime(const Binary &binary) { __builtin_trap(); }
@@ -273,7 +274,7 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
 }
 std::vector<Tensor> getDeviceTensors(Tensor tensor) { __builtin_trap(); }
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor) {
+                        TensorRef tensorRef, std::vector<Tensor> srcTensors) {
   __builtin_trap();
 }
 void wait(Event event) { __builtin_trap(); }

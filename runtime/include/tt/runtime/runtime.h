@@ -245,25 +245,24 @@ getOpOutputTensors(OpContext opContextHandle,
 // Single-output ops return a vector of size 1. Multi-output ops return a
 // vector of size N. No-output ops (e.g. DeallocateOp) return an empty vector.
 std::vector<TensorRef> getOpOutputRefs(OpContext opContextHandle,
-                                      CallbackContext programContextHandle);
+                                       CallbackContext programContextHandle);
 
 // Returns the vector of references to the input tensors of the current
 // operation
 std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle);
 
-// For the given tensor reference, retrieves the tensor from the program's
-// tensor pool. Returns the tensor if found, or nullopt if not found or on
-// error.
-std::optional<Tensor>
-retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize);
+// For the given tensor reference, retrieves per-device tensors from the
+// program's tensor pool. Supports multi-device tensors. Returns one tensor per
+// device, or an empty vector if not found or on error.
+std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
+                                           TensorRef tensorRef, bool untilize);
 
 // Updates the tensor in the program's tensor pool that is referenced by the
-// given tensor reference. Performs necessary layout and device conversions to
-// match the existing tensor.
+// given tensor reference. Accepts one tensor per device shard. Composes them
+// into a multi-device tensor with the correct layout and sends to device.
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor);
+                        TensorRef tensorRef, std::vector<Tensor> srcTensors);
 
 size_t getProgramIndex(CallbackContext programContextHandle);
 

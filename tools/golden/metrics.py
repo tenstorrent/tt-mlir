@@ -10,7 +10,6 @@ import numpy as np
 import torch
 
 
-
 def _mask_inf_nan(tensor: torch.Tensor) -> torch.Tensor:
     tensor[
         torch.logical_or(

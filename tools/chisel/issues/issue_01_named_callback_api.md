@@ -16,4 +16,3 @@ Replace `Hooks::get(pre, post)` with `Hooks::get()` + `setCallbacks(name, Callba
 - Migrate caller: `tools/ttrt/common/run.py`
 - Migrate caller: `tools/builder/base/builder_runtime.py`
 - Migrate caller: `runtime/test/ttnn/python/n150/test_intermidate_tensor_manipulation.py`
-

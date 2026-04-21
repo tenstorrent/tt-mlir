@@ -25,7 +25,8 @@ logger = logging.getLogger("chisel")
 logger.setLevel("DEBUG")
 
 _PCC_THRESHOLD = 0.99
-DEBUG=False
+DEBUG = False
+
 
 def debug_wrap(*, debug: bool = False):
     """
@@ -51,6 +52,7 @@ def debug_wrap(*, debug: bool = False):
 
     return decorator
 
+
 def _append_result(ctx: ChiselContext, record: dict) -> None:
     if ctx.results_path is None:
         return
@@ -74,10 +76,16 @@ def check_op_output(
             f"{op_name} {output_name}: shape MISMATCH "
             f"expected={tuple(golden.shape)} actual={tuple(device.shape)}"
         )
-        _append_result(ctx, {
-            "op": op_name, "output": output_name, "status": "shape_mismatch",
-            "expected_shape": list(golden.shape), "actual_shape": list(device.shape),
-        })
+        _append_result(
+            ctx,
+            {
+                "op": op_name,
+                "output": output_name,
+                "status": "shape_mismatch",
+                "expected_shape": list(golden.shape),
+                "actual_shape": list(device.shape),
+            },
+        )
         if ctx.strict:
             raise AssertionError(msg)
         logger.warning(msg)
@@ -88,10 +96,16 @@ def check_op_output(
             f"{op_name} {output_name}: dtype MISMATCH "
             f"expected={golden.dtype} actual={device.dtype}"
         )
-        _append_result(ctx, {
-            "op": op_name, "output": output_name, "status": "dtype_mismatch",
-            "expected_dtype": str(golden.dtype), "actual_dtype": str(device.dtype),
-        })
+        _append_result(
+            ctx,
+            {
+                "op": op_name,
+                "output": output_name,
+                "status": "dtype_mismatch",
+                "expected_dtype": str(golden.dtype),
+                "actual_dtype": str(device.dtype),
+            },
+        )
         if ctx.strict:
             raise AssertionError(msg)
         logger.warning(msg)
@@ -102,10 +116,17 @@ def check_op_output(
     rtol = compute_rtol(golden, device)
 
     if pcc >= _PCC_THRESHOLD:
-        _append_result(ctx, {
-            "op": op_name, "output": output_name, "status": "ok",
-            "pcc": pcc, "atol": atol, "rtol": rtol,
-        })
+        _append_result(
+            ctx,
+            {
+                "op": op_name,
+                "output": output_name,
+                "status": "ok",
+                "pcc": pcc,
+                "atol": atol,
+                "rtol": rtol,
+            },
+        )
         logger.info(
             f"{op_name} {output_name}: OK  "
             f"pcc={pcc:.6f} atol={atol:.6e} rtol={rtol:.6e}"
@@ -116,13 +137,21 @@ def check_op_output(
             f"pcc={pcc:.6f} (threshold={_PCC_THRESHOLD}) "
             f"atol={atol:.6e} rtol={rtol:.6e}"
         )
-        _append_result(ctx, {
-            "op": op_name, "output": output_name, "status": "pcc_fail",
-            "pcc": pcc, "atol": atol, "rtol": rtol,
-        })
+        _append_result(
+            ctx,
+            {
+                "op": op_name,
+                "output": output_name,
+                "status": "pcc_fail",
+                "pcc": pcc,
+                "atol": atol,
+                "rtol": rtol,
+            },
+        )
         if ctx.strict:
             raise AssertionError(msg)
         logger.warning(msg)
+
 
 @debug_wrap(debug=DEBUG)
 def chisel_pre_op_callback(binary, program_context, op_context):
@@ -148,6 +177,7 @@ def chisel_pre_op_callback(binary, program_context, op_context):
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
         name = mlir_input.get_name(asm_state)
         ctx._stashed_inputs[name] = retrieve_torch_tensor(program_context, tensor_ref)
+
 
 @debug_wrap(debug=DEBUG)
 def chisel_post_op_callback(binary, program_context, op_context):
@@ -221,4 +251,3 @@ def with_pytest_subtests(subtests):
         return wrapper
 
     return decorator
-

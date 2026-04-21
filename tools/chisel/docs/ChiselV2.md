@@ -6,8 +6,8 @@
 
 The current tool for debugging numerical accuracy is Builder, which computes golden intermediates at compile time. The training team encountered several problems with this approach that block debugging of larger models:
 
-- All intermediate golden tensors must fit in host memory before runtime starts. For large models this causes OOM before execution even begins.  
-- Splitting the graph into smaller chunks is feasible for forward pass but nearly impossible for backward graphs, blocking training workload debugging.  
+- All intermediate golden tensors must fit in host memory before runtime starts. For large models this causes OOM before execution even begins.
+- Splitting the graph into smaller chunks is feasible for forward pass but nearly impossible for backward graphs, blocking training workload debugging.
 - Saving intermediates to disk does not scale \- Llama 3.1 70B at seq\_len 4096 requires \~17 TB (prefill)  \~7.5 TB (decode); GPT-OSS-120B (MoE) at 128k context reaches \~79 TB.
 
 To address these issues we propose refactoring Chisel to compute goldens at runtime instead of compile time. By hooking into TTNN MLIR runtime execution via callbacks, Chisel V2 computes each op's CPU reference on-the-fly, so only tensors that are live on device need to be in memory at one moment in time.
@@ -18,8 +18,8 @@ Chisel V2 is a redesign of the original Chisel tool that performs op-by-op golde
 
 The redesign is primarily motivated by the need to:
 
-* Simplify the system by removing the complexities associated with cross-dialect operation correlation.  
-* Enable support for workloads involving multiple programs.  
+* Simplify the system by removing the complexities associated with cross-dialect operation correlation.
+* Enable support for workloads involving multiple programs.
 * Offer straightforward integration into the frontend, requiring minimal effort.
 
 Beyond comparison, both V1 and V2 Chisel supports **op skipping** — the ability to replace a device op's output with its golden (CPU) result. This allows users to isolate malfunctioning ops by removing their device contribution from downstream computation, making it possible to pinpoint whether a specific op is the source of numerical errors.
@@ -30,9 +30,9 @@ For more details on chisel V1 take a look at the original [document](https://doc
 
 The scope of V2 is to provide runtime numerical debugging for TTNN programs executed through TTNN MLIR runtime. It should support:
 
-- Single and multi-program execution (forward, backward, optimizer graphs, or just multiple inference graphs).  
-- Multi-chip tensor comparison.  
-- Integration into frontend via a two-line, for example: `import chisel; chisel.bind()`.  
+- Single and multi-program execution (forward, backward, optimizer graphs, or just multiple inference graphs).
+- Multi-chip tensor comparison.
+- Integration into frontend via a two-line, for example: `import chisel; chisel.bind()`.
 - Per-op CSV reporting with PCC, absolute error, and relative error metrics.
 
 ### 1.4 Non-goals
@@ -108,12 +108,12 @@ Additionally, `DebugHooks` currently supports only a single callback per hook po
 
 The four callbacks Chisel registers:
 
-- **Pre-program**: Extract TTNN MLIR from the flatbuffer, parse it into an `IRModule`, preserve `golden_tensor_pool` across programs, and start a new report section.  
-- **Pre-op**: Capture device input tensors and copy them to `golden_tensor_pool` if not already present from a previous program. If the op is marked for skipping, copy all inputs to host for golden-only execution.  
-- **Post-op**: Capture device output, look up the TTNN op in `GOLDEN_MAPPINGS`, execute the golden function on CPU, compare golden vs device output (PCC, atol, rtol), and write a CSV row. If the op is marked for skipping, re-run the golden function with the device inputs copied in preop and replace the device output tensor with the golden result. This effectively removes the op's device contribution from downstream computation.  
+- **Pre-program**: Extract TTNN MLIR from the flatbuffer, parse it into an `IRModule`, preserve `golden_tensor_pool` across programs, and start a new report section.
+- **Pre-op**: Capture device input tensors and copy them to `golden_tensor_pool` if not already present from a previous program. If the op is marked for skipping, copy all inputs to host for golden-only execution.
+- **Post-op**: Capture device output, look up the TTNN op in `GOLDEN_MAPPINGS`, execute the golden function on CPU, compare golden vs device output (PCC, atol, rtol), and write a CSV row. If the op is marked for skipping, re-run the golden function with the device inputs copied in preop and replace the device output tensor with the golden result. This effectively removes the op's device contribution from downstream computation.
 - **Post-program**: Finalize metrics, flush the report, preserve golden tensors for cross-program sharing, and log program-level diagnostics.
 
-### 
+###
 
 ### 3.4 Metrics
 
@@ -151,13 +151,12 @@ After execution, a CSV report is written to `output_dir/report.csv` with columns
 
 The initial plan is that the developer reviews the CSV report manually and selects operations with low PCC. We could automate this process with:
 
-- **Threshold-based flagging**: Automatically flag any op whose PCC falls below a configurable threshold (e.g., 0.999). The report would include a `status` column (`PASS` / `FAIL`) so that a developer can filter to failures immediately.  
+- **Threshold-based flagging**: Automatically flag any op whose PCC falls below a configurable threshold (e.g., 0.999). The report would include a `status` column (`PASS` / `FAIL`) so that a developer can filter to failures immediately.
 - **Automated op skipping**: Once bad ops are identified, Chisel could automatically apply op skipping (replacing device output with golden) to isolate whether a specific op is the source of downstream numerical errors. The output would be what ops were skipped and the pcc of the model in that configuration.
 
 ### 4.2 Debug Dialect Integration
 
 V2 does not currently support debug dialect operations (see Section 1.4.4). However, the callback-driven architecture does not preclude future integration. Potential directions include:
 
-- **Debug metadata propagation**: Debug dialect operations could annotate TTNN ops with additional metadata (e.g., original source locations from the frontend framework, layer identifiers). Chisel could read these annotations and include them in the CSV report, making it easier to map low-PCC ops back to user-level model code.  
+- **Debug metadata propagation**: Debug dialect operations could annotate TTNN ops with additional metadata (e.g., original source locations from the frontend framework, layer identifiers). Chisel could read these annotations and include them in the CSV report, making it easier to map low-PCC ops back to user-level model code.
 - **Selective instrumentation**: Instead of writing every op comparison, debug dialect markers could designate specific regions of the graph for Chisel to instrument. This would reduce overhead for large models where only a subset of ops is under investigation.
-

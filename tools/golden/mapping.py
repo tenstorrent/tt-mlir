@@ -6550,7 +6550,11 @@ def ttnn_concat_golden(
 ) -> GoldenMapTensor:
     dim = unpack_mlir_attr(dim_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    tensors = list(input_tensors) if isinstance(input_tensors, (list, tuple)) else [input_tensors]
+    tensors = (
+        list(input_tensors)
+        if isinstance(input_tensors, (list, tuple))
+        else [input_tensors]
+    )
     return torch.concat(tensors, dim=dim).to(output_dtype)
 
 
@@ -7952,31 +7956,49 @@ def chisel_ttnn_deallocate(op, inputs, asm_state):
 def chisel_ttnn_linear(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     weight = inputs[op.operands[1].get_name(asm_state)]
-    bias = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    bias = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    )
     return ttnn_linear_golden(
-        input_tensor, weight, bias,
-        op.attributes["transpose_a"], op.attributes["transpose_b"],
+        input_tensor,
+        weight,
+        bias,
+        op.attributes["transpose_a"],
+        op.attributes["transpose_b"],
         op.results[0].type.element_type,
     )
 
 
 def chisel_ttnn_layer_norm(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    weight = inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
-    bias = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    weight = (
+        inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
+    )
+    bias = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    )
     return ttnn_layer_norm_golden(
-        input_tensor, weight, bias,
-        op.attributes["normalized_shape"], op.attributes["epsilon"],
+        input_tensor,
+        weight,
+        bias,
+        op.attributes["normalized_shape"],
+        op.attributes["epsilon"],
         op.results[0].type.element_type,
     )
 
 
 def chisel_ttnn_layer_norm_pre_all_gather(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    residual_input = inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
-    recip = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    residual_input = (
+        inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
+    )
+    recip = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    )
     return ttnn_layer_norm_pre_all_gather_golden(
-        input_tensor, residual_input, recip,
+        input_tensor,
+        residual_input,
+        recip,
         op.results[0].type.element_type,
     )
 
@@ -7984,10 +8006,17 @@ def chisel_ttnn_layer_norm_pre_all_gather(op, inputs, asm_state):
 def chisel_ttnn_layer_norm_post_all_gather(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     stats = inputs[op.operands[1].get_name(asm_state)]
-    weight = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
-    bias = inputs.get(op.operands[3].get_name(asm_state)) if len(op.operands) > 3 else None
+    weight = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    )
+    bias = (
+        inputs.get(op.operands[3].get_name(asm_state)) if len(op.operands) > 3 else None
+    )
     return ttnn_layer_norm_post_all_gather_golden(
-        input_tensor, stats, weight, bias,
+        input_tensor,
+        stats,
+        weight,
+        bias,
         op.attributes["epsilon"],
         op.results[0].type.element_type,
     )
@@ -7995,22 +8024,35 @@ def chisel_ttnn_layer_norm_post_all_gather(op, inputs, asm_state):
 
 def chisel_ttnn_group_norm(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    weight = inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
-    bias = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    weight = (
+        inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
+    )
+    bias = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    )
     return ttnn_group_norm_golden(
-        input_tensor, weight, bias,
-        op.attributes["num_groups"], op.attributes["epsilon"],
+        input_tensor,
+        weight,
+        bias,
+        op.attributes["num_groups"],
+        op.attributes["epsilon"],
         op.results[0].type.element_type,
     )
 
 
 def chisel_ttnn_rms_norm(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    weight = inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
-    bias = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    weight = (
+        inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
+    )
+    bias = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 2 else None
+    )
     normalized_shape = [input_tensor.shape[-1]]
     return rms_norm_golden(
-        input_tensor, weight, bias,
+        input_tensor,
+        weight,
+        bias,
         normalized_shape,
         unpack_mlir_attr(op.attributes["epsilon"]),
     )
@@ -8034,7 +8076,8 @@ def chisel_ttnn_all_gather(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     return ttnn_all_gather_golden(
         input_tensor,
-        op.attributes["all_gather_dim"], op.attributes["cluster_axis"],
+        op.attributes["all_gather_dim"],
+        op.attributes["cluster_axis"],
         op.results[0].type.element_type,
     )
 
@@ -8043,7 +8086,9 @@ def chisel_ttnn_reduce_scatter(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     return ttnn_reduce_scatter_golden(
         input_tensor,
-        op.attributes["reduce_type"], op.attributes["scatter_dim"], op.attributes["cluster_axis"],
+        op.attributes["reduce_type"],
+        op.attributes["scatter_dim"],
+        op.attributes["cluster_axis"],
         op.results[0].type.element_type,
     )
 
@@ -8052,7 +8097,8 @@ def chisel_ttnn_all_reduce_async(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     return ttir_all_reduce_golden(
         input_tensor,
-        op.attributes["reduce_type"], op.attributes["cluster_axis"],
+        op.attributes["reduce_type"],
+        op.attributes["cluster_axis"],
         op.results[0].type.element_type,
     )
 
@@ -8068,12 +8114,18 @@ def chisel_ttnn_gather(op, inputs, asm_state):
 def chisel_ttnn_paged_flash_multi_latent_attention_decode(op, inputs, asm_state):
     segs = list(op.attributes["operand_segment_sizes"])
     idx = 0
-    query = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[0]
-    key = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[1]
-    value = inputs[op.operands[idx].get_name(asm_state)] if segs[2] else None; idx += segs[2]
-    page_table = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[3]
-    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[4] else None; idx += segs[4]
-    cur_pos_tensor = inputs[op.operands[idx].get_name(asm_state)] if segs[5] else None; idx += segs[5]
+    query = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[0]
+    key = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[1]
+    value = inputs[op.operands[idx].get_name(asm_state)] if segs[2] else None
+    idx += segs[2]
+    page_table = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[3]
+    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[4] else None
+    idx += segs[4]
+    cur_pos_tensor = inputs[op.operands[idx].get_name(asm_state)] if segs[5] else None
+    idx += segs[5]
     attention_sink = inputs[op.operands[idx].get_name(asm_state)] if segs[6] else None
     return ttir_paged_flash_multi_latent_attention_decode_golden(
         query=query,
@@ -8103,25 +8155,43 @@ def _attr_get(attrs, key, default=None):
 
 def chisel_ttnn_sum(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_sum_golden(input_tensor, op.attributes["dim_arg"], op.attributes["keep_dim"], op.results[0].type.element_type)
+    return ttir_sum_golden(
+        input_tensor,
+        op.attributes["dim_arg"],
+        op.attributes["keep_dim"],
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_max(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_max_golden(input_tensor, op.attributes["dim_arg"], op.attributes["keep_dim"], op.results[0].type.element_type)
+    return ttir_max_golden(
+        input_tensor,
+        op.attributes["dim_arg"],
+        op.attributes["keep_dim"],
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_mean(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     dim_arg = _attr_get(op.attributes, "dim_arg")
     keep_dim = unpack_mlir_attr(op.attributes["keep_dim"])
-    return mean_golden(input_tensor, dim_arg=unpack_mlir_attr(dim_arg) if dim_arg is not None else None, keep_dim=keep_dim)
+    return mean_golden(
+        input_tensor,
+        dim_arg=unpack_mlir_attr(dim_arg) if dim_arg is not None else None,
+        keep_dim=keep_dim,
+    )
 
 
 def chisel_ttnn_min(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     dim_arg = _attr_get(op.attributes, "dim_arg")
-    return min_golden(input_tensor, dim_arg=unpack_mlir_attr(dim_arg) if dim_arg is not None else None, keep_dim=unpack_mlir_attr(op.attributes["keep_dim"]))
+    return min_golden(
+        input_tensor,
+        dim_arg=unpack_mlir_attr(dim_arg) if dim_arg is not None else None,
+        keep_dim=unpack_mlir_attr(op.attributes["keep_dim"]),
+    )
 
 
 def chisel_ttnn_prod(op, inputs, asm_state):
@@ -8130,23 +8200,37 @@ def chisel_ttnn_prod(op, inputs, asm_state):
     dim_arg_val = unpack_mlir_attr(dim_arg) if dim_arg is not None else None
     if isinstance(dim_arg_val, int):
         dim_arg_val = [dim_arg_val]
-    return prod_golden(input_tensor, dim_arg=dim_arg_val, keep_dim=unpack_mlir_attr(op.attributes["keep_dim"]))
+    return prod_golden(
+        input_tensor,
+        dim_arg=dim_arg_val,
+        keep_dim=unpack_mlir_attr(op.attributes["keep_dim"]),
+    )
 
 
 def chisel_ttnn_argmax(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     dim = op.attributes["dim"] if "dim" in op.attributes else None
-    return ttir_argmax_golden(input_tensor, dim, op.attributes["keep_dim"], op.results[0].type.element_type)
+    return ttir_argmax_golden(
+        input_tensor, dim, op.attributes["keep_dim"], op.results[0].type.element_type
+    )
 
 
 def chisel_ttnn_cumsum(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_cumsum_golden(input_tensor, op.attributes["dim"], op.results[0].type.element_type)
+    return ttir_cumsum_golden(
+        input_tensor, op.attributes["dim"], op.results[0].type.element_type
+    )
 
 
 def chisel_ttnn_sort(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    result = ttir_sort_golden(input_tensor, op.attributes["dim"], op.attributes["descending"], op.attributes["stable"], op.results[0].type.element_type)
+    result = ttir_sort_golden(
+        input_tensor,
+        op.attributes["dim"],
+        op.attributes["descending"],
+        op.attributes["stable"],
+        op.results[0].type.element_type,
+    )
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
@@ -8155,7 +8239,11 @@ def chisel_ttnn_sort(op, inputs, asm_state):
 
 def chisel_ttnn_transpose(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return transpose_golden(input_tensor, dim0=unpack_mlir_attr(op.attributes["dim0"]), dim1=unpack_mlir_attr(op.attributes["dim1"]))
+    return transpose_golden(
+        input_tensor,
+        dim0=unpack_mlir_attr(op.attributes["dim0"]),
+        dim1=unpack_mlir_attr(op.attributes["dim1"]),
+    )
 
 
 def chisel_ttnn_reshape(op, inputs, asm_state):
@@ -8165,12 +8253,20 @@ def chisel_ttnn_reshape(op, inputs, asm_state):
 
 def chisel_ttnn_permute(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_permute_golden(input_tensor, op.attributes["permutation"], op.results[0].type.element_type)
+    return ttir_permute_golden(
+        input_tensor, op.attributes["permutation"], op.results[0].type.element_type
+    )
 
 
 def chisel_ttnn_slice_static(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_slice_golden(input_tensor, op.attributes["begins"], op.attributes["ends"], op.attributes["step"], op.results[0].type.element_type)
+    return ttir_slice_golden(
+        input_tensor,
+        op.attributes["begins"],
+        op.attributes["ends"],
+        op.attributes["step"],
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_slice_dynamic(op, inputs, asm_state):
@@ -8178,23 +8274,42 @@ def chisel_ttnn_slice_dynamic(op, inputs, asm_state):
     begins = inputs[op.operands[1].get_name(asm_state)]
     ends = inputs[op.operands[2].get_name(asm_state)]
     step = _attr_get(op.attributes, "step")
-    return dynamic_slice_golden(input_tensor, begins=begins, ends=ends, step=unpack_mlir_attr(step) if step is not None else None)
+    return dynamic_slice_golden(
+        input_tensor,
+        begins=begins,
+        ends=ends,
+        step=unpack_mlir_attr(step) if step is not None else None,
+    )
 
 
 def chisel_ttnn_topk(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    result = ttir_topk_golden(input_tensor, op.attributes["k"], op.attributes["dim"], op.attributes["largest"], op.attributes["sorted"], op.results[0].type.element_type)
+    result = ttir_topk_golden(
+        input_tensor,
+        op.attributes["k"],
+        op.attributes["dim"],
+        op.attributes["largest"],
+        op.attributes["sorted"],
+        op.results[0].type.element_type,
+    )
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
 def chisel_ttnn_pad(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_pad_golden(input_tensor, op.attributes["padding"], op.attributes["value"], op.results[0].type.element_type)
+    return ttir_pad_golden(
+        input_tensor,
+        op.attributes["padding"],
+        op.attributes["value"],
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_softmax(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return softmax_golden(input_tensor, dimension=unpack_mlir_attr(op.attributes["dimension"]))
+    return softmax_golden(
+        input_tensor, dimension=unpack_mlir_attr(op.attributes["dimension"])
+    )
 
 
 # Batch C — NN / activation ops
@@ -8215,19 +8330,32 @@ def chisel_ttnn_embedding_backward(op, inputs, asm_state):
     indices = inputs[op.operands[0].get_name(asm_state)]
     weight = inputs[op.operands[1].get_name(asm_state)]
     in_gradient = inputs[op.operands[2].get_name(asm_state)]
-    return ttir_embedding_backward_golden(indices, weight, in_gradient, op.results[0].type.element_type)
+    return ttir_embedding_backward_golden(
+        indices, weight, in_gradient, op.results[0].type.element_type
+    )
 
 
 def chisel_ttnn_gelu_backward(op, inputs, asm_state):
     grad = inputs[op.operands[0].get_name(asm_state)]
     input_tensor = inputs[op.operands[1].get_name(asm_state)]
-    approximate = unpack_mlir_attr(op.attributes["approximate"]) if "approximate" in op.attributes else "none"
+    approximate = (
+        unpack_mlir_attr(op.attributes["approximate"])
+        if "approximate" in op.attributes
+        else "none"
+    )
     return ttir_gelu_backward_golden(grad, input_tensor, approximate=approximate)
 
 
 def chisel_ttnn_dropout(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_dropout_golden(input_tensor, op.attributes["prob"], op.attributes["scale"], op.attributes["seed"], op.attributes["use_per_device_seed"], op.results[0].type.element_type)
+    return ttir_dropout_golden(
+        input_tensor,
+        op.attributes["prob"],
+        op.attributes["scale"],
+        op.attributes["seed"],
+        op.attributes["use_per_device_seed"],
+        op.results[0].type.element_type,
+    )
 
 
 # Batch D — Conv/Pool ops
@@ -8248,7 +8376,15 @@ def chisel_ttnn_max_pool2d(op, inputs, asm_state):
     input_width = unpack_mlir_attr(op.attributes["input_width"])
     channels = unpack_mlir_attr(op.attributes["channels"])
     nhwc = input_tensor.reshape(batch_size, input_height, input_width, channels)
-    result_nhwc = ttir_max_pool2d_golden(nhwc, op.attributes["kernel_size"], op.attributes["stride"], op.attributes["padding"], op.attributes["dilation"], op.attributes["ceil_mode"], op.results[0].type.element_type)
+    result_nhwc = ttir_max_pool2d_golden(
+        nhwc,
+        op.attributes["kernel_size"],
+        op.attributes["stride"],
+        op.attributes["padding"],
+        op.attributes["dilation"],
+        op.attributes["ceil_mode"],
+        op.results[0].type.element_type,
+    )
     n, h_out, w_out, c = result_nhwc.shape
     return result_nhwc.reshape(1, 1, n * h_out * w_out, c)
 
@@ -8264,12 +8400,16 @@ def chisel_ttnn_avg_pool2d(op, inputs, asm_state):
     channels = unpack_mlir_attr(op.attributes["channels"])
     nhwc = input_tensor.reshape(batch_size, input_height, input_width, channels)
     count_include_pad_attr = _attr_get(op.attributes, "count_include_pad")
-    result_nhwc = avg_pool2d_golden(nhwc,
+    result_nhwc = avg_pool2d_golden(
+        nhwc,
         kernel=unpack_mlir_attr(op.attributes["kernel_size"]),
         stride=unpack_mlir_attr(op.attributes["stride"]),
         padding=unpack_mlir_attr(op.attributes["padding"]),
         ceil_mode=unpack_mlir_attr(op.attributes["ceil_mode"]),
-        count_include_pad=unpack_mlir_attr(count_include_pad_attr) if count_include_pad_attr is not None else True)
+        count_include_pad=unpack_mlir_attr(count_include_pad_attr)
+        if count_include_pad_attr is not None
+        else True,
+    )
     n, h_out, w_out, c = result_nhwc.shape
     return result_nhwc.reshape(1, 1, n * h_out * w_out, c)
 
@@ -8288,7 +8428,15 @@ def chisel_ttnn_max_pool2d_with_indices(op, inputs, asm_state):
     padding = unpack_mlir_attr(op.attributes["padding"])
     if len(padding) == 2:
         padding = [padding[0], padding[1], padding[0], padding[1]]
-    result = ttir_max_pool2d_with_indices(nhwc, op.attributes["kernel_size"], op.attributes["stride"], padding, op.attributes["dilation"], op.attributes["ceil_mode"], op.results[0].type.element_type)
+    result = ttir_max_pool2d_with_indices(
+        nhwc,
+        op.attributes["kernel_size"],
+        op.attributes["stride"],
+        padding,
+        op.attributes["dilation"],
+        op.attributes["ceil_mode"],
+        op.results[0].type.element_type,
+    )
     result_nhwc = result[0] if isinstance(result, (tuple, list)) else result
     n, h_out, w_out, c = result_nhwc.shape
     return result_nhwc.reshape(1, 1, n * h_out * w_out, c)
@@ -8299,7 +8447,9 @@ def chisel_ttnn_conv2d(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     weight = inputs[op.operands[1].get_name(asm_state)]
     # 4 operands = input+weight+bias+device, 3 = input+weight+device
-    bias = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 3 else None
+    bias = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 3 else None
+    )
     # TTNN conv2d receives a flat [1, 1, batch*H*W, C] input tensor and produces
     # a flat [1, 1, batch*H_out*W_out, C_out] output.  Un-flatten to NHWC, run
     # the conv2d golden, then re-flatten the output to match the TTNN result type.
@@ -8308,10 +8458,19 @@ def chisel_ttnn_conv2d(op, inputs, asm_state):
     input_width = unpack_mlir_attr(op.attributes["input_width"])
     in_channels = unpack_mlir_attr(op.attributes["in_channels"])
     nhwc = input_tensor.reshape(batch_size, input_height, input_width, in_channels)
-    result_nhwc = conv2d_golden(nhwc, weight, bias,
-        stride=op.attributes["stride"], padding=op.attributes["padding"],
-        dilation=op.attributes["dilation"], groups=op.attributes["groups"],
-        batch_dim=0, height_dim=1, width_dim=2, channel_dim=3)
+    result_nhwc = conv2d_golden(
+        nhwc,
+        weight,
+        bias,
+        stride=op.attributes["stride"],
+        padding=op.attributes["padding"],
+        dilation=op.attributes["dilation"],
+        groups=op.attributes["groups"],
+        batch_dim=0,
+        height_dim=1,
+        width_dim=2,
+        channel_dim=3,
+    )
     n, h_out, w_out, c_out = result_nhwc.shape
     return result_nhwc.reshape(1, 1, n * h_out * w_out, c_out)
 
@@ -8319,7 +8478,9 @@ def chisel_ttnn_conv2d(op, inputs, asm_state):
 def chisel_ttnn_conv3d(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     weight = inputs[op.operands[1].get_name(asm_state)]
-    bias = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 3 else None
+    bias = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 3 else None
+    )
     # TTNN conv3d receives a flat [1, 1, batch*D*H*W, C] tensor; unflatten to NDHWC.
     batch_size = unpack_mlir_attr(op.attributes["batch_size"])
     input_depth = unpack_mlir_attr(op.attributes["input_depth"])
@@ -8328,15 +8489,30 @@ def chisel_ttnn_conv3d(op, inputs, asm_state):
     in_channels = unpack_mlir_attr(op.attributes["in_channels"])
     out_channels = unpack_mlir_attr(op.attributes["out_channels"])
     kernel_size = unpack_mlir_attr(op.attributes["kernel_size"])
-    input_ndhwc = input_tensor.reshape(batch_size, input_depth, input_height, input_width, in_channels)
+    input_ndhwc = input_tensor.reshape(
+        batch_size, input_depth, input_height, input_width, in_channels
+    )
     # TTNN weight is [K_D*K_H*K_W*C_in, C_out]; reshape to [C_out, C_in, K_D, K_H, K_W].
     kd, kh, kw = kernel_size
-    weight_ncdhw = weight.transpose(0, 1).reshape(out_channels, kd, kh, kw, in_channels).permute(0, 4, 1, 2, 3)
-    result_ndhwc = conv3d_golden(input_ndhwc, weight_ncdhw, bias,
-        stride=op.attributes["stride"], padding=op.attributes["padding"],
+    weight_ncdhw = (
+        weight.transpose(0, 1)
+        .reshape(out_channels, kd, kh, kw, in_channels)
+        .permute(0, 4, 1, 2, 3)
+    )
+    result_ndhwc = conv3d_golden(
+        input_ndhwc,
+        weight_ncdhw,
+        bias,
+        stride=op.attributes["stride"],
+        padding=op.attributes["padding"],
         groups=op.attributes["groups"],
-        batch_dim=0, depth_dim=1, height_dim=2, width_dim=3, channel_dim=4,
-        padding_mode=op.attributes["padding_mode"])
+        batch_dim=0,
+        depth_dim=1,
+        height_dim=2,
+        width_dim=3,
+        channel_dim=4,
+        padding_mode=op.attributes["padding_mode"],
+    )
     # TTNN result type is NDHWC (not flat), so return as-is.
     return result_ndhwc
 
@@ -8344,7 +8520,9 @@ def chisel_ttnn_conv3d(op, inputs, asm_state):
 def chisel_ttnn_conv_transpose2d(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     weight = inputs[op.operands[1].get_name(asm_state)]
-    bias = inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 3 else None
+    bias = (
+        inputs.get(op.operands[2].get_name(asm_state)) if len(op.operands) > 3 else None
+    )
     # TTNN conv_transpose2d receives a flat [1, 1, batch*H*W, C] input tensor and
     # produces a flat [1, 1, batch*H_out*W_out, C_out] output.  Un-flatten to NHWC,
     # run the conv_transpose2d golden, then re-flatten to match the TTNN result type.
@@ -8357,11 +8535,20 @@ def chisel_ttnn_conv_transpose2d(op, inputs, asm_state):
     nhwc = input_tensor.reshape(batch_size, input_height, input_width, in_channels)
     # TTNN weight is [1,1,C_in*kH*kW,C_out] (prepared format); reverse to IOHW [C_in,C_out,kH,kW].
     weight_iohw = weight.reshape(in_channels, kh, kw, out_channels).permute(0, 3, 1, 2)
-    result_nhwc = conv_transpose2d_golden(nhwc, weight_iohw, bias,
-        stride=op.attributes["stride"], padding=op.attributes["padding"],
-        output_padding=op.attributes["output_padding"], dilation=op.attributes["dilation"],
+    result_nhwc = conv_transpose2d_golden(
+        nhwc,
+        weight_iohw,
+        bias,
+        stride=op.attributes["stride"],
+        padding=op.attributes["padding"],
+        output_padding=op.attributes["output_padding"],
+        dilation=op.attributes["dilation"],
         groups=op.attributes["groups"],
-        batch_dim=0, height_dim=1, width_dim=2, channel_dim=3)
+        batch_dim=0,
+        height_dim=1,
+        width_dim=2,
+        channel_dim=3,
+    )
     n, h_out, w_out, c_out = result_nhwc.shape
     return result_nhwc.reshape(1, 1, n * h_out * w_out, c_out)
 
@@ -8408,21 +8595,54 @@ def chisel_ttnn_batch_norm_inference(op, inputs, asm_state):
     # ttir_batch_norm_inference_golden(input, scale, offset, mean, variance, epsilon, dimension, output_type)
     # scale=weight(gamma), offset=bias, mean=running_mean, variance=running_var
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    running_mean = inputs[op.operands[1].get_name(asm_state)] if len(op.operands) > 1 else None
-    running_var = inputs[op.operands[2].get_name(asm_state)] if len(op.operands) > 2 else None
-    weight = inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
+    running_mean = (
+        inputs[op.operands[1].get_name(asm_state)] if len(op.operands) > 1 else None
+    )
+    running_var = (
+        inputs[op.operands[2].get_name(asm_state)] if len(op.operands) > 2 else None
+    )
+    weight = (
+        inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
+    )
     bias = inputs[op.operands[4].get_name(asm_state)] if len(op.operands) > 4 else None
-    return ttir_batch_norm_inference_golden(input_tensor, weight, bias, running_mean, running_var, op.attributes["epsilon"], 1, op.results[0].type.element_type)
+    return ttir_batch_norm_inference_golden(
+        input_tensor,
+        weight,
+        bias,
+        running_mean,
+        running_var,
+        op.attributes["epsilon"],
+        1,
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_batch_norm_training(op, inputs, asm_state):
     # Returns 3 results — return only output (index 0)
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    running_mean = inputs[op.operands[1].get_name(asm_state)] if len(op.operands) > 1 else None
-    running_var = inputs[op.operands[2].get_name(asm_state)] if len(op.operands) > 2 else None
-    weight = inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
+    running_mean = (
+        inputs[op.operands[1].get_name(asm_state)] if len(op.operands) > 1 else None
+    )
+    running_var = (
+        inputs[op.operands[2].get_name(asm_state)] if len(op.operands) > 2 else None
+    )
+    weight = (
+        inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
+    )
     bias = inputs[op.operands[4].get_name(asm_state)] if len(op.operands) > 4 else None
-    result = ttir_batch_norm_training_golden(input_tensor, weight, bias, running_mean, running_var, op.attributes["epsilon"], 1, op.attributes["momentum"], op.results[0].type.element_type, op.results[0].type.element_type, op.results[0].type.element_type)
+    result = ttir_batch_norm_training_golden(
+        input_tensor,
+        weight,
+        bias,
+        running_mean,
+        running_var,
+        op.attributes["epsilon"],
+        1,
+        op.attributes["momentum"],
+        op.results[0].type.element_type,
+        op.results[0].type.element_type,
+        op.results[0].type.element_type,
+    )
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
@@ -8430,18 +8650,35 @@ def chisel_ttnn_distributed_rms_norm(op, inputs, asm_state):
     # operands: input, weight(opt), residual(opt), stats(opt), device — skip device
     segs = list(op.attributes["operand_segment_sizes"])
     idx = 0
-    input_tensor = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[0]
-    weight = inputs[op.operands[idx].get_name(asm_state)] if segs[1] else None; idx += segs[1]
-    residual = inputs[op.operands[idx].get_name(asm_state)] if segs[2] else None; idx += segs[2]
+    input_tensor = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[0]
+    weight = inputs[op.operands[idx].get_name(asm_state)] if segs[1] else None
+    idx += segs[1]
+    residual = inputs[op.operands[idx].get_name(asm_state)] if segs[2] else None
+    idx += segs[2]
     # segs[3]=stats (unused in golden), segs[4]=device (skip)
-    return ttir_distributed_rms_norm_golden(input_tensor, weight, residual, op.attributes["cluster_axis"], op.attributes["epsilon"], op.results[0].type.element_type)
+    return ttir_distributed_rms_norm_golden(
+        input_tensor,
+        weight,
+        residual,
+        op.attributes["cluster_axis"],
+        op.attributes["epsilon"],
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_scatter(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     index = inputs[op.operands[1].get_name(asm_state)]
     source = inputs[op.operands[2].get_name(asm_state)]
-    return ttir_scatter_golden(input_tensor, index, source, op.attributes["dim"], op.attributes["scatter_reduce_type"], op.results[0].type.element_type)
+    return ttir_scatter_golden(
+        input_tensor,
+        index,
+        source,
+        op.attributes["dim"],
+        op.attributes["scatter_reduce_type"],
+        op.results[0].type.element_type,
+    )
 
 
 # Batch F — SDPA / Attention ops (AttrSizedOperandSegments)
@@ -8450,45 +8687,90 @@ def chisel_ttnn_scatter(op, inputs, asm_state):
 def chisel_ttnn_scaled_dot_product_attention(op, inputs, asm_state):
     segs = list(op.attributes["operand_segment_sizes"])
     idx = 0
-    query = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[0]
-    key = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[1]
-    value = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[2]
-    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[3] else None; idx += segs[3]
+    query = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[0]
+    key = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[1]
+    value = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[2]
+    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[3] else None
+    idx += segs[3]
     attention_sink = inputs[op.operands[idx].get_name(asm_state)] if segs[4] else None
-    return ttir_sdpa_golden(query, key, value, attention_mask, _attr_get(op.attributes, "is_causal"), _attr_get(op.attributes, "scale"), op.results[0].type.element_type)
+    return ttir_sdpa_golden(
+        query,
+        key,
+        value,
+        attention_mask,
+        _attr_get(op.attributes, "is_causal"),
+        _attr_get(op.attributes, "scale"),
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_scaled_dot_product_attention_decode(op, inputs, asm_state):
     segs = list(op.attributes["operand_segment_sizes"])
     idx = 0
-    query = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[0]
-    key = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[1]
-    value = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[2]
-    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[3] else None; idx += segs[3]
-    cur_pos_tensor = inputs[op.operands[idx].get_name(asm_state)] if segs[4] else None; idx += segs[4]
+    query = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[0]
+    key = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[1]
+    value = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[2]
+    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[3] else None
+    idx += segs[3]
+    cur_pos_tensor = inputs[op.operands[idx].get_name(asm_state)] if segs[4] else None
+    idx += segs[4]
     attention_sink = inputs[op.operands[idx].get_name(asm_state)] if segs[5] else None
-    is_causal = unpack_mlir_attr(_attr_get(op.attributes, "is_causal")) if _attr_get(op.attributes, "is_causal") is not None else True
-    scale = unpack_mlir_attr(_attr_get(op.attributes, "scale")) if _attr_get(op.attributes, "scale") is not None else None
-    return sdpa_decode_golden(query, key, value, cur_pos_tensor=cur_pos_tensor, attention_mask=attention_mask, is_causal=is_causal, scale=scale)
+    is_causal = (
+        unpack_mlir_attr(_attr_get(op.attributes, "is_causal"))
+        if _attr_get(op.attributes, "is_causal") is not None
+        else True
+    )
+    scale = (
+        unpack_mlir_attr(_attr_get(op.attributes, "scale"))
+        if _attr_get(op.attributes, "scale") is not None
+        else None
+    )
+    return sdpa_decode_golden(
+        query,
+        key,
+        value,
+        cur_pos_tensor=cur_pos_tensor,
+        attention_mask=attention_mask,
+        is_causal=is_causal,
+        scale=scale,
+    )
 
 
 def chisel_ttnn_paged_scaled_dot_product_attention_decode(op, inputs, asm_state):
     segs = list(op.attributes["operand_segment_sizes"])
     idx = 0
-    query = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[0]
-    key = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[1]
-    value = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[2]
-    page_table = inputs[op.operands[idx].get_name(asm_state)]; idx += segs[3]
-    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[4] else None; idx += segs[4]
-    cur_pos_tensor = inputs[op.operands[idx].get_name(asm_state)] if segs[5] else None; idx += segs[5]
+    query = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[0]
+    key = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[1]
+    value = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[2]
+    page_table = inputs[op.operands[idx].get_name(asm_state)]
+    idx += segs[3]
+    attention_mask = inputs[op.operands[idx].get_name(asm_state)] if segs[4] else None
+    idx += segs[4]
+    cur_pos_tensor = inputs[op.operands[idx].get_name(asm_state)] if segs[5] else None
+    idx += segs[5]
     attention_sink = inputs[op.operands[idx].get_name(asm_state)] if segs[6] else None
     return ttir_paged_sdpa_decode_golden(
-        query, key, value, page_table, None,
+        query,
+        key,
+        value,
+        page_table,
+        None,
         _attr_get(op.attributes, "is_causal"),
-        attention_mask=attention_mask, cur_pos_tensor=cur_pos_tensor,
+        attention_mask=attention_mask,
+        cur_pos_tensor=cur_pos_tensor,
         attention_sink=attention_sink,
         scale_attr=_attr_get(op.attributes, "scale"),
-        output_type_mlir=op.results[0].type.element_type)
+        output_type_mlir=op.results[0].type.element_type,
+    )
 
 
 # Batch G — Cache ops (inplace)
@@ -8504,7 +8786,13 @@ def chisel_ttnn_update_cache(op, inputs, asm_state):
     cache = inputs[op.operands[0].get_name(asm_state)]
     input_tensor = inputs[op.operands[1].get_name(asm_state)]
     update_index = inputs[op.operands[2].get_name(asm_state)]
-    return update_cache_golden(cache, input_tensor, update_index, batch_offset=op.attributes["batch_offset"], output_type_mlir=op.results[0].type.element_type)
+    return update_cache_golden(
+        cache,
+        input_tensor,
+        update_index,
+        batch_offset=op.attributes["batch_offset"],
+        output_type_mlir=op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_paged_fill_cache(op, inputs, asm_state):
@@ -8513,8 +8801,16 @@ def chisel_ttnn_paged_fill_cache(op, inputs, asm_state):
         return cache.clone()
     input_tensor = inputs[op.operands[1].get_name(asm_state)]
     page_table = inputs[op.operands[2].get_name(asm_state)]
-    batch_idx = inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
-    return ttir_paged_fill_cache_golden(cache, input_tensor, page_table, batch_idx_tensor=batch_idx, output_type_mlir=op.results[0].type.element_type)
+    batch_idx = (
+        inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
+    )
+    return ttir_paged_fill_cache_golden(
+        cache,
+        input_tensor,
+        page_table,
+        batch_idx_tensor=batch_idx,
+        output_type_mlir=op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_paged_update_cache(op, inputs, asm_state):
@@ -8523,9 +8819,20 @@ def chisel_ttnn_paged_update_cache(op, inputs, asm_state):
         return cache.clone()
     input_tensor = inputs[op.operands[1].get_name(asm_state)]
     update_index = inputs[op.operands[2].get_name(asm_state)]
-    page_table = inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
-    share_cache = op.attributes["share_cache"] if "share_cache" in op.attributes else False
-    return ttir_paged_update_cache_golden(cache, input_tensor, update_index, share_cache, page_table_tensor=page_table, output_type_mlir=op.results[0].type.element_type)
+    page_table = (
+        inputs[op.operands[3].get_name(asm_state)] if len(op.operands) > 3 else None
+    )
+    share_cache = (
+        op.attributes["share_cache"] if "share_cache" in op.attributes else False
+    )
+    return ttir_paged_update_cache_golden(
+        cache,
+        input_tensor,
+        update_index,
+        share_cache,
+        page_table_tensor=page_table,
+        output_type_mlir=op.results[0].type.element_type,
+    )
 
 
 # Batch H — CCL ops
@@ -8533,14 +8840,25 @@ def chisel_ttnn_paged_update_cache(op, inputs, asm_state):
 
 def chisel_ttnn_all_reduce(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    return ttir_all_reduce_golden(input_tensor, op.attributes["reduce_type"], op.attributes["cluster_axis"], op.results[0].type.element_type)
+    return ttir_all_reduce_golden(
+        input_tensor,
+        op.attributes["reduce_type"],
+        op.attributes["cluster_axis"],
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_all_to_all_dispatch(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     expert_indices = inputs[op.operands[1].get_name(asm_state)]
     expert_mapping = inputs[op.operands[2].get_name(asm_state)]
-    result = all_to_all_dispatch_golden(input_tensor, expert_indices, expert_mapping, num_devices=unpack_mlir_attr(op.attributes["num_devices"]), cluster_axis=unpack_mlir_attr(op.attributes["cluster_axis"]))
+    result = all_to_all_dispatch_golden(
+        input_tensor,
+        expert_indices,
+        expert_mapping,
+        num_devices=unpack_mlir_attr(op.attributes["num_devices"]),
+        cluster_axis=unpack_mlir_attr(op.attributes["cluster_axis"]),
+    )
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
@@ -8548,7 +8866,14 @@ def chisel_ttnn_all_to_all_combine(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     expert_metadata = inputs[op.operands[1].get_name(asm_state)]
     expert_mapping = inputs[op.operands[2].get_name(asm_state)]
-    return all_to_all_combine_golden(input_tensor, expert_metadata, expert_mapping, num_devices=unpack_mlir_attr(op.attributes["num_devices"]), cluster_axis=unpack_mlir_attr(op.attributes["cluster_axis"]), num_experts_per_tok=unpack_mlir_attr(op.attributes["num_experts_per_tok"]))
+    return all_to_all_combine_golden(
+        input_tensor,
+        expert_metadata,
+        expert_mapping,
+        num_devices=unpack_mlir_attr(op.attributes["num_devices"]),
+        cluster_axis=unpack_mlir_attr(op.attributes["cluster_axis"]),
+        num_experts_per_tok=unpack_mlir_attr(op.attributes["num_experts_per_tok"]),
+    )
 
 
 def chisel_ttnn_mesh_shard(op, inputs, asm_state):
@@ -8567,7 +8892,12 @@ def chisel_ttnn_quantize(op, inputs, asm_state):
     scale_tensor = inputs[op.operands[1].get_name(asm_state)]
     zero_point_tensor = inputs[op.operands[2].get_name(asm_state)]
     output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
-    return quantize_golden(input_tensor, float(scale_tensor.view(-1)[0]), int(zero_point_tensor.view(-1)[0]), output_dtype)
+    return quantize_golden(
+        input_tensor,
+        float(scale_tensor.view(-1)[0]),
+        int(zero_point_tensor.view(-1)[0]),
+        output_dtype,
+    )
 
 
 def chisel_ttnn_dequantize(op, inputs, asm_state):
@@ -8575,7 +8905,9 @@ def chisel_ttnn_dequantize(op, inputs, asm_state):
     scale_tensor = inputs[op.operands[1].get_name(asm_state)]
     zero_point_tensor = inputs[op.operands[2].get_name(asm_state)]
     output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
-    return ((input_tensor.float() - zero_point_tensor.float()) * scale_tensor.float()).to(output_dtype)
+    return (
+        (input_tensor.float() - zero_point_tensor.float()) * scale_tensor.float()
+    ).to(output_dtype)
 
 
 def chisel_ttnn_requantize(op, inputs, asm_state):
@@ -8586,7 +8918,9 @@ def chisel_ttnn_requantize(op, inputs, asm_state):
     out_zero_point = inputs[op.operands[4].get_name(asm_state)]
     output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
     dequantized = (input_tensor.float() - in_zero_point.float()) * in_scale.float()
-    requantized = torch.clamp(torch.round(dequantized / out_scale.float()) + out_zero_point.float(), -128, 127)
+    requantized = torch.clamp(
+        torch.round(dequantized / out_scale.float()) + out_zero_point.float(), -128, 127
+    )
     return requantized.to(output_dtype)
 
 
@@ -8598,7 +8932,9 @@ def chisel_ttnn_nlp_concat_heads(op, inputs, asm_state):
 
 
 def chisel_ttnn_nlp_concat_heads_decode(op, inputs, asm_state):
-    raise NotImplementedError("chisel_ttnn_nlp_concat_heads_decode: no golden function exists")
+    raise NotImplementedError(
+        "chisel_ttnn_nlp_concat_heads_decode: no golden function exists"
+    )
 
 
 def chisel_ttnn_concatenate_heads(op, inputs, asm_state):
@@ -8608,12 +8944,19 @@ def chisel_ttnn_concatenate_heads(op, inputs, asm_state):
 
 def chisel_ttnn_split_query_key_value_and_split_heads(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    kv_input = inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
+    kv_input = (
+        inputs.get(op.operands[1].get_name(asm_state)) if len(op.operands) > 1 else None
+    )
     result = ttir_split_query_key_value_and_split_heads_golden(
-        input_tensor, kv_input,
-        op.attributes["num_heads"], _attr_get(op.attributes, "num_kv_heads"),
+        input_tensor,
+        kv_input,
+        op.attributes["num_heads"],
+        _attr_get(op.attributes, "num_kv_heads"),
         op.attributes["transpose_key"],
-        op.results[0].type.element_type, op.results[1].type.element_type, op.results[2].type.element_type)
+        op.results[0].type.element_type,
+        op.results[1].type.element_type,
+        op.results[2].type.element_type,
+    )
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
@@ -8621,7 +8964,14 @@ def chisel_ttnn_topk_router_gpt(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
     weight = inputs[op.operands[1].get_name(asm_state)]
     bias = inputs[op.operands[2].get_name(asm_state)]
-    result = ttir_topk_router_gpt_golden(input_tensor, weight, bias, op.attributes["k"], op.attributes["num_experts"], op.results[0].type.element_type)
+    result = ttir_topk_router_gpt_golden(
+        input_tensor,
+        weight,
+        bias,
+        op.attributes["k"],
+        op.attributes["num_experts"],
+        op.results[0].type.element_type,
+    )
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
@@ -8629,7 +8979,12 @@ def chisel_ttnn_moe_expert_token_remap(op, inputs, asm_state):
     topk = inputs[op.operands[0].get_name(asm_state)]
     expert_mapping = inputs[op.operands[1].get_name(asm_state)]
     expert_metadata = inputs[op.operands[2].get_name(asm_state)]
-    result = moe_expert_token_remap_golden(topk, expert_mapping, expert_metadata, reduction_size=unpack_mlir_attr(op.attributes["reduction_size"]))
+    result = moe_expert_token_remap_golden(
+        topk,
+        expert_mapping,
+        expert_metadata,
+        reduction_size=unpack_mlir_attr(op.attributes["reduction_size"]),
+    )
     return result[0] if isinstance(result, (tuple, list)) else result
 
 
@@ -8638,10 +8993,14 @@ def chisel_ttnn_sparse_matmul(op, inputs, asm_state):
     b = inputs[op.operands[1].get_name(asm_state)]
     sparsity = inputs[op.operands[2].get_name(asm_state)]
     nnz_attr = _attr_get(op.attributes, "nnz")
-    return sparse_matmul_golden(a, b, sparsity,
+    return sparse_matmul_golden(
+        a,
+        b,
+        sparsity,
         is_input_a_sparse=unpack_mlir_attr(op.attributes["is_input_a_sparse"]),
         is_input_b_sparse=unpack_mlir_attr(op.attributes["is_input_b_sparse"]),
-        nnz=unpack_mlir_attr(nnz_attr) if nnz_attr is not None else None)
+        nnz=unpack_mlir_attr(nnz_attr) if nnz_attr is not None else None,
+    )
 
 
 # Batch K — Upsample, PowScalar, Bitcast
@@ -8661,8 +9020,12 @@ def chisel_ttnn_upsample(op, inputs, asm_state):
     output_size = (int(h_in * scale_h), int(w_in * scale_w))
     # align_corners=False matches the default TTNN upsample behaviour.
     align_corners = False if mode in ("bilinear", "bicubic", "linear") else None
-    interp_kwargs = {"align_corners": align_corners} if align_corners is not None else {}
-    result_nchw = torch.nn.functional.interpolate(nchw, size=output_size, mode=mode, **interp_kwargs)
+    interp_kwargs = (
+        {"align_corners": align_corners} if align_corners is not None else {}
+    )
+    result_nchw = torch.nn.functional.interpolate(
+        nchw, size=output_size, mode=mode, **interp_kwargs
+    )
     # Convert back to NHWC and original dtype.
     return result_nchw.permute(0, 2, 3, 1).to(input_tensor.dtype)
 
@@ -8675,7 +9038,9 @@ def chisel_ttnn_pow_scalar(op, inputs, asm_state):
 
 
 def chisel_ttnn_bitcast_convert(op, inputs, asm_state):
-    raise NotImplementedError("chisel_ttnn_bitcast_convert: view-based bitcast not straightforward for GoldenMapTensor")
+    raise NotImplementedError(
+        "chisel_ttnn_bitcast_convert: view-based bitcast not straightforward for GoldenMapTensor"
+    )
 
 
 # Tensor creation ops
@@ -8736,22 +9101,33 @@ def chisel_ttnn_constant(op, inputs, asm_state):
 
 def chisel_ttnn_full(op, inputs, asm_state):
     shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
-    return ttir_full_golden(shape, op.attributes["fill_value"], _chisel_mesh_shape_from_op(op), op.results[0].type.element_type)
+    return ttir_full_golden(
+        shape,
+        op.attributes["fill_value"],
+        _chisel_mesh_shape_from_op(op),
+        op.results[0].type.element_type,
+    )
 
 
 def chisel_ttnn_ones(op, inputs, asm_state):
     shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
-    return ttir_ones_golden(shape, _chisel_mesh_shape_from_op(op), op.results[0].type.element_type)
+    return ttir_ones_golden(
+        shape, _chisel_mesh_shape_from_op(op), op.results[0].type.element_type
+    )
 
 
 def chisel_ttnn_zeros(op, inputs, asm_state):
     shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
-    return ttir_zeros_golden(shape, _chisel_mesh_shape_from_op(op), op.results[0].type.element_type)
+    return ttir_zeros_golden(
+        shape, _chisel_mesh_shape_from_op(op), op.results[0].type.element_type
+    )
 
 
 def chisel_ttnn_empty(op, inputs, asm_state):
     shape = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["shape"]).shape
-    return ttir_zeros_golden(shape, _chisel_mesh_shape_from_op(op), op.results[0].type.element_type)
+    return ttir_zeros_golden(
+        shape, _chisel_mesh_shape_from_op(op), op.results[0].type.element_type
+    )
 
 
 def chisel_ttnn_dump_tensor(op, inputs, asm_state):
@@ -8760,7 +9136,14 @@ def chisel_ttnn_dump_tensor(op, inputs, asm_state):
 
 def chisel_ttnn_rand(op, inputs, asm_state):
     size = ttnn.ir.ShapeAttr.maybe_downcast(op.attributes["size"]).shape
-    return ttir_rand_golden(size, op.attributes["low"], op.attributes["high"], op.attributes["seed"], _chisel_mesh_shape_from_op(op), op.results[0].type.element_type)
+    return ttir_rand_golden(
+        size,
+        op.attributes["low"],
+        op.attributes["high"],
+        op.attributes["seed"],
+        _chisel_mesh_shape_from_op(op),
+        op.results[0].type.element_type,
+    )
 
 
 CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {

@@ -270,4 +270,3 @@ execution. One potential problem does wheel works with it?
 - `tools/golden/mapping.py` — `GOLDEN_MAPPINGS` and `get_golden_function()`
 - `tools/builder/base/builder_runtime.py` — builder's golden callback and `CallbackRuntimeConfig`
 - `tools/builder/base/builder.py` — compile-time golden computation via `golden_map`
-

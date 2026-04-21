@@ -15,7 +15,11 @@ from ttrt.common.api import API
 from ttrt.common.util import Logger as RtLogger
 from ttrt.common.util import Artifacts as RtArtifacts
 
-from chisel.callbacks import chisel_post_op_callback, chisel_pre_op_callback, with_pytest_subtests
+from chisel.callbacks import (
+    chisel_post_op_callback,
+    chisel_pre_op_callback,
+    with_pytest_subtests,
+)
 from chisel.context import ChiselContext
 
 logging.basicConfig(level=logging.DEBUG)

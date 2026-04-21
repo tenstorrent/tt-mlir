@@ -14,7 +14,7 @@ The scope of this project is to create a tool needed to debug numerical stabilit
 1.3 Non-goals
 1.3.1 Compile-time debugging support
 Currently, we won’t be relying on CPU hoisting, where we would add parallel CPU execution as well as golden comparison in the MLIR graph.
-  
+
 
 1.3.2 Multi-turn error accumulation
 Debugging of errors that accumulate through multiple graph executions, or multiple minibatch iterations.
@@ -25,7 +25,7 @@ Section 2 - Proposed Solution
 We need multiple levels of debugging:
 Level 1 that works in standard runtime through current frontends (ffe, tt-xla, tt-torch…) that does not add too much overhead, so we can run it in parallel with model training/inference.
 It is used to find pcc errors on graph outputs.
-Level 2 is used when we notice errors in PCC in level 1 and want finer debugging. For this, we will use standalone ttrt. 
+Level 2 is used when we notice errors in PCC in level 1 and want finer debugging. For this, we will use standalone ttrt.
 2.1.1 Level 1 - Unified frontends with simple graph output comparisons
 As a first level of debugging, we propose ModelDebugger, a tool designed to validate and compare multiple model implementations across different frameworks. It entails basic debugging and verification across the forward, backward, and optimization stages of model execution.
 
@@ -72,8 +72,8 @@ PCC value on OP 3 would be an actual PCC value of that op in vacuum and not the 
 
 2.2.2. Accumulation Error
 
-In this case we have bad output pcc due to small accumulation errors that occur within the model. 
-Here, we could use a strategy where we single out every single OP in a similar fashion to the previous approach. Afterwards, we can determine statistics (mean, max, z-value…) for different OP categories. 
+In this case we have bad output pcc due to small accumulation errors that occur within the model.
+Here, we could use a strategy where we single out every single OP in a similar fashion to the previous approach. Afterwards, we can determine statistics (mean, max, z-value…) for different OP categories.
 OP categories could just be a differentiation between OP types (add, matmul…), or OP type + config (layout, fidelity, dtype…). We could then swap out the outputs of these OPs with golden outputs and re-verify the model.
 
 
@@ -81,12 +81,12 @@ Section 3 - Technical Details
 3.1 CPU Eval
 For the cpu eval we would want to use the TTIRBuilder. It has mapping from TTIR ops to torch ops that we need for this. What is left is to adapt TTIRBuilder not to execute the TTIR op as we are already in the graph and we don't need that functionality. This needs further verification with mlir tooling team. Also we need to adapt TTIRBuilder to execute ops on the fly as we need it to have the ability to propagate different types of inputs.
 3.2 TTRT Pre-Op and Post-Op Callbacks Description and Purpose
-Currently there is a callback in ttrt --debug that is executed after the op. To support parallel flow and cpu-propagation, we need the callback before op calling in case there are some in-place ops so we can save inputs into the op. 
+Currently there is a callback in ttrt --debug that is executed after the op. To support parallel flow and cpu-propagation, we need the callback before op calling in case there are some in-place ops so we can save inputs into the op.
 Currently there is an issue for this feature request 2594.
 
 3.3 TT-Explorer
 
-All of the proposed functionalities can be visualized through tt-explorer. 
+All of the proposed functionalities can be visualized through tt-explorer.
 Currently there is support to visualize pcc errors. It is left to be seen in what exact ways different strategies and debugging flows can be visualized. This needs further verification with mlir tooling team.
 
 3.4 Project Structure
@@ -122,7 +122,7 @@ Points to the dump dir specified in ModelDebugger
 --output-dir
 Specifies the directory where the results will be stored
 --debugging-mode
-For now, we propose having 
+For now, we propose having
 [“bad_op”, “accumulation”] described in section 2.2
 --run-explorer
 Starts tt-explorer and visualizes the results
@@ -138,6 +138,5 @@ The output of the tool could be a list of all problematic OPs in a graph, along 
 
 4.2 OP Patterns
 
-Potentially, certain patterns of numerically sensitive OPs could produce accumulated errors, and finding those problematic patterns is a topic for further discussion. 
+Potentially, certain patterns of numerically sensitive OPs could produce accumulated errors, and finding those problematic patterns is a topic for further discussion.
 We could imagine a scenario where having patterns of OPs can have troublesome effects. For example, imagine that we have a pattern of matmul -> exp. Exp is a highly sensitive OP, and repeating this pattern would probably cause issues. It would be useful to have the tool automatically detect problems that occur because of that.
-

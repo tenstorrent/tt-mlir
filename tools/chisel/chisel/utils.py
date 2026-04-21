@@ -25,9 +25,7 @@ def retrieve_torch_tensor(program_context, tensor_ref) -> torch.Tensor:
     """Retrieve a tensor from the runtime pool and convert it to a PyTorch tensor."""
     from ttrt import runtime as tt_runtime
 
-    device_tensor = tt_runtime.retrieve_tensor_from_pool(
-        program_context, tensor_ref
-    )
+    device_tensor = tt_runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
     return get_torch_tensor(device_tensor)
 
 

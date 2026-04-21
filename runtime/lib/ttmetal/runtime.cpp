@@ -741,7 +741,7 @@ getOpOutputTensors(OpContext opContextHandle,
 
 std::vector<tt::runtime::TensorRef>
 getOpOutputRefs(OpContext opContextHandle,
-               CallbackContext programContextHandle) {
+                CallbackContext programContextHandle) {
   // Not implemented
   LOG_FATAL("Obtaining op output ref for metal runtime is not implemented");
   return {};
@@ -756,24 +756,20 @@ getOpInputRefs(OpContext opContextHandle,
   return {};
 }
 
-std::optional<Tensor>
-retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize) {
-  // Not implemented
+std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
+                                           TensorRef tensorRef, bool untilize) {
   LOG_FATAL(
       "Obtaining tensor from device for metal runtime is not implemented");
-  return std::nullopt;
+  return {};
 }
 
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor) {
-  // Not implemented
+                        TensorRef tensorRef, std::vector<Tensor> srcTensors) {
   LOG_FATAL("Updating tensor from device for metal runtime is not implemented");
 }
 
 size_t getProgramIndex(CallbackContext programContextHandle) {
-  LOG_FATAL(
-      "Obtaining program index for metal runtime is not implemented");
+  LOG_FATAL("Obtaining program index for metal runtime is not implemented");
   return 0;
 }
 

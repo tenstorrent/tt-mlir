@@ -43,8 +43,7 @@ class ChiselContext:
             mlir_json = json.loads(binary.get_mlir_as_json())
             mlir_source = mlir_json["source"]
             functions = [
-                binary.get_program_name(i)
-                for i in range(binary.get_num_programs())
+                binary.get_program_name(i) for i in range(binary.get_num_programs())
             ]
             self.ir_module = IRModule(mlir_source=mlir_source, functions=functions)
             self._current_program_index = None
@@ -52,7 +51,9 @@ class ChiselContext:
         if self._current_program_index != program_index:
             self._current_program_index = program_index
             self._current_program_name = binary.get_program_name(program_index)
-            self.op_iter = iter(self.ir_module.get_function_ops(self._current_program_name))
+            self.op_iter = iter(
+                self.ir_module.get_function_ops(self._current_program_name)
+            )
 
     @classmethod
     def get_instance(cls) -> "ChiselContext":

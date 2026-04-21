@@ -256,25 +256,26 @@ getOpOutputTensors(OpContext opContextHandle,
 // Returns references to the output tensor(s) of the operation.
 // Empty vector means no outputs (e.g. DeallocateOp).
 std::vector<tt::runtime::TensorRef>
-getOpOutputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
+getOpOutputRefs(OpContext opContextHandle,
+                CallbackContext programContextHandle);
 
 // Returns list of references to the input tensors of the operation
 // if the operation does not have any input tensors, returns empty vector
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
-// Returns tensor to which tensorRef refers
-// In case that that tensor is not in the tensor pool, returns std::nullopt
-// For now only supports single device tensors
-std::optional<Tensor>
-retrieveTensorFromPool(CallbackContext programContextHandle,
-                       tt::runtime::TensorRef tensorRef, bool untilize);
+// Returns per-device tensors to which tensorRef refers.
+// Supports multi-device tensors; returns one tensor per device.
+// Returns empty vector if tensor is not in the pool.
+std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
+                                           tt::runtime::TensorRef tensorRef,
+                                           bool untilize);
 
-// Update tensor to which tensorRef refers
+// Update tensor to which tensorRef refers. Accepts one tensor per device shard.
 // Preferred to be owned tensor to avoid unexpected behavior in case of
-// deallocation
+// deallocation.
 void updateTensorInPool(CallbackContext programContextHandle,
-                        TensorRef tensorRef, Tensor srcTensor);
+                        TensorRef tensorRef, std::vector<Tensor> srcTensors);
 
 size_t getProgramIndex(CallbackContext programContextHandle);
 
