@@ -159,17 +159,12 @@ class TTNNBuilder(Builder):
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
         with self._ctx, self._loc:
-            print("****")
-            print(operand, type(operand))
-            # print(self._get_type(operand), type(self._get_type(operand)))
-            # print(self._get_type(operand).encoding, type(self._get_type(operand).encoding))
             tensor_type = (
                 operand
                 if isinstance(operand, RankedTensorType)
                 else self._get_type(operand)
             )
             dtype = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor_type.encoding)
-            print("DTYPE", dtype, type(dtype))
             dtype = dtype.data_type_as_int
             return ttcore.ir.DataTypeAttr.get(self._ctx, dtype)
 
@@ -7679,8 +7674,9 @@ class TTNNBuilder(Builder):
 
         dtype = self._get_data_type_attribute(result)
         op_golden_function = get_golden_function(ttnn_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
         golden_output = op_golden_function(
-            shape_attr, fill_value_attr, mlir_output_type
+            shape_attr, fill_value_attr, mesh_shape_attr, mlir_output_type
         )
 
         if loc is None:
@@ -7731,8 +7727,9 @@ class TTNNBuilder(Builder):
         new_op_result = new_op.result
 
         op_golden_function = get_golden_function(ttnn_op)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
         golden_output = op_golden_function(
-            old_op.shape, old_op.fill_value, result.element_type
+            old_op.shape, old_op.fill_value, mesh_shape_attr, result.element_type
         )
         self._set_golden_tensor(new_op_result, golden_output)
 
@@ -7852,7 +7849,10 @@ class TTNNBuilder(Builder):
 
         dtype = self._get_data_type_attribute(result)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(value_attr, mlir_output_type)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            value_attr, mesh_shape_attr, mlir_output_type
+        )
 
         if loc is None:
             loc = self._get_location()
@@ -7900,7 +7900,10 @@ class TTNNBuilder(Builder):
         new_op_result = new_op.result
 
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(old_op.value, result.element_type)
+        mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+        golden_output = op_golden_function(
+            old_op.value, mesh_shape_attr, result.element_type
+        )
         self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}

@@ -6427,20 +6427,26 @@ def ttnn_repeat_interleave_golden(
 def ttnn_full_golden(
     shape_attr: Attribute,
     fill_value_attr: Union[IntegerAttr, FloatAttr],
+    mesh_shape_attr: DenseI32ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     shape = ttnn.ir.ShapeAttr.maybe_downcast(shape_attr).shape
     fill_value = unpack_mlir_attr(fill_value_attr)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    # ADD MESH SHAPE HANDLING
     tensor = torch.full(shape, fill_value).to(output_dtype)
-    return GoldenMapTensor({0: tensor}, mesh_shape=(1, 1))
+    return GoldenMapTensor(
+        {i: tensor.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttnn_constant_golden(
-    value_attr: DenseElementsAttr, output_type_mlir: Type
+    value_attr: DenseElementsAttr,
+    mesh_shape_attr: DenseI32ArrayAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     shape = list(value_attr.type.shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
     dtype = mlir_type_to_torch_dtype(value_attr.type.element_type)
 
     if value_attr.is_splat:
@@ -6475,8 +6481,9 @@ def ttnn_constant_golden(
             )
 
     result = torch_tensor.reshape(shape)
-    # ADD MESH SHAPE HANDLING *********
-    return GoldenMapTensor({0: torch_tensor}, mesh_shape=(1, 1))
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
 
 
 def ttnn_reshape_golden(
