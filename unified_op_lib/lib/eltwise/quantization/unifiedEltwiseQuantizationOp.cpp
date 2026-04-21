@@ -30,6 +30,9 @@ EltwiseQuantizationResolvedParams resolveEltwiseQuantizationParams(
   if (eltwiseQuantizationOpT.output_dtype.has_value()) {
     params.outputDataType = operations::utils::toTTNNDataType(
         eltwiseQuantizationOpT.output_dtype.value());
+  } else if (eltwiseQuantizationOpT.out) {
+    params.outputDataType =
+        operations::utils::getDataType(*eltwiseQuantizationOpT.out);
   }
 
   if (eltwiseQuantizationOpT.out) {
@@ -49,14 +52,10 @@ EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
     CallType callType,
     const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
     TensorArg inputParam, TensorVariantArg<float> scaleParam,
-    TensorVariantArg<int32_t> zeroPointParam, ::ttnn::MeshDevice *device,
-    std::optional<::tt::tt_metal::DataType> outputDType) {
+    TensorVariantArg<int32_t> zeroPointParam, ::ttnn::MeshDevice *device) {
 
   EltwiseQuantizationResolvedParams params =
       resolveEltwiseQuantizationParams(eltwiseQuantizationOpT, callType);
-  if (outputDType.has_value()) {
-    params.outputDataType = outputDType;
-  }
 
   std::function<::ttnn::Tensor(
       const ::ttnn::Tensor &, const std::variant<::ttnn::Tensor, float> &,
@@ -111,14 +110,11 @@ EltwiseQuantizationOpResult callEltwiseRequantize(
     TensorArg input_param, TensorVariantArg<float> in_scale_param,
     TensorVariantArg<int32_t> in_zero_point_param,
     TensorVariantArg<float> out_scale_param,
-    TensorVariantArg<int32_t> out_zero_point_param, ::ttnn::MeshDevice *device,
-    std::optional<::tt::tt_metal::DataType> outputDType) {
+    TensorVariantArg<int32_t> out_zero_point_param,
+    ::ttnn::MeshDevice *device) {
 
   EltwiseQuantizationResolvedParams params =
       resolveEltwiseQuantizationParams(eltwiseQuantizationOpT, callType);
-  if (outputDType.has_value()) {
-    params.outputDataType = outputDType;
-  }
 
   LOG_ASSERT(eltwiseQuantizationOpT.type ==
                  ::tt::target::ttnn::EltwiseQuantizationOpType::Requantize &&

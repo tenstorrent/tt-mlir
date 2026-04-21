@@ -45,6 +45,8 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
   if (conv2dOpT.output_dtype.has_value()) {
     params.outputDtype =
         operations::utils::toTTNNDataType(*conv2dOpT.output_dtype);
+  } else if (conv2dOpT.out) {
+    params.outputDtype = operations::utils::getDataType(*conv2dOpT.out);
   }
 
   if (conv2dOpT.conv2d_config) {

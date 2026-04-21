@@ -48,7 +48,8 @@ namespace unifiedOpLib::operations::utils {
 ::ttnn::TensorMemoryLayout toTTNNTensorMemoryLayout(
     ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout);
 
-MathFidelity toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity);
+tt::tt_metal::MathFidelity
+toTTNNMathFidelity(::tt::target::MathFidelity mathFidelity);
 
 tt::tt_metal::CoreCoord
 toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);

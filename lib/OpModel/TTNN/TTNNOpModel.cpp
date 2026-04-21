@@ -283,6 +283,9 @@ getOutputTensorRefT(TTNNLayoutAttr layout) {
       std::make_unique<::tt::target::ttnn::MemoryConfigT>(
           memoryConfigT.value());
 
+  tensorRefT->desc->layout->memory_desc->data_type =
+      toNative(layout.getDataType());
+
   return tensorRefT;
 }
 
@@ -317,6 +320,14 @@ getNullableDataType(TTNNLayoutAttr layout) {
     return std::nullopt;
   }
   return conversion::getDataType(layout.getDataType());
+}
+
+std::optional<::tt::target::DataType>
+getNullableDataTypeT(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return toNative(layout.getDataType());
 }
 
 /**
@@ -1459,11 +1470,22 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
 template <typename OpTy>
 static ::tt::target::ttnn::EltwiseBinaryOpT
-buildEltwiseBinaryOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+buildEltwiseBinaryOpTFromMLIR(TTNNLayoutAttr outputLayout,
+                              ttcore::DataTypeAttr opDtypeAttr = nullptr) {
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT;
 
   eltwiseBinaryOpT.out = detail::getOutputTensorRefT(outputLayout);
-  // eltwiseBinaryOpT.type = detail::toEltwiseBinaryOpType<OpTy>();
+  if (eltwiseBinaryOpT.out) {
+    eltwiseBinaryOpT.output_dtype =
+        eltwiseBinaryOpT.out->desc->layout->memory_desc->data_type;
+  }
+  if (opDtypeAttr) {
+    eltwiseBinaryOpT.output_dtype = toNative(opDtypeAttr.getValue());
+    if (eltwiseBinaryOpT.out && eltwiseBinaryOpT.output_dtype.has_value()) {
+      eltwiseBinaryOpT.out->desc->layout->memory_desc->data_type =
+          eltwiseBinaryOpT.output_dtype.value();
+    }
+  }
 
   return eltwiseBinaryOpT;
 }
@@ -1487,22 +1509,15 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-  if (!outputDType && opDtypeAttr) {
-    outputDType = conversion::getDataType(opDtypeAttr.getValue());
-  }
-
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
-      buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout);
+      buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout, opDtypeAttr);
 
   // Create query closure
   auto query = [=]() {
     unifiedOpLib::EltwiseBinaryOpResult result =
         unifiedOpLib::callEltwiseBinary(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseBinaryOpT,
-            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device,
-            outputDType);
+            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1535,9 +1550,6 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
       buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout);
 
@@ -1546,8 +1558,7 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
     unifiedOpLib::EltwiseBinaryOpResult result =
         unifiedOpLib::callEltwiseBinary(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseBinaryOpT,
-            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device,
-            outputDType);
+            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -4301,12 +4312,22 @@ buildEltwiseQuantizationOpTFromMLIR(std::optional<int32_t> axis,
       axis.has_value() ? ::flatbuffers::Optional<int32_t>(axis.value())
                        : ::flatbuffers::nullopt;
 
-  eltwiseQuantizationOpT.output_dtype =
-      outputLayout ? ::flatbuffers::Optional<::tt::target::DataType>(
-                         toNative(outputLayout.getDataType()))
-                   : ::flatbuffers::nullopt;
-
   eltwiseQuantizationOpT.out = detail::getOutputTensorRefT(outputLayout);
+
+  // Use the explicit outputDtype parameter if provided, otherwise infer from
+  // layout
+  if (eltwiseQuantizationOpT.out) {
+    eltwiseQuantizationOpT.output_dtype =
+        eltwiseQuantizationOpT.out->desc->layout->memory_desc->data_type;
+  }
+  if (outputDtype.has_value()) {
+    eltwiseQuantizationOpT.output_dtype = toNative(outputDtype.value());
+    if (eltwiseQuantizationOpT.out &&
+        eltwiseQuantizationOpT.output_dtype.has_value()) {
+      eltwiseQuantizationOpT.out->desc->layout->memory_desc->data_type =
+          eltwiseQuantizationOpT.output_dtype.value();
+    }
+  }
 
   return eltwiseQuantizationOpT;
 }
@@ -4335,15 +4356,6 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
       ::ttnn::TensorSpec zeroPointSpec,
       detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
                                                 outputLayout);
@@ -4353,8 +4365,8 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
     unifiedOpLib::EltwiseQuantizationOpResult result =
         unifiedOpLib::callEltwiseQuantizeDequantize(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
-            eltwiseQuantizationOpT, inputSpec, scaleSpec, zeroPointSpec, device,
-            outputDType);
+            eltwiseQuantizationOpT, inputSpec, scaleSpec, zeroPointSpec,
+            device);
 
     assert(
         std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
@@ -4395,15 +4407,6 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
       ::ttnn::TensorSpec zeroPointSpec,
       detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
                                                 outputLayout);
@@ -4413,7 +4416,7 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
     unifiedOpLib::EltwiseQuantizationOpResult result =
         unifiedOpLib::callEltwiseQuantizeDequantize(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseQuantizationOpT,
-            inputSpec, scaleSpec, zeroPointSpec, device, outputDType);
+            inputSpec, scaleSpec, zeroPointSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -4468,15 +4471,6 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
                    detail::convertToTensorSpec(device, outZeroPointShape,
                                                outZeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
                                                         outputLayout);
@@ -4487,7 +4481,7 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
         unifiedOpLib::callEltwiseRequantize(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
             eltwiseQuantizationOpT, inputSpec, inScaleSpec, inZeroPointSpec,
-            outScaleSpec, outZeroPointSpec, device, outputDType);
+            outScaleSpec, outZeroPointSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -4536,15 +4530,6 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
                    detail::convertToTensorSpec(device, outZeroPointShape,
                                                outZeroPointLayout));
 
-  // Use the explicit outputDtype parameter if provided, otherwise infer from
-  // layout
-  std::optional<::tt::tt_metal::DataType> outputDType;
-  if (outputDtype.has_value()) {
-    outputDType = conversion::getDataType(outputDtype.value());
-  } else {
-    outputDType = detail::getNullableDataType(outputLayout);
-  }
-
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
                                                         outputLayout);
@@ -4555,7 +4540,7 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
         unifiedOpLib::callEltwiseRequantize(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseQuantizationOpT,
             inputSpec, inScaleSpec, inZeroPointSpec, outScaleSpec,
-            outZeroPointSpec, device, outputDType);
+            outZeroPointSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -4643,9 +4628,6 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
       transposeA, transposeB, activation, programConfigAttr,
       computeKernelConfig, outputLayout);
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-
   // Create query closure
   auto linearOpQuery = [=]() {
     unifiedOpLib::LinearOpResult result = unifiedOpLib::callLinear(
@@ -4653,7 +4635,7 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
         inputSpecB,
         biasTensor.has_value() ? std::make_optional(&biasTensor.value())
                                : std::nullopt,
-        device, outputDType);
+        device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -4699,9 +4681,6 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
       /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt,
       outputLayout);
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-
   // Create query closure
   auto linearOpQuery = [=]() {
     unifiedOpLib::LinearOpResult result = unifiedOpLib::callLinear(
@@ -4709,7 +4688,7 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
         inputSpecB,
         biasTensor.has_value() ? std::make_optional(&biasTensor.value())
                                : std::nullopt,
-        device, outputDType);
+        device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -4787,14 +4766,11 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       transposeA, transposeB, activation, programConfigAttr,
       computeKernelConfig, outputLayout);
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-
   // Create query closure
   auto matmulOpQuery = [=]() {
-    unifiedOpLib::MatmulOpResult result = unifiedOpLib::callMatmul(
-        unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, matmulOpT, inputSpecA,
-        inputSpecB, device, outputDType);
+    unifiedOpLib::MatmulOpResult result =
+        unifiedOpLib::callMatmul(unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
+                                 matmulOpT, inputSpecA, inputSpecB, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -4831,14 +4807,11 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
       /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt,
       outputLayout);
 
-  std::optional<::tt::tt_metal::DataType> outputDType =
-      detail::getNullableDataType(outputLayout);
-
   // Create query closure
   auto matmulOpQuery = [=]() {
-    unifiedOpLib::MatmulOpResult result = unifiedOpLib::callMatmul(
-        unifiedOpLib::CallType::QUERY_OP_RUNTIME, matmulOpT, inputSpecA,
-        inputSpecB, device, outputDType);
+    unifiedOpLib::MatmulOpResult result =
+        unifiedOpLib::callMatmul(unifiedOpLib::CallType::QUERY_OP_RUNTIME,
+                                 matmulOpT, inputSpecA, inputSpecB, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -5236,10 +5209,11 @@ static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
   conv2dOpT.padding = std::vector<int32_t>(padding.begin(), padding.end());
   conv2dOpT.dilation = std::vector<int32_t>(dilation.begin(), dilation.end());
   conv2dOpT.groups = groups;
-  conv2dOpT.output_dtype =
-      outputLayout ? ::flatbuffers::Optional<::tt::target::DataType>(
-                         toNative(outputLayout.getDataType()))
-                   : ::flatbuffers::nullopt;
+  conv2dOpT.out = detail::getOutputTensorRefT(outputLayout);
+  if (conv2dOpT.out) {
+    conv2dOpT.output_dtype =
+        conv2dOpT.out->desc->layout->memory_desc->data_type;
+  }
   conv2dOpT.conv2d_config =
       (conv2dConfig.has_value() && *conv2dConfig)
           ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
@@ -5255,7 +5229,6 @@ static ::tt::target::ttnn::Conv2dOpT buildConv2dOpTFromMLIR(
           ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
                 toNative(*conv2dSliceConfig))
           : nullptr;
-  conv2dOpT.out = detail::getOutputTensorRefT(outputLayout);
 
   return conv2dOpT;
 }
