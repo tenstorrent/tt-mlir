@@ -165,8 +165,7 @@ class TTNNBuilder(Builder):
                 else self._get_type(operand)
             )
             dtype = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor_type.encoding)
-            dtype = dtype.data_type_as_int
-            return ttcore.ir.DataTypeAttr.get(self._ctx, dtype)
+            return ttcore.ir.DataTypeAttr.get(self._ctx, dtype.data_type_as_int)
 
     def _get_data_type_attribute_from_torch_dtype(
         self, dtype: torch.dtype
