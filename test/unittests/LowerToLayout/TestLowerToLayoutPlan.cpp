@@ -87,7 +87,7 @@ TEST(MinimizerCancelTest, SingleStepStaysSingle) {
 
 // Fusion rules.
 
-TEST(MinimizerFuseTest, F3_ReshardMerge) {
+TEST(MinimizerFuseTest, F3ReshardMerge) {
   Plan p{
       ReshardStep{{2, 2}, {32, 32}, {}},
       ReshardStep{{4, 4}, {32, 32}, {}},
@@ -99,7 +99,7 @@ TEST(MinimizerFuseTest, F3_ReshardMerge) {
             (llvm::SmallVector<int64_t>{4, 4}));
 }
 
-TEST(MinimizerFuseTest, F3_ReshardMergeKeepsLast) {
+TEST(MinimizerFuseTest, F3ReshardMergeKeepsLast) {
   // Three reshards collapse to the final one.
   Plan p{
       ReshardStep{{2, 2}, {32, 32}, {}},
@@ -112,7 +112,7 @@ TEST(MinimizerFuseTest, F3_ReshardMergeKeepsLast) {
             (llvm::SmallVector<int64_t>{8, 8}));
 }
 
-TEST(MinimizerFuseTest, F6_MaskMerge) {
+TEST(MinimizerFuseTest, F6MaskMerge) {
   Plan p{
       MaskStep{ttcore::OOBVal::Zero, {4, 4}},
       MaskStep{ttcore::OOBVal::NegInf, {4, 4}},
@@ -141,7 +141,7 @@ TEST(MinimizerFuseTest, NoFuseReshardAcrossTilize) {
   EXPECT_EQ(result.size(), 3u);
 }
 
-TEST(MinimizerFuseTest, F6_MaskMergeKeepsLastLogicalShape) {
+TEST(MinimizerFuseTest, F6MaskMergeKeepsLastLogicalShape) {
   // When two masks fuse, the second's payload wins (oobVal + logicalShape).
   Plan p{
       MaskStep{ttcore::OOBVal::Zero, {4, 4}},
