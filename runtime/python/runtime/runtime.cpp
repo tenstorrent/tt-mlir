@@ -560,9 +560,9 @@ void registerRuntimeBindings(nb::module_ &m) {
 
     Returns
     -------
-    List[tt.runtime.Tensor]
-        Per-device tensors corresponding to *tensor_ref*. Empty list if
-        the tensor is not present in the pool.
+    Dict[int, tt.runtime.Tensor]
+        Mapping from device ID to per-device tensor for *tensor_ref*. Empty
+        dict if the tensor is not present in the pool.
     )");
 
   m.def(

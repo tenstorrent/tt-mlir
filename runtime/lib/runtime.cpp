@@ -12,6 +12,7 @@
 #include "ttmlir/Version.h"
 
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
@@ -1110,9 +1111,10 @@ getOpInputRefs(OpContext opContextHandle,
       });
 }
 
-std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
-                                           TensorRef tensorRef, bool untilize) {
-  using RetType = std::vector<Tensor>;
+std::unordered_map<int, Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize) {
+  using RetType = std::unordered_map<int, Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {

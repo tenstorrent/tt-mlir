@@ -34,7 +34,10 @@ def get_tensors_info(program_context, tensor_ref):
         tensors = ttrt.runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
         if not tensors:
             return None
-        return [{"shape": t.get_shape(), "dtype": str(t.get_dtype())} for t in tensors]
+        return [
+            {"shape": t.get_shape(), "dtype": str(t.get_dtype())}
+            for t in tensors.values()
+        ]
     except RuntimeError:
         return None
 
@@ -191,9 +194,10 @@ def make_postop_override_add(override_value=10.0):
         if not tensors:
             return
 
-        per_device_shape = tensors[0].get_shape()
+        first_tensor = next(iter(tensors.values()))
+        per_device_shape = first_tensor.get_shape()
         replacement = torch.full(per_device_shape, override_value, dtype=torch.float32)
-        update_device_tensor(program_context, tensor_ref, tensors[0], replacement)
+        update_device_tensor(program_context, tensor_ref, first_tensor, replacement)
 
     return postop_override
 
@@ -265,8 +269,9 @@ def make_postop_per_device_override_add(num_devices):
         if not tensors:
             return
 
-        shard_shape = tensors[0].get_shape()
-        dtype = tensors[0].get_dtype()
+        first_tensor = next(iter(tensors.values()))
+        shard_shape = first_tensor.get_shape()
+        dtype = first_tensor.get_dtype()
         rt_shards = []
         for dev_idx in range(len(tensors)):
             val = float((dev_idx + 1) * 100)

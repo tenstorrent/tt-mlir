@@ -67,7 +67,7 @@ def postop(binary, programContext, opContext):
     if not tensors:
         return
 
-    torch_tensor = get_torch_tensor(tensors[0])
+    torch_tensor = get_torch_tensor(next(iter(tensors.values())))
 
     print(torch_tensor)
     # For linear operation with all-ones inputs: input(10x10) @ weight(10x10) + bias(10)

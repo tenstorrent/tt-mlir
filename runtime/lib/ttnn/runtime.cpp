@@ -32,6 +32,7 @@
 
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -2093,9 +2094,9 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   return outputTensors;
 }
 
-std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
-                                           tt::runtime::TensorRef tensorRef,
-                                           bool untilize) {
+std::unordered_map<int, Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       tt::runtime::TensorRef tensorRef, bool untilize) {
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);
@@ -2117,7 +2118,18 @@ std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
   ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
       tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
 
-  return ::tt::runtime::ttnn::toHost(outTensor, untilize);
+  std::vector<::tt::runtime::Tensor> hostTensors =
+      ::tt::runtime::ttnn::toHost(outTensor, untilize);
+  std::vector<int> deviceIds = programContext.getMeshDevice().get_device_ids();
+
+  std::unordered_map<int, Tensor> result;
+  result.reserve(hostTensors.size());
+  for (size_t i = 0; i < hostTensors.size(); ++i) {
+    int deviceId = (i < deviceIds.size()) ? deviceIds[i] : static_cast<int>(i);
+    result[deviceId] = std::move(hostTensors[i]);
+  }
+
+  return result;
 }
 
 void updateTensorInPool(CallbackContext programContextHandle,

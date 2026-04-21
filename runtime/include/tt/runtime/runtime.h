@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include "tt/runtime/types.h"
@@ -253,10 +254,11 @@ std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle);
 
 // For the given tensor reference, retrieves per-device tensors from the
-// program's tensor pool. Supports multi-device tensors. Returns one tensor per
-// device, or an empty vector if not found or on error.
-std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
-                                           TensorRef tensorRef, bool untilize);
+// program's tensor pool. Supports multi-device tensors. Returns a map from
+// device ID to tensor, or an empty map if not found or on error.
+std::unordered_map<int, Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize);
 
 // Updates the tensor in the program's tensor pool that is referenced by the
 // given tensor reference. Accepts one tensor per device shard. Composes them

@@ -76,6 +76,7 @@
 #include "ttmlir/Target/TTNN/Target.h"
 
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace tt::runtime::ttnn {
@@ -265,11 +266,11 @@ std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
 // Returns per-device tensors to which tensorRef refers.
-// Supports multi-device tensors; returns one tensor per device.
-// Returns empty vector if tensor is not in the pool.
-std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
-                                           tt::runtime::TensorRef tensorRef,
-                                           bool untilize);
+// Supports multi-device tensors; returns a map from device ID to tensor.
+// Returns empty map if tensor is not in the pool.
+std::unordered_map<int, Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       tt::runtime::TensorRef tensorRef, bool untilize);
 
 // Update tensor to which tensorRef refers. Accepts one tensor per device shard.
 // Preferred to be owned tensor to avoid unexpected behavior in case of

@@ -21,6 +21,7 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 
 #include <optional>
+#include <unordered_map>
 
 namespace tt::runtime::ttmetal {
 
@@ -166,8 +167,9 @@ getOpOutputRefs(OpContext opContextHandle,
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
-std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
-                                           TensorRef tensorRef, bool untilize);
+std::unordered_map<int, Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize);
 
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, std::vector<Tensor> srcTensors);

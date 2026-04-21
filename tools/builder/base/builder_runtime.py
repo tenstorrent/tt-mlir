@@ -534,7 +534,7 @@ def golden(callback_runtime_config, binary, program_context, op_context):
                     update_device_tensor(
                         program_context,
                         output_tensor_ref,
-                        tensors[0],
+                        next(iter(tensors.values())),
                         golden_tensor_torch,
                     )
                 results["bypassed"] = "True"

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <optional>
+#include <unordered_map>
 #include <variant>
 
 #include "tracy/Tracy.hpp"
@@ -756,8 +757,9 @@ getOpInputRefs(OpContext opContextHandle,
   return {};
 }
 
-std::vector<Tensor> retrieveTensorFromPool(CallbackContext programContextHandle,
-                                           TensorRef tensorRef, bool untilize) {
+std::unordered_map<int, Tensor>
+retrieveTensorFromPool(CallbackContext programContextHandle,
+                       TensorRef tensorRef, bool untilize) {
   LOG_FATAL(
       "Obtaining tensor from device for metal runtime is not implemented");
   return {};
