@@ -654,6 +654,54 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTra
     }];
 }
 
+def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
+    let summary = "Init for sfpu_reduce.";
+    let description = [{
+      Initializes the SFPU reduce kernel. Must be called before sfpu_reduce.
+      Unlike reduce_init this call carries no CB/DST operands: it only
+      configures the SFPU for the given PoolType and DataFormat.
+
+      Lowers to: sfpu_reduce_init<PoolType, DataFormat>().
+    }];
+
+    let arguments = (ins TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTCore_DataTypeAttr:$data_format);
+
+    let assemblyFormat = [{
+      `(` $reduce_type `,` $data_format `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
+    let summary = "SFPU reduce operation on a tile in DST.";
+    let description = [{
+      Performs an intra-tile reduction on the tile at index `dst_index` in the
+      DST register using the SFPU path. The input tile must already be loaded
+      into DST (e.g. via copy_tile). The reduction is performed in-place on
+      that DST slot, writing the result into the first row (REDUCE_COL) or
+      first column (REDUCE_ROW) of the same tile.
+
+      Only 32x32 tile dimensions are supported.
+
+      Supports PoolType::{SUM, AVG, MAX, MIN} for REDUCE_COL, and
+      PoolType::{SUM, MAX} for REDUCE_ROW (sfpu_reduce currently does not
+      support MIN across rows).
+
+      Supported data formats are Float32, Int32, UInt32, UInt16, Float16_b.
+
+      Lowers to: sfpu_reduce<PoolType, DataFormat, ReduceDim>(dst_index).
+    }];
+
+    let arguments = (ins IndexLike:$dst_index,
+                         TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTCore_DataTypeAttr:$data_format,
+                         TTKernel_ReduceDimAttr:$reduce_dim);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $reduce_type `,` $data_format `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel SFPU operations
 //===----------------------------------------------------------------------===//

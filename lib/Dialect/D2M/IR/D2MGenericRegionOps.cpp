@@ -1618,6 +1618,46 @@ mlir::LogicalResult TileClampScalarOp::verify() {
   return success();
 }
 
+// Shared helper: `$b` (the scaler tile) is required for float-typed
+// reductions and must be absent for integer (i32) reductions which lower
+// through the SFPU path.
+template <typename OpTy>
+static mlir::LogicalResult verifyTileReduceScalerPresence(OpTy op) {
+  auto tileType = mlir::cast<mlir::tt::ttcore::TileType>(op.getA().getType());
+  mlir::Type elemType = tileType.getElementType();
+  const bool hasScaler = static_cast<bool>(op.getB());
+
+  if (mlir::isa<mlir::FloatType>(elemType)) {
+    if (!hasScaler) {
+      return op.emitOpError(
+          "requires the scaler operand `b` to be present for float element "
+          "types");
+    }
+  } else if (mlir::isa<mlir::IntegerType>(elemType)) {
+    if (hasScaler) {
+      return op.emitOpError(
+          "must not have the scaler operand `b` for integer element types "
+          "(int reductions lower through the SFPU path which ignores the "
+          "scaler)");
+    }
+  } else {
+    return op.emitOpError("unsupported element type for tile reduction");
+  }
+  return mlir::success();
+}
+
+mlir::LogicalResult TileReduceSumOp::verify() {
+  return verifyTileReduceScalerPresence(*this);
+}
+
+mlir::LogicalResult TileReduceMaxOp::verify() {
+  return verifyTileReduceScalerPresence(*this);
+}
+
+mlir::LogicalResult TileReduceMeanOp::verify() {
+  return verifyTileReduceScalerPresence(*this);
+}
+
 mlir::LogicalResult TileTilizeBlockOp::verify() {
   if (llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getInput().getType()))) {

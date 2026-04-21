@@ -618,67 +618,84 @@ def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_Til
 def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Sum Op";
   let description = [{
-        The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
+        The `tile_reduce_sum` operation computes the sum of the input tile A over the
+        specified reduction dim(s), accumulating into C: `result <- sum<dims>(A * B, C)`.
+        The scaler B is required for float element types and must be absent for integer
+        (i32) element types, which lower through the SFPU and do not use a scaler.
     }];
 
   let arguments = (ins TTCore_Tile:$a,
-                       TTCore_Tile:$b,
+                       Optional<TTCore_Tile>:$b,
                        TTCore_Tile:$c,
                        D2M_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$result);
 
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      return {2};
+      // $c is always the last operand; its physical index depends on
+      // whether the optional $b scaler is present.
+      return {static_cast<int64_t>(getNumOperands() - 1)};
     }
     bool getDstRegInPlace() {
       return true;
     }
   }];
+
+  let hasVerifier = 1;
 }
 
 def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Max Op";
   let description = [{
-        The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
+        The `tile_reduce_max` operation computes the max of the input tile A over the
+        specified reduction dim(s), accumulating into C: `result <- max<dims>(A * B, C)`.
+        The scaler B is required for float element types and must be absent for integer
+        (i32) element types, which lower through the SFPU and do not use a scaler.
     }];
 
   let arguments = (ins TTCore_Tile:$a,
-                       TTCore_Tile:$b,
+                       Optional<TTCore_Tile>:$b,
                        TTCore_Tile:$c,
                        D2M_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$result);
 
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      return {2};
+      return {static_cast<int64_t>(getNumOperands() - 1)};
     }
     bool getDstRegInPlace() {
       return true;
     }
   }];
+
+  let hasVerifier = 1;
 }
 
 def D2M_TileReduceMeanOp : D2M_GenericRegionComputeOp<"tile_reduce_mean", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Mean Op";
   let description = [{
-        The `tile_reduce_mean` operation computes the mean of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- avg<dims>(A * B, C)
+        The `tile_reduce_mean` operation computes the mean of the input tile A over the
+        specified reduction dim(s), accumulating into C: `result <- avg<dims>(A * B, C)`.
+        The scaler B encodes 1/N and is required for float element types; it must be
+        absent for integer (i32) element types.
     }];
 
   let arguments = (ins TTCore_Tile:$a,
-                       TTCore_Tile:$b,
+                       Optional<TTCore_Tile>:$b,
                        TTCore_Tile:$c,
                        D2M_ReduceDimAttr:$reduce_dim);
   let results = (outs TTCore_Tile:$result);
 
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
-      return {2};
+      return {static_cast<int64_t>(getNumOperands() - 1)};
     }
     bool getDstRegInPlace() {
       return true;
     }
   }];
+
+  let hasVerifier = 1;
 }
 
 // TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
