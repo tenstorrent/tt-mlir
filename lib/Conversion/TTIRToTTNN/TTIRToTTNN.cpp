@@ -3147,13 +3147,12 @@ public:
 } // namespace
 
 namespace {
-class GatherDimOpConversionPattern
-    : public OpConversionPattern<ttir::GatherDimOp> {
-  using OpConversionPattern<ttir::GatherDimOp>::OpConversionPattern;
+class GatherOpConversionPattern : public OpConversionPattern<ttir::GatherOp> {
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(ttir::GatherDimOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -3842,7 +3841,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
-           GatherDimOpConversionPattern,
+           GatherOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
