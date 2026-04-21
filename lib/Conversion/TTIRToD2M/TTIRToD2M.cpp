@@ -832,14 +832,20 @@ private:
   static SmallVector<mlir::AffineMap> buildPhysicalImplicitBcastIndexingMaps(
       mlir::OpBuilder &builder, mlir::ArrayRef<Value> physicalInputs,
       Value physicalOutput, std::size_t physicalRank) {
-    auto getShardTiles = [](Value v) -> mlir::ArrayRef<int64_t> {
+    // Return an owning SmallVector rather than ArrayRef: even though the
+    // current MetalLayoutAttr::getShardShape implementation returns a slice
+    // backed by the MLIR type's stable storage, the interface contract
+    // returns ArrayRef<int64_t> and a future implementation could return a
+    // view into a temporary container, which would dangle. Copying once per
+    // operand is cheap and removes that footgun.
+    auto getShardTiles = [](Value v) -> SmallVector<int64_t> {
       auto tensorType = mlir::cast<mlir::RankedTensorType>(v.getType());
       auto layout =
           mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-      return layout.getShardShape(tensorType);
+      return SmallVector<int64_t>(layout.getShardShape(tensorType));
     };
 
-    mlir::ArrayRef<int64_t> outShard = getShardTiles(physicalOutput);
+    SmallVector<int64_t> outShard = getShardTiles(physicalOutput);
     TT_assertv(outShard.size() == physicalRank,
                "output shard rank ({}) must equal physicalRank ({})",
                outShard.size(), physicalRank);
@@ -848,7 +854,7 @@ private:
     maps.reserve(physicalInputs.size() + 1);
 
     for (Value input : physicalInputs) {
-      mlir::ArrayRef<int64_t> inShard = getShardTiles(input);
+      SmallVector<int64_t> inShard = getShardTiles(input);
       TT_assertv(inShard.size() == physicalRank,
                  "input shard rank ({}) must equal physicalRank ({})",
                  inShard.size(), physicalRank);
@@ -1112,11 +1118,15 @@ private:
 
     // Invariant required by getMulticastGridDims and downstream code: the
     // domain of every indexing map must match the size of iteratorTypes.
-    assert(llvm::all_of(indexingMaps,
-                        [&](mlir::AffineMap m) {
-                          return m.getNumDims() == iteratorTypes.size();
-                        }) &&
-           "indexing map domain rank must match iterator types count");
+    // Use TT_assertv (always-on) instead of assert so a violation aborts
+    // with a clear diagnostic in release builds rather than crashing later
+    // with an out-of-bounds read into iteratorTypes.
+    for (auto [i, m] : llvm::enumerate(indexingMaps)) {
+      TT_assertv(m.getNumDims() == iteratorTypes.size(),
+                 "indexing map #{} domain rank ({}) must match iterator "
+                 "types count ({})",
+                 i, m.getNumDims(), iteratorTypes.size());
+    }
 
     // Create 'd2m.generic' accepting 'op's operands.
     auto generic = rewriter.create<d2m::GenericOp>(
