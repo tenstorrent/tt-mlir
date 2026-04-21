@@ -854,6 +854,10 @@ public:
 
     // Cast the index tensor to UInt32 type if it isn't already UInt32 or UInt16
     auto indexType = mlir::cast<RankedTensorType>(index.getType());
+    if (!indexType.getElementType().isInteger()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Index tensor must be of an integer type");
+    }
     if (!indexType.getElementType().isUnsignedInteger(32) &&
         !indexType.getElementType().isUnsignedInteger(16)) {
       auto ui32Type = RankedTensorType::get(indexType.getShape(),

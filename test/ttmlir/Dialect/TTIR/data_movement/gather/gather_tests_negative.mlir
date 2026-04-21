@@ -3,9 +3,9 @@
 
 // Verify that index tensor must be unsigned integer type.
 module {
-  func.func @gather_signed_index(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
-    // CHECK: error: 'ttir.gather' op Index tensor must have an unsigned integer type of ui16 or ui32, got 'i32'
-    %0 = "ttir.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+  func.func @gather_signed_index(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xbf16>) -> tensor<2x3xf32> {
+    // CHECK: error: 'ttir.gather' op Index tensor must have an integer type, got 'bf16'
+    %0 = "ttir.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3xbf16>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
 }

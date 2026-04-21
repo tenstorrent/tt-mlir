@@ -5031,10 +5031,8 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   const int64_t inputRank = inputType.getRank();
   const int64_t indexRank = indexType.getRank();
 
-  if (!indexType.getElementType().isUnsignedInteger(16) &&
-      !indexType.getElementType().isUnsignedInteger(32)) {
-    return emitOpError() << "Index tensor must have an unsigned integer "
-                         << "type of ui16 or ui32, got "
+  if (!indexType.getElementType().isInteger()) {
+    return emitOpError() << "Index tensor must have an integer type, got "
                          << indexType.getElementType();
   }
 
