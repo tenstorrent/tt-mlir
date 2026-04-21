@@ -1644,38 +1644,42 @@ public:
     rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, outCB, nullptr,
                                                         outCB);
 
-    // Build an i32 constant from a raw 32-bit pattern without going through a
-    // `uint32_t -> int32_t` cast (which is impl-defined for values with the
-    // high bit set). This matters for seeds/f32 bit-patterns/hash primes.
+    // LLK takes uint32 seed / uint32 bit-cast of f32 from/scale; materialize
+    // as i32 constants carrying the raw 32-bit pattern.
     auto i32Ty = rewriter.getI32Type();
-    auto i32FromBits = [&](uint32_t bits) -> Value {
+    auto i32FromBits = [&](llvm::APInt bits) -> Value {
+      assert(bits.getBitWidth() == 32);
       return rewriter
-          .create<arith::ConstantOp>(
-              loc, i32Ty,
-              rewriter.getIntegerAttr(i32Ty, llvm::APInt(/*numBits=*/32, bits)))
+          .create<arith::ConstantOp>(loc, i32Ty,
+                                     rewriter.getIntegerAttr(i32Ty, bits))
           .getResult();
     };
 
-    // Per-core seed: user_seed XOR (x*C1) XOR (y*C2) with hash-prime
-    // constants, giving distinct streams per core even when seed=0.
-    Value userSeed = i32FromBits(op.getSeed());
+    // Per-core seed perturbation (mirrors ttnn::rand): mix the core's
+    // logical coords into the user seed so each core gets a distinct stream,
+    // even when seed=0.
+    //   effective_seed = user_seed ^ (x * kPrimeX) ^ (y * kPrimeY)
+    // where x, y are `my_logical_{x,y}` and kPrime* are distinct odd 32-bit
+    // hash primes (kPrimeX = phi * 2^32) used to spread small, structured
+    // coordinates across the full 32-bit range before XOR-folding.
+    constexpr uint32_t kPrimeX = 0x9E3779B1u;
+    constexpr uint32_t kPrimeY = 0x85EBCA77u;
+    Value userSeed = i32FromBits(llvm::APInt(32, op.getSeed()));
+    Value primeX = i32FromBits(llvm::APInt(32, kPrimeX));
+    Value primeY = i32FromBits(llvm::APInt(32, kPrimeY));
     Value logicalX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
     Value logicalY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
     Value xI32 = rewriter.create<arith::IndexCastOp>(loc, i32Ty, logicalX);
     Value yI32 = rewriter.create<arith::IndexCastOp>(loc, i32Ty, logicalY);
-    Value mulX =
-        rewriter.create<arith::MulIOp>(loc, xI32, i32FromBits(0x9E3779B1u));
-    Value mulY =
-        rewriter.create<arith::MulIOp>(loc, yI32, i32FromBits(0x85EBCA77u));
+    Value mulX = rewriter.create<arith::MulIOp>(loc, xI32, primeX);
+    Value mulY = rewriter.create<arith::MulIOp>(loc, yI32, primeY);
     Value seedWithX = rewriter.create<arith::XOrIOp>(loc, userSeed, mulX);
     Value effSeed = rewriter.create<arith::XOrIOp>(loc, seedWithX, mulY);
     rewriter.create<ttkernel::RandTileInitOp>(loc, effSeed);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    Value fromVal =
-        i32FromBits(llvm::bit_cast<uint32_t>(op.getFrom().convertToFloat()));
-    Value scaleVal =
-        i32FromBits(llvm::bit_cast<uint32_t>(op.getScale().convertToFloat()));
+    Value fromVal = i32FromBits(op.getFrom().bitcastToAPInt());
+    Value scaleVal = i32FromBits(op.getScale().bitcastToAPInt());
 
     rewriter.create<ttkernel::RandTileOp>(loc, dstIdx, fromVal, scaleVal);
 
