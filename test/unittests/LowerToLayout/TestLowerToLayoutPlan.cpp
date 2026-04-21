@@ -141,17 +141,6 @@ TEST(MinimizerFuseTest, NoFuseReshardAcrossTilize) {
   EXPECT_EQ(result.size(), 3u);
 }
 
-TEST(MinimizerFuseTest, NoFuseMaskAcrossReshard) {
-  // Mask; Reshard; Mask — the Reshard blocks mask merge at this pass.
-  Plan p{
-      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-      ReshardStep{{2, 2}, {32, 32}, {}},
-      MaskStep{ttcore::OOBVal::NegInf, {4, 4}},
-  };
-  auto result = minimize(std::move(p));
-  EXPECT_EQ(result.size(), 3u);
-}
-
 TEST(MinimizerFuseTest, F6_MaskMergeKeepsLastLogicalShape) {
   // When two masks fuse, the second's payload wins (oobVal + logicalShape).
   Plan p{
@@ -163,6 +152,68 @@ TEST(MinimizerFuseTest, F6_MaskMergeKeepsLastLogicalShape) {
   auto &m = std::get<MaskStep>(result[0]);
   EXPECT_EQ(m.oobVal, ttcore::OOBVal::NegInf);
   EXPECT_EQ(m.logicalShape, (llvm::SmallVector<int64_t>{8, 8}));
+}
+
+// Commutation rules (only applied when they enable further simplification).
+
+TEST(MinimizerCommuteTest, MaskAcrossReshardEnablesMaskFusion) {
+  // Mask; Reshard; Mask → (commute) → Reshard; Mask; Mask → (fuse F6) →
+  // Reshard; Mask.
+  Plan p{
+      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
+      ReshardStep{{2, 2}, {32, 32}, {}},
+      MaskStep{ttcore::OOBVal::NegInf, {4, 4}},
+  };
+  auto result = minimize(std::move(p));
+  ASSERT_EQ(result.size(), 2u);
+  EXPECT_TRUE(std::holds_alternative<ReshardStep>(result[0]));
+  ASSERT_TRUE(std::holds_alternative<MaskStep>(result[1]));
+  EXPECT_EQ(std::get<MaskStep>(result[1]).oobVal, ttcore::OOBVal::NegInf);
+}
+
+TEST(MinimizerCommuteTest, ReshardAcrossMaskEnablesReshardFusion) {
+  // Reshard; Mask; Reshard → (commute) → Mask; Reshard; Reshard → (fuse F3) →
+  // Mask; Reshard.
+  Plan p{
+      ReshardStep{{2, 2}, {32, 32}, {}},
+      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
+      ReshardStep{{4, 4}, {32, 32}, {}},
+  };
+  auto result = minimize(std::move(p));
+  ASSERT_EQ(result.size(), 2u);
+  EXPECT_TRUE(std::holds_alternative<MaskStep>(result[0]));
+  ASSERT_TRUE(std::holds_alternative<ReshardStep>(result[1]));
+  EXPECT_EQ(std::get<ReshardStep>(result[1]).gridShape,
+            (llvm::SmallVector<int64_t>{4, 4}));
+}
+
+TEST(MinimizerCommuteTest, NoCommuteWithoutSimplificationBenefit) {
+  // Mask; Reshard on its own: commutation is legal but would not enable any
+  // cancel or fuse. The gate prevents unmotivated swaps (and infinite flip).
+  Plan p{MaskStep{ttcore::OOBVal::Zero, {4, 4}},
+         ReshardStep{{2, 2}, {32, 32}, {}}};
+  auto result = minimize(std::move(p));
+  ASSERT_EQ(result.size(), 2u);
+  EXPECT_TRUE(std::holds_alternative<MaskStep>(result[0]));
+  EXPECT_TRUE(std::holds_alternative<ReshardStep>(result[1]));
+}
+
+TEST(MinimizerCommuteTest, InterleavedFuseAndCommuteFullyReduce) {
+  // Mask; Reshard; Reshard; Mask — F3 collapses the Reshards, then commutation
+  // enables F6 mask fusion. End state: Reshard; Mask.
+  Plan p{
+      MaskStep{ttcore::OOBVal::Zero, {4, 4}},
+      ReshardStep{{2, 2}, {32, 32}, {}},
+      ReshardStep{{4, 4}, {32, 32}, {}},
+      MaskStep{ttcore::OOBVal::NegInf, {4, 4}},
+  };
+  auto result = minimize(std::move(p));
+  ASSERT_EQ(result.size(), 2u);
+  ASSERT_TRUE(std::holds_alternative<ReshardStep>(result[0]));
+  ASSERT_TRUE(std::holds_alternative<MaskStep>(result[1]));
+  EXPECT_EQ(std::get<ReshardStep>(result[0]).gridShape,
+            (llvm::SmallVector<int64_t>{4, 4}));
+  EXPECT_EQ(std::get<MaskStep>(result[1]).oobVal, ttcore::OOBVal::NegInf);
 }
 
 // Fixpoint driver.
