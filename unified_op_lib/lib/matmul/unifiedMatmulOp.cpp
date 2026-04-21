@@ -23,7 +23,7 @@ resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT,
   MatmulResolvedParams params;
 
   if (matmulOpT.out) {
-    params.outputDataType = operations::utils::getDataType(*matmulOpT.out);
+    params.outputDType = operations::utils::getDataType(*matmulOpT.out);
   }
   params.matmulProgramConfig =
       operations::utils::createMatmulProgramConfigIfNeeded(matmulOpT);
@@ -49,13 +49,9 @@ resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT,
 MatmulOpResult callMatmul(CallType callType,
                           const ::tt::target::ttnn::MatmulOpT &matmulOpT,
                           TensorArg lhs, TensorArg rhs,
-                          ::ttnn::MeshDevice *device,
-                          std::optional<::tt::tt_metal::DataType> outputDType) {
+                          ::ttnn::MeshDevice *device) {
 
   MatmulResolvedParams params = resolveMatmulParams(matmulOpT, callType);
-  if (outputDType.has_value()) {
-    params.outputDType = outputDType;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -81,7 +77,7 @@ MatmulOpResult callMatmul(CallType callType,
     const auto &a = *std::get<const ::ttnn::Tensor *>(lhs);
     const auto &b = *std::get<const ::ttnn::Tensor *>(rhs);
     return ::ttnn::matmul(a, b, matmulOpT.transpose_a, matmulOpT.transpose_b,
-                          params.outputMemoryConfig, params.outputDataType,
+                          params.outputMemoryConfig, params.outputDType,
                           params.matmulProgramConfig,
                           /*activation=*/params.activation,
                           /*compute_kernel_config=*/params.computeConfig,
@@ -101,7 +97,7 @@ resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT,
   LinearResolvedParams params;
 
   if (linearOpT.out) {
-    params.outputDataType = operations::utils::getDataType(*linearOpT.out);
+    params.outputDType = operations::utils::getDataType(*linearOpT.out);
   }
   params.matmulProgramConfig =
       operations::utils::createMatmulProgramConfigIfNeeded(linearOpT);
@@ -128,12 +124,9 @@ LinearOpResult callLinear(CallType callType,
                           const ::tt::target::ttnn::LinearOpT &linearOpT,
                           TensorArg a, TensorArg b,
                           const std::optional<TensorArg> bias,
-                          ::ttnn::MeshDevice *device,
-                          std::optional<::tt::tt_metal::DataType> outputDType) {
+                          ::ttnn::MeshDevice *device) {
   LinearResolvedParams params = resolveLinearParams(linearOpT, callType);
-  if (outputDType.has_value()) {
-    params.outputDType = outputDType;
-  }
+
   const auto &biasTensor =
       bias.has_value()
           ? std::make_optional(*std::get<const ::ttnn::Tensor *>(bias.value()))
@@ -164,7 +157,7 @@ LinearOpResult callLinear(CallType callType,
 
     return ::ttnn::linear(input_a, input_b, biasTensor, linearOpT.transpose_a,
                           linearOpT.transpose_b, params.outputMemoryConfig,
-                          params.outputDataType, params.matmulProgramConfig,
+                          params.outputDType, params.matmulProgramConfig,
                           /*activation=*/params.activation,
                           /*compute_kernel_config=*/params.computeConfig,
                           /*core_grid=*/std::nullopt,
@@ -212,13 +205,9 @@ SparseMatmulOpResult
 callSparseMatmul(CallType callType,
                  const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT,
                  TensorArg a, TensorArg b, TensorArg sparsity,
-                 ::ttnn::MeshDevice *device,
-                 std::optional<::tt::tt_metal::DataType> outputDType) {
+                 ::ttnn::MeshDevice *device) {
   SparseMatmulResolvedParams params =
       resolveSparseMatmulParams(sparseMatmulOpT, callType);
-  if (outputDType.has_value()) {
-    params.outputDType = outputDType;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {

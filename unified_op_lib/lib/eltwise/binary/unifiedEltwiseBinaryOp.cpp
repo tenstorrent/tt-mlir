@@ -21,14 +21,11 @@ EltwiseBinaryResolvedParams resolveEltwiseBinaryParams(
 
   EltwiseBinaryResolvedParams params;
 
-  if (eltwiseBinaryOpT.out) {
-    params.outputDataType =
-        operations::utils::getDataType(*eltwiseBinaryOpT.out);
-  }
-  // ^ or v
   if (eltwiseBinaryOpT.output_dtype.has_value()) {
     params.outputDType = operations::utils::toTTNNDataType(
         eltwiseBinaryOpT.output_dtype.value());
+  } else if (eltwiseBinaryOpT.out) {
+    params.outputDType = operations::utils::getDataType(*eltwiseBinaryOpT.out);
   }
 
   if (eltwiseBinaryOpT.out) {

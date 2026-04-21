@@ -21,7 +21,6 @@ using EltwiseBinaryOpResult =
                  ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
 
 struct EltwiseBinaryResolvedParams {
-  ::ttnn::DataType outputDataType;
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
   std::optional<::tt::tt_metal::DataType> outputDType;
 };
@@ -31,18 +30,14 @@ EltwiseBinaryResolvedParams resolveEltwiseBinaryParams(
     CallType callType);
 
 template <typename Fn>
-EltwiseBinaryOpResult callEltwiseBinary(
-    CallType callType,
-    const ::tt::target::ttnn::EltwiseBinaryOpT &eltwiseBinaryOpT,
-    Fn eltwiseBinaryOp, TensorArg lhs, TensorArg rhs,
-    ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt) {
+EltwiseBinaryOpResult
+callEltwiseBinary(CallType callType,
+                  const ::tt::target::ttnn::EltwiseBinaryOpT &eltwiseBinaryOpT,
+                  Fn eltwiseBinaryOp, TensorArg lhs, TensorArg rhs,
+                  ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseBinaryResolvedParams params =
       resolveEltwiseBinaryParams(eltwiseBinaryOpT, callType);
-  if (outputDType.has_value()) {
-    params.outputDType = outputDType;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:

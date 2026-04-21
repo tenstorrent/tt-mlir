@@ -39,8 +39,7 @@ EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
     CallType callType,
     const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
     TensorArg input, TensorVariantArg<float> scale,
-    TensorVariantArg<int32_t> zeroPoint, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
+    TensorVariantArg<int32_t> zeroPoint, ::ttnn::MeshDevice *device = nullptr);
 
 EltwiseQuantizationOpResult callEltwiseRequantize(
     CallType callType,
@@ -48,8 +47,7 @@ EltwiseQuantizationOpResult callEltwiseRequantize(
     TensorArg input, TensorVariantArg<float> in_scale,
     TensorVariantArg<int32_t> in_zero_point, TensorVariantArg<float> out_scale,
     TensorVariantArg<int32_t> out_zero_point,
-    ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
+    ::ttnn::MeshDevice *device = nullptr);
 
 } // namespace unifiedOpLib
 
