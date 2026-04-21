@@ -10,18 +10,40 @@
 
 namespace mlir::tt::ttnn::decomposition {
 
-// Returns true if the op can be lowered to the fused_rms_minimal kernel.
-// The kernel requires:
-//   - input shape (1,1,32,M) where M is a multiple of 32
-//     (rms_allgather_device_operation.cpp: shape[0]==1, shape[1]==1,
-//      shape[2]==32, shape[3]%32==0)
-//   - a weight (gamma) tensor must be present; the kernel asserts
-//     gamma.has_value() (https://github.com/tenstorrent/tt-metal/issues/38211)
+// Returns true if the op can be lowered to the fused_rms_minimal kernel,
+// possibly after a shape-only reshape into the canonical (1,1,32,M) form
+// performed by DistributedRMSNormReshapeToCanonicalShapeRewritePattern.
+//
+// The kernel requires (rms_allgather_device_operation.cpp: shape[0]==1,
+// shape[1]==1, shape[2]==32, shape[3]%32==0) input shape (1,1,32,M) where
+// M is a multiple of 32, and a weight (gamma) tensor must be present (the
+// kernel asserts gamma.has_value(),
+// https://github.com/tenstorrent/tt-metal/issues/38211).
+//
+// We relax the rank requirement: any input whose -2 dim is 32, whose -1
+// dim is a multiple of 32, and whose remaining leading dims all collapse
+// to 1, can be reshaped (no data movement) into (1,1,32,M) and handed to
+// the fused kernel.
 static bool isSupportedByFusedKernel(ttnn::DistributedRMSNormOp op) {
+  if (!op.getWeight()) {
+    return false;
+  }
   ArrayRef<int64_t> shape =
       mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
-  return shape.size() == 4 && shape[0] == 1 && shape[1] == 1 &&
-         shape[2] == 32 && shape[3] % 32 == 0 && op.getWeight();
+  if (shape.size() < 2) {
+    return false;
+  }
+  if (shape[shape.size() - 2] != 32 || shape.back() % 32 != 0) {
+    return false;
+  }
+  // All dims before the penultimate one must be 1 so the input can be
+  // reshaped into (1, 1, 32, M) without any data movement.
+  for (size_t i = 0; i + 2 < shape.size(); ++i) {
+    if (shape[i] != 1) {
+      return false;
+    }
+  }
+  return true;
 }
 
 LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
