@@ -5020,16 +5020,21 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// GatherDimOp
+// GatherOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::GatherDimOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::GatherOp::verify() {
   const ::mlir::RankedTensorType inputType = getInput().getType();
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType resultType = getResult().getType();
 
   const int64_t inputRank = inputType.getRank();
   const int64_t indexRank = indexType.getRank();
+
+  if (!indexType.getElementType().isInteger()) {
+    return emitOpError() << "Index tensor must have an integer type, got "
+                         << indexType.getElementType();
+  }
 
   if (inputRank != indexRank) {
     return emitOpError()

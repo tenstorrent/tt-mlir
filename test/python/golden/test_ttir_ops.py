@@ -2820,7 +2820,7 @@ def test_presharded_arg(target, mesh_shape, request, device):
     ids=["dim1", "dim0"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
-def test_gather_dim(
+def test_gather(
     input_shape: Shape,
     index_shape: Shape,
     dim: int,
@@ -2833,7 +2833,7 @@ def test_gather_dim(
             [input_shape, index_shape],
             [torch.bfloat16, torch.uint32],
         )
-        def gather_dim(in0: Operand, index: Operand, builder: TTIRBuilder):
+        def gather(in0: Operand, index: Operand, builder: TTIRBuilder):
             # Override random index tensor with valid indices for torch.gather
             # TTNN gather requires UINT32 or UINT16 index tensors
             max_idx = input_shape[dim]
@@ -2841,7 +2841,7 @@ def test_gather_dim(
                 torch.uint32
             )
             builder.set_goldens({index: valid_index}, {})
-            return builder.gather_dim(in0, index, dim=dim)
+            return builder.gather(in0, index, dim=dim)
 
     compile_and_execute_ttir(
         module,

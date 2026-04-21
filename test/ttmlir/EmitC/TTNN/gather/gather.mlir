@@ -8,7 +8,7 @@
 
 module attributes {} {
   func.func @forward(%arg0: tensor<3x4xbf16>, %arg1: tensor<3x2xui32>) -> tensor<3x2xbf16> {
-    %0 = "ttir.gather_dim"(%arg0, %arg1) <{dim = 1 : i32}> : (tensor<3x4xbf16>, tensor<3x2xui32>) -> tensor<3x2xbf16>
+    %0 = "ttir.gather"(%arg0, %arg1) <{dim = 1 : i32}> : (tensor<3x4xbf16>, tensor<3x2xui32>) -> tensor<3x2xbf16>
     return %0 : tensor<3x2xbf16>
   }
 }
