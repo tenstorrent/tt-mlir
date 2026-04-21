@@ -7711,7 +7711,7 @@ class TTNNBuilder(Builder):
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.full_parser)
         result = old_op.result.type
-        device = global_dict[old_op.device]
+        device = global_dict[old_op.device] if old_op.device is not None else None
 
         new_op = ttnn_op(
             result,
@@ -7760,19 +7760,21 @@ class TTNNBuilder(Builder):
                 def decorated_func():
                     result = old_op.result.type
 
-                    mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
-                        old_ctx, *self._mesh_shape
-                    )
-                    mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
-                        old_ctx, *self._mesh_offset
-                    )
-                    new_get_device_op = ttnn.GetDeviceOp(
-                        mesh_shape=mesh_shape_attr,
-                        mesh_offset=mesh_offset_attr,
-                    )
+                    device = None
+                    if old_op.device is not None:
+                        mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *self._mesh_shape
+                        )
+                        mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                            old_ctx, *self._mesh_offset
+                        )
+                        new_get_device_op = ttnn.GetDeviceOp(
+                            mesh_shape=mesh_shape_attr,
+                            mesh_offset=mesh_offset_attr,
+                        )
+                        device = new_get_device_op.device
 
                     result = old_op.result.type
-                    device = new_get_device_op.device
                     memory_config_attr = old_op.memory_config
 
                     new_op = ttnn_op(
@@ -7933,19 +7935,21 @@ class TTNNBuilder(Builder):
                 def decorated_func():
                     result = old_op.result.type
 
-                    mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
-                        old_ctx, *self._mesh_shape
-                    )
-                    mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
-                        old_ctx, *self._mesh_offset
-                    )
-                    new_get_device_op = ttnn.GetDeviceOp(
-                        mesh_shape=mesh_shape_attr,
-                        mesh_offset=mesh_offset_attr,
-                    )
+                    device = None
+                    if old_op.device is not None:
+                        mesh_shape_attr = ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *self._mesh_shape
+                        )
+                        mesh_offset_attr = ttnn.ir.MeshOffsetAttr.get(
+                            old_ctx, *self._mesh_offset
+                        )
+                        new_get_device_op = ttnn.GetDeviceOp(
+                            mesh_shape=mesh_shape_attr,
+                            mesh_offset=mesh_offset_attr,
+                        )
+                        device = new_get_device_op.device
 
                     result = old_op.result.type
-                    device = new_get_device_op.device
 
                     new_op = ttnn_op(
                         result,
