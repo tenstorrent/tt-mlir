@@ -193,7 +193,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /tools/scripts/ @nsmithtt @ddilbazTT
 
 # python golden tests
-test/python/golden/test_metal_dma.py @nsmithtt
+test/python/golden/test_metal_dma.py @vtangTT
 
 # model snippet tests
 test/python/golden/mlir_snippets/models/ @nsmithtt @tapspatel
