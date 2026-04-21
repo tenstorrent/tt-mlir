@@ -38,6 +38,7 @@ struct DRAMShardParams {
   int64_t perCoreM;    // output tile rows per core
   int64_t perCoreN;    // output tile cols per core
   int64_t in0ShardW;   // L1 shard width for in0 = K / numCores
+  ttcore::DataType weightDataType; // BFP_BFloat8 or BFP_BFloat4
 };
 
 /// Pad N up to a multiple of (tileSize * numBanks) so it divides evenly
@@ -48,8 +49,11 @@ static int64_t padToDRAMBanks(int64_t n, int64_t numBanks) {
 }
 
 /// Compute DRAM shard parameters for a matmul with shape M x K times K x N.
-static DRAMShardParams computeShardParams(int64_t M, int64_t K, int64_t N,
-                                          int64_t numBanks, int64_t numCores) {
+/// Returns std::nullopt if the matmul cannot fit in L1 even with the smallest
+/// in0BlockW.
+static std::optional<DRAMShardParams>
+computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
+                   int64_t numCores, ttcore::DataType weightDataType) {
   DRAMShardParams p;
   p.K = K;
   p.N = N;
@@ -64,6 +68,7 @@ static DRAMShardParams computeShardParams(int64_t M, int64_t K, int64_t N,
   p.perCoreM = M / kTileSize;
   p.perCoreN = (N / kTileSize) / numCores;
   p.in0ShardW = K / numCores;
+  p.weightDataType = weightDataType;
 
   // Choose in0BlockW to fit in L1.  The budget model matches the CB
   // allocations in tt-metal's DRAM-sharded matmul program factory
@@ -82,7 +87,11 @@ static DRAMShardParams computeShardParams(int64_t M, int64_t K, int64_t N,
   static constexpr int64_t kL1Available = 1250000;
   static constexpr int64_t kBf16Tile = 2048;
   static constexpr int64_t kBfp8Tile = 1088;
+  static constexpr int64_t kBfp4Tile = 576;
   static constexpr int64_t kFp32Tile = 4096;
+
+  int64_t kWeightTile =
+      (weightDataType == ttcore::DataType::BFP_BFloat4) ? kBfp4Tile : kBfp8Tile;
 
   int64_t kPerCore = p.kTiles / numCores;
   // per_core_N_in1_sender = ceil(N_tiles / numBanks), same as shardWTiles.
@@ -95,17 +104,29 @@ static DRAMShardParams computeShardParams(int64_t M, int64_t K, int64_t N,
   int64_t outReshardCB = p.perCoreM * p.perCoreN * kBf16Tile;
   int64_t fixedCost = outCB + interm0CB + in2CB + outReshardCB;
 
+  // If the fixed CBs alone don't fit (e.g. per_core_n too large on matmuls
+  // with very wide outputs like LM head), the matmul cannot be DRAM sharded
+  // on this core/bank config. Skip.
+  if (fixedCost > kL1Available) {
+    return std::nullopt;
+  }
+
   p.in0BlockW = kPerCore;
-  while (p.in0BlockW > 1) {
+  bool found = false;
+  while (p.in0BlockW >= 1) {
     int64_t numBlocks = p.kTiles / p.in0BlockW;
     bool doubleBuf = numBlocks > 1;
 
     int64_t in0CB = p.in0BlockW * p.perCoreM * kBf16Tile * (doubleBuf ? 2 : 1);
     int64_t in1CB =
-        p.in0BlockW * perCoreNSender * kBfp8Tile * (doubleBuf ? 3 : 1);
+        p.in0BlockW * perCoreNSender * kWeightTile * (doubleBuf ? 3 : 1);
 
     if (fixedCost + in0CB + in1CB <= kL1Available &&
         kPerCore % p.in0BlockW == 0) {
+      found = true;
+      break;
+    }
+    if (p.in0BlockW == 1) {
       break;
     }
     p.in0BlockW--;
@@ -114,20 +135,26 @@ static DRAMShardParams computeShardParams(int64_t M, int64_t K, int64_t N,
     }
   }
 
+  if (!found) {
+    return std::nullopt;
+  }
+
   return p;
 }
 
-/// Check if a weight tensor is bfp8 and in DRAM interleaved layout.
-static bool isBfp8DRAMInterleaved(Value weight) {
+/// Check if a weight tensor is bfp8 or bfp4 and in DRAM interleaved layout.
+static bool isBfpDRAMInterleaved(Value weight) {
   auto rtt = mlir::dyn_cast<RankedTensorType>(weight.getType());
   if (!rtt) {
     return false;
   }
 
-  // Check element type is bfp_bf8 tile.
+  // Check element type is bfp_bf8 or bfp_bf4 tile.
   auto elType = rtt.getElementType();
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
-    if (tileType.getDataType() != ttcore::DataType::BFP_BFloat8) {
+    auto dt = tileType.getDataType();
+    if (dt != ttcore::DataType::BFP_BFloat8 &&
+        dt != ttcore::DataType::BFP_BFloat4) {
       return false;
     }
   } else {
@@ -144,6 +171,13 @@ static bool isBfp8DRAMInterleaved(Value weight) {
   }
 
   return true;
+}
+
+/// Get the weight tile's data type (BFP_BFloat8 or BFP_BFloat4).
+static ttcore::DataType getWeightDataType(Value weight) {
+  auto rtt = mlir::cast<RankedTensorType>(weight.getType());
+  auto tileType = mlir::cast<ttcore::TileType>(rtt.getElementType());
+  return tileType.getDataType();
 }
 
 /// Get the 2D shape (K, N) from a weight tensor type.
@@ -171,9 +205,9 @@ static TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
   // Grid: 1 x numBanks (DRAM bank logical coords).
   auto grid = ttcore::GridAttr::get(ctx, {1, p.numBanks});
 
-  // Memref: kTiles x shardWTiles tiles of bfp_bf8 in DRAM.
-  auto tileType = ttcore::TileType::get(ctx, {kTileSize, kTileSize},
-                                        ttcore::DataType::BFP_BFloat8);
+  // Memref: kTiles x shardWTiles tiles of the weight's dtype in DRAM.
+  auto tileType =
+      ttcore::TileType::get(ctx, {kTileSize, kTileSize}, p.weightDataType);
   auto dramSpace = BufferTypeAttr::get(ctx, BufferType::DRAM);
   auto memrefType = MemRefType::get({p.kTiles, p.shardWTiles}, tileType,
                                     MemRefLayoutAttrInterface{}, dramSpace);
@@ -301,8 +335,8 @@ public:
     moduleOp->walk([&](MatmulOp matmulOp) {
       Value weight = matmulOp.getB();
 
-      // Must be bfp8 in DRAM interleaved.
-      if (!isBfp8DRAMInterleaved(weight)) {
+      // Must be bfp8 or bfp4 in DRAM interleaved.
+      if (!isBfpDRAMInterleaved(weight)) {
         return;
       }
 
@@ -354,7 +388,15 @@ public:
 
       int64_t M = getActivationM(in0Type);
       auto [K, N] = getWeightKN(weightType);
-      auto p = computeShardParams(M, K, N, numDRAMBanks, numComputeCores);
+      auto weightDataType = getWeightDataType(weight);
+      auto pOpt = computeShardParams(M, K, N, numDRAMBanks, numComputeCores,
+                                     weightDataType);
+      if (!pOpt) {
+        // Matmul cannot be DRAM sharded on this config (e.g. output too wide
+        // for L1). Leave the original matmul in place.
+        continue;
+      }
+      auto &p = *pOpt;
 
       auto weightLayout = mlir::cast<TTNNLayoutAttr>(weightType.getEncoding());
       auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
