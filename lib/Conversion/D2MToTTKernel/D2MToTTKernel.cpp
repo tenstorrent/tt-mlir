@@ -367,7 +367,8 @@ static void setInsertionPointToFuncStart(OpBuilder &rewriter,
     rewriter.setInsertionPoint(firstLoop);
   } else {
     // Keep insertion before the block terminator (func.return). Using
-    // setInsertionPointToEnd can place new ops after return in loopless kernels.
+    // setInsertionPointToEnd can place new ops after return in loopless
+    // kernels.
     rewriter.setInsertionPoint(entry.getTerminator());
   }
 }
