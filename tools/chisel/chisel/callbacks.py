@@ -162,7 +162,8 @@ def chisel_post_op_callback(binary, program_context, op_context):
     from ttrt import runtime as tt_runtime
 
     ctx = ChiselContext.get_instance()
-
+    op_name = ctx._current_op.name
+    _append_result(ctx, {"op": op_name, "status": "testing"})
     # Skip ops with no outputs
     op_outputs = get_op_outputs(ctx._current_op)
     if len(op_outputs) == 0:
@@ -180,7 +181,6 @@ def chisel_post_op_callback(binary, program_context, op_context):
         if ref is not None
     ]
 
-    op_name = ctx._current_op.name
     asm_state = ctx.ir_module.get_asm_state(ctx._current_program_name)
 
     for mlir_output, device_torch in zip(op_outputs, device_tensors, strict=True):
@@ -193,7 +193,6 @@ def chisel_post_op_callback(binary, program_context, op_context):
                 ctx._stashed_inputs,
             )
         except RuntimeError as e:
-            import pdb; pdb.set_trace()
             _append_result(ctx, {"op": op_name, "output": name, "status": "skipped"})
             logger.debug(f"{op_name} {name}: no golden implementation, skipping")
             continue
