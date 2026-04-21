@@ -1387,12 +1387,15 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   // and check that all input tensors have the same rank
   // and that all dimensions except `dim` are the same.
   int64_t dimSizeSum = firstTensor.getDimSize(dim);
-  for (auto input : inputs.drop_front()) {
+  for (auto [idx, input] : llvm::enumerate(llvm::drop_begin(inputs, /*N=*/1))) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
 
     // Check if all inputs have the same rank.
     if (inputType.getRank() != firstTensorRank) {
-      return emitOpError("All input tensors must have the same rank.");
+      return emitOpError() << "All input tensors must have the same rank "
+                              "(operand 0 rank "
+                           << firstTensorRank << ", operand " << (idx + 1)
+                           << " rank " << inputType.getRank() << ").";
     }
 
     // Check that dimensions (except `dim`) are the same.
@@ -1402,9 +1405,13 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
         continue;
       }
       if (inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
-        return emitOpError() << "All input tensors must have the same "
-                                "dimensions, except for dimension "
-                             << dim << ".";
+        return emitOpError()
+               << "All input tensors must have the same "
+                  "dimensions, except for dimension "
+               << dim << " (operand 0 shape " << firstTensor.getShape()
+               << ", operand " << (idx + 1) << " shape " << inputType.getShape()
+               << " differ at dim " << i << ": " << firstTensor.getDimSize(i)
+               << " vs " << inputType.getDimSize(i) << ").";
       }
     }
   }
@@ -5185,13 +5192,18 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
+    // First 3 dims of the mask must each either be 1 (broadcast) or match the
+    // corresponding query dim. Query layout is [1, batch, nQueryHeads,
+    // headSize].
     if (attentionMaskType.getShape()[0] != 1 &&
-        attentionMaskType.getShape()[0] != batchSize) {
+        attentionMaskType.getShape()[0] != queryType.getShape()[0]) {
+      return emitOpError("Attention mask dim 0 must be 1 (broadcast) or "
+                         "match query dim 0");
+    }
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
-    }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {
