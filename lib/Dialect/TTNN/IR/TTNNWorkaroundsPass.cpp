@@ -467,12 +467,8 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 }
 
 TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds(
-    Operation *op) {
-  // input_values: bf16 TILE (no workaround needed)
-  // input_indices: int32 ROW_MAJOR
-  // k: uint32 ROW_MAJOR
-  // p: bf16 ROW_MAJOR
+TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
+  // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors.
   // temp: bf16 ROW_MAJOR
   TTNNOperandWorkarounds empty;
   TTNNOperandWorkarounds rowMajor;

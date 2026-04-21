@@ -4041,7 +4041,7 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds(getOperation());
+      return wa::TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds();
     }
   }];
 

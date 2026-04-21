@@ -37,25 +37,19 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
         ::ttnn::reshape(inputIndices, ::ttnn::Shape({1, 1, batch, candidates}));
   }
 
-  // Ensure correct layouts: input_values must be TILE, others ROW_MAJOR.
-  // The compiler workarounds pass requests these layouts but they may not
-  // always be applied (e.g. when the layout pass optimizes them away).
-  if (inputIndices.layout() != ::ttnn::Layout::ROW_MAJOR) {
-    inputIndices = ::ttnn::to_layout(inputIndices, ::ttnn::Layout::ROW_MAJOR,
-                                     std::nullopt, std::nullopt);
-  }
-  if (k.layout() != ::ttnn::Layout::ROW_MAJOR) {
-    k = ::ttnn::to_layout(k, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                          std::nullopt);
-  }
-  if (p.layout() != ::ttnn::Layout::ROW_MAJOR) {
-    p = ::ttnn::to_layout(p, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                          std::nullopt);
-  }
-  if (temp.layout() != ::ttnn::Layout::ROW_MAJOR) {
-    temp = ::ttnn::to_layout(temp, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
-                             std::nullopt);
-  }
+  // Workarounds pass requests ROW_MAJOR for index/param tensors but may be
+  // skipped when the layout pass optimizes them away. Enforce defensively.
+  auto toRowMajor = [](::ttnn::Tensor t) -> ::ttnn::Tensor {
+    if (t.layout() != ::ttnn::Layout::ROW_MAJOR) {
+      return ::ttnn::to_layout(t, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                               std::nullopt);
+    }
+    return t;
+  };
+  inputIndices = toRowMajor(inputIndices);
+  k = toRowMajor(k);
+  p = toRowMajor(p);
+  temp = toRowMajor(temp);
 
   // Kernel requires k as UINT32.
   if (k.dtype() != ::tt::tt_metal::DataType::UINT32) {
