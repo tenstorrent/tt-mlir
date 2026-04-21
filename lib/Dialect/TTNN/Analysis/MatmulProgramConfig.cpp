@@ -267,6 +267,16 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   }
   int64_t maxSubblockSize = getMaxSubblockSize(computeConfig);
 
+  // Batched matmul (fuse_batch=false, i.e. in1 has a non-unit batch dim):
+  // sharded outputs hit a hang with the mcast program configs
+  // (https://github.com/tenstorrent/tt-metal/issues/42572), so we opt out
+  // of emitting any program config here and let tt-metal's runtime auto-picker
+  // choose. Once the issue is resolved, op itself would reject such configs
+  // and we can remove the fuse_batch check here.
+  if (!fuseBatch) {
+    return std::nullopt;
+  }
+
   if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
     return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
                                          fusedActivation, maxSubblockSize,
