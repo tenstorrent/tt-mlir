@@ -268,7 +268,7 @@ You can also manually run `ttmlir-opt` on the test file to see the
 resulting output:
 
 ```bash
-./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir
+./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-runtime-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir
 ```
 
 ## 5. Define flatbuffer schema for the Op
@@ -348,7 +348,7 @@ Lots of things are happening here, let's break it down:
 
 We can finally generate a binary with our new Op!  We can use the following command:
 ```bash
-./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
+./build/bin/ttmlir-opt --ttcore-register-device="system-desc-path=<PATH_TO_SYSTEM_DESC>" --ttir-to-ttnn-runtime-pipeline test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir | ./build/bin/ttmlir-translate --ttnn-to-flatbuffer -o out.ttnn
 ```
 
 And we can inspect the with [`ttrt`](./ttrt.md#read):
@@ -414,7 +414,7 @@ Couple things to point out about this process:
 - Tests placed under `test/ttmlir/Dialect` will only test the compiler's capability of compiling the module.
 If you want the module to run on silicon in CI, the test must be placed under `test/ttmlir/Silicon`.
 - Notice the differences between the compilation headers of `test/ttmlir/Silicon/TTNN/simple_matmul.mlir` and `test/ttmlir/Dialect/TTNN/matmul/simple_matmul.mlir`
-  - `--ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%"`: The `system-desc-path` option specifies the location of the system descriptor
+  - `--ttir-to-ttnn-runtime-pipeline="system-desc-path=%system_desc_path%"`: The `system-desc-path` option specifies the location of the system descriptor
   required for compiling the module. This is crucial for silicon tests, as modules compiled with different system descriptors may vary in silicon compatibility.
   Ensuring the system descriptor accurately reflects the target hardware is essential for running the module correctly.
   - `// RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn`: This runs `ttmlir-translate` that serializes the output mlir module to a flatbuffer binary.

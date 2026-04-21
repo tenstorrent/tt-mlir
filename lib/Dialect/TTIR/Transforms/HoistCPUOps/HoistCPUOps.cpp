@@ -596,7 +596,7 @@ bool canLowerTTIRToLinalg(mlir::Operation *op) {
 
   // Run TTIRToTTIRDecomposition (CPUFallback mode) followed by
   // TTIRToLinalg conversion on the temporary module, mirroring the
-  // TTIRToLLVMCPU pipeline.
+  // SHLOAndTTIRToLLVM pipeline.
   mlir::PassManager pm(context);
   TTIRToTTIRDecompositionOptions decompOptions;
   decompOptions.decompConfig = DecompMode::CPUFallback;

@@ -5,7 +5,7 @@ The `ttmlir` optimizer driver.  This tool is used to run the `ttmlir` compiler p
 ## Simple Test
 
 ```bash
-./build/bin/ttmlir-opt --ttir-to-ttnn-backend-pipeline test/ttmlir/Dialect/TTNN/simple_multiply.mlir
+./build/bin/ttmlir-opt --ttir-to-ttnn-runtime-pipeline test/ttmlir/Dialect/TTNN/simple_multiply.mlir
 # Or
 ./build/bin/ttmlir-opt --ttir-to-ttmetal-pipeline test/ttmlir/Dialect/TTNN/simple_multiply.mlir
 ```
