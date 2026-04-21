@@ -6,13 +6,20 @@
 #define TTMLIR_TARGET_UTILS_FLATBUFFEROBJECTCACHE_H
 
 #include "flatbuffers/flatbuffers.h"
+#include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseMap.h"
+
+#include <type_traits>
 
 namespace mlir::tt {
 
 struct FlatbufferObjectCache {
   ::flatbuffers::FlatBufferBuilder *fbb;
   DenseMap<const void *, ::flatbuffers::uoffset_t> objectMap;
+  /// BufferDesc entries keyed by buffer SSA Value. Kept separate from
+  /// objectMap because the same Value is also used to cache BufferRef; a
+  /// single map would collide on insert.
+  DenseMap<const void *, ::flatbuffers::uoffset_t> bufferDescByValue;
   uint32_t global_id = 1; // 0 is reserved for null
 
   FlatbufferObjectCache(::flatbuffers::FlatBufferBuilder *fbb) : fbb(fbb) {}
@@ -57,6 +64,25 @@ struct FlatbufferObjectCache {
       return at<SchemaType, MLIRTypeOrAttr>(obj);
     }
     return insert(obj, createFn(*this, obj, args...));
+  }
+
+  /// Like getOrCreate but uses bufferDescByValue so Value keys do not collide
+  /// with BufferRef (or other) entries in objectMap.
+  template <typename CreateFn, typename... Args>
+  std::invoke_result_t<CreateFn, FlatbufferObjectCache &, mlir::Value, Args...>
+  getOrCreateBufferDescForValue(mlir::Value value, CreateFn createFn,
+                                Args... args) {
+    using ReturnType = std::invoke_result_t<CreateFn, FlatbufferObjectCache &,
+                                            mlir::Value, Args...>;
+    using SchemaType = typename offset_extract_t<ReturnType>::type;
+
+    const void *key = value.getAsOpaquePointer();
+    if (auto it = bufferDescByValue.find(key); it != bufferDescByValue.end()) {
+      return flatbuffers::Offset<SchemaType>(it->second);
+    }
+    ReturnType offset = createFn(*this, value, args...);
+    bufferDescByValue.insert(std::make_pair(key, offset.o));
+    return offset;
   }
 
   template <typename MLIRTypeOrAttr, typename CreateFn, typename... Args>
