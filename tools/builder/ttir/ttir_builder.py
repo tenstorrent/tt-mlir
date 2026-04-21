@@ -87,12 +87,12 @@ class TTIRBuilder(Builder):
                 organize_golden_args, inputs, op_ttir_function, golden_kwargs
             )
             if not output_shape_and_type:
-                assert output_shape is not None, (
-                    "Output shape must be provided if there is no golden function for this op"
-                )
-                assert output_type is not None, (
-                    "Output type must be provided if there is no golden function for this op"
-                )
+                assert (
+                    output_shape is not None
+                ), "Output shape must be provided if there is no golden function for this op"
+                assert (
+                    output_type is not None
+                ), "Output type must be provided if there is no golden function for this op"
             else:
                 (
                     calculated_output_shape,
@@ -6626,11 +6626,7 @@ class TTIRBuilder(Builder):
         running_mean0 = self._get_golden_tensor(running_mean)
         running_variance0 = self._get_golden_tensor(running_variance)
         op_golden_function = get_golden_function(ttir_op)
-        (
-            golden_output,
-            golden_batch_mean,
-            golden_batch_variance,
-        ) = op_golden_function(
+        (golden_output, golden_batch_mean, golden_batch_variance,) = op_golden_function(
             input0,
             scale0,
             offset0,
@@ -14527,9 +14523,9 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
-        assert output_shape is not None, (
-            "output_shape must be provided for sparse_matmul"
-        )
+        assert (
+            output_shape is not None
+        ), "output_shape must be provided for sparse_matmul"
         assert output_type is not None, "output_type must be provided for sparse_matmul"
         mlir_output_type = self._get_type_from_torch_dtype(output_type)
         ttir_kwargs = {
@@ -14682,18 +14678,18 @@ class TTIRBuilder(Builder):
         metadata_type: Optional[torch.dtype] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
-        assert dispatched_shape is not None, (
-            "dispatched_shape must be provided for all_to_all_dispatch"
-        )
-        assert dispatched_type is not None, (
-            "dispatched_type must be provided for all_to_all_dispatch"
-        )
-        assert metadata_shape is not None, (
-            "metadata_shape must be provided for all_to_all_dispatch"
-        )
-        assert metadata_type is not None, (
-            "metadata_type must be provided for all_to_all_dispatch"
-        )
+        assert (
+            dispatched_shape is not None
+        ), "dispatched_shape must be provided for all_to_all_dispatch"
+        assert (
+            dispatched_type is not None
+        ), "dispatched_type must be provided for all_to_all_dispatch"
+        assert (
+            metadata_shape is not None
+        ), "metadata_shape must be provided for all_to_all_dispatch"
+        assert (
+            metadata_type is not None
+        ), "metadata_type must be provided for all_to_all_dispatch"
 
         mlir_dispatched_type = self._get_type_from_torch_dtype(dispatched_type)
         mlir_metadata_type = self._get_type_from_torch_dtype(metadata_type)
@@ -14871,24 +14867,24 @@ class TTIRBuilder(Builder):
         scores_type: Optional[torch.dtype] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult, OpResult]:
-        assert dispatched_shape is not None, (
-            "dispatched_shape must be provided for all_to_all_dispatch_metadata"
-        )
-        assert dispatched_type is not None, (
-            "dispatched_type must be provided for all_to_all_dispatch_metadata"
-        )
-        assert indices_shape is not None, (
-            "indices_shape must be provided for all_to_all_dispatch_metadata"
-        )
-        assert indices_type is not None, (
-            "indices_type must be provided for all_to_all_dispatch_metadata"
-        )
-        assert scores_shape is not None, (
-            "scores_shape must be provided for all_to_all_dispatch_metadata"
-        )
-        assert scores_type is not None, (
-            "scores_type must be provided for all_to_all_dispatch_metadata"
-        )
+        assert (
+            dispatched_shape is not None
+        ), "dispatched_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            dispatched_type is not None
+        ), "dispatched_type must be provided for all_to_all_dispatch_metadata"
+        assert (
+            indices_shape is not None
+        ), "indices_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            indices_type is not None
+        ), "indices_type must be provided for all_to_all_dispatch_metadata"
+        assert (
+            scores_shape is not None
+        ), "scores_shape must be provided for all_to_all_dispatch_metadata"
+        assert (
+            scores_type is not None
+        ), "scores_type must be provided for all_to_all_dispatch_metadata"
 
         mlir_dispatched_type = self._get_type_from_torch_dtype(dispatched_type)
         mlir_indices_type = self._get_type_from_torch_dtype(indices_type)
@@ -15112,12 +15108,12 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
-        assert output_shape is not None, (
-            "output_shape must be provided for all_to_all_combine"
-        )
-        assert output_type is not None, (
-            "output_type must be provided for all_to_all_combine"
-        )
+        assert (
+            output_shape is not None
+        ), "output_shape must be provided for all_to_all_combine"
+        assert (
+            output_type is not None
+        ), "output_type must be provided for all_to_all_combine"
 
         mlir_output_type = self._get_type_from_torch_dtype(output_type)
         result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
@@ -15285,18 +15281,18 @@ class TTIRBuilder(Builder):
         reduced_type: Optional[torch.dtype] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> Tuple[OpResult, OpResult]:
-        assert mapping_shape is not None, (
-            "mapping_shape must be provided for moe_expert_token_remap"
-        )
-        assert mapping_type is not None, (
-            "mapping_type must be provided for moe_expert_token_remap"
-        )
-        assert reduced_shape is not None, (
-            "reduced_shape must be provided for moe_expert_token_remap"
-        )
-        assert reduced_type is not None, (
-            "reduced_type must be provided for moe_expert_token_remap"
-        )
+        assert (
+            mapping_shape is not None
+        ), "mapping_shape must be provided for moe_expert_token_remap"
+        assert (
+            mapping_type is not None
+        ), "mapping_type must be provided for moe_expert_token_remap"
+        assert (
+            reduced_shape is not None
+        ), "reduced_shape must be provided for moe_expert_token_remap"
+        assert (
+            reduced_type is not None
+        ), "reduced_type must be provided for moe_expert_token_remap"
 
         mlir_mapping_type = self._get_type_from_torch_dtype(mapping_type)
         mlir_reduced_type = self._get_type_from_torch_dtype(reduced_type)
