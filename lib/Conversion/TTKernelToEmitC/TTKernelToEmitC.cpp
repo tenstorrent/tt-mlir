@@ -1367,6 +1367,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RandTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RandTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileInitOp>,

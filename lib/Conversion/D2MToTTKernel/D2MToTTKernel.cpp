@@ -27,6 +27,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -1618,6 +1619,71 @@ public:
     return success();
   }
 };
+
+// Lower `d2m.tile_rand` to `ttkernel.rand_tile_init(seed)` + `rand_tile`.
+// `from`/`scale` are the uint32 bit patterns of the f32 attributes (see
+// tt_metal/hw/inc/api/compute/eltwise_unary/rand.h). Mirrors ttnn::rand's
+// per-core seed perturbation at runtime via my_logical_{x,y}_, hoisted above
+// the tile loop so each core's PRNG advances across tiles.
+class D2MTileRandRewriter : public OpConversionPattern<d2m::TileRandOp> {
+public:
+  using OpConversionPattern<d2m::TileRandOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileRandOp op, d2m::TileRandOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+    ensureDominatesInsertionPoint(rewriter, dstIdx);
+
+    Location loc = op->getLoc();
+    Value outCB = getOutCB(rewriter, op);
+    auto insertionPoint = rewriter.getInsertionPoint();
+
+    // Hoist HW startup and rand_tile_init above the tile loop.
+    setInsertionPointAfterOperands(rewriter, {outCB}, /*allowHoisting*/ true);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(loc, outCB, nullptr,
+                                                        outCB);
+
+    // Build an i32 constant from a raw 32-bit pattern without going through a
+    // `uint32_t -> int32_t` cast (which is impl-defined for values with the
+    // high bit set). This matters for seeds/f32 bit-patterns/hash primes.
+    auto i32Ty = rewriter.getI32Type();
+    auto i32FromBits = [&](uint32_t bits) -> Value {
+      return rewriter
+          .create<arith::ConstantOp>(
+              loc, i32Ty,
+              rewriter.getIntegerAttr(i32Ty, llvm::APInt(/*numBits=*/32, bits)))
+          .getResult();
+    };
+
+    // Per-core seed: user_seed XOR (x*C1) XOR (y*C2) with hash-prime
+    // constants, giving distinct streams per core even when seed=0.
+    Value userSeed = i32FromBits(op.getSeed());
+    Value logicalX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    Value logicalY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value xI32 = rewriter.create<arith::IndexCastOp>(loc, i32Ty, logicalX);
+    Value yI32 = rewriter.create<arith::IndexCastOp>(loc, i32Ty, logicalY);
+    Value mulX =
+        rewriter.create<arith::MulIOp>(loc, xI32, i32FromBits(0x9E3779B1u));
+    Value mulY =
+        rewriter.create<arith::MulIOp>(loc, yI32, i32FromBits(0x85EBCA77u));
+    Value seedWithX = rewriter.create<arith::XOrIOp>(loc, userSeed, mulX);
+    Value effSeed = rewriter.create<arith::XOrIOp>(loc, seedWithX, mulY);
+    rewriter.create<ttkernel::RandTileInitOp>(loc, effSeed);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    Value fromVal =
+        i32FromBits(llvm::bit_cast<uint32_t>(op.getFrom().convertToFloat()));
+    Value scaleVal =
+        i32FromBits(llvm::bit_cast<uint32_t>(op.getScale().convertToFloat()));
+
+    rewriter.create<ttkernel::RandTileOp>(loc, dstIdx, fromVal, scaleVal);
+
+    rewriter.replaceOp(op, dstIdx);
+    return success();
+  }
+};
+
 class D2MExperimentalFillArangeTileRewriter
     : public OpConversionPattern<d2m::FillArangeTileOp> {
 public:
@@ -2695,6 +2761,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalPackUntilizeBlockOp>,
                ttkernel::D2MTileFillRewriter,
+               ttkernel::D2MTileRandRewriter,
                ttkernel::D2MWriteRowMaskTileRewriter,
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,

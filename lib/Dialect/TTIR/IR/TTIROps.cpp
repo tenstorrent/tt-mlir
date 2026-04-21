@@ -793,7 +793,17 @@ void EmptyOp::getEffects(
   auto dtype = getDtype();
   auto outputType = getResult().getType().getElementType();
 
-  if (dtype != outputType) {
+  // Normalize both sides so that pre/post `ttir-element-type-normalization`
+  // IR (e.g. signless i32 vs. signed si32) is treated as equivalent.
+  auto normalizedDtype = mlir::tt::ttcore::toTTMLIRSupportedDataType(dtype);
+  auto normalizedOutput =
+      mlir::tt::ttcore::toTTMLIRSupportedDataType(outputType);
+  if (!normalizedDtype || !normalizedOutput) {
+    return emitOpError() << "unsupported dtype or output element type [dtype = "
+                         << dtype << ", output tensor type = " << outputType
+                         << "].";
+  }
+  if (normalizedDtype != normalizedOutput) {
     return emitOpError()
            << "dtype does not match with output tensor type [dtype = " << dtype
            << ", output tensor type = " << outputType << "].";
