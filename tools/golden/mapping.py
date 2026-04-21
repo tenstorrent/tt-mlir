@@ -1386,7 +1386,7 @@ def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     return input_tensor.to(dtype)
 
 
-def sparse_matmul_golden(
+def ttir_sparse_matmul_golden(
     a: GoldenMapTensor,
     b: GoldenMapTensor,
     sparsity: GoldenMapTensor,
@@ -7318,7 +7318,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AllToAllOp: ttir_all_to_all_golden,
     ttir.CollectiveBroadcastOp: ttir_collective_broadcast_golden,
     # Sparse MoE operations
-    ttir.SparseMatmulOp: sparse_matmul_golden,
+    ttir.SparseMatmulOp: ttir_sparse_matmul_golden,
     ttir.AllToAllDispatchOp: all_to_all_dispatch_golden,
     ttir.AllToAllDispatchMetadataOp: all_to_all_dispatch_metadata_golden,
     ttir.AllToAllCombineOp: all_to_all_combine_golden,
