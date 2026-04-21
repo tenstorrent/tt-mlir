@@ -15,7 +15,8 @@
 namespace unifiedOpLib {
 
 Conv2dResolvedParams
-resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
+resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
+                    CallType callType) {
   LOG_ASSERT(conv2dOpT.kernel_size.size() == 2,
              "Kernel size expected to have 2 elements");
   LOG_ASSERT(conv2dOpT.stride.size() == 2,
@@ -63,7 +64,7 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
 
   if (conv2dOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*conv2dOpT.out));
+        operations::utils::getTensorRefMemoryConfig(*conv2dOpT.out), callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*conv2dOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
@@ -72,12 +73,13 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
   return params;
 }
 
-Conv2dOpResult
-callConv2d(CallType callType, const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
-           TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
-           ::ttnn::MeshDevice &targetDevice) {
+Conv2dOpResult callConv2d(CallType callType,
+                          const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
+                          TensorArg input, TensorArg weight,
+                          std::optional<TensorArg> bias,
+                          ::ttnn::MeshDevice &targetDevice) {
 
-  Conv2dResolvedParams params = resolveConv2dParams(conv2dOpT);
+  Conv2dResolvedParams params = resolveConv2dParams(conv2dOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:

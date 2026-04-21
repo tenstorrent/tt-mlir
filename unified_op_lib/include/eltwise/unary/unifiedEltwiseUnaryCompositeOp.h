@@ -29,17 +29,19 @@ struct EltwiseUnaryCompositeResolvedParams {
 
 EltwiseUnaryCompositeResolvedParams resolveEltwiseUnaryCompositeParams(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-        &eltwiseUnaryCompositeOpT);
+        &eltwiseUnaryCompositeOpT,
+    CallType callType);
 
 template <typename Fn>
-EltwiseUnaryCompositeOpResult callEltwiseUnaryComposite(
-    CallType callType,
-    const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-        &eltwiseUnaryCompositeOpT,
-    Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
+EltwiseUnaryCompositeOpResult
+callEltwiseUnaryComposite(CallType callType,
+                          const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
+                              &eltwiseUnaryCompositeOpT,
+                          Fn ttnnOp, TensorArg input,
+                          ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryCompositeResolvedParams params =
-      resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT);
+      resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -69,7 +71,7 @@ callEltwiseUnaryCompositeWithFastAndApproximateMode(
     Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryCompositeResolvedParams params =
-      resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT);
+      resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -104,12 +106,14 @@ struct EltwiseUnaryCompositeClampTensorResolvedParams {
 EltwiseUnaryCompositeClampScalarResolvedParams
 resolveEltwiseUnaryCompositeClampScalarParams(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-        &eltwiseUnaryCompositeOpT);
+        &eltwiseUnaryCompositeOpT,
+    CallType callType);
 
 EltwiseUnaryCompositeClampTensorResolvedParams
 resolveEltwiseUnaryCompositeClampTensorParams(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-        &eltwiseUnaryCompositeOpT);
+        &eltwiseUnaryCompositeOpT,
+    CallType callType);
 
 EltwiseUnaryCompositeOpResult callEltwiseUnaryCompositeClampScalar(
     CallType callType,

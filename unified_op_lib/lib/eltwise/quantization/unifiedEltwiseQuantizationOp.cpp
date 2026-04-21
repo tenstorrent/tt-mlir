@@ -18,7 +18,8 @@
 namespace unifiedOpLib {
 
 EltwiseQuantizationResolvedParams resolveEltwiseQuantizationParams(
-    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT) {
+    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
+    CallType callType) {
 
   EltwiseQuantizationResolvedParams params;
 
@@ -34,7 +35,8 @@ EltwiseQuantizationResolvedParams resolveEltwiseQuantizationParams(
   if (eltwiseQuantizationOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(
-            *eltwiseQuantizationOpT.out));
+            *eltwiseQuantizationOpT.out),
+        callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*eltwiseQuantizationOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
@@ -51,7 +53,7 @@ EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
     std::optional<::tt::tt_metal::DataType> outputDType) {
 
   EltwiseQuantizationResolvedParams params =
-      resolveEltwiseQuantizationParams(eltwiseQuantizationOpT);
+      resolveEltwiseQuantizationParams(eltwiseQuantizationOpT, callType);
   if (outputDType.has_value()) {
     params.outputDataType = outputDType;
   }
@@ -113,7 +115,7 @@ EltwiseQuantizationOpResult callEltwiseRequantize(
     std::optional<::tt::tt_metal::DataType> outputDType) {
 
   EltwiseQuantizationResolvedParams params =
-      resolveEltwiseQuantizationParams(eltwiseQuantizationOpT);
+      resolveEltwiseQuantizationParams(eltwiseQuantizationOpT, callType);
   if (outputDType.has_value()) {
     params.outputDataType = outputDType;
   }

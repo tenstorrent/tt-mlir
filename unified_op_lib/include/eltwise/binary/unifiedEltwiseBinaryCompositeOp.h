@@ -30,7 +30,8 @@ struct EltwiseBinaryCompositeResolvedParams {
 
 EltwiseBinaryCompositeResolvedParams resolveEltwiseBinaryCompositeParams(
     const ::tt::target::ttnn::EltwiseBinaryCompositeOpT
-        &eltwiseBinaryCompositeOpT);
+        &eltwiseBinaryCompositeOpT,
+    CallType callType);
 
 template <typename Fn>
 EltwiseBinaryCompositeOpResult callEltwiseBinaryComposite(
@@ -42,7 +43,7 @@ EltwiseBinaryCompositeOpResult callEltwiseBinaryComposite(
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt) {
 
   EltwiseBinaryCompositeResolvedParams params =
-      resolveEltwiseBinaryCompositeParams(eltwiseBinaryCompositeOpT);
+      resolveEltwiseBinaryCompositeParams(eltwiseBinaryCompositeOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -70,7 +71,8 @@ struct EltwiseBinaryCompositeScalarResolvedParams {
 EltwiseBinaryCompositeScalarResolvedParams
 resolveEltwiseBinaryCompositeScalarParams(
     const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
-        &eltwiseBinaryCompositeScalarOpT);
+        &eltwiseBinaryCompositeScalarOpT,
+    CallType callType);
 
 EltwiseBinaryCompositeScalarOpResult callEltwiseBinaryCompositeScalar(
     CallType callType,

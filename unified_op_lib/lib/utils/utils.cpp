@@ -153,7 +153,8 @@ getTensorRefMemoryConfig(const ::tt::target::ttnn::TensorRefT &tensorRef) {
 }
 
 std::optional<::ttnn::MemoryConfig>
-createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg) {
+createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg,
+                           CallType callType) {
   const auto targetBufferType = memcfg.buffer_type;
   LOG_ASSERT(targetBufferType == ::tt::target::BufferType::DRAM ||
                  targetBufferType == ::tt::target::BufferType::L1,
@@ -164,13 +165,13 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg) {
   const auto memLayout = toTTNNTensorMemoryLayout(targetMemLayout);
 
   // Verify that shard spec is present only for sharded memory layouts
-  // if (callType == CallType::EXECUTE) {
+  if (callType == CallType::EXECUTE) {
     const bool hasShardSpec =
         (memcfg.shard_spec != nullptr) || (memcfg.nd_shard_spec != nullptr);
     LOG_ASSERT(
         hasShardSpec == isSharded(targetMemLayout),
         "A shard spec must be present if and only if the tensor is sharded");
-  // }
+  }
 
   // Handle (legacy) shard spec
   if (const auto &shardSpec = memcfg.shard_spec) {

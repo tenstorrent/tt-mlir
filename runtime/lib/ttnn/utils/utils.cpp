@@ -357,7 +357,8 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
 
   ::tt::target::ttnn::MemoryConfigT memcfgT;
   memcfg->UnPackTo(&memcfgT);
-  return unifiedOpLib::operations::utils::createMemoryConfigIfNeeded(memcfgT);
+  return unifiedOpLib::operations::utils::createMemoryConfigIfNeeded(
+      memcfgT, unifiedOpLib::CallType::EXECUTE);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>

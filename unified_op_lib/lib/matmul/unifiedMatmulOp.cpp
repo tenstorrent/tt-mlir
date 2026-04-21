@@ -17,7 +17,8 @@
 namespace unifiedOpLib {
 
 MatmulResolvedParams
-resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT, CallType callType) {
+resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT,
+                    CallType callType) {
 
   MatmulResolvedParams params;
 
@@ -36,7 +37,7 @@ resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT, CallType cal
 
   if (matmulOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*matmulOpT.out));
+        operations::utils::getTensorRefMemoryConfig(*matmulOpT.out), callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*matmulOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
@@ -45,12 +46,13 @@ resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT, CallType cal
   return params;
 }
 
-MatmulOpResult
-callMatmul(CallType callType, const ::tt::target::ttnn::MatmulOpT &matmulOpT,
-           TensorArg lhs, TensorArg rhs, ::ttnn::MeshDevice *device,
-           std::optional<::tt::tt_metal::DataType> outputDType) {
+MatmulOpResult callMatmul(CallType callType,
+                          const ::tt::target::ttnn::MatmulOpT &matmulOpT,
+                          TensorArg lhs, TensorArg rhs,
+                          ::ttnn::MeshDevice *device,
+                          std::optional<::tt::tt_metal::DataType> outputDType) {
 
-  MatmulResolvedParams params = resolveMatmulParams(matmulOpT);
+  MatmulResolvedParams params = resolveMatmulParams(matmulOpT, callType);
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }
@@ -93,7 +95,8 @@ callMatmul(CallType callType, const ::tt::target::ttnn::MatmulOpT &matmulOpT,
 }
 
 LinearResolvedParams
-resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT) {
+resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT,
+                    CallType callType) {
 
   LinearResolvedParams params;
 
@@ -112,7 +115,7 @@ resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT) {
 
   if (linearOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*linearOpT.out));
+        operations::utils::getTensorRefMemoryConfig(*linearOpT.out), callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*linearOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
@@ -121,12 +124,13 @@ resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT) {
   return params;
 }
 
-LinearOpResult
-callLinear(CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
-           TensorArg a, TensorArg b, const std::optional<TensorArg> bias,
-           ::ttnn::MeshDevice *device,
-           std::optional<::tt::tt_metal::DataType> outputDType) {
-  LinearResolvedParams params = resolveLinearParams(linearOpT);
+LinearOpResult callLinear(CallType callType,
+                          const ::tt::target::ttnn::LinearOpT &linearOpT,
+                          TensorArg a, TensorArg b,
+                          const std::optional<TensorArg> bias,
+                          ::ttnn::MeshDevice *device,
+                          std::optional<::tt::tt_metal::DataType> outputDType) {
+  LinearResolvedParams params = resolveLinearParams(linearOpT, callType);
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }
@@ -171,7 +175,8 @@ callLinear(CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
 }
 
 SparseMatmulResolvedParams resolveSparseMatmulParams(
-    const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT) {
+    const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT,
+    CallType callType) {
 
   SparseMatmulResolvedParams params;
 
@@ -193,7 +198,8 @@ SparseMatmulResolvedParams resolveSparseMatmulParams(
 
   if (sparseMatmulOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*sparseMatmulOpT.out));
+        operations::utils::getTensorRefMemoryConfig(*sparseMatmulOpT.out),
+        callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*sparseMatmulOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
@@ -209,7 +215,7 @@ callSparseMatmul(CallType callType,
                  ::ttnn::MeshDevice *device,
                  std::optional<::tt::tt_metal::DataType> outputDType) {
   SparseMatmulResolvedParams params =
-      resolveSparseMatmulParams(sparseMatmulOpT);
+      resolveSparseMatmulParams(sparseMatmulOpT, callType);
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }

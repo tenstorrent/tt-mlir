@@ -27,7 +27,8 @@ struct EltwiseBinaryResolvedParams {
 };
 
 EltwiseBinaryResolvedParams resolveEltwiseBinaryParams(
-    const ::tt::target::ttnn::EltwiseBinaryOpT &eltwiseBinaryOpT);
+    const ::tt::target::ttnn::EltwiseBinaryOpT &eltwiseBinaryOpT,
+    CallType callType);
 
 template <typename Fn>
 EltwiseBinaryOpResult callEltwiseBinary(
@@ -38,7 +39,7 @@ EltwiseBinaryOpResult callEltwiseBinary(
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt) {
 
   EltwiseBinaryResolvedParams params =
-      resolveEltwiseBinaryParams(eltwiseBinaryOpT);
+      resolveEltwiseBinaryParams(eltwiseBinaryOpT, callType);
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }

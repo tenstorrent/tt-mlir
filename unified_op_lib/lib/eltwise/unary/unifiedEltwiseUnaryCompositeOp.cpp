@@ -17,7 +17,8 @@ namespace unifiedOpLib {
 
 EltwiseUnaryCompositeResolvedParams resolveEltwiseUnaryCompositeParams(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-        &eltwiseUnaryCompositeOpT) {
+        &eltwiseUnaryCompositeOpT,
+    CallType callType) {
 
   EltwiseUnaryCompositeResolvedParams params;
 
@@ -26,7 +27,8 @@ EltwiseUnaryCompositeResolvedParams resolveEltwiseUnaryCompositeParams(
   if (eltwiseUnaryCompositeOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(
-            *eltwiseUnaryCompositeOpT.out));
+            *eltwiseUnaryCompositeOpT.out),
+        callType);
     LOG_ASSERT(
         operations::utils::inSystemMemory(*eltwiseUnaryCompositeOpT.out) ||
             params.outputMemoryConfig.has_value(),
@@ -39,7 +41,8 @@ EltwiseUnaryCompositeResolvedParams resolveEltwiseUnaryCompositeParams(
 EltwiseUnaryCompositeClampScalarResolvedParams
 resolveEltwiseUnaryCompositeClampScalarParams(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-        &eltwiseUnaryCompositeOpT) {
+        &eltwiseUnaryCompositeOpT,
+    CallType callType) {
 
   EltwiseUnaryCompositeClampScalarResolvedParams params;
 
@@ -62,7 +65,8 @@ resolveEltwiseUnaryCompositeClampScalarParams(
   if (eltwiseUnaryCompositeOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(
-            *eltwiseUnaryCompositeOpT.out));
+            *eltwiseUnaryCompositeOpT.out),
+        callType);
     LOG_ASSERT(
         operations::utils::inSystemMemory(*eltwiseUnaryCompositeOpT.out) ||
             params.outputMemoryConfig.has_value(),
@@ -75,14 +79,16 @@ resolveEltwiseUnaryCompositeClampScalarParams(
 EltwiseUnaryCompositeClampTensorResolvedParams
 resolveEltwiseUnaryCompositeClampTensorParams(
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
-        &eltwiseUnaryCompositeOpT) {
+        &eltwiseUnaryCompositeOpT,
+    CallType callType) {
 
   EltwiseUnaryCompositeClampTensorResolvedParams params;
 
   if (eltwiseUnaryCompositeOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(
-            *eltwiseUnaryCompositeOpT.out));
+            *eltwiseUnaryCompositeOpT.out),
+        callType);
     LOG_ASSERT(
         operations::utils::inSystemMemory(*eltwiseUnaryCompositeOpT.out) ||
             params.outputMemoryConfig.has_value(),
@@ -99,7 +105,8 @@ EltwiseUnaryCompositeOpResult callEltwiseUnaryCompositeClampScalar(
     TensorArg input, ::ttnn::MeshDevice *device) {
 
   EltwiseUnaryCompositeClampScalarResolvedParams params =
-      resolveEltwiseUnaryCompositeClampScalarParams(eltwiseUnaryCompositeOpT);
+      resolveEltwiseUnaryCompositeClampScalarParams(eltwiseUnaryCompositeOpT,
+                                                    callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {
@@ -136,11 +143,11 @@ EltwiseUnaryCompositeOpResult callEltwiseUnaryCompositeClampTensor(
     CallType callType,
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
         &eltwiseUnaryCompositeOpT,
-    TensorArg input, TensorArg min, TensorArg max,
-    ::ttnn::MeshDevice *device) {
+    TensorArg input, TensorArg min, TensorArg max, ::ttnn::MeshDevice *device) {
 
   EltwiseUnaryCompositeClampTensorResolvedParams params =
-      resolveEltwiseUnaryCompositeClampTensorParams(eltwiseUnaryCompositeOpT);
+      resolveEltwiseUnaryCompositeClampTensorParams(eltwiseUnaryCompositeOpT,
+                                                    callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
