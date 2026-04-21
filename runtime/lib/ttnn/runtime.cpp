@@ -956,14 +956,14 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 }
 
 std::unordered_map<std::uint32_t, Tensor>
-getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+getOpOutputTensors(OpContext opContextHandle,
+                   CallbackContext programContextHandle) {
   std::unordered_map<std::uint32_t, Tensor> perDeviceOutputTensors;
-  std::optional<tt::runtime::TensorRef> tensorRef =
-      getOpOutputRef(opContextHandle, programContextHandle);
-  if (!tensorRef) {
+  auto refs = getOpOutputRefs(opContextHandle, programContextHandle);
+  if (refs.empty()) {
     return perDeviceOutputTensors;
   }
+  tt::runtime::TensorRef tensorRef = refs[0];
 
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
@@ -971,7 +971,7 @@ getOpOutputTensor(OpContext opContextHandle,
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
 
   const auto *tensorRefPtr =
-      &tensorRef->as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   if (!tensorRefPtr) {
     LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
@@ -999,8 +999,8 @@ getOpOutputTensor(OpContext opContextHandle,
   return perDeviceOutputTensors;
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
+std::vector<tt::runtime::TensorRef>
+getOpOutputRefs(OpContext opContextHandle,
                CallbackContext programContextHandle) {
   const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
@@ -1346,10 +1346,24 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    auto *sortOp = opContext.type_as_SortOp();
+    std::vector<tt::runtime::TensorRef> refs;
+    for (const auto *ref : *sortOp->outputs()) {
+      refs.push_back(utils::createRuntimeTensorRefFromTTNN(ref));
+    }
+    return refs;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    auto *poolOp = opContext.type_as_MaxPool2dWithIndicesOp();
+    return {utils::createRuntimeTensorRefFromTTNN(poolOp->result()),
+            utils::createRuntimeTensorRefFromTTNN(poolOp->result_indices())};
+  }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    tensorRef = opContext.type_as_BatchNormTrainingOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::CpuOp:
-  case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
-  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
-  case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp:
@@ -1372,7 +1386,7 @@ getOpOutputRef(OpContext opContextHandle,
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
-    return std::nullopt;
+    return {};
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
     auto size = opContext.type_as_GenericOp()->io_tensors()->size();
@@ -1412,10 +1426,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
 
   if (!tensorRef.has_value()) {
-    return std::nullopt;
+    return {};
   }
 
-  return utils::createRuntimeTensorRefFromTTNN(tensorRef.value());
+  return {utils::createRuntimeTensorRefFromTTNN(tensorRef.value())};
 }
 
 std::vector<tt::runtime::TensorRef>

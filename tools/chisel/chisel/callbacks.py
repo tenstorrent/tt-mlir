@@ -171,14 +171,9 @@ def chisel_post_op_callback(binary, program_context, op_context):
         return
 
     # Capture device output tensors
-    # TODO(ndrakulic): Replace with get_op_output_refs (plural) once multi-output API lands
-    output_refs = [
-        tt_runtime.get_op_output_ref(op_context, program_context)
-    ]
+    output_refs = tt_runtime.get_op_output_refs(op_context, program_context)
     device_tensors = [
-        retrieve_torch_tensor(program_context, ref)
-        for ref in output_refs
-        if ref is not None
+        retrieve_torch_tensor(program_context, ref) for ref in output_refs
     ]
 
     asm_state = ctx.ir_module.get_asm_state(ctx._current_program_name)

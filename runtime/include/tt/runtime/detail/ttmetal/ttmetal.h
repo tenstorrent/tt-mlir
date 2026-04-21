@@ -156,11 +156,11 @@ std::string getOpDebugString(OpContext opContextHandle);
 std::string getOpLocInfo(OpContext opContextHandle);
 
 std::unordered_map<std::uint32_t, Tensor>
-getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle);
+getOpOutputTensors(OpContext opContextHandle,
+                   CallbackContext programContextHandle);
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle, CallbackContext programContextHandle);
+std::vector<tt::runtime::TensorRef>
+getOpOutputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
