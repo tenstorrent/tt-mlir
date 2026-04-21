@@ -41,7 +41,6 @@ resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT);
 MatmulOpResult callMatmul(
     CallType callType, const ::tt::target::ttnn::MatmulOpT &matmulOpT,
     TensorArg lhs, TensorArg rhs, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 
 struct LinearResolvedParams {
@@ -62,7 +61,6 @@ LinearOpResult callLinear(
     CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
     TensorArg lhs, TensorArg rhs, std::optional<TensorArg> bias,
     ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 
 struct SparseMatmulResolvedParams {
@@ -81,7 +79,6 @@ SparseMatmulOpResult callSparseMatmul(
     CallType callType,
     const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT, TensorArg a,
     TensorArg b, TensorArg sparsity, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 
 } // namespace unifiedOpLib

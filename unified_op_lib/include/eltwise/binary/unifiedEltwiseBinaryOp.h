@@ -35,14 +35,10 @@ EltwiseBinaryOpResult callEltwiseBinary(
     const ::tt::target::ttnn::EltwiseBinaryOpT &eltwiseBinaryOpT,
     Fn eltwiseBinaryOp, TensorArg lhs, TensorArg rhs,
     ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt) {
 
   EltwiseBinaryResolvedParams params =
       resolveEltwiseBinaryParams(eltwiseBinaryOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }

@@ -32,14 +32,10 @@ EltwiseTernaryOpResult callEltwiseTernary(
     CallType callType,
     const tt::target::ttnn::EltwiseTernaryWhereOpT &eltwiseTernaryWhereOpT,
     Fn eltwiseTernaryOp, TensorArg first, TensorArg second, TensorArg third,
-    ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt) {
+    ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseTernaryResolvedParams params =
       resolveEltwiseTernaryParams(eltwiseTernaryWhereOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {

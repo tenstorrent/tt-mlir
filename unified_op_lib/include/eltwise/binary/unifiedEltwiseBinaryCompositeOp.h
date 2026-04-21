@@ -39,14 +39,10 @@ EltwiseBinaryCompositeOpResult callEltwiseBinaryComposite(
         &eltwiseBinaryCompositeOpT,
     Fn eltwiseBinaryCompositeOp, TensorArg lhs, TensorArg rhs,
     ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt,
     std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt) {
 
   EltwiseBinaryCompositeResolvedParams params =
       resolveEltwiseBinaryCompositeParams(eltwiseBinaryCompositeOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -80,8 +76,7 @@ EltwiseBinaryCompositeScalarOpResult callEltwiseBinaryCompositeScalar(
     CallType callType,
     const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
         &eltwiseBinaryCompositeScalarOpT,
-    TensorArg input, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt);
+    TensorArg input, ::ttnn::MeshDevice *device = nullptr);
 
 } // namespace unifiedOpLib
 

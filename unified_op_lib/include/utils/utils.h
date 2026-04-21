@@ -88,7 +88,8 @@ createMatmulProgramConfigIfNeeded(
     const ::tt::target::ttnn::SparseMatmulOpT &op);
 
 std::optional<::ttnn::MemoryConfig>
-createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg);
+createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfigT &memcfg)// ,
+//                           CallType callType);
 
 ::ttnn::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfigT &config);

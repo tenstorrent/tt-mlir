@@ -17,7 +17,7 @@
 namespace unifiedOpLib {
 
 MatmulResolvedParams
-resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT) {
+resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT, CallType callType) {
 
   MatmulResolvedParams params;
 
@@ -48,13 +48,9 @@ resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT) {
 MatmulOpResult
 callMatmul(CallType callType, const ::tt::target::ttnn::MatmulOpT &matmulOpT,
            TensorArg lhs, TensorArg rhs, ::ttnn::MeshDevice *device,
-           std::optional<::ttnn::MemoryConfig> outputMemoryConfig,
            std::optional<::tt::tt_metal::DataType> outputDType) {
 
   MatmulResolvedParams params = resolveMatmulParams(matmulOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }
@@ -129,12 +125,8 @@ LinearOpResult
 callLinear(CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
            TensorArg a, TensorArg b, const std::optional<TensorArg> bias,
            ::ttnn::MeshDevice *device,
-           std::optional<::ttnn::MemoryConfig> outputMemoryConfig,
            std::optional<::tt::tt_metal::DataType> outputDType) {
   LinearResolvedParams params = resolveLinearParams(linearOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }
@@ -215,13 +207,9 @@ callSparseMatmul(CallType callType,
                  const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT,
                  TensorArg a, TensorArg b, TensorArg sparsity,
                  ::ttnn::MeshDevice *device,
-                 std::optional<::ttnn::MemoryConfig> outputMemoryConfig,
                  std::optional<::tt::tt_metal::DataType> outputDType) {
   SparseMatmulResolvedParams params =
       resolveSparseMatmulParams(sparseMatmulOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
   if (outputDType.has_value()) {
     params.outputDType = outputDType;
   }

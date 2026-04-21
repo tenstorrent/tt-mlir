@@ -449,17 +449,18 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
 getMemoryConfigT(const TTNNLayoutAttr &layout) {
   ::tt::target::ttnn::MemoryConfigT memoryConfigT;
 
-  auto memLayout =
-      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved);
-  auto shardSpec = getShardSpecT(layout);
+  // auto memLayout =
+  //     layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved);
 
-  if (isShardedMemoryLayout(memLayout) && !shardSpec.has_value()) {
-    memLayout = TensorMemoryLayout::Interleaved;
-  }
+  // if (isShardedMemoryLayout(memLayout) && !shardSpec.has_value()) {
+  //   memLayout = TensorMemoryLayout::Interleaved;
+  // }
 
-  memoryConfigT.tensor_memory_layout = getTensorMemoryLayoutT(memLayout);
+  memoryConfigT.tensor_memory_layout = getTensorMemoryLayoutT(
+      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
   memoryConfigT.buffer_type = getBufferTypeT(layout);
 
+  auto shardSpec = getShardSpecT(layout);
   if (shardSpec.has_value()) {
     memoryConfigT.shard_spec =
         std::make_unique<::tt::target::ttnn::ShardSpecT>(shardSpec.value());
