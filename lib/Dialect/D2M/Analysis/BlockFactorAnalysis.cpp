@@ -268,7 +268,8 @@ static std::optional<CandidateScore> evaluateCandidate(
     totalCBBytes += getCBBufferSizeBytes(bufferType, device);
   }
 
-  // Walk over annotated allocs inside the region with similar checks.
+  // Account for annotated fused intermediate allocs inside the region. Their
+  // blocking relationship is stored as a d2m.blocking_map attr on the alloc.
   WalkResult walkResult = genericOp->walk([&](memref::AllocOp allocOp) {
     auto blockingMapAttr =
         allocOp->getAttrOfType<mlir::AffineMapAttr>("d2m.blocking_map");
