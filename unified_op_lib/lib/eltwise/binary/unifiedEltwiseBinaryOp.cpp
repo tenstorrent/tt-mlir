@@ -16,7 +16,8 @@
 namespace unifiedOpLib {
 
 EltwiseBinaryResolvedParams resolveEltwiseBinaryParams(
-    const ::tt::target::ttnn::EltwiseBinaryOpT &eltwiseBinaryOpT) {
+    const ::tt::target::ttnn::EltwiseBinaryOpT &eltwiseBinaryOpT,
+    CallType callType) {
 
   EltwiseBinaryResolvedParams params;
 
@@ -32,7 +33,8 @@ EltwiseBinaryResolvedParams resolveEltwiseBinaryParams(
 
   if (eltwiseBinaryOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*eltwiseBinaryOpT.out));
+        operations::utils::getTensorRefMemoryConfig(*eltwiseBinaryOpT.out),
+        callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*eltwiseBinaryOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");

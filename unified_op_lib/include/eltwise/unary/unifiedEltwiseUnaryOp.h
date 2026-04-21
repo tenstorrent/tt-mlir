@@ -33,16 +33,18 @@ struct EltwiseUnaryResolvedParams {
 };
 
 EltwiseUnaryResolvedParams resolveEltwiseUnaryParams(
-    const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT);
+    const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT,
+    CallType callType);
 
 template <typename Fn>
-EltwiseUnaryOpResult callEltwiseUnary(
-    CallType callType,
-    const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT, Fn ttnnOp,
-    TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
+EltwiseUnaryOpResult
+callEltwiseUnary(CallType callType,
+                 const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT,
+                 Fn ttnnOp, TensorArg input,
+                 ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryResolvedParams params =
-      resolveEltwiseUnaryParams(eltwiseUnaryOpT);
+      resolveEltwiseUnaryParams(eltwiseUnaryOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -64,13 +66,14 @@ EltwiseUnaryOpResult callEltwiseUnary(
 }
 
 template <typename Fn>
-EltwiseUnaryOpResult callEltwiseUnaryTanh(
-    CallType callType,
-    const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT, Fn ttnnOp,
-    TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
+EltwiseUnaryOpResult
+callEltwiseUnaryTanh(CallType callType,
+                     const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT,
+                     Fn ttnnOp, TensorArg input,
+                     ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryResolvedParams params =
-      resolveEltwiseUnaryParams(eltwiseUnaryOpT);
+      resolveEltwiseUnaryParams(eltwiseUnaryOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -102,7 +105,7 @@ EltwiseUnaryOpResult callEltwiseUnaryWithFastAndApproximateMode(
     TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryResolvedParams params =
-      resolveEltwiseUnaryParams(eltwiseUnaryOpT);
+      resolveEltwiseUnaryParams(eltwiseUnaryOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -131,7 +134,7 @@ EltwiseUnaryOpResult callEltwiseUnarySigmoid(
     TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryResolvedParams params =
-      resolveEltwiseUnaryParams(eltwiseUnaryOpT);
+      resolveEltwiseUnaryParams(eltwiseUnaryOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {
@@ -166,7 +169,7 @@ EltwiseUnaryOpResult callEltwiseUnaryWithFloatParameter(
     TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryResolvedParams params =
-      resolveEltwiseUnaryParams(eltwiseUnaryOpT);
+      resolveEltwiseUnaryParams(eltwiseUnaryOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {

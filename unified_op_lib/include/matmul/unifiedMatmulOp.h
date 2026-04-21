@@ -36,12 +36,13 @@ struct MatmulResolvedParams {
 };
 
 MatmulResolvedParams
-resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT);
+resolveMatmulParams(const ::tt::target::ttnn::MatmulOpT &matmulOpT,
+                    CallType callType);
 
-MatmulOpResult callMatmul(
-    CallType callType, const ::tt::target::ttnn::MatmulOpT &matmulOpT,
-    TensorArg lhs, TensorArg rhs, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
+MatmulOpResult
+callMatmul(CallType callType, const ::tt::target::ttnn::MatmulOpT &matmulOpT,
+           TensorArg lhs, TensorArg rhs, ::ttnn::MeshDevice *device = nullptr,
+           std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 
 struct LinearResolvedParams {
   ::ttnn::DataType outputDataType;
@@ -55,13 +56,14 @@ struct LinearResolvedParams {
 };
 
 LinearResolvedParams
-resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT);
+resolveLinearParams(const ::tt::target::ttnn::LinearOpT &linearOpT,
+                    CallType callType);
 
-LinearOpResult callLinear(
-    CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
-    TensorArg lhs, TensorArg rhs, std::optional<TensorArg> bias,
-    ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
+LinearOpResult
+callLinear(CallType callType, const ::tt::target::ttnn::LinearOpT &linearOpT,
+           TensorArg lhs, TensorArg rhs, std::optional<TensorArg> bias,
+           ::ttnn::MeshDevice *device = nullptr,
+           std::optional<::tt::tt_metal::DataType> outputDType = std::nullopt);
 
 struct SparseMatmulResolvedParams {
   ::ttnn::operations::matmul::MatmulProgramConfig matmulProgramConfig;
@@ -73,7 +75,8 @@ struct SparseMatmulResolvedParams {
 };
 
 SparseMatmulResolvedParams resolveSparseMatmulParams(
-    const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT);
+    const ::tt::target::ttnn::SparseMatmulOpT &sparseMatmulOpT,
+    CallType callType);
 
 SparseMatmulOpResult callSparseMatmul(
     CallType callType,

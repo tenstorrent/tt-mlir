@@ -17,13 +17,15 @@ namespace unifiedOpLib {
 
 // template <>
 EltwiseTernaryResolvedParams resolveEltwiseTernaryParams(
-    const ::tt::target::ttnn::EltwiseTernaryWhereOpT &eltwiseTernaryOpT) {
+    const ::tt::target::ttnn::EltwiseTernaryWhereOpT &eltwiseTernaryOpT,
+    CallType callType) {
 
   EltwiseTernaryResolvedParams params;
 
   if (eltwiseTernaryOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*eltwiseTernaryOpT.out));
+        operations::utils::getTensorRefMemoryConfig(*eltwiseTernaryOpT.out),
+        callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*eltwiseTernaryOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");

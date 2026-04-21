@@ -17,14 +17,16 @@ namespace unifiedOpLib {
 
 EltwiseBinaryCompositeResolvedParams resolveEltwiseBinaryCompositeParams(
     const ::tt::target::ttnn::EltwiseBinaryCompositeOpT
-        &eltwiseBinaryCompositeOpT) {
+        &eltwiseBinaryCompositeOpT,
+    CallType callType) {
 
   EltwiseBinaryCompositeResolvedParams params;
 
   if (eltwiseBinaryCompositeOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(
-            *eltwiseBinaryCompositeOpT.out));
+            *eltwiseBinaryCompositeOpT.out),
+        callType);
     LOG_ASSERT(
         operations::utils::inSystemMemory(*eltwiseBinaryCompositeOpT.out) ||
             params.outputMemoryConfig.has_value(),
@@ -37,7 +39,8 @@ EltwiseBinaryCompositeResolvedParams resolveEltwiseBinaryCompositeParams(
 EltwiseBinaryCompositeScalarResolvedParams
 resolveEltwiseBinaryCompositeScalarParams(
     const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
-        &eltwiseBinaryCompositeScalarOpT) {
+        &eltwiseBinaryCompositeScalarOpT,
+    CallType callType) {
 
   EltwiseBinaryCompositeScalarResolvedParams params;
 
@@ -55,7 +58,8 @@ resolveEltwiseBinaryCompositeScalarParams(
   if (eltwiseBinaryCompositeScalarOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(
-            *eltwiseBinaryCompositeScalarOpT.out));
+            *eltwiseBinaryCompositeScalarOpT.out),
+        callType);
 
     LOG_ASSERT(operations::utils::inSystemMemory(
                    *eltwiseBinaryCompositeScalarOpT.out) ||
@@ -73,8 +77,8 @@ EltwiseBinaryCompositeScalarOpResult callEltwiseBinaryCompositeScalar(
     TensorArg lhs, ::ttnn::MeshDevice *device) {
 
   EltwiseBinaryCompositeScalarResolvedParams params =
-      resolveEltwiseBinaryCompositeScalarParams(
-          eltwiseBinaryCompositeScalarOpT);
+      resolveEltwiseBinaryCompositeScalarParams(eltwiseBinaryCompositeScalarOpT,
+                                                callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {

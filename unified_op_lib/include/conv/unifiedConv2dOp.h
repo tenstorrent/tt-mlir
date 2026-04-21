@@ -37,7 +37,8 @@ struct Conv2dResolvedParams {
 };
 
 Conv2dResolvedParams
-resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT);
+resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
+                    CallType callType);
 
 Conv2dOpResult callConv2d(CallType callType,
                           const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,

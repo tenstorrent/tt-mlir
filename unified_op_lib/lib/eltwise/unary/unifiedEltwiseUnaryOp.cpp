@@ -16,7 +16,8 @@
 namespace unifiedOpLib {
 
 EltwiseUnaryResolvedParams resolveEltwiseUnaryParams(
-    const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT) {
+    const ::tt::target::ttnn::EltwiseUnaryOpT &eltwiseUnaryOpT,
+    CallType callType) {
 
   EltwiseUnaryResolvedParams params;
 
@@ -24,7 +25,8 @@ EltwiseUnaryResolvedParams resolveEltwiseUnaryParams(
 
   if (eltwiseUnaryOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*eltwiseUnaryOpT.out));
+        operations::utils::getTensorRefMemoryConfig(*eltwiseUnaryOpT.out),
+        callType);
     LOG_ASSERT(operations::utils::inSystemMemory(*eltwiseUnaryOpT.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");

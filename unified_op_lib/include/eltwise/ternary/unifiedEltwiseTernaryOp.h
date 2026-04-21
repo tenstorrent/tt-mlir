@@ -25,7 +25,8 @@ struct EltwiseTernaryResolvedParams {
 };
 
 EltwiseTernaryResolvedParams resolveEltwiseTernaryParams(
-    const tt::target::ttnn::EltwiseTernaryWhereOpT &eltwiseTernaryOpT);
+    const tt::target::ttnn::EltwiseTernaryWhereOpT &eltwiseTernaryOpT,
+    CallType callType);
 
 template <typename Fn>
 EltwiseTernaryOpResult callEltwiseTernary(
@@ -35,7 +36,7 @@ EltwiseTernaryOpResult callEltwiseTernary(
     ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseTernaryResolvedParams params =
-      resolveEltwiseTernaryParams(eltwiseTernaryWhereOpT);
+      resolveEltwiseTernaryParams(eltwiseTernaryWhereOpT, callType);
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {

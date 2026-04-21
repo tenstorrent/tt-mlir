@@ -32,7 +32,8 @@ struct EltwiseQuantizationResolvedParams {
 };
 
 EltwiseQuantizationResolvedParams resolveEltwiseQuantizationParams(
-    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT);
+    const ::tt::target::ttnn::EltwiseQuantizationOpT &eltwiseQuantizationOpT,
+    CallType callType);
 
 EltwiseQuantizationOpResult callEltwiseQuantizeDequantize(
     CallType callType,
