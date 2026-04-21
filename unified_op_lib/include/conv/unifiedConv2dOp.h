@@ -39,11 +39,11 @@ struct Conv2dResolvedParams {
 Conv2dResolvedParams
 resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT);
 
-Conv2dOpResult callConv2d(
-    CallType callType, const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
-    TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
-    ::ttnn::MeshDevice &targetDevice,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt);
+Conv2dOpResult callConv2d(CallType callType,
+                          const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
+                          TensorArg input, TensorArg weight,
+                          std::optional<TensorArg> bias,
+                          ::ttnn::MeshDevice &targetDevice);
 
 } // namespace unifiedOpLib
 

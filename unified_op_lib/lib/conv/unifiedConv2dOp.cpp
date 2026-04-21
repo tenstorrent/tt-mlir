@@ -75,13 +75,9 @@ resolveConv2dParams(const ::tt::target::ttnn::Conv2dOpT &conv2dOpT) {
 Conv2dOpResult
 callConv2d(CallType callType, const ::tt::target::ttnn::Conv2dOpT &conv2dOpT,
            TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
-           ::ttnn::MeshDevice &targetDevice,
-           std::optional<::ttnn::MemoryConfig> outputMemoryConfig) {
+           ::ttnn::MeshDevice &targetDevice) {
 
   Conv2dResolvedParams params = resolveConv2dParams(conv2dOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:

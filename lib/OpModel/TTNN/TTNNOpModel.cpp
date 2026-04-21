@@ -896,8 +896,7 @@ llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
   auto query = [=]() {
     unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnary(
         unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
-        detail::getOpSymbol<OpTy>(), inputSpec, device,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getOpSymbol<OpTy>(), inputSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -936,8 +935,7 @@ UnaryEltwiseOpModel<OpTy>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   auto query = [=]() {
     unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnary(
         unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
-        detail::getOpSymbol<OpTy>(), inputSpec, device,
-        detail::getNullableMemoryConfig(outputLayout));
+        detail::getOpSymbol<OpTy>(), inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -976,8 +974,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryWithFastAndApproximateMode(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
-            detail::getOpSymbol<OpTy>(), inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            detail::getOpSymbol<OpTy>(), inputSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1018,8 +1015,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryWithFastAndApproximateMode(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
-            detail::getOpSymbol<OpTy>(), inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            detail::getOpSymbol<OpTy>(), inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1076,7 +1072,7 @@ UnaryCompositeEltwiseOpModel<OpTy>::getOpConstraints(
         unifiedOpLib::callEltwiseUnaryComposite(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
             eltwiseUnaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpec,
-            device, detail::getNullableMemoryConfig(outputLayout));
+            device);
 
     assert(
         std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
@@ -1116,8 +1112,7 @@ llvm::Expected<size_t> UnaryCompositeEltwiseOpModel<OpTy>::getOpRuntime(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryComposite(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
-            detail::getOpSymbol<OpTy>(), inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            detail::getOpSymbol<OpTy>(), inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1157,7 +1152,7 @@ UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
         unifiedOpLib::callEltwiseUnaryCompositeWithFastAndApproximateMode(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
             eltwiseUnaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpec,
-            device, detail::getNullableMemoryConfig(outputLayout));
+            device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1198,8 +1193,7 @@ UnaryCompositeEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryCompositeWithFastAndApproximateMode(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
-            detail::getOpSymbol<OpTy>(), inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            detail::getOpSymbol<OpTy>(), inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1274,8 +1268,7 @@ llvm::Expected<OpConstraints> OpModel<TanhOp>::getOpConstraints(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryTanh(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
-            ::ttnn::tanh, inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            ::ttnn::tanh, inputSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1314,8 +1307,7 @@ OpModel<TanhOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryTanh(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
-            ::ttnn::tanh, inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            ::ttnn::tanh, inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1355,8 +1347,7 @@ llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnarySigmoid(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
-            ::ttnn::sigmoid, inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            ::ttnn::sigmoid, inputSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1396,8 +1387,7 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnarySigmoid(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
-            ::ttnn::sigmoid, inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            ::ttnn::sigmoid, inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1438,8 +1428,7 @@ llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryWithFloatParameter(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseUnaryOpT,
-            ::ttnn::leaky_relu, inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            ::ttnn::leaky_relu, inputSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1478,8 +1467,7 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
     unifiedOpLib::EltwiseUnaryOpResult result =
         unifiedOpLib::callEltwiseUnaryWithFloatParameter(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryOpT,
-            ::ttnn::leaky_relu, inputSpec, device,
-            detail::getNullableMemoryConfig(outputLayout));
+            ::ttnn::leaky_relu, inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1540,8 +1528,6 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
   if (!outputDType && opDtypeAttr) {
     outputDType = conversion::getDataType(opDtypeAttr.getValue());
   }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
       buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout);
@@ -1552,7 +1538,7 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
         unifiedOpLib::callEltwiseBinary(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, eltwiseBinaryOpT,
             detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device,
-            outputMemoryConfig, outputDType);
+            outputDType);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1593,8 +1579,6 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT =
       buildEltwiseBinaryOpTFromMLIR<OpTy>(outputLayout);
@@ -1605,7 +1589,7 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
         unifiedOpLib::callEltwiseBinary(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseBinaryOpT,
             detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device,
-            outputMemoryConfig, outputDType);
+            outputDType);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -1656,9 +1640,6 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
       buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
@@ -1668,7 +1649,7 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
         unifiedOpLib::callEltwiseBinaryComposite(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
             eltwiseBinaryCompositeOpT, detail::getOpSymbol<OpTy>(), inputSpecA,
-            inputSpecB, device, outputMemoryConfig);
+            inputSpecB, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
@@ -1708,9 +1689,6 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT =
       buildEltwiseBinaryCompositeOpTFromMLIR<OpTy>(outputLayout);
 
@@ -1719,17 +1697,13 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
     unifiedOpLib::EltwiseBinaryOpResult result =
         unifiedOpLib::callEltwiseBinaryComposite(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseBinaryCompositeOpT,
-            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device,
-            outputMemoryConfig);
+            detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
         "Expected RuntimeQueryResponse from EltwiseBinaryCompositeOp query");
 
     return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
-    return ::ttnn::graph::query_op_runtime(detail::getOpSymbol<OpTy>(), device,
-                                           inputSpecA, inputSpecB,
-                                           outputMemoryConfig);
   };
 
   return operation::getOpRuntime(query);
@@ -1893,9 +1867,6 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
       eltwiseBinaryCompositeScalarOpT =
           buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent, outputLayout);
@@ -1905,8 +1876,7 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
     unifiedOpLib::EltwiseBinaryCompositeScalarOpResult result =
         unifiedOpLib::callEltwiseBinaryCompositeScalar(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
-            eltwiseBinaryCompositeScalarOpT, inputSpec, device,
-            outputMemoryConfig);
+            eltwiseBinaryCompositeScalarOpT, inputSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -1938,9 +1908,6 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
       eltwiseBinaryCompositeScalarOpT =
           buildEltwiseBinaryCompositeScalarOpTFromMLIR(exponent, outputLayout);
@@ -1950,8 +1917,7 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
     unifiedOpLib::EltwiseBinaryCompositeScalarOpResult result =
         unifiedOpLib::callEltwiseBinaryCompositeScalar(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME,
-            eltwiseBinaryCompositeScalarOpT, inputSpec, device,
-            outputMemoryConfig);
+            eltwiseBinaryCompositeScalarOpT, inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -2013,9 +1979,6 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT =
       buildEltwiseTernaryOpTFromMLIR<OpTy>(outputLayout);
 
@@ -2025,7 +1988,7 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
         unifiedOpLib::callEltwiseTernary(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
             eltwiseTernaryWhereOpT, detail::getOpSymbol<OpTy>(), inputSpecA,
-            inputSpecB, inputSpecC, device, outputMemoryConfig);
+            inputSpecB, inputSpecC, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -2071,9 +2034,6 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseTernaryWhereOpT eltwiseTernaryWhereOpT =
       buildEltwiseTernaryOpTFromMLIR<OpTy>(outputLayout);
 
@@ -2083,7 +2043,7 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
         unifiedOpLib::callEltwiseTernary(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseTernaryWhereOpT,
             detail::getOpSymbol<OpTy>(), inputSpecA, inputSpecB, inputSpecC,
-            device, outputMemoryConfig);
+            device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -4827,8 +4787,6 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
   } else {
     outputDType = detail::getNullableDataType(outputLayout);
   }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
@@ -4840,7 +4798,7 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
         unifiedOpLib::callEltwiseQuantizeDequantize(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
             eltwiseQuantizationOpT, inputSpec, scaleSpec, zeroPointSpec, device,
-            outputMemoryConfig, outputDType);
+            outputDType);
 
     assert(
         std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
@@ -4898,8 +4856,6 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
   } else {
     outputDType = detail::getNullableDataType(outputLayout);
   }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<OpTy>(axis, outputDtype,
@@ -4910,8 +4866,7 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
     unifiedOpLib::EltwiseQuantizationOpResult result =
         unifiedOpLib::callEltwiseQuantizeDequantize(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseQuantizationOpT,
-            inputSpec, scaleSpec, zeroPointSpec, device, outputMemoryConfig,
-            outputDType);
+            inputSpec, scaleSpec, zeroPointSpec, device, outputDType);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -4989,8 +4944,6 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
   } else {
     outputDType = detail::getNullableDataType(outputLayout);
   }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
@@ -5002,8 +4955,7 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
         unifiedOpLib::callEltwiseRequantize(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
             eltwiseQuantizationOpT, inputSpec, inScaleSpec, inZeroPointSpec,
-            outScaleSpec, outZeroPointSpec, device, outputMemoryConfig,
-            outputDType);
+            outScaleSpec, outZeroPointSpec, device, outputDType);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -5075,8 +5027,6 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
   } else {
     outputDType = detail::getNullableDataType(outputLayout);
   }
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   ::tt::target::ttnn::EltwiseQuantizationOpT eltwiseQuantizationOpT =
       buildEltwiseQuantizationOpTFromMLIR<RequantizeOp>(axis, outputDtype,
@@ -5088,7 +5038,7 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
         unifiedOpLib::callEltwiseRequantize(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseQuantizationOpT,
             inputSpec, inScaleSpec, inZeroPointSpec, outScaleSpec,
-            outZeroPointSpec, device, outputMemoryConfig, outputDType);
+            outZeroPointSpec, device, outputDType);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -5178,14 +5128,12 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
   }
 
-  ::tt::target::ttnn::LinearOpT linearOpT =
-      buildLinearOpTFromMLIR(transposeA, transposeB, activation,
-                             programConfigAttr, computeKernelConfig, outputLayout);
+  ::tt::target::ttnn::LinearOpT linearOpT = buildLinearOpTFromMLIR(
+      transposeA, transposeB, activation, programConfigAttr,
+      computeKernelConfig, outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto linearOpQuery = [=]() {
@@ -5194,7 +5142,7 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
         inputSpecB,
         biasTensor.has_value() ? std::make_optional(&biasTensor.value())
                                : std::nullopt,
-        device, outputMemoryConfig, outputDType);
+        device, outputDType);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -5243,12 +5191,11 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 
   ::tt::target::ttnn::LinearOpT linearOpT = buildLinearOpTFromMLIR(
       transposeA, transposeB, /*activation=*/std::nullopt,
-      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt, outputLayout);
+      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt,
+      outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto linearOpQuery = [=]() {
@@ -5257,7 +5204,7 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
         inputSpecB,
         biasTensor.has_value() ? std::make_optional(&biasTensor.value())
                                : std::nullopt,
-        device, outputMemoryConfig, outputDType);
+        device, outputDType);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -5278,7 +5225,8 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 static ::tt::target::ttnn::MatmulOpT buildMatmulOpTFromMLIR(
     bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
     std::optional<mlir::Attribute> programConfigAttr,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig, TTNNLayoutAttr outputLayout) {
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 
   ::tt::target::ttnn::MatmulOpT matmulOpT;
 
@@ -5336,20 +5284,18 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
 
-  ::tt::target::ttnn::MatmulOpT matmulOpT =
-      buildMatmulOpTFromMLIR(transposeA, transposeB, activation,
-                             programConfigAttr, computeKernelConfig, outputLayout);
+  ::tt::target::ttnn::MatmulOpT matmulOpT = buildMatmulOpTFromMLIR(
+      transposeA, transposeB, activation, programConfigAttr,
+      computeKernelConfig, outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto matmulOpQuery = [=]() {
     unifiedOpLib::MatmulOpResult result = unifiedOpLib::callMatmul(
         unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS, matmulOpT, inputSpecA,
-        inputSpecB, device, outputMemoryConfig, outputDType);
+        inputSpecB, device, outputDType);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -5389,18 +5335,17 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
 
   ::tt::target::ttnn::MatmulOpT matmulOpT = buildMatmulOpTFromMLIR(
       transposeA, transposeB, /*activation=*/std::nullopt,
-      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt, outputLayout);
+      /*programConfigAttr=*/std::nullopt, /*computeKernelConfig=*/std::nullopt,
+      outputLayout);
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
 
   // Create query closure
   auto matmulOpQuery = [=]() {
     unifiedOpLib::MatmulOpResult result = unifiedOpLib::callMatmul(
         unifiedOpLib::CallType::QUERY_OP_RUNTIME, matmulOpT, inputSpecA,
-        inputSpecB, device, outputMemoryConfig, outputDType);
+        inputSpecB, device, outputDType);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -5962,7 +5907,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
         weightSpec,
         biasSpec.has_value() ? std::optional<unifiedOpLib::TensorArg>(*biasSpec)
                              : std::nullopt,
-        *device, detail::getNullableMemoryConfig(outputLayout));
+        *device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -6042,7 +5987,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
         weightSpec,
         biasSpec.has_value() ? std::optional<unifiedOpLib::TensorArg>(*biasSpec)
                              : std::nullopt,
-        *device, detail::getNullableMemoryConfig(outputLayout));
+        *device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -7922,7 +7867,8 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
 static ::tt::target::ttnn::EltwiseUnaryCompositeOpT
 buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(mlir::Attribute min,
-                                                 mlir::Attribute max, TTNNLayoutAttr outputLayout) {
+                                                 mlir::Attribute max,
+                                                 TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT;
   eltwiseUnaryCompositeOpT.type =
       ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampScalar;
@@ -7979,9 +7925,6 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
       buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max, outputLayout);
 
@@ -7989,7 +7932,7 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
         unifiedOpLib::callEltwiseUnaryCompositeClampScalar(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
-            eltwiseUnaryCompositeOpT, inputSpec, device, outputMemoryConfig);
+            eltwiseUnaryCompositeOpT, inputSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -8021,9 +7964,6 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
       buildEltwiseUnaryCompositeClampScalarOpTFromMLIR(min, max, outputLayout);
 
@@ -8031,7 +7971,7 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
         unifiedOpLib::callEltwiseUnaryCompositeClampScalar(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
-            inputSpec, device, outputMemoryConfig);
+            inputSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
@@ -8092,9 +8032,6 @@ llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec maxSpec = maxSpecExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
       buildEltwiseUnaryCompositeClampTensorOpTFromMLIR(outputLayout);
 
@@ -8102,8 +8039,7 @@ llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
         unifiedOpLib::callEltwiseUnaryCompositeClampTensor(
             unifiedOpLib::CallType::QUERY_OP_CONSTRAINTS,
-            eltwiseUnaryCompositeOpT, inputSpec, minSpec, maxSpec, device,
-            outputMemoryConfig);
+            eltwiseUnaryCompositeOpT, inputSpec, minSpec, maxSpec, device);
 
     assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
                result) &&
@@ -8149,9 +8085,6 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec maxSpec = maxSpecExp.get();
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
   ::tt::target::ttnn::EltwiseUnaryCompositeOpT eltwiseUnaryCompositeOpT =
       buildEltwiseUnaryCompositeClampTensorOpTFromMLIR(outputLayout);
 
@@ -8159,7 +8092,7 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
     unifiedOpLib::EltwiseUnaryCompositeOpResult result =
         unifiedOpLib::callEltwiseUnaryCompositeClampTensor(
             unifiedOpLib::CallType::QUERY_OP_RUNTIME, eltwiseUnaryCompositeOpT,
-            inputSpec, minSpec, maxSpec, device, outputMemoryConfig);
+            inputSpec, minSpec, maxSpec, device);
 
     assert(
         std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&

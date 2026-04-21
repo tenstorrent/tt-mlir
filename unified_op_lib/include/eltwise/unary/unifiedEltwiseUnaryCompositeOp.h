@@ -36,14 +36,10 @@ EltwiseUnaryCompositeOpResult callEltwiseUnaryComposite(
     CallType callType,
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
         &eltwiseUnaryCompositeOpT,
-    Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt) {
+    Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryCompositeResolvedParams params =
       resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -70,14 +66,10 @@ callEltwiseUnaryCompositeWithFastAndApproximateMode(
     CallType callType,
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
         &eltwiseUnaryCompositeOpT,
-    Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt) {
+    Fn ttnnOp, TensorArg input, ::ttnn::MeshDevice *device = nullptr) {
 
   EltwiseUnaryCompositeResolvedParams params =
       resolveEltwiseUnaryCompositeParams(eltwiseUnaryCompositeOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS:
@@ -123,16 +115,14 @@ EltwiseUnaryCompositeOpResult callEltwiseUnaryCompositeClampScalar(
     CallType callType,
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
         &eltwiseUnaryCompositeOpT,
-    TensorArg input, ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt);
+    TensorArg input, ::ttnn::MeshDevice *device = nullptr);
 
 EltwiseUnaryCompositeOpResult callEltwiseUnaryCompositeClampTensor(
     CallType callType,
     const ::tt::target::ttnn::EltwiseUnaryCompositeOpT
         &eltwiseUnaryCompositeOpT,
     TensorArg input, TensorArg min, TensorArg max,
-    ::ttnn::MeshDevice *device = nullptr,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig = std::nullopt);
+    ::ttnn::MeshDevice *device = nullptr);
 
 } // namespace unifiedOpLib
 

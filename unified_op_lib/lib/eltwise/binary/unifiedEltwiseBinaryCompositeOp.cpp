@@ -70,15 +70,11 @@ EltwiseBinaryCompositeScalarOpResult callEltwiseBinaryCompositeScalar(
     CallType callType,
     const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpT
         &eltwiseBinaryCompositeScalarOpT,
-    TensorArg lhs, ::ttnn::MeshDevice *device,
-    std::optional<::ttnn::MemoryConfig> outputMemoryConfig) {
+    TensorArg lhs, ::ttnn::MeshDevice *device) {
 
   EltwiseBinaryCompositeScalarResolvedParams params =
       resolveEltwiseBinaryCompositeScalarParams(
           eltwiseBinaryCompositeScalarOpT);
-  if (outputMemoryConfig.has_value()) {
-    params.outputMemoryConfig = outputMemoryConfig;
-  }
 
   switch (callType) {
   case CallType::QUERY_OP_CONSTRAINTS: {
