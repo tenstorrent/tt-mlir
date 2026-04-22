@@ -193,6 +193,19 @@ def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegis
         return false;
       }]
     >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the number of DST scratch slices this op needs beyond its
+        operand/output slices. The insert-dst-register-access pass reserves
+        this many slices from the DST allocator and records their indices on
+        the op (e.g. via `dst_scratch_index`) for the lowering to consume.
+      }],
+      /*retTy=*/"int64_t",
+      /*methodName=*/"getNumDstScratchSlices",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return 0;"
+    >,
   ];
 }
 

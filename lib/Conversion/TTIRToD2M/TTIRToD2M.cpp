@@ -649,8 +649,8 @@ protected:
         ttcore::TileType::getDefaultShape(), elementType, encoding);
 
     assert(mlir::isa<mlir::FloatType>(elementType) &&
-           "createScaler: only float element types are supported; int "
-           "reductions lower without a scaler (b operand is optional)");
+           "createScaler is float-only; integer reductions lower via "
+           "tile_sfpu_reduce_* which take no scaler");
     mlir::Attribute fillAttr =
         mlir::FloatAttr::get(rewriter.getF32Type(), fillValue);
 
@@ -1509,16 +1509,19 @@ private:
 } // namespace
 
 // D2MNamedTileReduceRewriter lowers tile C/R reductions (the last two
-// physical iterator dims) via tile_reduce_{sum,max,mean}, optionally with a
-// scaler tile broadcast across the lhs (e.g. 1/N for mean).
+// physical iterator dims) via tile_reduce_{sum,max,mean} for float element
+// types (with a broadcast scaler tile encoding e.g. 1/N for mean) and via
+// tile_sfpu_reduce_{sum,max} for integer element types (no scaler, SFPU
+// lowering). `IntTileOp` may be `void` to indicate the int path is not
+// supported (e.g. mean).
 namespace {
-template <typename ConcreteOp, typename TileOp>
+template <typename ConcreteOp, typename FloatTileOp, typename IntTileOp = void>
 class D2MNamedTileReduceRewriter final
     : public mlir::OpConversionPattern<ConcreteOp>,
       D2MNamedRewriterCommon {
 
 public:
-  D2MNamedTileReduceRewriter<ConcreteOp, TileOp>(
+  D2MNamedTileReduceRewriter<ConcreteOp, FloatTileOp, IntTileOp>(
       const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
       ttcore::MemorySpace defaultInputMemSpace,
       ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
@@ -1529,16 +1532,18 @@ public:
                                enableMulticastInference) {}
 
 private:
+  static constexpr bool kIntSupported = !std::is_void_v<IntTileOp>;
+
   // Return the identity OOB fill value for this reduction's tile op.
   // Padded elements must not affect the reduction result.
   static constexpr ttcore::OOBVal getReductionOOBVal() {
-    if constexpr (std::is_same_v<TileOp, d2m::TileReduceMaxOp>) {
+    if constexpr (std::is_same_v<FloatTileOp, d2m::TileReduceMaxOp>) {
       return ttcore::OOBVal::NegInf;
-    } else if constexpr (std::is_same_v<TileOp, d2m::TileReduceSumOp> ||
-                         std::is_same_v<TileOp, d2m::TileReduceMeanOp>) {
+    } else if constexpr (std::is_same_v<FloatTileOp, d2m::TileReduceSumOp> ||
+                         std::is_same_v<FloatTileOp, d2m::TileReduceMeanOp>) {
       return ttcore::OOBVal::Zero;
     } else {
-      static_assert(ttmlir::utils::always_false<TileOp>(),
+      static_assert(ttmlir::utils::always_false<FloatTileOp>(),
                     "Unhandled reduction TileOp");
     }
   }
@@ -1558,10 +1563,15 @@ private:
         mlir::cast<RankedTensorType>(origInputs.front().getType());
     // Float reductions multiply A by a broadcast scaler tile inside
     // tile_reduce_*. Integer reductions lower through the SFPU, which
-    // ignores the scaler entirely, so we skip building it and emit the
-    // d2m.tile_reduce_* op with the optional $b operand absent.
-    const bool hasScaler =
+    // ignores the scaler entirely, so we emit tile_sfpu_reduce_* without a
+    // scaler operand.
+    const bool isFloat =
         mlir::isa<mlir::FloatType>(inputTensorType.getElementType());
+    if (!isFloat && !kIntSupported) {
+      return rewriter.notifyMatchFailure(
+          op, "integer tile reduction is not supported for this op");
+    }
+    const bool hasScaler = isFloat;
     SmallVector<mlir::Value> newInputs(origInputs.begin(), origInputs.end());
     if (hasScaler) {
       newInputs.emplace_back(this->createScaler(rewriter, loc, inputTensorType,
@@ -1633,11 +1643,21 @@ private:
                 mlir::ValueRange bbArgs) {
               // bbArgs layout: [A, (scaler if hasScaler,) outputInit...].
               mlir::Value aArg = bbArgs.front();
-              mlir::Value bArg = hasScaler ? bbArgs[1] : mlir::Value();
               mlir::Value cArg = bbArgs[numInputs];
               mlir::Type resultType = cArg.getType();
-              mlir::Value yield = bbBuilder.create<TileOp>(
-                  loc, resultType, aArg, bArg, cArg, reduceDimAttr);
+              mlir::Value yield;
+              if (hasScaler) {
+                mlir::Value bArg = bbArgs[1];
+                yield = bbBuilder.create<FloatTileOp>(
+                    loc, resultType, aArg, bArg, cArg, reduceDimAttr);
+              } else {
+                if constexpr (kIntSupported) {
+                  yield = bbBuilder.create<IntTileOp>(loc, resultType, aArg,
+                                                      cArg, reduceDimAttr);
+                } else {
+                  llvm_unreachable("int path guarded against at entry");
+                }
+              }
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
@@ -3740,10 +3760,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedAccumReductionRewriter<ttir::MaxOp,  d2m::TileMaximumOp>,
     D2MNamedAccumReductionRewriter<ttir::MinOp,  d2m::TileMinimumOp>,
     D2MNamedAccumReductionRewriter<ttir::MeanOp, d2m::TileAddOp>,
-    // Inner (tile C/R) reductions: tile_reduce_*.
-    D2MNamedTileReduceRewriter<ttir::MaxOp,  d2m::TileReduceMaxOp>,
+    // Inner (tile C/R) reductions: tile_reduce_* (float) /
+    // tile_sfpu_reduce_* (integer). Mean has no integer variant.
+    D2MNamedTileReduceRewriter<ttir::MaxOp,  d2m::TileReduceMaxOp, d2m::TileSFPUReduceMaxOp>,
     D2MNamedTileReduceRewriter<ttir::MeanOp, d2m::TileReduceMeanOp>,
-    D2MNamedTileReduceRewriter<ttir::SumOp,  d2m::TileReduceSumOp>,
+    D2MNamedTileReduceRewriter<ttir::SumOp,  d2m::TileReduceSumOp, d2m::TileSFPUReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.

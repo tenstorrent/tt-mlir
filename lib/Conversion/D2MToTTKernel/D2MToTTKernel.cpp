@@ -799,16 +799,7 @@ public:
     } else {
       static_assert(arity == 3 && !ttmlir::utils::always_false<ConcreteOp>(),
                     "FPUOp must be unary, binary or ternary");
-      // TileReduce{Sum,Max,Mean} have an optional scaler `$b` that is absent
-      // for integer reductions (which lower through the SFPU path), so they
-      // may legitimately present with only 2 operands.
-      if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
-                    std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp> ||
-                    std::is_same_v<ConcreteOp, d2m::TileReduceMeanOp>) {
-        assert(op->getNumOperands() == 2u || op->getNumOperands() == 3u);
-      } else {
-        assert(op->getNumOperands() == 3u);
-      }
+      assert(op->getNumOperands() == 3u);
     }
 
     if constexpr (std::is_same_v<ConcreteOp, d2m::TileMatmulOp>) {
@@ -919,36 +910,21 @@ public:
         break;
       }
 
-      // Int tile reduce goes through SFPU (FPU reduce_tile is float-only).
-      const auto inTileType = mlir::cast<ttcore::TileType>(op.getA().getType());
-      const bool isIntReduce =
-          mlir::isa<IntegerType>(inTileType.getElementType());
-
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, op.getA());
+      auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
-      Value cIdx = adaptor.getC();
-
-      if (isIntReduce) {
-        if (failed(lowerIntTileReduce(
-                op, adaptor, rewriter, reduce_type, kernel_reduce_dim,
-                inTileType.getDataType(), cbA, outCB, cIdx, insertionPoint))) {
-          return failure();
-        }
-      } else {
-        auto cbB = getCB(rewriter, op.getB());
-        setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
-                                       /*allowHoisting*/ true);
-        rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), cbA,
-                                                            cbB, outCB);
-        rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-        rewriter.create<ttkernel::ReduceInitOp>(op->getLoc(), cbA, cbB, outCB,
-                                                reduce_type, kernel_reduce_dim);
-        rewriter.create<ttkernel::ReduceTileOp>(
-            op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(), cIdx,
-            reduce_type, kernel_reduce_dim);
-        rewriter.create<ttkernel::ReduceUninitOp>(op->getLoc());
-      }
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::ComputeKernelHWStartupOp>(op->getLoc(), cbA,
+                                                          cbB, outCB);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+      rewriter.create<ttkernel::ReduceInitOp>(op->getLoc(), cbA, cbB, outCB,
+                                              reduce_type, kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceTileOp>(
+          op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
+          adaptor.getC(), reduce_type, kernel_reduce_dim);
+      rewriter.create<ttkernel::ReduceUninitOp>(op->getLoc());
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileBcastOp>) {
       ttkernel::BcastType bcastType = ttkernel::BcastType::None;
       switch (op.getBcastType()) {
@@ -987,42 +963,66 @@ public:
     rewriter.eraseOp(op);
     return success();
   }
+};
 
-private:
-  // Lower int32 TileReduce{Sum,Max} via SFPU sfpu_reduce.
-  //
-  // sfpu_reduce is intra-tile only, so seed DST[cIdx] with the pool identity
-  // once (hoisted), then per iter: copy input into scratch DST[cIdx + 1],
-  // sfpu_reduce it, accumulate into DST[cIdx] with the matching int binary op.
-  // REDUCE_SCALAR is unsupported; RC is decomposed into Col + Row.
-  LogicalResult lowerIntTileReduce(ConcreteOp op,
-                                   typename ConcreteOp::Adaptor adaptor,
-                                   ConversionPatternRewriter &rewriter,
-                                   ttkernel::ReduceType reduceType,
-                                   ttkernel::ReduceDim kernelReduceDim,
-                                   ttcore::DataType dataFormat, Value cbA,
-                                   Value outCB, Value cIdx,
-                                   Block::iterator insertionPoint) const {
+// Lowers integer tile reductions via SFPU `sfpu_reduce` (intra-tile only):
+// seed DST[cIdx] with the pool identity once, then per iter stage the input
+// into DST[scratchIdx], sfpu_reduce it, and combine into DST[cIdx] with an
+// int binary op. scratchIdx comes from `dst_scratch_index` reserved by
+// `d2m-insert-dst-register-access`. RC decomposes into Col + Row.
+template <typename ConcreteOp>
+class D2MSFPUReduceRewriter : public OpConversionPattern<ConcreteOp> {
+public:
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    static_assert(std::is_same_v<ConcreteOp, d2m::TileSFPUReduceSumOp> ||
+                      std::is_same_v<ConcreteOp, d2m::TileSFPUReduceMaxOp>,
+                  "D2MSFPUReduceRewriter supports only int tile_sfpu_reduce_*");
+
+    ttkernel::ReduceType reduceType =
+        std::is_same_v<ConcreteOp, d2m::TileSFPUReduceSumOp>
+            ? ttkernel::ReduceType::Sum
+            : ttkernel::ReduceType::Max;
+
+    ttkernel::ReduceDim kernelReduceDim;
+    switch (op.getReduceDim()) {
+    case d2m::ReduceDim::C:
+      kernelReduceDim = ttkernel::ReduceDim::Col;
+      break;
+    case d2m::ReduceDim::R:
+      kernelReduceDim = ttkernel::ReduceDim::Row;
+      break;
+    case d2m::ReduceDim::RC:
+      kernelReduceDim = ttkernel::ReduceDim::Scalar;
+      break;
+    }
+
+    // i32 element type is enforced by the op verifier; fill_tile_int and
+    // binary_max_int32_tile below rely on that invariant.
+    const auto inTileType = mlir::cast<ttcore::TileType>(op.getA().getType());
+    ttcore::DataType dataFormat = inTileType.getDataType();
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    Value cbA = getCB(rewriter, op.getA());
+    Value outCB = getOutCB(rewriter, op);
+    Value cIdx = adaptor.getC();
+
     // cIdx is defined inside the scf loops, so re-materialize a constant
     // copy for use at the hoisted init point.
     auto cIdxConst = cIdx.template getDefiningOp<arith::ConstantOp>();
     if (!cIdxConst) {
       return op->emitOpError(
-          "int tile reduce expects C operand's DST index to be a "
+          "tile_sfpu_reduce_* expects C operand's DST index to be a "
           "compile-time constant; got a non-constant value");
     }
     int64_t cIdxVal = mlir::cast<IntegerAttr>(cIdxConst.getValue()).getInt();
 
-    int32_t identityInt = 0;
-    switch (reduceType) {
-    case ttkernel::ReduceType::Sum:
-      break;
-    case ttkernel::ReduceType::Max:
-      identityInt = std::numeric_limits<int32_t>::min();
-      break;
-    case ttkernel::ReduceType::Avg:
-      return op->emitOpError("int tile reduce mean is not yet supported");
-    }
+    int32_t identityInt = (reduceType == ttkernel::ReduceType::Max)
+                              ? std::numeric_limits<int32_t>::min()
+                              : 0;
 
     setInsertionPointAfterOperands(rewriter, {cbA, outCB},
                                    /*allowHoisting*/ true);
@@ -1038,10 +1038,13 @@ private:
 
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    // tempIdx = cIdx + 1; only one DST slot is reserved for the reduction,
-    // so the adjacent slot is free scratch.
-    auto one = rewriter.create<arith::ConstantIndexOp>(op->getLoc(), 1);
-    Value tempIdx = rewriter.create<arith::AddIOp>(op->getLoc(), cIdx, one);
+    int64_t scratchIdxVal = op.getDstScratchIndex();
+    if (scratchIdxVal < 0) {
+      return op->emitOpError("dst_scratch_index must be set by "
+                             "d2m-insert-dst-register-access before lowering");
+    }
+    Value tempIdx =
+        rewriter.create<arith::ConstantIndexOp>(op->getLoc(), scratchIdxVal);
 
     rewriter.create<ttkernel::CopyTileInitOp>(op->getLoc(), cbA);
     rewriter.create<ttkernel::CopyTileOp>(op->getLoc(), cbA, adaptor.getA(),
@@ -1058,20 +1061,17 @@ private:
                                                   reduceType, dataFormat, dim);
     }
 
-    switch (reduceType) {
-    case ttkernel::ReduceType::Sum:
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileSFPUReduceSumOp>) {
       rewriter.create<ttkernel::AddIntTileInitOp>(op->getLoc());
       rewriter.create<ttkernel::AddIntTileOp>(op->getLoc(), tempIdx, cIdx, cIdx,
                                               dataFormat);
-      break;
-    case ttkernel::ReduceType::Max:
+    } else {
       rewriter.create<ttkernel::BinaryMaxInt32TileInitOp>(op->getLoc());
       rewriter.create<ttkernel::BinaryMaxInt32TileOp>(op->getLoc(), tempIdx,
                                                       cIdx, cIdx);
-      break;
-    case ttkernel::ReduceType::Avg:
-      llvm_unreachable("Avg handled by early return above");
     }
+
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -2823,10 +2823,14 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulBlockOp>,
 
-               // Reductions FPU.
+               // Reductions FPU (float).
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceSumOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMaxOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMeanOp>,
+
+               // Reductions SFPU (integer).
+               ttkernel::D2MSFPUReduceRewriter<d2m::TileSFPUReduceSumOp>,
+               ttkernel::D2MSFPUReduceRewriter<d2m::TileSFPUReduceMaxOp>,
 
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,

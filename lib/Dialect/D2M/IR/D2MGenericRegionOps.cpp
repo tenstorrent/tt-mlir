@@ -1618,46 +1618,6 @@ mlir::LogicalResult TileClampScalarOp::verify() {
   return success();
 }
 
-// Shared helper: `$b` (the scaler tile) is required for float-typed
-// reductions and must be absent for integer (i32) reductions which lower
-// through the SFPU path.
-template <typename OpTy>
-static mlir::LogicalResult verifyTileReduceScalerPresence(OpTy op) {
-  auto tileType = mlir::cast<mlir::tt::ttcore::TileType>(op.getA().getType());
-  mlir::Type elemType = tileType.getElementType();
-  const bool hasScaler = static_cast<bool>(op.getB());
-
-  if (mlir::isa<mlir::FloatType>(elemType)) {
-    if (!hasScaler) {
-      return op.emitOpError(
-          "requires the scaler operand `b` to be present for float element "
-          "types");
-    }
-  } else if (mlir::isa<mlir::IntegerType>(elemType)) {
-    if (hasScaler) {
-      return op.emitOpError(
-          "must not have the scaler operand `b` for integer element types "
-          "(int reductions lower through the SFPU path which ignores the "
-          "scaler)");
-    }
-  } else {
-    return op.emitOpError("unsupported element type for tile reduction");
-  }
-  return mlir::success();
-}
-
-mlir::LogicalResult TileReduceSumOp::verify() {
-  return verifyTileReduceScalerPresence(*this);
-}
-
-mlir::LogicalResult TileReduceMaxOp::verify() {
-  return verifyTileReduceScalerPresence(*this);
-}
-
-mlir::LogicalResult TileReduceMeanOp::verify() {
-  return verifyTileReduceScalerPresence(*this);
-}
-
 mlir::LogicalResult TileTilizeBlockOp::verify() {
   if (llvm::isa<mlir::tt::ttcore::TileType>(
           getElemType(getInput().getType()))) {
@@ -1785,6 +1745,59 @@ void TileUntilizeBlockOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+// Verifier helpers for tile reduction ops.
+//
+// FPU (`tile_reduce_*`) ops require all float operands because they lower to
+// the `reduce_tile` kernel, which is float-only. Integer reductions must use
+// the matching `tile_sfpu_reduce_*` op instead.
+namespace {
+template <typename OpT>
+static mlir::LogicalResult verifyFPUTileReduce(OpT op) {
+  auto isFloatTile = [](mlir::Value v) {
+    return mlir::isa<mlir::FloatType>(
+        mlir::cast<mlir::tt::ttcore::TileType>(v.getType()).getElementType());
+  };
+  if (!isFloatTile(op.getA()) || !isFloatTile(op.getB()) ||
+      !isFloatTile(op.getC())) {
+    return op.emitOpError("requires float tile element types; use the matching "
+                          "tile_sfpu_reduce_* op for integer reductions");
+  }
+  return mlir::success();
+}
+
+template <typename OpT>
+static mlir::LogicalResult verifySFPUTileReduce(OpT op) {
+  // The SFPU reduce lowering uses i32-only TTKernel ops (fill_tile_int,
+  // binary_max_int32_tile, add_int_tile), so restrict this op to i32 tiles.
+  auto isI32Tile = [](mlir::Value v) {
+    auto intType = mlir::dyn_cast<mlir::IntegerType>(
+        mlir::cast<mlir::tt::ttcore::TileType>(v.getType()).getElementType());
+    return intType && intType.getWidth() == 32;
+  };
+  if (!isI32Tile(op.getA()) || !isI32Tile(op.getC())) {
+    return op.emitOpError("requires 32-bit integer tile element types; use "
+                          "the matching tile_reduce_* op for float reductions");
+  }
+  return mlir::success();
+}
+} // namespace
+
+mlir::LogicalResult TileReduceSumOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileReduceMaxOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileReduceMeanOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileSFPUReduceSumOp::verify() {
+  return verifySFPUTileReduce(*this);
+}
+mlir::LogicalResult TileSFPUReduceMaxOp::verify() {
+  return verifySFPUTileReduce(*this);
 }
 
 template <typename Pred>
