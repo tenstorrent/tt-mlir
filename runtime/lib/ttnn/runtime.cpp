@@ -2167,6 +2167,22 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
   return programContext.getProgramIndex();
 }
 
+std::vector<::tt::runtime::Tensor>
+getProgramInputTensors(CallbackContext programContextHandle) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getTensorPool().getProgramInputTensors();
+}
+
+std::vector<::tt::runtime::Tensor>
+getProgramOutputTensors(CallbackContext programContextHandle) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getTensorPool().getProgramOutputTensors();
+}
+
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
   ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);

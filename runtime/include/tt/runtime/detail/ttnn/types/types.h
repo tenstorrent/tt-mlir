@@ -186,6 +186,27 @@ public:
     return programOutputIds;
   }
 
+  std::vector<::tt::runtime::Tensor> getProgramInputTensors() const {
+    std::vector<::tt::runtime::Tensor> result;
+    result.reserve(programInputIds.size());
+    for (std::uint32_t id : programInputIds) {
+      result.push_back(*liveTensors.at(id));
+    }
+    return result;
+  }
+
+  std::vector<::tt::runtime::Tensor> getProgramOutputTensors() const {
+    std::vector<::tt::runtime::Tensor> result;
+    result.reserve(programOutputIds.size());
+    for (std::uint32_t id : programOutputIds) {
+      auto it = liveTensors.find(id);
+      if (it != liveTensors.end()) {
+        result.push_back(*it->second);
+      }
+    }
+    return result;
+  }
+
 private:
   std::vector<std::uint32_t> programInputIds;
   std::vector<std::uint32_t> programOutputIds;

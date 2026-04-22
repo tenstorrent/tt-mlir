@@ -241,9 +241,11 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
            })
-      .def("get_layout", [](tt::runtime::Tensor self) {
-        return tt::runtime::getTensorLayout(self);
-      });
+      .def("get_layout",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLayout(self);
+           })
+      .def_prop_ro("global_id", &tt::runtime::Tensor::getGlobalId);
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
   nb::class_<tt::runtime::Layout>(m, "Layout");
@@ -606,6 +608,42 @@ void registerRuntimeBindings(nb::module_ &m) {
     Returns
     -------
     int
+    )");
+
+  m.def(
+      "get_program_input_tensors",
+      [](tt::runtime::CallbackContext program_context_handle) {
+        return tt::runtime::getProgramInputTensors(program_context_handle);
+      },
+      nb::arg("program_context_handle"),
+      R"(
+    Returns the program input tensors from a callback context.
+
+    Parameters
+    ----------
+    program_context_handle : ttrt.runtime.CallbackContext
+
+    Returns
+    -------
+    list[ttrt.runtime.Tensor]
+    )");
+
+  m.def(
+      "get_program_output_tensors",
+      [](tt::runtime::CallbackContext program_context_handle) {
+        return tt::runtime::getProgramOutputTensors(program_context_handle);
+      },
+      nb::arg("program_context_handle"),
+      R"(
+    Returns the program output tensors from a callback context.
+
+    Parameters
+    ----------
+    program_context_handle : ttrt.runtime.CallbackContext
+
+    Returns
+    -------
+    list[ttrt.runtime.Tensor]
     )");
 
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,

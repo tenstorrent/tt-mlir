@@ -1164,6 +1164,44 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
       });
 }
 
+std::vector<::tt::runtime::Tensor>
+getProgramInputTensors(CallbackContext programContextHandle) {
+  using RetType = std::vector<::tt::runtime::Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getProgramInputTensors(
+            programContextHandle);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getProgramInputTensors(
+            programContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getProgramInputTensors",
+                                    HostRuntime::Distributed);
+      });
+}
+
+std::vector<::tt::runtime::Tensor>
+getProgramOutputTensors(CallbackContext programContextHandle) {
+  using RetType = std::vector<::tt::runtime::Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getProgramOutputTensors(
+            programContextHandle);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::ttmetal::getProgramOutputTensors(
+            programContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getProgramOutputTensors",
+                                    HostRuntime::Distributed);
+      });
+}
+
 void setFabricConfig(tt::runtime::FabricConfig config) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(

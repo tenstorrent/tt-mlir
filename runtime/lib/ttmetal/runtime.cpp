@@ -777,6 +777,20 @@ size_t getProgramIndex(CallbackContext programContextHandle) {
   return 0;
 }
 
+std::vector<::tt::runtime::Tensor>
+getProgramInputTensors(CallbackContext programContextHandle) {
+  LOG_FATAL(
+      "Obtaining program input tensors for metal runtime is not implemented");
+  return {};
+}
+
+std::vector<::tt::runtime::Tensor>
+getProgramOutputTensors(CallbackContext programContextHandle) {
+  LOG_FATAL(
+      "Obtaining program output tensors for metal runtime is not implemented");
+  return {};
+}
+
 std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
   return std::visit(
       utils::overloaded{
