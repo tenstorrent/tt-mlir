@@ -830,11 +830,15 @@ def pytest_collection_modifyitems(config, items):
         board_id = get_board_id(system_desc)
 
         def skip_config_handler(item):
-            item.add_marker(
-                pytest.mark.skip(
-                    reason="Test marked as skip for this platform/target combination"
-                )
+            reason = next(
+                (
+                    m.kwargs["reason"]
+                    for m in item.iter_markers("skip_config")
+                    if "reason" in m.kwargs
+                ),
+                "Test marked as skip for this platform/target combination",
             )
+            item.add_marker(pytest.mark.skip(reason=reason))
 
         def only_config_handler(item):
             item.add_marker(

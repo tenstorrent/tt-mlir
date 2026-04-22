@@ -306,10 +306,34 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((2, 128, 64), (2, 64, 128)),
     # ==================== WEIRD SHAPES ====================
     # Shapes with prime numbers and odd dimensions
-    ((7, 7, 7), (49, 7)) | SkipIf("sim"),
-    ((49, 7), (7, 7, 7)) | SkipIf("sim"),
-    ((3, 11, 13), (33, 13)) | SkipIf("sim"),
-    ((33, 13), (3, 11, 13)) | SkipIf("sim"),
+    pytest.param(
+        ((7, 7, 7), (49, 7)),
+        marks=pytest.mark.skip_config(
+            ["sim"],
+            reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+        ),
+    ),
+    pytest.param(
+        ((49, 7), (7, 7, 7)),
+        marks=pytest.mark.skip_config(
+            ["sim"],
+            reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+        ),
+    ),
+    pytest.param(
+        ((3, 11, 13), (33, 13)),
+        marks=pytest.mark.skip_config(
+            ["sim"],
+            reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+        ),
+    ),
+    pytest.param(
+        ((33, 13), (3, 11, 13)),
+        marks=pytest.mark.skip_config(
+            ["sim"],
+            reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+        ),
+    ),
     # 1D tensor shapes
     ((1,), (1, 1, 1)),
     ((1,), (1, 1, 1, 1)),
@@ -331,13 +355,25 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((1, 64), (1, 64, 1)),
     # GPT OSS 120B
     ((1, 128), (128, 1)),
-    ((1, 16), (1, 16, 1, 1)) | SkipIf("sim"),
+    pytest.param(
+        ((1, 16), (1, 16, 1, 1)),
+        marks=pytest.mark.skip_config(
+            ["sim"],
+            reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+        ),
+    ),
     # Kimi K2 1T
     ((1, 32), (32, 1)),
     ((32,), (32, 1)),
     # DeepSeek 671B
     ((1, 32), (1, 32, 1)),
-    ((8,), (8, 1, 1)) | SkipIf("sim"),
+    pytest.param(
+        ((8,), (8, 1, 1)),
+        marks=pytest.mark.skip_config(
+            ["sim"],
+            reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+        ),
+    ),
     # GLM 358B
     ((1, 32, 8), (1, 32, 8, 1)),
     ((1, 96, 32), (1, 96, 32, 1)),
@@ -364,13 +400,30 @@ def shapes_to_id(shapes) -> str:
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.int64
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
         torch.bool,
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_reshape(
     shapes: Tuple[Tuple[int, ...], Tuple[int, ...]],
     dtype: torch.dtype,

@@ -28,11 +28,21 @@ _CONSTANT_ONES_ZEROS_SHAPES = [(128, 128), (128,), (1, 128, 128)]
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_constant(
     shape,
     dtype: torch.dtype,
@@ -70,11 +80,21 @@ def test_constant(
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_ones(
     shape,
     dtype: torch.dtype,
@@ -106,11 +126,21 @@ def test_ones(
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_zeros(
     shape,
     dtype: torch.dtype,
@@ -139,10 +169,13 @@ def test_zeros(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    [torch.float32, torch.bfloat16, torch.int32],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_constant_unary(shape, dtype: torch.dtype, target: str, request, device):
     if dtype.is_floating_point:
         bias = torch.full(shape, 1.25, dtype=dtype)
@@ -173,10 +206,13 @@ def test_constant_unary(shape, dtype: torch.dtype, target: str, request, device)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    [torch.float32, torch.bfloat16, torch.int32],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_constant_binary(
     shape,
     dtype: torch.dtype,
@@ -220,10 +256,13 @@ def test_constant_binary(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32 | SkipIf("sim")],
+    [torch.float32, torch.bfloat16, torch.int32],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_constant_ternary(
     shape,
     dtype: torch.dtype,

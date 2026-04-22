@@ -63,9 +63,10 @@ class SkipIf:
     >>> test_case | SkipConfig("ttmetal", ["ttnn", "sim"])
     """
 
-    def __init__(self, *marks_groups, mark_fn=pytest.mark.skip_config):
+    def __init__(self, *marks_groups, mark_fn=pytest.mark.skip_config, reason=None):
         self.marks_groups = [g if isinstance(g, list) else [g] for g in marks_groups]
         self.mark_fn = mark_fn
+        self.reason = reason
 
     def __ror__(self, lhs):
         """
@@ -81,7 +82,10 @@ class SkipIf:
         pytest.param
             Marked test parameter
         """
-        return pytest.param(lhs, marks=[self.mark_fn(g) for g in self.marks_groups])
+        kwargs = {"reason": self.reason} if self.reason is not None else {}
+        return pytest.param(
+            lhs, marks=[self.mark_fn(g, **kwargs) for g in self.marks_groups]
+        )
 
 
 class OnlyIf(SkipIf):

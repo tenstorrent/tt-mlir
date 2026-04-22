@@ -173,8 +173,8 @@ binary_ops = [
     div,
     gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
     gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
-    maximum | SkipIf("sim"),
-    minimum | SkipIf("sim"),
+    maximum,
+    minimum,
     multiply,
     pow,
     remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -188,13 +188,32 @@ binary_ops = [
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.int64
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32", "i64"],
 )
 @pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal",
+        "emitpy" | SkipIf("sim"),
+    ],
 )
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
@@ -315,14 +334,33 @@ def create_logical_op_goldens(
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-        torch.bool | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.int64
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.bool,
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
 @pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal",
+        "emitpy" | SkipIf("sim"),
+    ],
 )
 @pytest.mark.parametrize("test_fn", logical_ops)
 def test_logical_ops(
@@ -430,11 +468,21 @@ scalar_binary_ops = [
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 @pytest.mark.parametrize(
     "test_fn,scalar_value",
     scalar_binary_ops,
@@ -534,11 +582,21 @@ def _make_scalar_cmp_golden(shape, dtype, op_name):
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
     ],
     ids=["f32", "bf16", "i32"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 @pytest.mark.parametrize("test_fn", scalar_comparison_ops)
 def test_scalar_comparison_ops(
     test_fn: Callable,
@@ -602,7 +660,7 @@ binary_bitwise_ops = [
 ]
 
 binary_bitwise_dtypes = [
-    torch.int32 | SkipIf("sim"),
+    torch.int32,
     torch.uint32 | SkipIf("sim"),
     torch.uint16 | SkipIf("sim"),
     torch.uint8 | SkipIf("sim"),
@@ -613,7 +671,21 @@ binary_bitwise_dtypes = [
 @pytest.mark.parametrize(
     "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn",
+        "ttmetal"
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        "emitpy",
+    ],
+)
 @pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -766,15 +838,34 @@ binary_comparison_ops = [
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-        torch.bool | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.int64
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.bool,
         torch.uint8 | SkipIf("ttmetal"),
     ],
     ids=["f32", "bf16", "i32", "i64", "i1", "u8"],
 )
 @pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal",
+        "emitpy" | SkipIf("sim"),
+    ],
 )
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
 def test_comparison_ops(
