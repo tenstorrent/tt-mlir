@@ -77,6 +77,33 @@ rewriteTenstorrentGatherDecomp(mlir::func::FuncOp func,
     dim += rank;
   }
 
+  // torch.gather only requires index.size(d) <= input.size(d) for d != dim,
+  // but stablehlo.gather's batching-dim constraint requires equal sizes on
+  // operand and start_indices for each batching axis. Slice input down on
+  // any non-dim axis where it is larger than the index — those trailing
+  // positions on input are never read by torch.gather, so this is a
+  // semantic no-op that makes the batching-dim gather legal.
+  llvm::ArrayRef<int64_t> inputShape = inputTy.getShape();
+  llvm::ArrayRef<int64_t> indexShape = indexTy.getShape();
+  llvm::SmallVector<int64_t> slicedInputShape(inputShape);
+  bool needsSlice = false;
+  for (int64_t i = 0; i < rank; ++i) {
+    if (i != dim && indexShape[i] < inputShape[i]) {
+      slicedInputShape[i] = indexShape[i];
+      needsSlice = true;
+    }
+  }
+  if (needsSlice) {
+    llvm::SmallVector<int64_t> sliceStart(rank, 0);
+    llvm::SmallVector<int64_t> sliceStrides(rank, 1);
+    auto slicedInputTy =
+        mlir::RankedTensorType::get(slicedInputShape, inputTy.getElementType());
+    input = builder.create<mlir::stablehlo::SliceOp>(
+        loc, slicedInputTy, input, builder.getDenseI64ArrayAttr(sliceStart),
+        builder.getDenseI64ArrayAttr(slicedInputShape),
+        builder.getDenseI64ArrayAttr(sliceStrides));
+  }
+
   // Reshape the index tensor to append a trailing size-1 dim so we have an
   // explicit index_vector_dim for stablehlo.gather.
   llvm::SmallVector<int64_t> reshapedIndexShape(indexTy.getShape());
