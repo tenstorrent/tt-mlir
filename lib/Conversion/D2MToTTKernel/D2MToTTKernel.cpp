@@ -519,6 +519,72 @@ public:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// TopK / Sort rewriters: 1:1 d2m.tile_topk_* -> ttkernel.topk_*.
+//===----------------------------------------------------------------------===//
+
+namespace {
+class TileTopkInitRewriter : public OpConversionPattern<d2m::TileTopkInitOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkInitOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkInitOp op, d2m::TileTopkInitOpAdaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::TopkTileInitOp>(op);
+    return success();
+  }
+};
+
+class TileTopkLocalSortRewriter
+    : public OpConversionPattern<d2m::TileTopkLocalSortOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkLocalSortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkLocalSortOp op,
+                  d2m::TileTopkLocalSortOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::TopkLocalSortOp>(
+        op, adaptor.getIdst(), adaptor.getIdir(), adaptor.getIEndPhase(),
+        adaptor.getIStartPhase(), adaptor.getIEndStep(),
+        adaptor.getIStartStep(), op.getStableSortAttr());
+    return success();
+  }
+};
+
+class TileTopkMergeRewriter : public OpConversionPattern<d2m::TileTopkMergeOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkMergeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkMergeOp op, d2m::TileTopkMergeOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::TopkMergeOp>(
+        op, adaptor.getIdst(), adaptor.getMIter(), adaptor.getK(),
+        op.getIdirAttr(), op.getStableSortAttr());
+    return success();
+  }
+};
+
+class TileTopkRebuildRewriter
+    : public OpConversionPattern<d2m::TileTopkRebuildOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkRebuildOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkRebuildOp op,
+                  d2m::TileTopkRebuildOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttkernel::TopkRebuildOp>(
+        op, adaptor.getIdst(), adaptor.getIdir(), adaptor.getMIter(),
+        adaptor.getK(), adaptor.getLogk(), adaptor.getSkipSecond(),
+        op.getStableSortAttr());
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class D2MSetL1AccumulateRewriter
     : public OpConversionPattern<d2m::SetL1AccumulateOp> {
@@ -2927,6 +2993,10 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::UnpackStallOnPackRewriter,
+               ttkernel::TileTopkInitRewriter,
+               ttkernel::TileTopkLocalSortRewriter,
+               ttkernel::TileTopkMergeRewriter,
+               ttkernel::TileTopkRebuildRewriter,
                ttkernel::D2MSetL1AccumulateRewriter,
                ttkernel::MemrefLoadRewriter,
                ttkernel::MemrefStoreRewriter,

@@ -421,6 +421,22 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), "DataFormat::Int32"));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::TopkLocalSortOp> ||
+                         std::is_same_v<SourceOp, ttkernel::TopkRebuildOp>) {
+      // topk_local_sort<stable_sort>(...) and
+      // topk_rebuild<stable_sort>(...) — single bool template arg.
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), op.getStableSort() ? "true" : "false"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::TopkMergeOp>) {
+      // topk_merge<idir, stable_sort>(...) — both are bool template args.
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), op.getIdir() ? "true" : "false"));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), op.getStableSort() ? "true" : "false"));
+      return ArrayAttr::get(op.getContext(), template_args);
     }
     return ArrayAttr();
   }
@@ -1508,6 +1524,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkLocalSortOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkMergeOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkRebuildOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ClampScalarTileInt32Op>,

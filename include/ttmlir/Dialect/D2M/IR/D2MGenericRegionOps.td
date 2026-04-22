@@ -147,6 +147,11 @@ defvar D2M_TileComputeOpTraitBundle = [
 // Type constraint that accepts either a Tile or a scalar value (float/int)
 def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
 
+// Mirrors the same-named constraint in TTKernelOps.td: accepts both
+// `index` and `i32` for DST tile indices, allowing values to flow from
+// either `arith.constant N : index` or `i32` runtime kernel args.
+def D2M_IndexLike : AnyTypeOf<[Index, I32]>;
+
 def D2M_TileAddOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_add", [Pure]> {
     let summary = "D2M Tile Add Op";
     let description = [{
@@ -705,6 +710,93 @@ def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_Til
 
     let arguments = (ins TTCore_Tile:$condition, TTCore_Tile:$true_value, TTCore_Tile:$false_value);
     let results = (outs TTCore_Tile:$result);
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Generic Region TopK / Sort Ops (Used in TTMetal Lowering)
+//
+// Thin wrappers around the SFPU `topk_*` intrinsics; lower 1:1 to the
+// matching `ttkernel.topk_*` ops. They live inside `d2m.generic` compute
+// regions and operate on a pair of tiles in DST starting at `idst` (i.e.
+// data tiles `idst`/`idst+1` plus the corresponding index tiles).
+//
+// These ops do NOT participate in the standard tile-in/tile-out SFPU
+// rewrite machinery — the kernel author allocates DST slots explicitly
+// and references them by index, just like the underlying ckernel API.
+//===----------------------------------------------------------------------===//
+
+def D2M_TileTopkInitOp : D2M_GenericRegionOp<"tile_topk_init"> {
+    let summary = "Initialize SFPU for topk local-sort / merge / rebuild.";
+    let description = [{
+      Must be called once before any `tile_topk_local_sort`,
+      `tile_topk_merge`, or `tile_topk_rebuild` op in this generic region.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{ `(` `)` attr-dict }];
+}
+
+def D2M_TileTopkLocalSortOp : D2M_GenericRegionOp<"tile_topk_local_sort"> {
+    let summary = "Bitonic local-sort stage on a tile pair in DST.";
+    let description = [{
+      Sorts a pair of data tiles + their index tiles in DST (starting at
+      `idst`) into length-K subsequences of alternating directions, using
+      the SFPU bitonic primitive. `stable_sort` is a compile-time
+      template parameter on the emitted call.
+    }];
+
+    let arguments = (ins D2M_IndexLike:$idst,
+                         I32:$idir,
+                         I32:$i_end_phase,
+                         I32:$i_start_phase,
+                         I32:$i_end_step,
+                         I32:$i_start_step,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $i_end_phase `,` $i_start_phase `,` $i_end_step `,` $i_start_step `)` attr-dict `:` type($idst)
+    }];
+}
+
+def D2M_TileTopkMergeOp : D2M_GenericRegionOp<"tile_topk_merge"> {
+    let summary = "Bitonic merge stage on a tile pair in DST.";
+    let description = [{
+      Merges length-K subsequences that are 2^m_iter tiles apart, on the
+      tile pair starting at DST index `idst`. `idir` and `stable_sort`
+      are template parameters on the emitted call.
+    }];
+
+    let arguments = (ins D2M_IndexLike:$idst,
+                         I32:$m_iter,
+                         I32:$k,
+                         DefaultValuedAttr<BoolAttr, "false">:$idir,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $m_iter `,` $k `)` attr-dict `:` type($idst)
+    }];
+}
+
+def D2M_TileTopkRebuildOp : D2M_GenericRegionOp<"tile_topk_rebuild"> {
+    let summary = "Bitonic rebuild stage on a tile pair in DST.";
+    let description = [{
+      Sorts length-K subsequences 2^(m_iter+1) tiles apart with
+      alternating directions, on the tile pair starting at DST index
+      `idst`.
+    }];
+
+    let arguments = (ins D2M_IndexLike:$idst,
+                         I1:$idir,
+                         I32:$m_iter,
+                         I32:$k,
+                         I32:$logk,
+                         I32:$skip_second,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $m_iter `,` $k `,` $logk `,` $skip_second `)` attr-dict `:` type($idst)
+    }];
 }
 
 def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum", D2M_TileComputeOpTraitBundle> {

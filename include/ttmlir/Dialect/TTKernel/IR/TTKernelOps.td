@@ -870,6 +870,118 @@ def TTKernel_BinaryMinInt32TileOp : TTKernel_SFPUOp<"binary_min_int32_tile", [TT
     }];
 }
 
+//===----------------------------------------------------------------------===//
+// TTKernel TopK/Sort operations
+//
+// Wrappers around ckernel::topk_* SFPU intrinsics declared in
+// `api/compute/compute_kernel_api.h`. These implement the per-tile-pair
+// stages of bitonic sort. All four operate on a pair of tiles in DST
+// starting at `idst` (i.e. tiles `idst` and `idst+1`, plus the
+// corresponding index tiles).
+//===----------------------------------------------------------------------===//
+
+def TTKernel_TopkTileInitOp : TTKernel_InitOp<"topk_tile_init"> {
+    let summary = "Init function for topk_local_sort / topk_merge / topk_rebuild.";
+    let description = [{
+      Must be run before any of `topk_local_sort`, `topk_merge`, `topk_rebuild`.
+      Configures the SFPU for TopK / bitonic-sort operations.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkLocalSortOp : TTKernel_SFPUOp<"topk_local_sort", [TTKernel_UnaryOpTrait]> {
+    let summary = "Bitonic local sort on a pair of tiles in DST.";
+    let description = [{
+      Performs the local sort stage of the bitonic TopK algorithm on the
+      tile pair starting at DST index `idst` (data tiles) and the
+      corresponding paired index tiles. Sorts data into length-K
+      subsequences of alternating directions.
+
+      The DST register buffer must be in acquired state via
+      `tile_regs_acquire`. `topk_tile_init` must have been called first.
+
+      C++ signature emitted:
+      ```
+      topk_local_sort<stable_sort>(idst, idir, i_end_phase,
+                                   i_start_phase,
+                                   i_end_step, i_start_step);
+      ```
+    }];
+
+    let arguments = (ins IndexLike:$idst,
+                         I32:$idir,
+                         I32:$i_end_phase,
+                         I32:$i_start_phase,
+                         I32:$i_end_step,
+                         I32:$i_start_step,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $i_end_phase `,` $i_start_phase `,` $i_end_step `,` $i_start_step `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkMergeOp : TTKernel_SFPUOp<"topk_merge", [TTKernel_UnaryOpTrait]> {
+    let summary = "Bitonic merge stage on a pair of tiles in DST.";
+    let description = [{
+      Combines length-K subsequences that are 2^m_iter tiles apart, on the
+      tile pair starting at DST index `idst`. Both `idir` and `stable_sort`
+      are template parameters in the emitted C++.
+
+      The DST register buffer must be in acquired state via
+      `tile_regs_acquire`. `topk_tile_init` must have been called first.
+
+      C++ signature emitted:
+      ```
+      topk_merge<idir, stable_sort>(idst, m_iter, k);
+      ```
+    }];
+
+    let arguments = (ins IndexLike:$idst,
+                         I32:$m_iter,
+                         I32:$k,
+                         DefaultValuedAttr<BoolAttr, "false">:$idir,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $m_iter `,` $k `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkRebuildOp : TTKernel_SFPUOp<"topk_rebuild", [TTKernel_UnaryOpTrait]> {
+    let summary = "Bitonic rebuild stage on a pair of tiles in DST.";
+    let description = [{
+      Sorts length-K subsequences that are 2^(m_iter+1) tiles apart with
+      alternating directions, on the tile pair starting at DST index
+      `idst`.
+
+      The DST register buffer must be in acquired state via
+      `tile_regs_acquire`. `topk_tile_init` must have been called first.
+
+      C++ signature emitted:
+      ```
+      topk_rebuild<stable_sort>(idst, idir, m_iter, k, logk, skip_second);
+      ```
+    }];
+
+    let arguments = (ins IndexLike:$idst,
+                         I1:$idir,
+                         I32:$m_iter,
+                         I32:$k,
+                         I32:$logk,
+                         I32:$skip_second,
+                         DefaultValuedAttr<BoolAttr, "false">:$stable_sort);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $m_iter `,` $k `,` $logk `,` $skip_second `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_ClampScalarTileInitOp : TTKernel_InitOp<"clamp_tile_init"> {
     let summary = "Init function for clamp_scalar_tile operation.";
     let description = [{

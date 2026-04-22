@@ -1490,6 +1490,72 @@ module {
       "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) {dtype = #ttcore.supportedDataTypes<f32>} : (index, index, index, index) -> ()
       return
     }
+
+    //===----------------------------------------------------------------------===//
+    // TTKernel TopK / Sort operations
+    //===----------------------------------------------------------------------===//
+
+    // CHECK-LABEL: func @topk_tile_init
+    func.func @topk_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "topk_tile_init"()
+      "ttkernel.topk_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @topk_local_sort
+    func.func @topk_local_sort() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IDST:.*]] = "emitc.constant"
+      %idst = arith.constant 0 : index
+      // CHECK: %[[IDIR:.*]] = "emitc.constant"
+      %idir = arith.constant 1 : i32
+      // CHECK: %[[END_PHASE:.*]] = "emitc.constant"
+      %end_phase = arith.constant 4 : i32
+      // CHECK: %[[START_PHASE:.*]] = "emitc.constant"
+      %start_phase = arith.constant 0 : i32
+      // CHECK: %[[END_STEP:.*]] = "emitc.constant"
+      %end_step = arith.constant 0 : i32
+      // CHECK: %[[START_STEP:.*]] = "emitc.constant"
+      %start_step = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "topk_local_sort"(%[[IDST]], %[[IDIR]], %[[END_PHASE]], %[[START_PHASE]], %[[END_STEP]], %[[START_STEP]]) {template_args = [#emitc.opaque<"false">]}
+      "ttkernel.topk_local_sort"(%idst, %idir, %end_phase, %start_phase, %end_step, %start_step) : (index, i32, i32, i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "topk_local_sort"({{.*}}) {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.topk_local_sort"(%idst, %idir, %end_phase, %start_phase, %end_step, %start_step) <{stable_sort = true}> : (index, i32, i32, i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @topk_merge
+    func.func @topk_merge() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IDST:.*]] = "emitc.constant"
+      %idst = arith.constant 0 : index
+      // CHECK: %[[M_ITER:.*]] = "emitc.constant"
+      %m_iter = arith.constant 1 : i32
+      // CHECK: %[[K:.*]] = "emitc.constant"
+      %k = arith.constant 32 : i32
+      // CHECK: emitc.call_opaque "topk_merge"(%[[IDST]], %[[M_ITER]], %[[K]]) {template_args = [#emitc.opaque<"false">, #emitc.opaque<"false">]}
+      "ttkernel.topk_merge"(%idst, %m_iter, %k) : (index, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "topk_merge"({{.*}}) {template_args = [#emitc.opaque<"true">, #emitc.opaque<"false">]}
+      "ttkernel.topk_merge"(%idst, %m_iter, %k) <{idir = true}> : (index, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @topk_rebuild
+    func.func @topk_rebuild() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[IDST:.*]] = "emitc.constant"
+      %idst = arith.constant 0 : index
+      // CHECK: %[[IDIR:.*]] = "emitc.constant"
+      %idir = arith.constant true
+      // CHECK: %[[M_ITER:.*]] = "emitc.constant"
+      %m_iter = arith.constant 1 : i32
+      // CHECK: %[[K:.*]] = "emitc.constant"
+      %k = arith.constant 32 : i32
+      // CHECK: %[[LOGK:.*]] = "emitc.constant"
+      %logk = arith.constant 5 : i32
+      // CHECK: %[[SKIP:.*]] = "emitc.constant"
+      %skip_second = arith.constant 0 : i32
+      // CHECK: emitc.call_opaque "topk_rebuild"(%[[IDST]], %[[IDIR]], %[[M_ITER]], %[[K]], %[[LOGK]], %[[SKIP]]) {template_args = [#emitc.opaque<"false">]}
+      "ttkernel.topk_rebuild"(%idst, %idir, %m_iter, %k, %logk, %skip_second) : (index, i1, i32, i32, i32, i32) -> ()
+      return
+    }
   } // module
 
   //===----------------------------------------------------------------------===//

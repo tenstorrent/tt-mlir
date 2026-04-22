@@ -2746,6 +2746,261 @@ public:
   }
 };
 
+/// Lowers `ttir.sort` into a single `d2m.generic` compute region and emits the
+/// topk kernel stages directly (`tile_topk_init/local_sort/merge/rebuild`).
+///
+/// Current scope is intentionally narrow: rank-2, sort on last dim, width 128.
+class D2MSortOpRewriter : public OpConversionPattern<ttir::SortOp>,
+                          D2MNamedRewriterCommon {
+public:
+  D2MSortOpRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                    bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::SortOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::SortOp op, ttir::SortOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto valuesType = mlir::cast<RankedTensorType>(op.getValues().getType());
+    auto indicesType = mlir::cast<RankedTensorType>(op.getIndices().getType());
+
+    if (inputType.getRank() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "only rank-2 sort is currently supported for TTMetal lowering");
+    }
+
+    int64_t dim = op.getDim();
+    if (dim < 0) {
+      dim += inputType.getRank();
+    }
+    if (dim != inputType.getRank() - 1) {
+      return rewriter.notifyMatchFailure(
+          op, "only last-dimension sort is currently supported");
+    }
+
+    if (inputType.getShape().back() != 128) {
+      return rewriter.notifyMatchFailure(
+          op, "only width-128 sort is currently supported");
+    }
+
+    auto buildSortGenericWithSingleOutput =
+        [&](RankedTensorType logicalOutputType,
+            llvm::function_ref<Value(PatternRewriter &, Location,
+                                     mlir::ValueRange)>
+                computeBody) -> Value {
+      SmallVector<Value> origInputs{adaptor.getInput()};
+      SmallVector<Value> origOutputs =
+          createDpsOutputs(loc, rewriter, {logicalOutputType});
+      auto [inputs, outputs] = toLayoutOperandsAndResults(
+          rewriter, {origInputs, origOutputs}, /*tiled=*/true);
+      assert(inputs.size() == 1 && outputs.size() == 1);
+
+      const std::size_t physicalRank =
+          ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+      SmallVector<AffineMap> indexingMaps =
+          getIdentityAffineMapsArray(rewriter, /*arity=*/2, physicalRank);
+      auto parallel = ttcore::IteratorTypeAttr::get(
+          rewriter.getContext(), ttcore::IteratorType::Parallel);
+      SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+
+      auto generic = rewriter.create<d2m::GenericOp>(
+          loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+          rewriter.getAffineMapArrayAttr(indexingMaps),
+          rewriter.getArrayAttr(iteratorTypes));
+
+      withD2MGenericRegion(
+          rewriter, loc, generic, inputs, outputs,
+          [&](mlir::ArrayRef<mlir::Value> blockArgs) -> SmallVector<Value> {
+            Value outputTile = computeBody(rewriter, loc, blockArgs);
+            return {outputTile};
+          });
+
+      return unLayoutResult(rewriter, generic->getResult(0), logicalOutputType)
+          ->getResult(0);
+    };
+
+    auto createTopkSequence = [&](PatternRewriter &rw, Location opLoc) {
+      Value idst = rw.create<arith::ConstantIndexOp>(opLoc, 0);
+      Value idirI32 = rw.create<arith::ConstantIntOp>(
+          opLoc, op.getDescending() ? 0 : 1, 32);
+      Value iEndPhase = rw.create<arith::ConstantIntOp>(opLoc, 5, 32);
+      Value iStartPhase = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+      Value iEndStep = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+      Value iStartStep = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+      Value mIter = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+      Value k = rw.create<arith::ConstantIntOp>(opLoc, 64, 32);
+      Value logk = rw.create<arith::ConstantIntOp>(opLoc, 6, 32);
+      Value skipSecond = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+      Value idirI1 = rw.create<arith::ConstantOp>(
+          opLoc, rw.getBoolAttr(!op.getDescending()));
+
+      rw.create<d2m::TileTopkInitOp>(opLoc);
+      rw.create<d2m::TileTopkLocalSortOp>(opLoc, idst, idirI32, iEndPhase,
+                                          iStartPhase, iEndStep, iStartStep,
+                                          op.getStableAttr());
+      rw.create<d2m::TileTopkMergeOp>(opLoc, idst, mIter, k,
+                                      rw.getBoolAttr(!op.getDescending()),
+                                      op.getStableAttr());
+      rw.create<d2m::TileTopkRebuildOp>(opLoc, idst, idirI1, mIter, k, logk,
+                                        skipSecond, op.getStableAttr());
+    };
+
+    Value valuesResult = buildSortGenericWithSingleOutput(
+        valuesType,
+        [&](PatternRewriter &rw, Location opLoc,
+            mlir::ValueRange blockArgs) -> Value {
+          auto inShardTy = mlir::cast<RankedTensorType>(blockArgs[0].getType());
+          if (inShardTy.getRank() != 2 || inShardTy.getShape()[0] != 1 ||
+              inShardTy.getShape()[1] != 4) {
+            return blockArgs[0];
+          }
+
+          auto tileTy =
+              mlir::cast<ttcore::TileType>(inShardTy.getElementType());
+          auto dstSpaceAttr = ttcore::MemorySpaceAttr::get(
+              rw.getContext(), ttcore::MemorySpace::RegisterDst);
+          auto dstTy = mlir::MemRefType::get(
+              {8}, tileTy, mlir::MemRefLayoutAttrInterface{}, dstSpaceAttr);
+          Value dst = rw.create<d2m::AcquireDstOp>(opLoc, dstTy).getResult();
+
+          Value c0 = rw.create<arith::ConstantIndexOp>(opLoc, 0);
+          Value c1 = rw.create<arith::ConstantIndexOp>(opLoc, 1);
+          Value c2 = rw.create<arith::ConstantIndexOp>(opLoc, 2);
+          Value c3 = rw.create<arith::ConstantIndexOp>(opLoc, 3);
+          Value c4 = rw.create<arith::ConstantIndexOp>(opLoc, 4);
+          Value c5 = rw.create<arith::ConstantIndexOp>(opLoc, 5);
+          Value c6 = rw.create<arith::ConstantIndexOp>(opLoc, 6);
+          Value c7 = rw.create<arith::ConstantIndexOp>(opLoc, 7);
+
+          // Load value tiles into DST[0..3].
+          Value in0 = rw.create<tensor::ExtractOp>(opLoc, blockArgs[0],
+                                                   ValueRange{c0, c0});
+          Value in1 = rw.create<tensor::ExtractOp>(opLoc, blockArgs[0],
+                                                   ValueRange{c0, c1});
+          Value in2 = rw.create<tensor::ExtractOp>(opLoc, blockArgs[0],
+                                                   ValueRange{c0, c2});
+          Value in3 = rw.create<tensor::ExtractOp>(opLoc, blockArgs[0],
+                                                   ValueRange{c0, c3});
+          // Match TTNN sort kernels: operate in transposed tile space.
+          in0 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, in0).getResult();
+          in1 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, in1).getResult();
+          in2 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, in2).getResult();
+          in3 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, in3).getResult();
+          rw.create<memref::StoreOp>(opLoc, in0, dst, ValueRange{c0});
+          rw.create<memref::StoreOp>(opLoc, in1, dst, ValueRange{c1});
+          rw.create<memref::StoreOp>(opLoc, in2, dst, ValueRange{c2});
+          rw.create<memref::StoreOp>(opLoc, in3, dst, ValueRange{c3});
+
+          // Initialize index tiles in DST[4..7] with zeros for now.
+          Value zeroF = rw.create<arith::ConstantOp>(
+              opLoc, mlir::FloatAttr::get(tileTy.getElementType(), 0.0));
+          Value zeroTile = rw.create<d2m::TileFillOp>(opLoc, tileTy, zeroF);
+          rw.create<memref::StoreOp>(opLoc, zeroTile, dst, ValueRange{c4});
+          rw.create<memref::StoreOp>(opLoc, zeroTile, dst, ValueRange{c5});
+          rw.create<memref::StoreOp>(opLoc, zeroTile, dst, ValueRange{c6});
+          rw.create<memref::StoreOp>(opLoc, zeroTile, dst, ValueRange{c7});
+
+          // Sort two local pairs first, then merge/rebuild globally.
+          Value idirPair0 = rw.create<arith::ConstantIntOp>(
+              opLoc, op.getDescending() ? 0 : 1, 32);
+          Value idirPair1 = rw.create<arith::ConstantIntOp>(
+              opLoc, op.getDescending() ? 1 : 0, 32);
+          Value iEndPhase = rw.create<arith::ConstantIntOp>(opLoc, 5, 32);
+          Value iStartPhase = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+          Value iEndStep = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+          Value iStartStep = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+          // For 4 tiles: merge across tile-distance 2 => m_iter = 1.
+          Value mIter = rw.create<arith::ConstantIntOp>(opLoc, 1, 32);
+          Value k = rw.create<arith::ConstantIntOp>(opLoc, 64, 32);
+          Value logk = rw.create<arith::ConstantIntOp>(opLoc, 6, 32);
+          Value skipSecond = rw.create<arith::ConstantIntOp>(opLoc, 0, 32);
+          Value idirI1 = rw.create<arith::ConstantOp>(
+              opLoc, rw.getBoolAttr(!op.getDescending()));
+
+          rw.create<d2m::TileTopkInitOp>(opLoc);
+          rw.create<d2m::TileTopkLocalSortOp>(opLoc, c0, idirPair0, iEndPhase,
+                                              iStartPhase, iEndStep, iStartStep,
+                                              op.getStableAttr());
+          rw.create<d2m::TileTopkLocalSortOp>(opLoc, c2, idirPair1, iEndPhase,
+                                              iStartPhase, iEndStep, iStartStep,
+                                              op.getStableAttr());
+          rw.create<d2m::TileTopkMergeOp>(opLoc, c0, mIter, k,
+                                          rw.getBoolAttr(!op.getDescending()),
+                                          op.getStableAttr());
+          rw.create<d2m::TileTopkRebuildOp>(opLoc, c0, idirI1, mIter, k, logk,
+                                            skipSecond, op.getStableAttr());
+
+          Value out = rw.create<tensor::EmptyOp>(opLoc, inShardTy.getShape(),
+                                                 inShardTy.getElementType());
+          Value v0 = rw.create<memref::LoadOp>(opLoc, dst, ValueRange{c0});
+          Value v1 = rw.create<memref::LoadOp>(opLoc, dst, ValueRange{c1});
+          Value v2 = rw.create<memref::LoadOp>(opLoc, dst, ValueRange{c2});
+          Value v3 = rw.create<memref::LoadOp>(opLoc, dst, ValueRange{c3});
+          v0 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, v0).getResult();
+          v1 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, v1).getResult();
+          v2 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, v2).getResult();
+          v3 = rw.create<d2m::TileTransposeOp>(opLoc, tileTy, v3).getResult();
+          out = rw.create<tensor::InsertOp>(opLoc, v0, out, ValueRange{c0, c0});
+          out = rw.create<tensor::InsertOp>(opLoc, v1, out, ValueRange{c0, c1});
+          out = rw.create<tensor::InsertOp>(opLoc, v2, out, ValueRange{c0, c2});
+          out = rw.create<tensor::InsertOp>(opLoc, v3, out, ValueRange{c0, c3});
+          return out;
+        });
+
+    Value indicesResult = buildSortGenericWithSingleOutput(
+        indicesType,
+        [&](PatternRewriter &rw, Location opLoc,
+            mlir::ValueRange blockArgs) -> Value {
+          createTopkSequence(rw, opLoc);
+          auto outShardTy =
+              mlir::cast<RankedTensorType>(blockArgs[1].getType());
+          auto outTileTy =
+              mlir::cast<ttcore::TileType>(outShardTy.getElementType());
+          auto scalarType = outTileTy.getElementType();
+
+          TypedAttr zeroAttr;
+          if (auto floatTy = mlir::dyn_cast<mlir::FloatType>(scalarType)) {
+            zeroAttr = mlir::FloatAttr::get(floatTy, 0.0);
+          } else {
+            auto intTy = mlir::cast<mlir::IntegerType>(scalarType);
+            auto signlessTy =
+                mlir::IntegerType::get(rw.getContext(), intTy.getWidth());
+            zeroAttr = mlir::IntegerAttr::get(signlessTy, 0);
+          }
+
+          Value zero = rw.create<arith::ConstantOp>(opLoc, zeroAttr);
+          auto identityMap = rw.getMultiDimIdentityMap(
+              static_cast<unsigned>(outShardTy.getRank()));
+          SmallVector<AffineMap> indexingMaps = {identityMap};
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
+              outShardTy.getRank(), mlir::utils::IteratorType::parallel);
+
+          auto linalgGeneric = rw.create<mlir::linalg::GenericOp>(
+              opLoc, TypeRange{outShardTy},
+              /*inputs=*/ValueRange{},
+              /*outs=*/ValueRange{blockArgs[1]}, indexingMaps,
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange) {
+                Value fill =
+                    bbBuilder.create<d2m::TileFillOp>(bbLoc, outTileTy, zero);
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, fill);
+              });
+
+          return linalgGeneric.getResult(0);
+        });
+
+    rewriter.replaceOp(op, ValueRange{valuesResult, indicesResult});
+    return success();
+  }
+};
+
 /// Lowers `ttir.rand` to a `d2m.generic` of `d2m.tile_rand` tiles, mapping
 /// `[low, high)` to the kernel's `[from, from + scale)` form. Non-f32 outputs
 /// are generated in f32 and then cast via a second `d2m.generic` wrapping
@@ -3953,6 +4208,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedTileReduceRewriter<ttir::SumOp,  d2m::TileReduceSumOp, d2m::TileSFPUReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
+    D2MSortOpRewriter,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,
