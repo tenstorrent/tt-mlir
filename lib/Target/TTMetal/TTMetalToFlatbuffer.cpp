@@ -46,7 +46,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <vector>
 
 namespace mlir::tt::ttmetal {
@@ -93,15 +92,6 @@ struct CQBuilder {
         commandT.Union(), loc.c_str(), debugString.c_str()));
     return commands.back();
   }
-};
-
-/// Per-buffer fields for BufferDesc serialization (not encoded on MemRefType).
-struct BufferSerializeOptions {
-  std::optional<AffineMap> virtualGridInverseMapping;
-  /// When set (e.g. from ttmetal.create_buffer cb_core_range), ShardSpec and
-  /// CircularBufferConfig use this physical tensix rectangle instead of
-  /// inferring core_range_set from the worker virt-to-physical map alone.
-  std::optional<CoreRangeAttr> explicitShardCoreRange;
 };
 
 static target::MathFidelity toFlatbuffer(ttmetal::MathFidelity mathFidelity) {
@@ -280,8 +270,7 @@ static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 createShardedBufferConfigForL1Memref(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
     target::Dim2d elementShape,
-    std::optional<AffineMap> virtualGridInverseMapping,
-    std::optional<CoreRangeAttr> explicitCoreRange) {
+    std::optional<AffineMap> virtualGridInverseMapping) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -301,12 +290,8 @@ createShardedBufferConfigForL1Memref(
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getVirtToPhysicalMap(), memrefGridShape.size());
 
-  std::vector<target::Dim2dRange> coreRangeSet;
-  if (explicitCoreRange) {
-    coreRangeSet.push_back(toFlatbuffer(*explicitCoreRange));
-  } else {
-    coreRangeSet = toFlatbuffer(cache, memrefGridShape, extendedMapping);
-  }
+  std::vector<target::Dim2dRange> coreRangeSet =
+      toFlatbuffer(cache, memrefGridShape, extendedMapping);
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
 
@@ -353,7 +338,7 @@ static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 memrefTypeToShardedBufferConfigFlatbuffer(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
     target::Dim2d elementShape, ttcore::SystemDescAttr systemDesc,
-    const BufferSerializeOptions &serializeOptions) {
+    std::optional<AffineMap> virtualGridInverseMapping) {
 
   flatbuffers::Offset<target::metal::ShardedBufferConfig> sharded_buffer_config;
   if (isMemrefDeviceDRAMMemspace(memref)) {
@@ -361,9 +346,7 @@ memrefTypeToShardedBufferConfigFlatbuffer(
         cache, memref, device, systemDesc);
   } else if (isMemrefDeviceL1Memspace(memref)) {
     sharded_buffer_config = createShardedBufferConfigForL1Memref(
-        cache, memref, device, elementShape,
-        serializeOptions.virtualGridInverseMapping,
-        serializeOptions.explicitShardCoreRange);
+        cache, memref, device, elementShape, virtualGridInverseMapping);
   } else {
     assert(false &&
            "ShardedBufferConfig not supported for System memory space");
@@ -418,7 +401,8 @@ memrefTypeToInterleavedBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
-    const BufferSerializeOptions &serializeOptions) {
+    std::optional<AffineMap> virtualGridInverseMapping,
+    std::optional<CoreRangeAttr> explicitCbCoreRange) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -430,13 +414,11 @@ memrefTypeToCircularBufferConfigFlatbuffer(
          "expected shard layout for circular buffer config generation");
 
   std::vector<target::Dim2dRange> coreRangeSet;
-  if (serializeOptions.explicitShardCoreRange) {
-    coreRangeSet.push_back(
-        toFlatbuffer(*serializeOptions.explicitShardCoreRange));
+  if (explicitCbCoreRange) {
+    coreRangeSet.push_back(toFlatbuffer(*explicitCbCoreRange));
   } else {
     SmallVector<int64_t> memrefGridShape = getPhysicalGridShapeForVirtualGrid(
-        shardLayout, device, memref,
-        serializeOptions.virtualGridInverseMapping);
+        shardLayout, device, memref, virtualGridInverseMapping);
 
     auto extendedMapping = extendMappingForHigherDimGrid(
         device.getWorkerGrid().getVirtToPhysicalMap(), memrefGridShape.size());
@@ -469,7 +451,8 @@ static flatbuffers::Offset<target::metal::BufferDesc>
 memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        ttcore::DeviceAttr device,
                        ttcore::SystemDescAttr systemDesc,
-                       const BufferSerializeOptions &serializeOptions) {
+                       std::optional<AffineMap> virtualGridInverseMapping,
+                       std::optional<CoreRangeAttr> explicitCbCoreRange) {
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
@@ -497,14 +480,15 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape, systemDesc,
-              serializeOptions);
+              virtualGridInverseMapping);
 
       // only generate CircularBufferConfig for L1 memspace
       flatbuffers::Offset<target::metal::CircularBufferConfig>
           circularBufferConfig =
               isMemrefDeviceL1Memspace(memref)
                   ? memrefTypeToCircularBufferConfigFlatbuffer(
-                        cache, memref, device, serializeOptions)
+                        cache, memref, device, virtualGridInverseMapping,
+                        explicitCbCoreRange)
                   : 0;
 
       bufferDetail = target::metal::CreateMetalBuffer(
@@ -564,36 +548,37 @@ static flatbuffers::Offset<target::metal::BufferDesc>
 bufferDescValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                             ttcore::DeviceAttr device,
                             ttcore::SystemDescAttr systemDesc) {
-  BufferSerializeOptions opts;
-  auto memrefType = mlir::cast<MemRefType>(value.getType());
+  std::optional<AffineMap> virtualGridInverseMapping;
+  std::optional<CoreRangeAttr> explicitCbCoreRange;
+  MemRefType memrefType = mlir::cast<MemRefType>(value.getType());
 
   if (auto createBufferOp = value.getDefiningOp<ttmetal::CreateBufferOp>()) {
     if (auto mapAttr = createBufferOp.getVirtualGridInverseMappingAttr()) {
-      opts.virtualGridInverseMapping = mapAttr.getValue();
+      virtualGridInverseMapping = mapAttr.getValue();
     }
-    if (auto cbRange = createBufferOp.getCbCoreRange()) {
-      opts.explicitShardCoreRange = *cbRange;
+    if (auto cr = createBufferOp.getCbCoreRange()) {
+      explicitCbCoreRange = *cr;
+    }
+
+    // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
+    // Reconstruct a full [1x1 grid + shard] + ShardLayoutAttr memref type
+    // so we fall through to the existing memrefTypeToFlatbuffer path.
+    // CBs are always core-local (1x1 grid).
+    if (auto cbLayout =
+            mlir::dyn_cast<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+      auto shardShape = memrefType.getShape();
+      SmallVector<int64_t> fullShape(shardShape.size(), 1);
+      fullShape.append(shardShape.begin(), shardShape.end());
+      auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
+          shardShape, memrefType.getElementType(), cbLayout.getBuffers());
+      memrefType =
+          MemRefType::get(fullShape, memrefType.getElementType(),
+                          shardLayoutAttr, memrefType.getMemorySpace());
     }
   }
 
-  MemRefType memrefForDesc = memrefType;
-  // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
-  // Reconstruct a full [1x1 grid + shard] + ShardLayoutAttr memref type
-  // so we fall through to the existing memrefTypeToFlatbuffer path.
-  // CBs are always core-local (1x1 grid).
-  if (auto cbLayout =
-          mlir::dyn_cast<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-    auto shardShape = memrefType.getShape();
-    SmallVector<int64_t> fullShape(shardShape.size(), 1);
-    fullShape.append(shardShape.begin(), shardShape.end());
-    auto shardLayoutAttr = ttcore::ShardLayoutAttr::get(
-        shardShape, memrefType.getElementType(), cbLayout.getBuffers());
-    memrefForDesc =
-        MemRefType::get(fullShape, memrefType.getElementType(), shardLayoutAttr,
-                        memrefType.getMemorySpace());
-  }
-
-  return memrefTypeToFlatbuffer(cache, memrefForDesc, device, systemDesc, opts);
+  return memrefTypeToFlatbuffer(cache, memrefType, device, systemDesc,
+                                virtualGridInverseMapping, explicitCbCoreRange);
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
