@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -1201,12 +1202,13 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   if (!currentLayout) {
     return nullptr;
   }
-  // Don't override a memory_config pinned by an earlier pass.
-  if (auto memConfigOp = mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op)) {
-    if (memConfigOp.getMemoryConfigAttr()) {
-      return currentLayout;
-    }
+
+  // If the op already has an L1 layout it was pinned by an earlier pass
+  // (workaround or lowering) that knows what the backend kernel requires.
+  if (currentLayout.hasL1BufferType()) {
+    return currentLayout;
   }
+
   return currentLayout.withBufferType(BufferType::DRAM)
       .withMemoryLayout(TensorMemoryLayout::Interleaved)
       .withTensorShape(tensorType.getShape());
