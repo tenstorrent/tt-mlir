@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --split-input-file --ttcore-register-device --d2m-grid-selection %s | FileCheck %s
 
 // d2m-grid-selection: generic inside d2m.spatial uses each region's CoreRange extent for target
-// grid sizing (not the full device grid). Square grid_ranges only: pass applies getSquareTargetGrid
-// to that extent. Non-origin region output buffers may use d2m.empty VGM so grid CHECKs include maps.
+// grid sizing (not the full device grid). Non-origin region output buffers may use d2m.empty VGM
+// so grid CHECKs include maps.
 // -----
 // Grid 2x2 at origin: generic keeps grid 2x2.
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
