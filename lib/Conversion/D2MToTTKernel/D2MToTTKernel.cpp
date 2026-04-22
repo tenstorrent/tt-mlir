@@ -351,8 +351,8 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 }
 
-static void setInsertionPointToFuncStart(OpBuilder &rewriter,
-                                         func::FuncOp func) {
+static void setInsertionPointToFuncStart(OpBuilder &rewriter, func::FuncOp func,
+                                         Operation *computeOp) {
   Block &entry = func.getBody().front();
   Operation *firstLoop = nullptr;
 
@@ -365,12 +365,18 @@ static void setInsertionPointToFuncStart(OpBuilder &rewriter,
 
   if (firstLoop) {
     rewriter.setInsertionPoint(firstLoop);
-  } else {
-    // Keep insertion before the block terminator (func.return). Using
-    // setInsertionPointToEnd can place new ops after return in loopless
-    // kernels.
-    rewriter.setInsertionPoint(entry.getTerminator());
+    return;
   }
+
+  // Loopless kernel: insert immediately before the entry-level ancestor of
+  // the compute op so that the init op precedes the compute. Setting
+  // insertion to the block terminator would place it after the compute,
+  // leaving the matmul HW uninitialized.
+  Operation *ancestor = computeOp;
+  while (ancestor && ancestor->getBlock() != &entry) {
+    ancestor = ancestor->getParentOp();
+  }
+  rewriter.setInsertionPoint(ancestor ? ancestor : entry.getTerminator());
 }
 
 static bool hasMatmulInit(func::FuncOp func) {
@@ -806,7 +812,7 @@ public:
       // beginning of the func, and only if no MatmulInit already exists.
       if (auto func = op->template getParentOfType<func::FuncOp>();
           !hasMatmulInit(func)) {
-        setInsertionPointToFuncStart(rewriter, func);
+        setInsertionPointToFuncStart(rewriter, func, op);
         auto transposeInit = i32(rewriter, op->getLoc(), 0);
         rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
                                                 transposeInit);
