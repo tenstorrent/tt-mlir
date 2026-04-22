@@ -24,12 +24,4 @@ def CanExecuteOnHostTrait : NativeOpTrait<"CanExecuteOnHostTrait">
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
-// Trait to exempt an op from implementing the OpModel interface.
-// Ops tagged with this trait will not have DeclareOpInterfaceMethods<TTNN_OpModelInterface>
-// added by the base op classes (TTNN_Op, TTNN_InplaceOp, etc.).
-def OpModelExempt : NativeOpTrait<"OpModelExempt">
-{
-  let cppNamespace = "::mlir::tt::ttnn";
-}
-
 #endif // TTMLIR_TTMLIR_DIALECT_TTNN_TTNN_TRAITS_TD

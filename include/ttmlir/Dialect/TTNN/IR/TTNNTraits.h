@@ -53,11 +53,6 @@ public:
 template <typename ConcreteType>
 class CanExecuteOnHostTrait
     : public mlir::OpTrait::TraitBase<ConcreteType, CanExecuteOnHostTrait> {};
-
-// Marker trait to exempt an op from implementing the OpModel interface.
-template <typename ConcreteType>
-class OpModelExempt
-    : public mlir::OpTrait::TraitBase<ConcreteType, OpModelExempt> {};
 } // namespace mlir::tt::ttnn
 
 #endif
