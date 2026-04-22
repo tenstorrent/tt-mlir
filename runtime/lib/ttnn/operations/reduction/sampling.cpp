@@ -25,12 +25,18 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
     seed = op->seed().value();
   }
 
-  // ttnn::sampling kernel expects 4D input [N, C, H, W] where N*C*H == 32.
-  // The compiler passes 2D [batch, candidates]. Reshape to 4D.
+  // ttnn::sampling kernel expects 4D input [N, C, H, W] where N*C*H == 32
+  // (the kernel uses a fixed 32-user batch). The compiler always pads the
+  // batch dimension to 32 before calling this op, so batch == 32 here.
+  // Reshape 2D [batch, candidates] → [1, 1, batch, candidates] to satisfy
+  // the 4D requirement.
   auto inputShape = inputValues.logical_shape();
   if (inputShape.rank() == 2) {
     uint32_t batch = inputShape[0];
     uint32_t candidates = inputShape[1];
+    TT_FATAL(batch == 32,
+             "ttnn::sampling requires batch == 32 (N*C*H == 32), got batch={}",
+             batch);
     inputValues =
         ::ttnn::reshape(inputValues, ::ttnn::Shape({1, 1, batch, candidates}));
     inputIndices =
