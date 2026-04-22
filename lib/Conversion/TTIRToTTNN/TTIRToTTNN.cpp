@@ -3402,7 +3402,8 @@ public:
         adaptor.getPageTable(), adaptor.getIsCausal(),
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
-        /*memory_config=*/nullptr);
+        /*memory_config=*/nullptr,
+        /*core_grid=*/nullptr);
     return success();
   }
 };
