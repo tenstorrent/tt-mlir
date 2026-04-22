@@ -127,14 +127,6 @@ bool applyCommutationPass(Plan &plan) {
 
 } // namespace
 
-Plan canonicalize(const PlanState &source, const PlanState &target,
-                  llvm::ArrayRef<int64_t> targetGridShape) {
-  (void)source;
-  (void)target;
-  (void)targetGridShape;
-  return {};
-}
-
 Plan minimize(Plan plan) {
   bool changed = true;
   while (changed) {

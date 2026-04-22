@@ -22,11 +22,6 @@ TEST(PlanScaffoldTest, EmptyPlanMinimizesToEmpty) {
   EXPECT_TRUE(minimize(std::move(empty)).empty());
 }
 
-TEST(PlanScaffoldTest, CanonicalizeStubReturnsEmpty) {
-  PlanState src{}, tgt{};
-  EXPECT_TRUE(canonicalize(src, tgt, /*targetGridShape=*/{}).empty());
-}
-
 // Cancellation rules.
 
 TEST(MinimizerCancelTest, TilizeUntilize) {

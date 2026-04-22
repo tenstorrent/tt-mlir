@@ -10,6 +10,8 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -18,47 +20,51 @@
 namespace mlir::tt::d2m {
 
 // A Plan is a sequence of atomic Steps that transforms a tensor from a source
-// PlanState into a target PlanState. Each Step changes exactly one aspect of
-// the layout / format (memory space, tile form, grid, virtual-grid mapping,
-// or OOB region). Plans are built by `canonicalize` and simplified by
-// `minimize` before being emitted as IR by the LowerToLayout pass.
+// layout+state into a target layout+state. Each Step changes exactly one
+// aspect of the tensor (memory space, tile form, grid, VGM, or OOB region).
+// Plans are produced by `canonicalize`, simplified by `minimize`, and lowered
+// to IR by `emit`.
 
 struct HostToDeviceStep {
-  ttcore::MetalLayoutAttr targetLayout;
+  RankedTensorType outputType = {};
 };
 
 struct DeviceToHostStep {};
 
 struct L1ToDRAMStep {
-  ttcore::MetalLayoutAttr targetLayout;
-  AffineMap viewMap;
+  AffineMap viewMap = {};
 };
 
 struct DRAMToL1Step {
-  ttcore::MetalLayoutAttr targetLayout;
-  AffineMap viewMap;
+  RankedTensorType outputType = {};
+  AffineMap viewMap = {};
 };
 
 struct TilizeStep {
-  llvm::SmallVector<int64_t> tileShape;
+  llvm::SmallVector<int64_t> tileShape = {};
+  RankedTensorType outputType = {};
 };
 
-struct UntilizeStep {};
+struct UntilizeStep {
+  RankedTensorType outputType = {};
+};
 
 struct ReshardStep {
-  llvm::SmallVector<int64_t> gridShape;
-  llvm::SmallVector<int64_t> dimAlignments;
-  DenseIntElementsAttr collapsedIntervals;
+  llvm::SmallVector<int64_t> gridShape = {};
+  llvm::SmallVector<int64_t> dimAlignments = {};
+  DenseIntElementsAttr collapsedIntervals = {};
+  RankedTensorType outputType = {};
 };
 
 struct RemapStep {
-  AffineMap fwdMap;
-  AffineMap invMap;
+  AffineMap fwdMap = {};
+  AffineMap invMap = {};
 };
 
 struct MaskStep {
-  ttcore::OOBVal oobVal;
-  llvm::SmallVector<int64_t> logicalShape;
+  ttcore::OOBVal oobVal = ttcore::OOBVal::Undef;
+  llvm::SmallVector<int64_t> logicalShape = {};
+  RankedTensorType outputType = {};
 };
 
 using Step =
@@ -66,17 +72,6 @@ using Step =
                  TilizeStep, UntilizeStep, ReshardStep, RemapStep, MaskStep>;
 
 using Plan = llvm::SmallVector<Step>;
-
-struct PlanState {
-  RankedTensorType type;
-  ttcore::OOBVal oobState;
-};
-
-// Emit the canonical (not yet minimized) sequence of atomic Steps that takes
-// `source` to `target`. The result is deterministic and over-long by design:
-// `minimize` is responsible for cancellation, fusion, and commutation.
-Plan canonicalize(const PlanState &source, const PlanState &target,
-                  llvm::ArrayRef<int64_t> targetGridShape);
 
 // Apply cancellation, fusion, and commutation rules until fixpoint.
 Plan minimize(Plan plan);
