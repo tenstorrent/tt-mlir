@@ -24,26 +24,13 @@ static std::optional<unsigned> getCapturedOperandIndex(GenericOp op,
   return std::nullopt;
 }
 
-Value getCB(Operation *opUsingCB, Value cbGenericOperand,
-            RewriterBase &rewriter) {
-  GenericOp generic = opUsingCB->getParentOfType<GenericOp>();
-  auto genericRegion =
-      ttmlir::utils::getRegionWithParentOfType<GenericOp>(opUsingCB);
+unsigned getCBOperandIdx(GenericOp generic, Value cbGenericOperand) {
   assert(mlir::isa<ttcore::CBLayoutAttr>(
              mlir::cast<MemRefType>(cbGenericOperand.getType()).getLayout()) &&
          "expected cb layout");
   auto operandIndex = getCapturedOperandIndex(generic, cbGenericOperand);
   assert(operandIndex && "expected captured operand");
-  OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointToStart(&genericRegion->front());
-  auto cbType = CBType::get(generic.getContext(),
-                            mlir::cast<ShapedType>(cbGenericOperand.getType()));
-  auto getCBOp =
-      rewriter.create<GetCBOp>(generic.getLoc(), cbType, *operandIndex);
-  // llvm::errs() << "getting cb for operand: " << *operandIndex
-  //              << " in generic position: " << generic.getLoc()
-  //              << " with result: " << getCBOp.getResult() << "\n";
-  return getCBOp.getResult();
+  return *operandIndex;
 }
 
 memref::AllocOp findAllocOp(Value value) {

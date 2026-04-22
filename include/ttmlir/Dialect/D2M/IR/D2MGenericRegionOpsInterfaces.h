@@ -24,6 +24,11 @@ std::pair<Operation *, Operation *>
 wrapInSynchronizedRegion(PatternRewriter &rewriter,
                          SynchronizableOpInterface synchronizedOp);
 
+Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
+                                    Block::iterator start, Block::iterator end,
+                                    const SmallVector<Value> &consumers,
+                                    const SmallVector<Value> &producers);
+
 } // namespace mlir::tt::d2m
 
 #endif

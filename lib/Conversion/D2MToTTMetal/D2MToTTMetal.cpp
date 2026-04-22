@@ -190,7 +190,7 @@ public:
                   mlir::isa<memref::AllocOp>(aliasedMemref.getDefiningOp())) &&
                  "expected OperandAliasOp input to be a func argument or "
                  "memref::AllocOp");
-          cbs.push_back(adaptedOperand);
+          cbs.push_back(aliasedMemref);
           cbOperandIndexToPort[operandIndex] = cbPort;
           cbPorts.push_back(cbPort++);
         } else if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(

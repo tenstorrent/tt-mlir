@@ -30,6 +30,4 @@ module {
     %4 = "ttnn.to_memory_config"(%3) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %4 : tensor<32x32xf32, #dram_layout>
   }
-
-  // TODO: need to address fusion concerns to fix removed tests
 }

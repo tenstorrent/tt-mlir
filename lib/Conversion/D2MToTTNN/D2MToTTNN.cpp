@@ -147,6 +147,7 @@ convertMathFidelity(ttmetal::MathFidelity fidelity) {
 
 static mlir::Attribute
 convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
+                 const DenseMap<uint32_t, uint32_t> &additionalArgMapping,
                  const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping) {
   switch (arg.getArgType()) {
   case ttkernel::ArgType::BufferAddress: {
@@ -167,7 +168,7 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
   }
   case ttkernel::ArgType::GlobalSemaphore: {
     return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
-        arg.getOperandIndex());
+        additionalArgMapping.at(arg.getOperandIndex()));
   }
   }
   llvm_unreachable("Invalid ArgType");
@@ -222,6 +223,7 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
     Builder &builder, const ArrayAttr &threads,
     const ttnn::CoreRangeSetAttr &coreRangeSet, const SymbolTable &symbolTable,
     ttmetal::MathFidelity mathFidelity,
+    const DenseMap<uint32_t, uint32_t> &additionalArgMapping,
     const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping) {
   SmallVector<mlir::Attribute> kernelConfigs(threads.size());
   int unassignedNocCounter = 0;
@@ -244,12 +246,12 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
     llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
     llvm::SmallVector<mlir::Attribute> kernelCRTArgs(crtArgs.size());
     for (const auto [i, arg] : llvm::enumerate(crtArgs)) {
-      kernelCRTArgs[i] =
-          convertKernelArg(builder, arg, cbOperandIndexToPortMapping);
+      kernelCRTArgs[i] = convertKernelArg(builder, arg, additionalArgMapping,
+                                          cbOperandIndexToPortMapping);
     }
     for (const auto [i, arg] : llvm::enumerate(ctArgs)) {
-      kernelCTArgs[i] =
-          convertKernelArg(builder, arg, cbOperandIndexToPortMapping);
+      kernelCTArgs[i] = convertKernelArg(builder, arg, additionalArgMapping,
+                                         cbOperandIndexToPortMapping);
     }
 
     // Create KernelDescriptor.
@@ -330,7 +332,7 @@ createCBDescriptors(Builder &builder, d2m::GenericOp op,
     size_t totalSize = device.getMemrefSizeBytes(cbMemref, pageSize, true);
 
     ttnn::KernelCBFormatAttr cbFormat =
-        ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
+        ttnn::KernelCBFormatAttr::get(ctx, cbPorts, dtype, pageSize);
 
     ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
     if (auto aliasOp =
@@ -649,15 +651,24 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
           ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
           ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
 
-  SmallVector<Value> additionalArgs;
-  for (Value arg : op.getAdditionalArgs()) {
+  SmallVector<Value> ttnnGenericAdditionalArgs;
+  // Additional args in the d2m.generic don't map 1:1 to the ttnn.generic's
+  // additional args (d2m generic's additional args has cbs whereas ttnn
+  // generic's additional args does not) so we need to create mapping to adjust
+  // the kernel descriptors later.
+  DenseMap<uint32_t, uint32_t> additionalArgMapping;
+  for (const auto [idx, arg] : llvm::enumerate(op.getAdditionalArgs())) {
     if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
         isa<RankedTensorType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(mapped);
     } else if (isa<d2m::GlobalSemaphoreType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(mapped);
     } else if (isa<MemRefType>(arg.getType()) &&
                mlir::isa<ttcore::CBLayoutAttr>(
                    mlir::cast<MemRefType>(arg.getType()).getLayout())) {
@@ -675,7 +686,7 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
   SmallVector<mlir::Attribute> kernelDescriptors = createKernelDescriptors(
       rewriter, op.getThreads(), coreRangeSet, opSymTable, mathFidelity,
-      cbOperandIndexToPortMapping);
+      additionalArgMapping, cbOperandIndexToPortMapping);
 
   SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
       createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
@@ -699,8 +710,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   }
 
   rewriter.setInsertionPoint(op);
-  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, additionalArgs, program,
-                                               ttnn::MemoryConfigAttr());
+  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+      op, ios, ttnnGenericAdditionalArgs, program, ttnn::MemoryConfigAttr());
   return success();
 }
 

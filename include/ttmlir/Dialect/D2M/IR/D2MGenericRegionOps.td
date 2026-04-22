@@ -2730,7 +2730,7 @@ def D2M_OperandAliasOp : D2M_GenericRegionOp<"operand_alias", [
   }];
 }
 
-def D2M_AliasedLoadOp : D2M_GenericRegionOp<"aliased_load", [
+def D2M_AliasedLoadOp : D2M_GenericRegionDatamovementOp<"aliased_load", [
     MemoryEffects<[MemRead, MemWrite]>,
     D2M_SynchronizableOpInterface
   ]> {
@@ -2773,7 +2773,7 @@ def D2M_AliasedLoadOp : D2M_GenericRegionOp<"aliased_load", [
   }];
 }
 
-def D2M_AliasedStoreOp : D2M_GenericRegionOp<"aliased_store", [
+def D2M_AliasedStoreOp : D2M_GenericRegionDatamovementOp<"aliased_store", [
     MemoryEffects<[MemRead, MemWrite]>,
     D2M_SynchronizableOpInterface
   ]> {

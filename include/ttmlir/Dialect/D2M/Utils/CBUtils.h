@@ -20,8 +20,7 @@ class GenericOp;
 /// generic op.  Results are cached to ensure each (generic, operand) pair gets
 /// exactly one CB value.  Port numbers are assigned sequentially and do NOT
 /// correspond to operand indices.
-Value getCB(Operation *opUsingCB, Value cbGenericOperand,
-            RewriterBase &rewriter);
+unsigned getCBOperandIdx(GenericOp generic, Value cbGenericOperand);
 
 /// Find the memref.alloc operation that produces a given value, potentially
 /// through a chain of view-like operations. Returns the alloc op if found,

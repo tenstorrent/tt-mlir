@@ -138,7 +138,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MInsertScratchBuffers());
-  pm.addPass(d2m::createD2MMarkSynchronizedOpBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -192,6 +191,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
   pm.addPass(d2m::createD2MInsertSpillAndScratch());
+  // pm.addPass(d2m::createD2MMarkSynchronizedOpBuffers());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerScratchAllocate());
   pm.addPass(mlir::createCanonicalizerPass());

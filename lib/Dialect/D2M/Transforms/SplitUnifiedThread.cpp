@@ -249,6 +249,159 @@ namespace {
 //  return success();
 //}
 
+Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
+  llvm::errs() << "tracing value: " << value << "\n";
+  while (value) {
+    // check if its a cb (hoisted generic arg with cb layout attr),
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(value.getType())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+        return value;
+      }
+    }
+
+    // if we are no longer inside the generic or have reached the root, stop
+    // tracing and return nullptr
+    Operation *definingOp = value.getDefiningOp();
+    if (!definingOp || !genericOp->isProperAncestor(definingOp)) {
+      llvm::errs() << "definingOp is not a proper ancestor of genericOp: "
+                   << *definingOp << "\n";
+      return nullptr;
+    }
+
+    // Otherwise keep tracing up the chain, if we reach an op we don't support,
+    // stop tracing and return nullptr
+    if (auto subviewOp = mlir::dyn_cast<memref::CollapseShapeOp>(definingOp)) {
+      value = subviewOp.getSrc();
+      continue;
+    } else {
+      llvm::errs() << "definingOp is not a collapse_shape op: " << *definingOp
+                   << "\n";
+      return nullptr;
+    }
+  }
+  llvm::errs() << "value is not a cb: " << value << "\n";
+  return nullptr;
+}
+
+LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
+                                              PatternRewriter &rewriter) {
+  // Look for a D2M_GenericRegionComputeOp, and collect the outermost ops that
+  // contain them in the generic op Skip ops that have the
+  // SynchronizableOpInterface::Trait, such asTileTilizeBlockOp and
+  // TileUntilizeBlockOp ops since they haven't been lowered yet into
+  // non-synchronized ops
+  DenseSet<Operation *> outermostOps;
+  genericOp.getRegion(0).walk([&](Operation *op) {
+    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>() ||
+        op->hasTrait<SynchronizableOpInterface::Trait>()) {
+      return WalkResult::advance();
+    }
+
+    // TODO: fix this to: go up loops until we reach one of the two as a parent:
+    // generic op or scf.for tagged as d2m.blocking_loop
+    Operation *outermostOp = op;
+    while (outermostOp->getParentOp() != genericOp.getOperation()) {
+      outermostOp = outermostOp->getParentOp();
+      if (!mlir::isa<scf::ForOp>(outermostOp)) {
+        llvm::errs() << "op " << *outermostOp << "\n";
+        assert(false && "outermost loop op is not a scf.for op");
+      }
+    }
+
+    outermostOps.insert(outermostOp);
+    return WalkResult::advance();
+  });
+
+  // expand and merge compute regions until we hit a syncrhonizable op on both
+  // ends
+  SmallVector<std::pair<Block::iterator, Block::iterator>> computeRegions;
+  while (!outermostOps.empty()) {
+    Operation *outermostOp = *outermostOps.begin();
+    outermostOps.erase(outermostOp);
+    Block::iterator start = outermostOp->getIterator();
+    Block::iterator end = outermostOp->getIterator();
+
+    // expand above
+    while (start != outermostOp->getBlock()->begin() &&
+           !std::prev(start)->hasTrait<SynchronizableOpInterface::Trait>()) {
+      start--;
+      if (outermostOps.contains(&*start)) {
+        outermostOps.erase(&*start);
+      }
+    }
+
+    // expand below
+    while (std::next(end) != outermostOp->getBlock()->end() &&
+           !std::next(end)->hasTrait<SynchronizableOpInterface::Trait>()) {
+      end++;
+      if (outermostOps.contains(&*end)) {
+        outermostOps.erase(&*end);
+      }
+    }
+
+    computeRegions.push_back({start, std::next(end)});
+  }
+
+  for (auto [start, end] : computeRegions) {
+    // for memref load and stores, trace to cb operand to get producers and
+    // consumers
+    DenseSet<Value> loadedCBOperands;
+    DenseSet<Value> storedCBOperands;
+
+    // and store in list of loaded operands
+    for (Operation &op : llvm::make_range(start, end)) {
+      op.walk([&](memref::LoadOp loadOp) {
+        Value cb = traceComputeMemrefToCB(loadOp.getMemref(), genericOp);
+        if (cb) {
+          loadedCBOperands.insert(cb);
+        }
+        return WalkResult::advance();
+      });
+
+      // for store trace up to list of allocs store into and then
+      op.walk([&](memref::StoreOp storeOp) {
+        Value cb = traceComputeMemrefToCB(storeOp.getMemref(), genericOp);
+        if (cb) {
+          storedCBOperands.insert(cb);
+        }
+        return WalkResult::advance();
+      });
+    }
+
+    llvm::errs() << "\n";
+    llvm::errs() << "storedCBOperands: ";
+    for (Value storedCBOperand : storedCBOperands) {
+      llvm::errs() << storedCBOperand << " ";
+    }
+    llvm::errs() << "\n";
+
+    // remove allocs in load that are in store since this is output cb reuse and
+    // not an actual input
+    for (Value storedCBOperand : storedCBOperands) {
+      if (loadedCBOperands.contains(storedCBOperand)) {
+        loadedCBOperands.erase(storedCBOperand);
+      }
+    }
+
+    llvm::errs() << "loadedCBOperands after cleanup: ";
+    for (Value loadedCBOperand : loadedCBOperands) {
+      llvm::errs() << loadedCBOperand << " ";
+    }
+    llvm::errs() << "\n";
+    llvm::errs() << "storedCBOperands after cleanup: ";
+    for (Value storedCBOperand : storedCBOperands) {
+      llvm::errs() << storedCBOperand << " ";
+    }
+    llvm::errs() << "\n";
+    wrapInSynchronizedRegion(
+        rewriter, start, end,
+        SmallVector<Value>(loadedCBOperands.begin(), loadedCBOperands.end()),
+        SmallVector<Value>(storedCBOperands.begin(), storedCBOperands.end()));
+  }
+
+  return success();
+}
+
 // local buffer; cb ops may already have been inserted so need to handle that
 // case
 // TODO: cleanup
@@ -279,8 +432,8 @@ processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
     Location loc = loadOp.getLoc();
     Value localBuffer = getCBGenericOperand(
         loadOp->getParentOfType<GenericOp>(), loadOp.getAliasedBuffer());
-    Value cb = getCB(loadOp, localBuffer, rewriter);
-    assert(cb && "could not find associated CB for load");
+    unsigned cbOperandIdx =
+        getCBOperandIdx(loadOp->getParentOfType<GenericOp>(), localBuffer);
 
     // Assumes only one consumer for this local buffer
     auto consumer = cbUsageInfo[localBuffer].consumers.front();
@@ -288,6 +441,14 @@ processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
     // llvm::errs() << "consumer with aliased load op: " << *consumer << "\n";
 
     rewriter.setInsertionPoint(consumer);
+    auto cb =
+        rewriter
+            .create<GetCBOp>(
+                loadOp.getLoc(),
+                CBType::get(loadOp.getContext(),
+                            mlir::cast<ShapedType>(localBuffer.getType())),
+                cbOperandIdx)
+            .getResult();
     rewriter.create<ReserveOp>(loc, cb);
     rewriter.create<PushOp>(loc, cb);
     auto waitOp = rewriter.create<WaitOp>(loc, cb);
@@ -317,11 +478,19 @@ processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
     Value localBuffer = getCBGenericOperand(
         loadOp->getParentOfType<GenericOp>(), loadOp.getLocalBuffer());
     llvm::errs() << "local buffer: " << localBuffer << "\n";
-    Value cb = getCB(loadOp, localBuffer, rewriter);
-    assert(cb && "could not find associated CB for load");
+    unsigned cbOperandIdx =
+        getCBOperandIdx(loadOp->getParentOfType<GenericOp>(), localBuffer);
 
     auto consumer = cbUsageInfo[localBuffer].consumers.front();
     rewriter.setInsertionPoint(consumer);
+    auto cb =
+        rewriter
+            .create<GetCBOp>(
+                loadOp.getLoc(),
+                CBType::get(loadOp.getContext(),
+                            mlir::cast<ShapedType>(localBuffer.getType())),
+                cbOperandIdx)
+            .getResult();
     auto waitOp = rewriter.create<WaitOp>(loadOp.getLoc(), cb);
     rewriter.setInsertionPointAfter(consumer);
     rewriter.create<PopOp>(loc, cb);
@@ -351,12 +520,20 @@ processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
     Location loc = storeOp.getLoc();
     Value localBuffer = getCBGenericOperand(
         storeOp->getParentOfType<GenericOp>(), storeOp.getAliasedBuffer());
-    Value cb = getCB(storeOp, localBuffer, rewriter);
-    assert(cb && "could not find associated CB for load");
+    unsigned cbOperandIdx =
+        getCBOperandIdx(storeOp->getParentOfType<GenericOp>(), localBuffer);
 
     // Assumes only one consumer for this local buffer
     auto producer = cbUsageInfo[localBuffer].producers.front();
     rewriter.setInsertionPoint(producer);
+    auto cb =
+        rewriter
+            .create<GetCBOp>(
+                storeOp.getLoc(),
+                CBType::get(storeOp.getContext(),
+                            mlir::cast<ShapedType>(localBuffer.getType())),
+                cbOperandIdx)
+            .getResult();
     auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
     rewriter.setInsertionPointAfter(producer);
     rewriter.create<PushOp>(loc, cb);
@@ -384,11 +561,19 @@ processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
     Value localBuffer = getCBGenericOperand(
         storeOp->getParentOfType<GenericOp>(), storeOp.getLocalBuffer());
     // llvm::errs() << "local buffer: " << localBuffer << "\n";
-    Value cb = getCB(storeOp, localBuffer, rewriter);
-    assert(cb && "could not find associated CB for store");
+    unsigned cbOperandIdx =
+        getCBOperandIdx(storeOp->getParentOfType<GenericOp>(), localBuffer);
 
     auto producer = cbUsageInfo[localBuffer].producers.front();
     rewriter.setInsertionPoint(producer);
+    auto cb =
+        rewriter
+            .create<GetCBOp>(
+                storeOp.getLoc(),
+                CBType::get(storeOp.getContext(),
+                            mlir::cast<ShapedType>(localBuffer.getType())),
+                cbOperandIdx)
+            .getResult();
     auto reserveOp = rewriter.create<ReserveOp>(storeOp.getLoc(), cb);
     rewriter.setInsertionPointAfter(producer);
     rewriter.create<PushOp>(loc, cb);
@@ -433,10 +618,18 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     Value localBuffer = getCBGenericOperand(
         loadOp->getParentOfType<GenericOp>(), loadOp.getLocalBuffer());
     // llvm::errs() << "cbMemref: " << localBuffer << "\n";
-    Value cb = getCB(loadOp, localBuffer, rewriter);
-    assert(cb && "could not find associated CB for load");
+    unsigned cbOperandIdx =
+        getCBOperandIdx(loadOp->getParentOfType<GenericOp>(), localBuffer);
 
     rewriter.setInsertionPoint(loadOp);
+    auto cb =
+        rewriter
+            .create<GetCBOp>(
+                loadOp.getLoc(),
+                CBType::get(loadOp.getContext(),
+                            mlir::cast<ShapedType>(localBuffer.getType())),
+                cbOperandIdx)
+            .getResult();
     auto newLoad = rewriter.create<RemoteLoadOp>(
         loadOp.getLoc(), loadOp.getMemref(), loadOp.getIndices(), cb,
         loadOp.getMcastStartIndex(), loadOp.getMcastShape());
@@ -457,10 +650,18 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     Value localBuffer = getCBGenericOperand(
         storeOp->getParentOfType<GenericOp>(), storeOp.getLocalBuffer());
     assert(localBuffer && "could not find associated local buffer for store");
-    Value cb = getCB(storeOp, localBuffer, rewriter);
-    assert(cb && "could not find associated CB for store");
+    unsigned cbOperandIdx =
+        getCBOperandIdx(storeOp->getParentOfType<GenericOp>(), localBuffer);
 
     rewriter.setInsertionPoint(storeOp);
+    auto cb =
+        rewriter
+            .create<GetCBOp>(
+                storeOp.getLoc(),
+                CBType::get(storeOp.getContext(),
+                            mlir::cast<ShapedType>(localBuffer.getType())),
+                cbOperandIdx)
+            .getResult();
     rewriter.create<RemoteStoreOp>(
         storeOp.getLoc(), storeOp.getMemref(), storeOp.getIndices(), cb,
         storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
@@ -549,6 +750,12 @@ public:
       return failure();
     }
 
+    if (failed(wrapComputeInSynchronizedRegion(generic, rewriter))) {
+      return failure();
+    }
+
+    llvm::errs() << "generic: " << *generic << "\n";
+
     Region &originalRegion = generic.getRegion(0);
     if (originalRegion.empty()) {
       return failure();
@@ -560,6 +767,7 @@ public:
     }
 
     // Create new 2-region GenericOp: datamovement + compute.
+    rewriter.setInsertionPoint(generic);
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
@@ -626,6 +834,8 @@ public:
     eraseCollectedOps(rewriter, toErase);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
     eraseDeadOps(rewriter, computeBlock, /*isDatamovementThread=*/false);
+
+    llvm::errs() << "newGeneric: " << *newGeneric << "\n";
 
     rewriter.replaceOp(generic, newGeneric.getResults());
 

@@ -221,4 +221,50 @@ wrapInSynchronizedRegion(PatternRewriter &rewriter,
   return std::make_pair(clonedSynchronizedOp, newSynchronizedRegionOp);
 }
 
+// Wraps a SynchronizableOpInterface in a SynchronizedRegionOp and returns the
+// new ops. This is to be used if we want to lower a synchronized op to a non
+// synchronized op/region before cb op insertion (e.g. linalg to affine). NOTE:
+// this pass using this must ensure that the sychronized op gets lowered to non
+// synchronized ops before we get to cb op insertion pass.
+// TODO: better approach?
+Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
+                                    Block::iterator start, Block::iterator end,
+                                    const SmallVector<Value> &consumers,
+                                    const SmallVector<Value> &producers) {
+  // print IR at this point
+  // llvm::errs() << "IR at this point: " << "\n";
+  // genericOp->print(llvm::errs());
+  // llvm::errs() << "\n";
+
+  rewriter.setInsertionPoint(&*start);
+  auto newSynchronizedRegionOp = rewriter.create<d2m::SynchronizedRegionOp>(
+      start->getLoc(), TypeRange(), consumers, producers,
+      [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+          mlir::ValueRange bbArgs) {
+        IRMapping mapping;
+
+        for (size_t i = 0; i < consumers.size(); i++) {
+          mapping.map(consumers[i], bbArgs[i]);
+        }
+        for (size_t i = 0; i < producers.size(); i++) {
+          mapping.map(producers[i], bbArgs[i + consumers.size()]);
+        }
+
+        for (Operation &op : llvm::make_range(start, end)) {
+          bbBuilder.clone(op, mapping);
+        }
+        bbBuilder.create<d2m::YieldOp>(bbLoc, ValueRange());
+      });
+
+  SmallVector<Operation *> opsToErase;
+  for (Operation &op : llvm::make_range(start, end)) {
+    opsToErase.push_back(&op);
+  }
+  for (Operation *op : llvm::reverse(opsToErase)) {
+    rewriter.eraseOp(op);
+  }
+
+  return newSynchronizedRegionOp;
+}
+
 } // namespace mlir::tt::d2m
