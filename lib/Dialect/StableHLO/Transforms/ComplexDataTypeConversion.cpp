@@ -214,6 +214,53 @@ public:
 };
 } // namespace
 
+// Rewrites stablehlo::GatherOp with a complex-typed result by:
+//   1. Appending 2 to slice_sizes (gather the full float-pair trailing dim).
+//   2. Appending the new trailing result dimension index to offset_dims.
+namespace {
+class ComplexGatherOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+  using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::GatherOp op,
+      OpConversionPattern<mlir::stablehlo::GatherOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    // If the type converter did not change the result type, the operand is not
+    // complex-typed and this pattern does not apply.
+    if (newResultType == op.getResult().getType()) {
+      return failure();
+    }
+
+    // Append 2 to slice_sizes: the new trailing float-pair dim is fully
+    // gathered
+    SmallVector<int64_t> newSliceSizes(op.getSliceSizes().begin(),
+                                       op.getSliceSizes().end());
+    newSliceSizes.push_back(2);
+
+    // The new trailing result dim is an offset dim (not batch or collapsed)
+    auto dimNums = op.getDimensionNumbers();
+    SmallVector<int64_t> newOffsetDims(dimNums.getOffsetDims().begin(),
+                                       dimNums.getOffsetDims().end());
+    newOffsetDims.push_back(newResultType.getRank() - 1);
+
+    auto newDimNums = mlir::stablehlo::GatherDimensionNumbersAttr::get(
+        rewriter.getContext(), newOffsetDims, dimNums.getCollapsedSliceDims(),
+        dimNums.getOperandBatchingDims(), dimNums.getStartIndicesBatchingDims(),
+        dimNums.getStartIndexMap(), dimNums.getIndexVectorDim());
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::GatherOp>(
+        op, newResultType, adaptor.getOperand(), adaptor.getStartIndices(),
+        newDimNums, rewriter.getDenseI64ArrayAttr(newSliceSizes),
+        op.getIndicesAreSorted());
+    return success();
+  }
+};
+} // namespace
+
 // Rewrites ops that produce complex-typed tensors to operate on the equivalent
 // unpacked real representation (trailing dim of size 2).
 namespace {
@@ -506,8 +553,8 @@ struct StableHLOComplexDataTypeConversionPass
     target.addDynamicallyLegalOp<
         mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
         mlir::stablehlo::SliceOp, mlir::stablehlo::GatherOp,
-        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp>(
-        isNotComplexType);
+        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp,
+        mlir::stablehlo::GatherOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
