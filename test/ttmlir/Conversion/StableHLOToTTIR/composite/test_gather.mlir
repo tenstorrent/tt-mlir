@@ -12,10 +12,10 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     // CHECK: "ttir.gather"
     // CHECK-SAME: dim = 0 : i32
     // CHECK-SAME: (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_dim0_i32} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_dim0_i32} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
-  func.func private @tenstorrent.gather.impl_dim0_i32(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_dim0_i32(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
@@ -28,10 +28,10 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     // CHECK: "ttir.gather"
     // CHECK-SAME: dim = 1 : i32
     // CHECK-SAME: (tensor<3x5xbf16>, tensor<3x2xui32>) -> tensor<3x2xbf16>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 1 : i64}, decomposition = @tenstorrent.gather.impl_dim1_i64} : (tensor<3x5xbf16>, tensor<3x2xi64>) -> tensor<3x2xbf16>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 1 : i64}, decomposition = @tenstorrent.gather_dim.impl_dim1_i64} : (tensor<3x5xbf16>, tensor<3x2xi64>) -> tensor<3x2xbf16>
     return %0 : tensor<3x2xbf16>
   }
-  func.func private @tenstorrent.gather.impl_dim1_i64(%arg0: tensor<3x5xbf16>, %arg1: tensor<3x2xi64>) -> tensor<3x2xbf16> {
+  func.func private @tenstorrent.gather_dim.impl_dim1_i64(%arg0: tensor<3x5xbf16>, %arg1: tensor<3x2xi64>) -> tensor<3x2xbf16> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<3x2xbf16>
     return %0 : tensor<3x2xbf16>
   }
@@ -44,10 +44,10 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     // CHECK: "ttir.gather"
     // CHECK-SAME: dim = -1 : i32
     // CHECK-SAME: (tensor<4x6xf32>, tensor<4x3xui32>) -> tensor<4x3xf32>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = -1 : i64}, decomposition = @tenstorrent.gather.impl_neg_dim} : (tensor<4x6xf32>, tensor<4x3xi32>) -> tensor<4x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = -1 : i64}, decomposition = @tenstorrent.gather_dim.impl_neg_dim} : (tensor<4x6xf32>, tensor<4x3xi32>) -> tensor<4x3xf32>
     return %0 : tensor<4x3xf32>
   }
-  func.func private @tenstorrent.gather.impl_neg_dim(%arg0: tensor<4x6xf32>, %arg1: tensor<4x3xi32>) -> tensor<4x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_neg_dim(%arg0: tensor<4x6xf32>, %arg1: tensor<4x3xi32>) -> tensor<4x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<4x3xf32>
     return %0 : tensor<4x3xf32>
   }
@@ -60,10 +60,10 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     // CHECK: "ttir.gather"
     // CHECK-SAME: dim = 2 : i32
     // CHECK-SAME: (tensor<2x4x6xf32>, tensor<2x4x3xui32>) -> tensor<2x4x3xf32>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 2 : i64}, decomposition = @tenstorrent.gather.impl_3d} : (tensor<2x4x6xf32>, tensor<2x4x3xi32>) -> tensor<2x4x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 2 : i64}, decomposition = @tenstorrent.gather_dim.impl_3d} : (tensor<2x4x6xf32>, tensor<2x4x3xi32>) -> tensor<2x4x3xf32>
     return %0 : tensor<2x4x3xf32>
   }
-  func.func private @tenstorrent.gather.impl_3d(%arg0: tensor<2x4x6xf32>, %arg1: tensor<2x4x3xi32>) -> tensor<2x4x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_3d(%arg0: tensor<2x4x6xf32>, %arg1: tensor<2x4x3xi32>) -> tensor<2x4x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x4x3xf32>
     return %0 : tensor<2x4x3xf32>
   }
@@ -75,10 +75,10 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     // CHECK: "ttir.gather"
     // CHECK-SAME: dim = 0 : i32
     // CHECK-SAME: (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_ui32} : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_ui32} : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
-  func.func private @tenstorrent.gather.impl_ui32(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xui32>) -> tensor<2x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_ui32(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xui32>) -> tensor<2x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
@@ -90,10 +90,10 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     // CHECK: "ttir.gather"
     // CHECK-SAME: dim = 0 : i32
     // CHECK-SAME: (tensor<5x3xbf16>, tensor<2x3xui16>) -> tensor<2x3xbf16>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_ui16} : (tensor<5x3xbf16>, tensor<2x3xui16>) -> tensor<2x3xbf16>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_ui16} : (tensor<5x3xbf16>, tensor<2x3xui16>) -> tensor<2x3xbf16>
     return %0 : tensor<2x3xbf16>
   }
-  func.func private @tenstorrent.gather.impl_ui16(%arg0: tensor<5x3xbf16>, %arg1: tensor<2x3xui16>) -> tensor<2x3xbf16> {
+  func.func private @tenstorrent.gather_dim.impl_ui16(%arg0: tensor<5x3xbf16>, %arg1: tensor<2x3xui16>) -> tensor<2x3xbf16> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xbf16>
     return %0 : tensor<2x3xbf16>
   }
@@ -106,10 +106,10 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     // CHECK: "ttir.gather"
     // CHECK-SAME: dim = 0 : i32
     // CHECK-SAME: (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {decomposition = @tenstorrent.gather.impl_default} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {decomposition = @tenstorrent.gather_dim.impl_default} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
-  func.func private @tenstorrent.gather.impl_default(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_default(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }

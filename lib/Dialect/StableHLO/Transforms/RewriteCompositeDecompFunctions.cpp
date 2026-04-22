@@ -36,7 +36,7 @@ using DecompRewriter = void (*)(mlir::func::FuncOp, mlir::DictionaryAttr);
 // want to rewrite, then register it in getCompositeRewriters() below.
 // ---------------------------------------------------------------------------
 
-// Rewriter for stablehlo.composite "tenstorrent.gather".
+// Rewriter for stablehlo.composite "tenstorrent.gather_dim".
 static void
 rewriteTenstorrentGatherDecomp(mlir::func::FuncOp func,
                                mlir::DictionaryAttr compositeAttrs) {
@@ -146,7 +146,7 @@ rewriteTenstorrentGatherDecomp(mlir::func::FuncOp func,
 static const llvm::StringMap<DecompRewriter> &getCompositeRewriters() {
   static const llvm::StringMap<DecompRewriter> map = [] {
     llvm::StringMap<DecompRewriter> m;
-    m["tenstorrent.gather"] = rewriteTenstorrentGatherDecomp;
+    m["tenstorrent.gather_dim"] = rewriteTenstorrentGatherDecomp;
     return m;
   }();
   return map;
