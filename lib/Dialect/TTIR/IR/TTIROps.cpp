@@ -161,13 +161,12 @@ Attribute foldCast(ArrayRef<Attribute> operands, Type resType,
 // and `intMap` should perform a unary operation on `APFloat` and `APInt` values
 // respectively.
 template <typename Operator, typename FloatMap, typename IntMap,
-          bool isConditional = false,
           typename FoldAdaptor = typename Operator::FoldAdaptor>
 static ::mlir::OpFoldResult
 constantFoldEltwiseUnary(Operator op, FoldAdaptor adaptor, FloatMap floatMap,
                          IntMap intMap) {
-  auto input =
-      mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getInput());
+  mlir::DenseElementsAttr input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getInput());
   if (!input) {
     return nullptr;
   }
@@ -178,45 +177,38 @@ constantFoldEltwiseUnary(Operator op, FoldAdaptor adaptor, FloatMap floatMap,
   // Allow the caller to pass nullptr if they want to fold only one of float or
   // integer types.
   if constexpr (!std::is_same_v<FloatMap, std::nullptr_t>) {
-    if (op.getType().getElementType().isFloat()) {
-      if constexpr (isConditional) {
-        return mlir::constFoldUnaryOpConditional<mlir::FloatAttr, mlir::APFloat,
-                                                 void>(adaptor.getOperands(),
-                                                       floatMap);
-      } else {
-        return mlir::constFoldUnaryOp<mlir::FloatAttr, mlir::APFloat, void>(
-            adaptor.getOperands(), floatMap);
+    if (input.getElementType().isFloat()) {
+      if (input.isSplat()) {
+        auto splatValue = input.getSplatValue<llvm::APFloat>();
+        auto result = floatMap(splatValue);
+        return mlir::SplatElementsAttr::get(input.getType(), result);
       }
+      llvm::SmallVector<llvm::APFloat> results;
+      results.reserve(input.getNumElements());
+      for (auto value : input.getValues<llvm::APFloat>()) {
+        results.push_back(floatMap(value));
+      }
+      return mlir::DenseElementsAttr::get(input.getType(), results);
     }
   }
 
   if constexpr (!std::is_same_v<IntMap, std::nullptr_t>) {
-    if (op.getType().getElementType().isInteger()) {
-      if constexpr (isConditional) {
-        return mlir::constFoldUnaryOpConditional<mlir::IntegerAttr, mlir::APInt,
-                                                 void>(adaptor.getOperands(),
-                                                       intMap);
-      } else {
-        return mlir::constFoldUnaryOp<mlir::IntegerAttr, mlir::APInt, void>(
-            adaptor.getOperands(), intMap);
+    if (input.getElementType().isInteger()) {
+      if (input.isSplat()) {
+        auto splatValue = input.getSplatValue<llvm::APInt>();
+        auto result = intMap(splatValue);
+        return mlir::SplatElementsAttr::get(input.getType(), result);
       }
+      llvm::SmallVector<llvm::APInt> results;
+      results.reserve(input.getNumElements());
+      for (auto value : input.getValues<llvm::APInt>()) {
+        results.push_back(intMap(value));
+      }
+      return mlir::DenseElementsAttr::get(input.getType(), results);
     }
   }
 
   return nullptr;
-}
-
-// Helper to perform constant folding of elementwise unary operators. `floatMap`
-// and `intMap` should perform a unary operation on `APFloat` and `APInt` values
-// respectively and return a std::optional.
-template <typename Operator, typename FloatMap, typename IntMap,
-          typename FoldAdaptor = typename Operator::FoldAdaptor>
-static ::mlir::OpFoldResult
-constantFoldEltwiseUnaryConditional(Operator op, FoldAdaptor adaptor,
-                                    FloatMap floatMap, IntMap intMap) {
-  return constantFoldEltwiseUnary<Operator, FloatMap, IntMap,
-                                  /*isConditional=*/true, FoldAdaptor>(
-      op, adaptor, floatMap, intMap);
 }
 
 // Callable that maps a C++ float function over an APFloat by converting it to
@@ -7598,17 +7590,40 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 // ReciprocalOp
 //===----------------------------------------------------------------------===//
 
+static bool noneZero(mlir::Attribute attr) {
+  if (auto elementsAttr = mlir::dyn_cast_if_present<mlir::ElementsAttr>(attr)) {
+    if (elementsAttr.getElementType().isFloat()) {
+      if (elementsAttr.isSplat()) {
+        return !elementsAttr.getSplatValue<llvm::APFloat>().isZero();
+      }
+      auto begin = elementsAttr.value_begin<llvm::APFloat>();
+      auto end = elementsAttr.value_end<llvm::APFloat>();
+      return std::none_of(begin, end, [](const llvm::APFloat &value) {
+        return value.isZero();
+      });
+    }
+    if (elementsAttr.getElementType().isInteger()) {
+      if (elementsAttr.isSplat()) {
+        return !elementsAttr.getSplatValue<llvm::APInt>().isZero();
+      }
+      auto begin = elementsAttr.value_begin<llvm::APInt>();
+      auto end = elementsAttr.value_end<llvm::APInt>();
+      return std::none_of(
+          begin, end, [](const llvm::APInt &value) { return value.isZero(); });
+    }
+  }
+  return false;
+}
+
 ::mlir::OpFoldResult mlir::tt::ttir::ReciprocalOp::fold(FoldAdaptor adaptor) {
-  return constantFoldEltwiseUnaryConditional(
+  if (!noneZero(adaptor.getInput())) {
+    // Don't fold if the result is inf because runtime doesn't support it fully.
+    return nullptr;
+  }
+  return constantFoldEltwiseUnary(
       *this, adaptor,
-      [](const llvm::APFloat &x) -> std::optional<llvm::APFloat> {
-        llvm::APFloat result = llvm::APFloat::getOne(x.getSemantics()) / x;
-        if (result.isFinite()) {
-          return result;
-        }
-        // Don't fold if the result is inf because runtime doesn't support
-        // it fully.
-        return {};
+      [](const llvm::APFloat &x) {
+        return llvm::APFloat::getOne(x.getSemantics()) / x;
       },
       nullptr);
 }
@@ -7618,18 +7633,12 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::RsqrtOp::fold(FoldAdaptor adaptor) {
+  if (!noneZero(adaptor.getInput())) {
+    // Don't fold if the result is inf because runtime doesn't support it fully.
+    return nullptr;
+  }
   auto rsqrt = ApplyToAPFloat([](float x) { return 1.0f / ::sqrtf(x); });
-  return constantFoldEltwiseUnaryConditional(
-      *this, adaptor,
-      [rsqrt](const llvm::APFloat &x) -> std::optional<llvm::APFloat> {
-        if (x.isZero()) {
-          // Don't fold if the result is inf because runtime doesn't support
-          // it fully.
-          return {};
-        }
-        return rsqrt(x);
-      },
-      nullptr);
+  return constantFoldEltwiseUnary(*this, adaptor, rsqrt, nullptr);
 }
 
 //===----------------------------------------------------------------------===//
