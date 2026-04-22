@@ -3461,7 +3461,7 @@ public:
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
-        emitter.emit(/*slidingWindowSize=*/std::nullopt),
+        emitter.emit(srcOp.getSlidingWindowSize()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(/*program_config=*/std::nullopt),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),

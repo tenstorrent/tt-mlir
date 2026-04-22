@@ -13171,6 +13171,7 @@ class TTIRBuilder(Builder):
         cur_pos_tensor: Optional[Operand] = None,
         attention_sink: Optional[Operand] = None,
         scale: Optional[float] = None,
+        sliding_window_size: Optional[int] = None,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -13186,6 +13187,11 @@ class TTIRBuilder(Builder):
 
         is_causal_attr = BoolAttr.get(is_causal)
         scale_attr = FloatAttr.get_f32(scale) if scale is not None else None
+        sliding_window_size_attr = (
+            IntegerAttr.get(IntegerType.get_unsigned(32), sliding_window_size)
+            if sliding_window_size is not None
+            else None
+        )
 
         golden_args = [
             self._get_golden_tensor(query),
@@ -13213,6 +13219,7 @@ class TTIRBuilder(Builder):
                 else None
             ),
             "scale_attr": scale_attr,
+            "sliding_window_size_attr": sliding_window_size_attr,
             "output_type_mlir": mlir_output_type,
         }
 
@@ -13237,6 +13244,7 @@ class TTIRBuilder(Builder):
             cur_pos_tensor=cur_pos_tensor,
             attention_sink=attention_sink,
             scale=scale_attr,
+            sliding_window_size=sliding_window_size_attr,
             loc=loc,
         )
         op_result = op.result

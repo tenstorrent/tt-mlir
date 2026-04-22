@@ -3431,6 +3431,7 @@ public:
         adaptor.getPageTable(), adaptor.getIsCausal(),
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(),
         /*memory_config=*/nullptr,
         /*core_grid=*/nullptr);
     return success();
