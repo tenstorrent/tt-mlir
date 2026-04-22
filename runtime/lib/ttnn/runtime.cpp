@@ -28,7 +28,6 @@
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types_generated.h"
-
 #include "tracy/Tracy.hpp"
 
 #include <memory>
@@ -959,7 +958,7 @@ std::string getOpLocInfo(OpContext opContextHandle) {
 
 std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
-                  CallbackContext programContextHandle) {
+                   CallbackContext programContextHandle) {
   std::unordered_map<std::uint32_t, Tensor> perDeviceOutputTensors;
   std::vector<tt::runtime::TensorRef> refs = getOpOutputRefs(opContextHandle, programContextHandle);
   if (refs.empty()) {
@@ -2181,6 +2180,13 @@ void updateTensorInPool(CallbackContext programContextHandle,
                                   dstTensor.memory_config());
   }
   tensorPool.insertTTNNTensorAndValidate(tensorRefPtr, srcTensor);
+}
+
+size_t getProgramIndex(CallbackContext programContextHandle) {
+  const auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  return programContext.getProgramIndex();
 }
 
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
