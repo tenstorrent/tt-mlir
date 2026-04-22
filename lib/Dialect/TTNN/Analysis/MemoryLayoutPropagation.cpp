@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -1201,19 +1202,13 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   if (!currentLayout) {
     return nullptr;
   }
-  // If the op has a non-null memory_config attribute it was pinned by an
-  // earlier workaround / lowering pass that knows the exact layout the
-  // backend requires (e.g. the L1 width-sharded config the fused RMS-norm
-  // kernel needs). For ops without an OpModel we have no way to validate an
-  // alternative, and silently rewriting the output encoding to DRAM
-  // interleaved here would leave memory_config out of sync with the result
-  // type and fail TTNNMemoryConfigOpInterface verification. Preserve the
-  // current layout instead.
-  if (auto memConfigOp = mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op)) {
-    if (memConfigOp.getMemoryConfigAttr()) {
-      return currentLayout;
-    }
+
+  // If the op already has an L1 layout it was pinned by an earlier pass
+  // (workaround or lowering) that knows what the backend kernel requires.
+  if (currentLayout.hasL1BufferType()) {
+    return currentLayout;
   }
+
   return currentLayout.withBufferType(BufferType::DRAM)
       .withMemoryLayout(TensorMemoryLayout::Interleaved)
       .withTensorShape(tensorType.getShape());
