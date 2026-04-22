@@ -9,6 +9,7 @@ Holds only what's needed for PR 1: ir_module, op_iter, stashed inputs.
 No BinaryState/ProgramState hierarchy (added in PR 2).
 """
 import json
+from datetime import datetime
 from typing import Iterator, Optional
 
 from ttmlir.ir import Operation
@@ -30,7 +31,8 @@ class ChiselContext:
         self._current_binary_id: Optional[int] = None
         self._current_program_index: Optional[int] = None
         self.strict: bool = False
-        self.results_path: Optional[str] = "chisel_results.jsonl"
+        _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.results_path: Optional[str] = f"chisel_results_{_ts}.jsonl"
 
     def ensure_ir_module(self, binary, program_context) -> None:
         """Lazily create IRModule from the binary's MLIR source on first preOp."""
