@@ -41,7 +41,15 @@ def test_ops(ir_module, binary):
         )
 
         for i, (mlir_op, fb_op) in enumerate(zip(mlir_ops, fb_ops, strict=True)):
-            mlir_debug = mlir_op.get_asm(enable_debug_info=True)
+            # Mirror OpPrintingFlags from funcOpToProgram (FuncOpToProgram.h)
+            # so elided dense attrs/resources match the flatbuffer debug_info.
+            mlir_debug = mlir_op.get_asm(
+                enable_debug_info=True,
+                large_elements_limit=16,
+                large_resource_limit=64,
+                skip_regions=True,
+                assume_verified=True,
+            )
             fb_debug = fb_op.get("debug_info", "")
             assert mlir_debug == fb_debug, (
                 f"Program '{prog_name}' op {i}: debug info mismatch\n"
