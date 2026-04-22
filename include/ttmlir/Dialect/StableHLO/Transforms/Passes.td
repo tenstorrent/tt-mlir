@@ -307,7 +307,7 @@ def RewriteCompositeDecompFunctionsPass : Pass<"rewrite-composite-decomp-functio
     function's body while preserving its name, input types, and output
     types.
 
-    The registry currently has one entry ("tenstorrent.gather"). Adding a
+    The registry currently has one entry ("tenstorrent.gather_dim"). Adding a
     new composite requires one new rewriter function and one new map entry.
 
     Multiple composites may reference the same decomposition function; each

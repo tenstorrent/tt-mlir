@@ -821,18 +821,18 @@ public:
   matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
                   mlir::stablehlo::CompositeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (srcOp.getName() != "tenstorrent.gather") {
+    if (srcOp.getName() != "tenstorrent.gather_dim") {
       return failure();
     }
 
     if (adaptor.getOperands().size() != 2) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly 2 operands");
+          srcOp, "tenstorrent.gather_dim must have exactly 2 operands");
     }
 
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly one result");
+          srcOp, "tenstorrent.gather_dim must have exactly one result");
     }
 
     auto outputType =
