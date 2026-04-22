@@ -284,7 +284,7 @@ static void stripMarkArgumentCalls(ModuleOp module) {
 // normally runs after AutoSharding in the stablehlo-pipeline).
 static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.addPass(createDecoupleConstFanoutPass());
-  pm.addPass(createFlattenCompositePass());
+  pm.addPass(createFlattenOrConvertCompositesPass());
   pm.addPass(createRegisterCustomShardingRulePass());
 
   mlir::sdy::PropagationOptions propagationOptions;
