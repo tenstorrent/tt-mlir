@@ -248,6 +248,21 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
 
+::tt::target::ttnn::CoreRangeSetT
+getCoreRangeSetT(const TTNNLayoutAttr &layout) {
+  ::tt::target::ttnn::CoreRangeSetT coreRangeSetT;
+  assert(layout.getGrid().getVirtToPhysicalMap().isEmpty() == false);
+  for (const auto &[loc, size] :
+       ttcore::utils::toCoreRangeSet(layout.getGrid().getShape(),
+                                     layout.getGrid().getVirtToPhysicalMap())) {
+    coreRangeSetT.core_ranges.push_back(::tt::target::ttnn::CoreRange(
+        ::tt::target::ttnn::CoreCoord(loc[0], loc[1]),
+        ::tt::target::ttnn::CoreCoord(loc[0] + size[0] - 1,
+                                      loc[1] + size[1] - 1)));
+  }
+  return coreRangeSetT;
+}
+
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const TTNNLayoutAttr &layout) {
   if (layout.getIgnorePhysicalLayout()) {
@@ -264,6 +279,33 @@ getShardSpec(const TTNNLayoutAttr &layout) {
   return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout),
                                    getShardShape(layout),
                                    ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
+}
+
+std::optional<::tt::target::ttnn::ShardSpecT>
+getShardSpecT(const TTNNLayoutAttr &layout) {
+  if (layout.getIgnorePhysicalLayout()) {
+    return std::nullopt;
+  }
+
+  if (!isShardedMemoryLayout(
+          layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved))) {
+    return std::nullopt;
+  }
+
+  ::tt::target::ttnn::ShardSpecT shardSpecT;
+
+  shardSpecT.core_range_set =
+      std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+          getCoreRangeSetT(layout));
+
+  std::array<uint32_t, 2> shardShape = getShardShape(layout);
+  shardSpecT.shape = std::vector<int32_t>(shardShape.begin(), shardShape.end());
+
+  // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
+  // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
+  shardSpecT.orientation = ::tt::target::ttnn::ShardOrientation::RowMajor;
+
+  return shardSpecT;
 }
 
 ::tt::tt_metal::ShardOrientation
@@ -301,9 +343,29 @@ getShardOrientation(const ShardOrientationAttr &shardOrientationAttr) {
   }
 }
 
+::tt::target::BufferType getBufferTypeT(const BufferType &bufferType) {
+  switch (bufferType) {
+  case BufferType::DRAM:
+    return ::tt::target::BufferType::DRAM;
+  case BufferType::L1:
+    return ::tt::target::BufferType::L1;
+  case BufferType::SystemMemory:
+    return ::tt::target::BufferType::SystemMemory;
+  case BufferType::L1Small:
+    return ::tt::target::BufferType::L1Small;
+  case BufferType::Trace:
+    return ::tt::target::BufferType::Trace;
+  }
+}
+
 ::tt::tt_metal::BufferType getBufferType(const TTNNLayoutAttr &layout) {
   auto bufferType = layout.getBufferType();
   return getBufferType(bufferType);
+}
+
+::tt::target::BufferType getBufferTypeT(const TTNNLayoutAttr &layout) {
+  auto bufferType = layout.getBufferType();
+  return getBufferTypeT(bufferType);
 }
 
 BufferType getBufferType(const ::tt::tt_metal::BufferType bufferType) {
@@ -336,6 +398,21 @@ getTensorMemoryLayout(const TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED;
   }
 }
+::tt::target::ttnn::TensorMemoryLayout
+getTensorMemoryLayoutT(const TensorMemoryLayout tensorMemoryLayout) {
+  switch (tensorMemoryLayout) {
+  case TensorMemoryLayout::Interleaved:
+    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
+  case TensorMemoryLayout::HeightSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
+  case TensorMemoryLayout::WidthSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
+  case TensorMemoryLayout::BlockSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
+  case TensorMemoryLayout::NDSharded:
+    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
+  }
+}
 TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   switch (memLayout) {
@@ -366,6 +443,32 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
   auto shardSpec = getShardSpec(layout);
   return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
                                       shardSpec);
+}
+
+::tt::target::ttnn::MemoryConfigT
+getMemoryConfigT(const TTNNLayoutAttr &layout) {
+  ::tt::target::ttnn::MemoryConfigT memoryConfigT;
+
+  // auto memLayout =
+  //     layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved);
+
+  // if (isShardedMemoryLayout(memLayout) && !shardSpec.has_value()) {
+  //   memLayout = TensorMemoryLayout::Interleaved;
+  // }
+
+  memoryConfigT.tensor_memory_layout = getTensorMemoryLayoutT(
+      layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
+  memoryConfigT.buffer_type = getBufferTypeT(layout);
+
+  auto shardSpec = getShardSpecT(layout);
+  if (shardSpec.has_value()) {
+    memoryConfigT.shard_spec =
+        std::make_unique<::tt::target::ttnn::ShardSpecT>(shardSpec.value());
+  } else {
+    memoryConfigT.shard_spec = nullptr;
+  }
+
+  return memoryConfigT;
 }
 
 ::tt::tt_metal::MemoryConfig
@@ -447,10 +550,6 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
     return std::nullopt;
   }
 
-  // TODO(#2130): config.core_grid is hardcoded to nullopt until we add
-  // CoreRangeSet as an IR attribute.
-  assert(!conv2dConfig->getCoreGrid() && "CoreGrid is not supported yet");
-
   ::ttnn::Conv2dConfig config;
 
   if (conv2dConfig->getWeightsDtype()) {
@@ -496,7 +595,9 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
     config.shard_layout = std::nullopt;
   }
 
-  config.core_grid = std::nullopt;
+  if (conv2dConfig->getCoreGrid()) {
+    config.core_grid = getCoreRangeSet(conv2dConfig->getCoreGrid());
+  }
 
   if (conv2dConfig->getTransposeShards()) {
     config.transpose_shards = conv2dConfig->getTransposeShards().getValue();

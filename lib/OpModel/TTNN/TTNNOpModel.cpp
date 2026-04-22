@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 #include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
+#include <tuple>
+#include <utils/utils.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -36,23 +39,6 @@
 namespace mlir::tt::ttnn::op_model {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-
-// Macros to wrap overloaded functions for use with
-// query_op_constraints/runtime. These create a generic lambda that forwards
-// arguments, letting the compiler resolve the correct overload based on the
-// actual argument types.
-// clang-format off
-#define WRAP_OP(op)                                                         \
-  [](auto &&...args) -> decltype(op(std::forward<decltype(args)>(args)...)) {  \
-    return op(std::forward<decltype(args)>(args)...);                          \
-  }
-
-#define QUERY_OP_CONSTRAINTS(op, device, ...)                                  \
-  ::ttnn::graph::query_op_constraints(WRAP_OP(op), device, __VA_ARGS__)
-
-#define QUERY_OP_RUNTIME(op, device, ...)                                      \
-  ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
-// clang-format on
 
 namespace operation {
 
@@ -264,6 +250,37 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
   return conversion::getMemoryConfig(layout);
 }
 
+std::optional<::tt::target::ttnn::MemoryConfigT>
+getNullableMemoryConfigT(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return conversion::getMemoryConfigT(layout);
+}
+
+std::unique_ptr<::tt::target::ttnn::TensorRefT>
+getOutputTensorRefT(TTNNLayoutAttr layout) {
+  auto memoryConfigT = getNullableMemoryConfigT(layout);
+  if (!memoryConfigT.has_value()) {
+    return nullptr;
+  }
+
+  auto tensorRefT = std::make_unique<::tt::target::ttnn::TensorRefT>();
+  tensorRefT->desc = std::make_unique<::tt::target::ttnn::TensorDescT>();
+  tensorRefT->desc->layout =
+      std::make_unique<::tt::target::ttnn::LayoutDescT>();
+  tensorRefT->desc->layout->memory_desc =
+      std::make_unique<::tt::target::ttnn::MemoryDescT>();
+  tensorRefT->desc->layout->memory_desc->memory_config =
+      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+          memoryConfigT.value());
+
+  tensorRefT->desc->layout->memory_desc->data_type =
+      toNative(layout.getDataType());
+
+  return tensorRefT;
+}
+
 /**
  * @brief Reorder pool2d padding from IR convention to tt-metal convention.
  *
@@ -295,6 +312,14 @@ getNullableDataType(TTNNLayoutAttr layout) {
     return std::nullopt;
   }
   return conversion::getDataType(layout.getDataType());
+}
+
+std::optional<::tt::target::DataType>
+getNullableDataTypeT(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return toNative(layout.getDataType());
 }
 
 /**
@@ -538,7 +563,6 @@ auto getOpSymbol() {
                   "add mapping from TTNN dialect to TTNN lib op");
   }
 }
-
 } // namespace detail
 #endif // TTMLIR_ENABLE_OPMODEL
 
