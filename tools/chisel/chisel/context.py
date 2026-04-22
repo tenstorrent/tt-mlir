@@ -32,7 +32,7 @@ class ChiselContext:
         self._current_program_index: Optional[int] = None
         self.strict: bool = False
         _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.results_path: Optional[str] = f"chisel_results_{_ts}.jsonl"
+        self.results_path: Optional[str] = f"chisel_results/{_ts}.jsonl"
 
     def ensure_ir_module(self, binary, program_context) -> None:
         """Lazily create IRModule from the binary's MLIR source on first preOp."""

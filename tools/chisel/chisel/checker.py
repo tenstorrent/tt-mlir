@@ -44,8 +44,7 @@ class ChiselChecker:
     @staticmethod
     def _get_op_asm(ctx: ChiselContext) -> str:
         try:
-            asm_state = ctx.ir_module.get_asm_state(ctx._current_program_name)
-            return ctx._current_op.get_asm(state=asm_state)
+            return ctx._current_op.get_asm(use_local_scope=True).strip()
         except Exception:
             return ""
 
@@ -55,11 +54,11 @@ class ChiselChecker:
             return
         record = {
             "op": self.op_name,
-            "op_asm": self._op_asm,
             "slot": slot,
             "check": check,
             "status": status,
             **extra,
+            "op_asm": self._op_asm,
         }
         with open(self.ctx.results_path, "a") as f:
             f.write(json.dumps(record) + "\n")

@@ -7,6 +7,7 @@ declare_mlir_python_sources(ChiselSources
     bind.py
     callbacks.py
     context.py
+    checker.py
     ops.py
     executor.py
     utils.py
