@@ -672,24 +672,22 @@ void registerRuntimeBindings(nb::module_ &m) {
                 post_program_cb = std::nullopt;
 
             if (pre_op_func.has_value()) {
-              pre_op_cb =
-                  [fn = std::move(*pre_op_func)](
-                      tt::runtime::Binary Binary,
-                      tt::runtime::CallbackContext programContext,
-                      tt::runtime::OpContext opContext) {
-                    nb::gil_scoped_acquire acquire;
-                    fn(Binary, programContext, opContext);
-                  };
+              pre_op_cb = [fn = std::move(*pre_op_func)](
+                              tt::runtime::Binary Binary,
+                              tt::runtime::CallbackContext programContext,
+                              tt::runtime::OpContext opContext) {
+                nb::gil_scoped_acquire acquire;
+                fn(Binary, programContext, opContext);
+              };
             }
             if (post_op_func.has_value()) {
-              post_op_cb =
-                  [fn = std::move(*post_op_func)](
-                      tt::runtime::Binary Binary,
-                      tt::runtime::CallbackContext programContext,
-                      tt::runtime::OpContext opContext) {
-                    nb::gil_scoped_acquire acquire;
-                    fn(Binary, programContext, opContext);
-                  };
+              post_op_cb = [fn = std::move(*post_op_func)](
+                               tt::runtime::Binary Binary,
+                               tt::runtime::CallbackContext programContext,
+                               tt::runtime::OpContext opContext) {
+                nb::gil_scoped_acquire acquire;
+                fn(Binary, programContext, opContext);
+              };
             }
             if (pre_program_func.has_value()) {
               pre_program_cb =
