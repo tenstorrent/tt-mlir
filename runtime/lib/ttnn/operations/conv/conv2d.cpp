@@ -3,16 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/conv/conv2d.h"
-#include "conv/unifiedConv2dOp.h"
 #include "tt/runtime/detail/common/logger.h"
-// #include "tt/runtime/detail/ttnn/operations/unifiedOpLib/unifiedConv2dOp.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
+
+#include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include <variant>
+#include "ttnn/types.hpp"
 
 namespace tt::runtime::ttnn::operations::conv {
 using ::ttnn::Conv2dResultWithOptions;
-
 void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input =
@@ -25,26 +25,70 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
           ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
           : std::nullopt;
 
-  ::tt::target::ttnn::Conv2dOpT conv2dOpT;
-  op->UnPackTo(&conv2dOpT);
+  LOG_ASSERT(op->kernel_size()->size() == 2,
+             "Kernel size expected to have 2 elements");
+  LOG_ASSERT(op->stride()->size() == 2, "Stride expected to have 2 elements");
+  LOG_ASSERT(op->padding()->size() == 2 || op->padding()->size() == 4,
+             "Padding expected to have 2 or 4 elements");
+  LOG_ASSERT(op->dilation()->size() == 2,
+             "Dilation expected to have 2 elements");
+
+  std::array<uint32_t, 2> kernelSize, stride, dilation;
+  std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
+  std::copy_n(op->stride()->begin(), 2, stride.begin());
+  std::copy_n(op->dilation()->begin(), 2, dilation.begin());
+
+  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
+  if (op->padding()->size() == 2) {
+    std::array<uint32_t, 2> symPadding;
+    std::copy_n(op->padding()->begin(), 2, symPadding.begin());
+    padding = symPadding;
+  } else {
+    std::array<uint32_t, 4> asymPadding;
+    std::copy_n(op->padding()->begin(), 4, asymPadding.begin());
+    padding = asymPadding;
+  }
+
+  std::optional<::ttnn::DataType> outputDtype;
+  if (op->output_dtype()) {
+    outputDtype =
+        unifiedOpLib::operations::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+
+  ::ttnn::Conv2dConfig conv2dConfig;
+  if (op->conv2d_config()) {
+    conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
+  }
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  unifiedOpLib::Conv2dOpResult result = unifiedOpLib::callConv2d(
-      unifiedOpLib::CallType::EXECUTE, conv2dOpT, &input, &weight,
-      bias.has_value() ? std::optional<unifiedOpLib::TensorArg>(&*bias)
-                       : std::nullopt,
-      targetDevice);
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
 
-  LOG_ASSERT(std::holds_alternative<::ttnn::Conv2dResultWithOptions>(result),
-             "Expected Conv2dResultWithOptions from callConv2d execution");
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
-  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(
-                 std::get<::ttnn::Conv2dResultWithOptions>(result)),
-             "Expected output Tensor in Conv2dResultWithOptions");
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
+  if (op->conv2d_slice_config()) {
+    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
+  }
 
-  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(
-      std::get<::ttnn::Conv2dResultWithOptions>(result));
+  Conv2dResultWithOptions result = ::ttnn::conv2d(
+      input, weight, &targetDevice, op->in_channels(), op->out_channels(),
+      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
+      stride, padding, dilation, op->groups(), outputDtype, bias, conv2dConfig,
+      computeConfig, outputMemoryConfig, sliceConfig);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
+
+  ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/eltwise/binary/binary.h"
-#include "eltwise/binary/unifiedEltwiseBinaryOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -13,81 +12,115 @@ namespace tt::runtime::ttnn::operations::eltwise::binary {
 template <typename Fn>
 static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
                                ProgramTensorPool &tensorPool, Fn &&ttnnOp) {
-  const ::ttnn::Tensor &lhs = tensorPool.getTTNNTensorAndValidate(op->lhs());
-  const ::ttnn::Tensor &rhs = tensorPool.getTTNNTensorAndValidate(op->rhs());
 
-  target::ttnn::EltwiseBinaryOpT eltwiseBinaryOpT;
-  op->UnPackTo(&eltwiseBinaryOpT);
+  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
 
-  unifiedOpLib::EltwiseBinaryOpResult result = unifiedOpLib::callEltwiseBinary(
-      unifiedOpLib::CallType::EXECUTE, eltwiseBinaryOpT,
-      std::forward<Fn>(ttnnOp), &lhs, &rhs);
+  std::optional<::ttnn::DataType> outputDataType = std::nullopt;
+  if (op->output_dtype()) {
+    outputDataType =
+        unifiedOpLib::operations::utils::toTTNNDataType(*(op->output_dtype()));
+  }
 
-  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
-             "Expected output Tensor from callEltwiseBinary execution");
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
+  /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::add));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::add(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::multiply));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::multiply(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalRightShift: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::logical_right_shift));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::logical_right_shift(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Subtract: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::subtract));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::subtract(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Equal: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::eq));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::eq(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::NotEqual: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::ne));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::ne(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::GreaterEqual: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::ge));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::ge(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::GreaterThan: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::gt));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::gt(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LessEqual: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::le));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::le(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LessThan: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::lt));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::lt(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Divide: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::divide));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::divide(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalAnd: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::logical_and));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::logical_and(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalOr: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::logical_or));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::logical_or(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::LogicalXor: {
-    runEltwiseBinaryOp(op, tensorPool, WRAP_OP(::ttnn::logical_xor));
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::logical_xor(std::forward<decltype(args)>(args)...);
+    });
     break;
   }
   }

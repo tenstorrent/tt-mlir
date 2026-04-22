@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/eltwise/binary/binary_composite.h"
-#include "eltwise/binary/unifiedEltwiseBinaryCompositeOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -18,42 +17,34 @@ static void runEltwiseBinaryCompositeOp(
   ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
   ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
 
-  target::ttnn::EltwiseBinaryCompositeOpT eltwiseBinaryCompositeOpT;
-  op->UnPackTo(&eltwiseBinaryCompositeOpT);
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
-  unifiedOpLib::EltwiseBinaryCompositeOpResult result =
-      unifiedOpLib::callEltwiseBinaryComposite(
-          unifiedOpLib::CallType::EXECUTE, eltwiseBinaryCompositeOpT,
-          std::forward<Fn>(ttnnOp), lhs, rhs);
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputMemoryConfig);
 
-  LOG_ASSERT(
-      std::holds_alternative<::ttnn::Tensor>(result),
-      "Expected output Tensor from callEltwiseBinaryComposite execution");
-
-  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 static void
 runPowScalarOp(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
-               ProgramContext &context) {
+               auto &&exponent, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   ::ttnn::Tensor *input = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
 
-  target::ttnn::EltwiseBinaryCompositeScalarOpT eltwiseBinaryCompositeScalarOpT;
-  op->UnPackTo(&eltwiseBinaryCompositeScalarOpT);
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
 
-  unifiedOpLib::EltwiseBinaryCompositeScalarOpResult result =
-      unifiedOpLib::callEltwiseBinaryCompositeScalar(
-          unifiedOpLib::CallType::EXECUTE, eltwiseBinaryCompositeScalarOpT,
-          input);
+  ::ttnn::Tensor out = ::ttnn::pow(*input, exponent, outputMemoryConfig);
 
-  LOG_ASSERT(
-      std::holds_alternative<::ttnn::Tensor>(result),
-      "Expected output Tensor from callEltwiseBinaryComposite execution");
-
-  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
 // Handles the binary composite ops with LHS=tensor and RHS=tensor.
@@ -135,7 +126,16 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
          ProgramContext &context) {
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseBinaryCompositeScalarOpType::PowScalar: {
-    runPowScalarOp(op, context);
+    switch (op->rhs_type()) {
+    case ::tt::target::ttnn::NumberType::FP:
+      runPowScalarOp(op, op->rhs_as_FP()->value(), context);
+      break;
+    case ::tt::target::ttnn::NumberType::I32:
+      runPowScalarOp(op, op->rhs_as_I32()->value(), context);
+      break;
+    default:
+      LOG_FATAL("unknown exponent type");
+    }
     break;
   }
   }
