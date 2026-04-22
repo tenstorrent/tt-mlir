@@ -811,6 +811,108 @@ public:
   }
 };
 
+class TenstorrentGatherConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentGatherConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.gather") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly 2 operands");
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly one result");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    IntegerAttr dimAttr = rewriter.getI32IntegerAttr(0);
+
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+        dimAttr =
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(attr.getInt()));
+      }
+    }
+
+    auto input = adaptor.getOperands()[0];
+    auto index = adaptor.getOperands()[1];
+
+    // torch.gather only requires index.size(d) <= input.size(d) for d != dim,
+    // but ttir.gather (and the downstream ttnn.gather kernel) require equal
+    // sizes on those axes. Trim the input to the index shape on any non-`dim`
+    // axis where it is larger; those trailing positions are never read by
+    // torch.gather, so this is a semantic no-op. This mirrors the slice
+    // inserted by rewriteTenstorrentGatherDecomp in
+    // RewriteCompositeDecompFunctions.cpp, which is not consulted on this
+    // lowering path (the composite is converted before its decomposition body
+    // is flattened).
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto indexTypeForSlice = mlir::cast<RankedTensorType>(index.getType());
+    int64_t rank = inputType.getRank();
+    int64_t normalizedDim = dimAttr.getInt();
+    if (normalizedDim < 0) {
+      normalizedDim += rank;
+    }
+    llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+    llvm::ArrayRef<int64_t> indexShape = indexTypeForSlice.getShape();
+    llvm::SmallVector<int64_t> slicedShape(inputShape);
+    bool needsSlice = false;
+    for (int64_t i = 0; i < rank; ++i) {
+      if (i != normalizedDim && indexShape[i] < inputShape[i]) {
+        slicedShape[i] = indexShape[i];
+        needsSlice = true;
+      }
+    }
+    if (needsSlice) {
+      llvm::SmallVector<int32_t> begins(rank, 0);
+      llvm::SmallVector<int32_t> ends;
+      ends.reserve(rank);
+      for (int64_t s : slicedShape) {
+        ends.push_back(static_cast<int32_t>(s));
+      }
+      llvm::SmallVector<int32_t> steps(rank, 1);
+      auto slicedType = RankedTensorType::get(
+          slicedShape, inputType.getElementType(), inputType.getEncoding());
+      input = rewriter.create<ttir::SliceStaticOp>(
+          srcOp.getLoc(), slicedType, input, rewriter.getI32ArrayAttr(begins),
+          rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+    }
+
+    // Cast the index tensor to UInt32 type if it isn't already UInt32 or UInt16
+    auto indexType = mlir::cast<RankedTensorType>(index.getType());
+    if (!indexType.getElementType().isInteger()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Index tensor must be of an integer type");
+    }
+    if (!indexType.getElementType().isUnsignedInteger(32) &&
+        !indexType.getElementType().isUnsignedInteger(16)) {
+      auto ui32Type = RankedTensorType::get(indexType.getShape(),
+                                            rewriter.getIntegerType(32, false));
+      index =
+          rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
+                                                dimAttr);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
