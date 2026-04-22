@@ -9747,6 +9747,73 @@ class TTNNBuilder(Builder):
 
         return gather_module, gather_builder
 
+    @tag(ttnn.SamplingOp)
+    def sampling(
+        self,
+        input_values: Operand,
+        input_indices: Operand,
+        k: Operand,
+        p: Operand,
+        temp: Operand,
+        seed: Optional[int] = None,
+        loc: Optional[str] = None,
+    ) -> OpResult:
+        """Fused top-k + top-p + multinomial sampling on pre-filtered candidates.
+
+        Args:
+            input_values: Candidate logit values [batch=32, candidates] bf16.
+            input_indices: Global vocab indices for candidates [batch=32, candidates] int32.
+            k: Per-request top-k values [batch=32] uint32.
+            p: Per-request top-p values [batch=32] bf16.
+            temp: Per-request temperature values [batch=32] bf16 (1/temperature).
+            seed: Optional random seed for reproducibility.
+        Returns:
+            Sampled global token indices [batch=32] int32.
+        """
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.sampling)
+
+        vals_t = self._get_golden_tensor(input_values).float()
+        idx_t = self._get_golden_tensor(input_indices)
+        temp_t = self._get_golden_tensor(temp).float()
+
+        batch = vals_t.shape[0]
+        temperature = temp_t.clamp(min=1e-6).unsqueeze(-1)
+        scaled = torch.div(vals_t, temperature)
+        probs = torch.softmax(scaled, dim=-1)
+        sampled_local = torch.multinomial(probs, num_samples=1).squeeze(-1)
+        golden_output = (
+            torch.gather(idx_t, 1, sampled_local.unsqueeze(-1))
+            .squeeze(-1)
+            .to(torch.int32)
+        )
+
+        result_shape = [batch]
+        mlir_output_type = self._get_type_from_torch_dtype(torch.int32)
+        result = self.create_ttnn_tensor(result_shape, mlir_output_type)
+
+        seed_attr = None
+        if seed is not None:
+            seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            input_values,
+            input_indices,
+            k,
+            p,
+            temp,
+            seed=seed_attr,
+            loc=loc,
+        )
+        op_result = op.result
+        self._set_golden_tensor(op_result, golden_output)
+        return op_result
+
     ############### ttnn.AllGatherOp ###############
 
     @tag(ttnn.AllGatherOp)

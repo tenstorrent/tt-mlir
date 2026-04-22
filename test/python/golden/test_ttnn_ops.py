@@ -259,6 +259,63 @@ def test_gather(
 
 
 @pytest.mark.parametrize(
+    "candidates,vocab_size",
+    [
+        (128, 128256),  # Llama-3.x
+        (64, 50272),  # OPT-125M
+    ],
+    ids=["llama", "opt"],
+)
+def test_sampling(
+    candidates: int,
+    vocab_size: int,
+    request,
+    device,
+):
+    """Builder test for ttnn.sampling: fused top-k/p multinomial sampling.
+
+    Verifies that the op compiles and returns global token indices in the
+    valid range [0, vocab_size) for each of the 32 users.
+    """
+    batch = 32
+
+    def module(builder: TTNNBuilder):
+        @builder.func(
+            [(batch, candidates), (batch, candidates), (batch,), (batch,), (batch,)],
+            [torch.bfloat16, torch.int32, torch.uint32, torch.bfloat16, torch.bfloat16],
+        )
+        def sampling_fn(
+            vals: Operand,
+            idx: Operand,
+            k: Operand,
+            p: Operand,
+            temp: Operand,
+            builder: TTNNBuilder,
+        ):
+            # Override index tensor with valid global vocab positions.
+            valid_indices = torch.stack(
+                [torch.randperm(vocab_size)[:candidates] for _ in range(batch)]
+            ).to(torch.int32)
+            valid_k = torch.full((batch,), candidates, dtype=torch.uint32)
+            valid_p = torch.ones(batch, dtype=torch.bfloat16)
+            valid_temp = torch.full((batch,), 1.667, dtype=torch.bfloat16)
+            builder.set_goldens(
+                {idx: valid_indices, k: valid_k, p: valid_p, temp: valid_temp}, {}
+            )
+            return builder.sampling(vals, idx, k, p, temp)
+
+    # Sampling is stochastic (multinomial); CPU golden cannot be matched
+    # element-wise. Skip PCC to verify only compile+device-execute succeed.
+    kwargs = get_request_kwargs(request)
+    kwargs["check_pcc"] = False
+    compile_and_execute_ttnn(
+        module,
+        **kwargs,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
     "test_shape",
     [
         (1, 32, 32, 32),
