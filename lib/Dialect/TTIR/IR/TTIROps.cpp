@@ -302,7 +302,7 @@ static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
   llvm_unreachable("Expected a FloatType or IntegerType");
 }
 
-// Extract constant fill value FullOp, ZerosOp, or OnesOp.
+// Extract constant fill value from FullOp, ZerosOp, or OnesOp.
 static mlir::Attribute getConstantValue(mlir::Value value) {
   mlir::Operation *op = value.getDefiningOp();
 

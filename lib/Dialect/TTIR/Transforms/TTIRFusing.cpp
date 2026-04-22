@@ -2569,9 +2569,9 @@ private:
            value / trueValue - 1.0 >= -1.5e-3;
   }
 
-  // This function will return true if the Value 'val' is a splat constant
+  // This function returns true if the Value 'val' is a splat constant
   // creation op, with the fill_value near 'scalar'. It allows for an error
-  // of 1.5%
+  // of 1.5%.
   bool isScalarValue(Value val, double scalar) const {
     Operation *scalarOp = val.getDefiningOp();
     if (!scalarOp) {
