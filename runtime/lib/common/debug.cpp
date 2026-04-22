@@ -29,16 +29,16 @@ const Hooks &Hooks::get(
     const std::optional<debug::Hooks::ProgramCallbackFn> &postProgramCallback) {
   static Hooks config(std::nullopt, std::nullopt, std::nullopt, std::nullopt);
   if (preOperatorCallback.has_value()) {
-    config.preOperatorCallback = preOperatorCallback;
+    config.preOperatorCallback = std::move(preOperatorCallback);
   }
   if (postOperatorCallback.has_value()) {
-    config.postOperatorCallback = postOperatorCallback;
+    config.postOperatorCallback = std::move(postOperatorCallback);
   }
   if (preProgramCallback.has_value()) {
-    config.preProgramCallback = preProgramCallback;
+    config.preProgramCallback = std::move(preProgramCallback);
   }
   if (postProgramCallback.has_value()) {
-    config.postProgramCallback = postProgramCallback;
+    config.postProgramCallback = std::move(postProgramCallback);
   }
   return config;
 }
