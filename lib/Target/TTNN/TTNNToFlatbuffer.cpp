@@ -3281,6 +3281,12 @@ createOp(FlatbufferObjectCache &cache,
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  const ::tt::target::ttnn::CoreCoord *coreGridPtr = nullptr;
+  ::tt::target::ttnn::CoreCoord coreGridVal;
+  if (auto coreGridAttr = op.getCoreGrid()) {
+    coreGridVal = toFlatbuffer(cache, *coreGridAttr);
+    coreGridPtr = &coreGridVal;
+  }
 
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
@@ -3289,7 +3295,7 @@ createOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
-      curPosTensor, attentionSink, scale, out, memoryConfig);
+      curPosTensor, attentionSink, scale, out, memoryConfig, coreGridPtr);
 }
 
 ::flatbuffers::Offset<
