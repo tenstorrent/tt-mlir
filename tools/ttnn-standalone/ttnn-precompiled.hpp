@@ -144,6 +144,34 @@ extern "C" {
 void setDevice(ttnn::MeshDevice *device) { DeviceGetter::setInstance(device); }
 }
 
+// Registry for all const-eval cache vectors.
+// Using a function-local static (Meyers singleton) ensures this is initialized
+// after DeviceGetter::getInstance() (which initializes the device), and thus
+// destroyed before the device during program exit. This prevents a
+// use-after-free crash when the global g_cached_result_* vectors (initialized
+// before main) try to destroy device-side tensors after the device and its
+// GraphTracker have already been closed.
+class ConstEvalCacheRegistry {
+public:
+  static ConstEvalCacheRegistry &instance() {
+    static ConstEvalCacheRegistry reg;
+    return reg;
+  }
+
+  void registerCache(std::vector<ttnn::Tensor> *cache) {
+    caches_.push_back(cache);
+  }
+
+  ~ConstEvalCacheRegistry() {
+    for (auto *cache : caches_) {
+      cache->clear();
+    }
+  }
+
+private:
+  std::vector<std::vector<ttnn::Tensor> *> caches_;
+};
+
 // Wrapper to abstract const-eval logic out of runtime funcs to keep them
 // cleaner. Invokes constEvalFunc iff outputs is empty.
 void constEvalFuncWrapper(
@@ -153,6 +181,7 @@ void constEvalFuncWrapper(
     std::vector<ttnn::Tensor> *outputs) {
   if (outputs->empty()) {
     *outputs = constEvalFunc(inputs);
+    ConstEvalCacheRegistry::instance().registerCache(outputs);
   }
 }
 
@@ -166,6 +195,7 @@ void constEvalFuncWrapperZeroArg(
     std::vector<ttnn::Tensor> *outputs) {
   if (outputs->empty()) {
     *outputs = constEvalFunc();
+    ConstEvalCacheRegistry::instance().registerCache(outputs);
   }
 }
 
