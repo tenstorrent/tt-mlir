@@ -130,7 +130,8 @@ using LogType = ::tt::runtime::logger::LogType;
 ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
-    std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram)
+    std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram,
+    ProgramContext *parentContext)
     : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
@@ -156,7 +157,7 @@ ProgramExecutor::ProgramExecutor(
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
       GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
-      std::move(deviceHandle), executableHandle, programIndex);
+      std::move(deviceHandle), executableHandle, programIndex, parentContext);
 }
 
 void ProgramExecutor::runOpCallback(
