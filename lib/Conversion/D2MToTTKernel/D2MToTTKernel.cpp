@@ -162,10 +162,6 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
-  if (dyn_cast<d2m::WaitOp>(cb.getDefiningOp()) ||
-      dyn_cast<d2m::ReserveOp>(cb.getDefiningOp())) {
-    return rewriter.getRemappedValue(cb);
-  }
   llvm_unreachable("Expected load, subview, or d2m.wait/reserve op");
 }
 
@@ -864,15 +860,16 @@ public:
       Value aTileIndex = adaptor.getA();
       Value bTileIndex = adaptor.getB();
 
-      // TODO: check correctness
       // If the input didn't come from a subview, we'll expect the CB directly.
       // This can happen when the value comes from an unrealized conversion cast
       // or from a get_compile_time_arg_val op. In either case, if the type is
       // a CB, we're reading from offset 0.
-      if (mlir::isa<ttkernel::CBType>(aTileIndex.getType())) {
+      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+              aTileIndex.getDefiningOp())) {
         aTileIndex = index(rewriter, op.getLoc(), 0);
       }
-      if (mlir::isa<ttkernel::CBType>(bTileIndex.getType())) {
+      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+              bTileIndex.getDefiningOp())) {
         bTileIndex = index(rewriter, op.getLoc(), 0);
       }
 

@@ -1715,14 +1715,6 @@ def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
   AttrSizedOperandSegments,
   DestinationStyleOpInterface,
   NoTerminator,
-  //DeclareOpInterfaceMethods<BufferizableOpInterface, [
-  //  "bufferizesToMemoryRead",
-  //  "bufferizesToMemoryWrite",
-  //  "bufferize",
-  //  "getAliasingValues",
-  //  "getBufferType",
-  //  "hasTensorSemantics",
-  //]>,
   D2M_SynchronizableOpInterface
   ]> {
 
@@ -1760,29 +1752,6 @@ def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
   ];
 
   let extraClassDeclaration = [{
-    //bool bufferizesToMemoryRead(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
-    //  return false;
-    //}
-    //bool bufferizesToMemoryWrite(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
-    //  return false;
-    //}
-//
-    //bool bufferize(mlir::RewriterBase &rewriter, const mlir::bufferization::BufferizationOptions &options, mlir::bufferization::BufferizationState &state) {
-    //  return false;
-    //}
-//
-    //mlir::bufferization::AliasingValueList getAliasingValues(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state) {
-    //  return mlir::bufferization::AliasingValueList();
-    //}
-//
-    //mlir::FailureOr<mlir::bufferization::BufferLikeType> getBufferType(mlir::Value value, const mlir::bufferization::BufferizationOptions &options, const mlir::bufferization::BufferizationState &state, ::llvm::SmallVector<mlir::Value> &bufferizedValues) {
-    //  return mlir::failure();
-    //}
-//
-    //bool hasTensorSemantics() {
-    //  return false;
-    //}
-
     MutableOperandRange getDpsInitsMutable() { return getProducersMutable(); }
 
     bool isProducer(mlir::OpOperand &operand) {
@@ -1792,8 +1761,6 @@ def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
     bool isConsumer(mlir::OpOperand &operand) {
       return llvm::find(getConsumers(), operand.get()) != getConsumers().end();
     }
-
-
   }];
 
 }

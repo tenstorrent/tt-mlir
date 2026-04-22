@@ -25,230 +25,6 @@ namespace {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Returns true if the remote_load/store requires real DMA. This is the case
-// when the remote memref has a view layout, is in DRAM, or the local buffer is
-// a streaming CB (CBLayoutAttr). Aliased ops do not need DMA and return false.
-// static bool needsDMA(Value memref, Value localBuffer) {
-//  // View ops need datamovement, except for reinterpret view_layout ops
-//  // which are just type casts.
-//  if (auto *defOp = memref.getDefiningOp()) {
-//    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
-//      return !viewOp.getReinterpretLayout();
-//    }
-//    if (mlir::isa<ViewOpInterface>(defOp)) {
-//      return true;
-//    }
-//  }
-//  if (auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType())) {
-//    if (ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceDRAM)
-//    {
-//      return true;
-//    }
-//  }
-//
-//  // Check if the local buffer is a streaming CB.
-//  if (localBuffer) {
-//    if (auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType())) {
-//      if (mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
-//        return true;
-//      }
-//    }
-//  }
-//
-//  return false;
-//}
-
-// Walk a block and find the last operation that uses a value, including uses
-// in nested regions. Tracks indirect uses through view-like operations (e.g.,
-// memref.collapse_shape). Returns the top-level operation after which to
-// insert cleanup ops, or null if no uses found.
-// static Operation *findLastUseOfAliasedValue(Value value, Block *block) {
-//  Operation *lastUse = nullptr;
-//
-//  // Build alias set: the value itself + any view-like derivations.
-//  llvm::SmallPtrSet<Value, 8> aliasedValues;
-//  aliasedValues.insert(value);
-//
-//  bool changed = true;
-//  while (changed) {
-//    changed = false;
-//    for (Operation &op : *block) {
-//      bool takesAliasedInput = false;
-//      for (OpOperand &operand : op.getOpOperands()) {
-//        if (aliasedValues.contains(operand.get())) {
-//          takesAliasedInput = true;
-//          break;
-//        }
-//      }
-//      if (takesAliasedInput && mlir::isa<mlir::ViewLikeOpInterface>(op)) {
-//        for (Value result : op.getResults()) {
-//          if (aliasedValues.insert(result).second) {
-//            changed = true;
-//          }
-//        }
-//      }
-//    }
-//  }
-//
-//  // Recursive check for uses in nested regions.
-//  std::function<bool(Region &)> isUsedInRegion = [&](Region &region) -> bool {
-//    for (Block &regionBlock : region) {
-//      for (Operation &op : regionBlock) {
-//        for (OpOperand &operand : op.getOpOperands()) {
-//          if (aliasedValues.contains(operand.get())) {
-//            return true;
-//          }
-//        }
-//        for (Region &nestedRegion : op.getRegions()) {
-//          if (isUsedInRegion(nestedRegion)) {
-//            return true;
-//          }
-//        }
-//      }
-//    }
-//    return false;
-//  };
-//
-//  // Walk top-level ops to find the last one that uses any alias.
-//  for (Operation &op : *block) {
-//    bool opUsesValue = false;
-//    for (OpOperand &operand : op.getOpOperands()) {
-//      if (aliasedValues.contains(operand.get())) {
-//        opUsesValue = true;
-//        break;
-//      }
-//    }
-//    if (!opUsesValue) {
-//      for (Region &region : op.getRegions()) {
-//        if (isUsedInRegion(region)) {
-//          opUsesValue = true;
-//          break;
-//        }
-//      }
-//    }
-//    if (opUsesValue) {
-//      lastUse = &op;
-//    }
-//  }
-//
-//  return lastUse;
-//}
-
-// Insert a pop before the block terminator.
-// static void insertPopBeforeTerminator(PatternRewriter &rewriter, Location
-// loc,
-//                                      Value cb, Block *block) {
-//  if (block->mightHaveTerminator()) {
-//    rewriter.setInsertionPoint(block->getTerminator());
-//  } else {
-//    rewriter.setInsertionPointToEnd(block);
-//  }
-//  rewriter.create<PopOp>(loc, cb);
-//}
-
-// Find load-store pairs that share the same localBuffer in a block.
-// static SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>>
-// findSharedBufferPairs(Block *block) {
-//  SmallVector<std::pair<RemoteLoadOp, RemoteStoreOp>> pairs;
-//  block->walk([&](RemoteStoreOp storeOp) {
-//    if (storeOp.isExplicitCBForm()) {
-//      return;
-//    }
-//    Value localBuffer = storeOp.getLocalBuffer();
-//    if (!localBuffer) {
-//      return;
-//    }
-//    for (Operation *user : localBuffer.getUsers()) {
-//      if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(user);
-//          loadOp && !loadOp.isExplicitCBForm() &&
-//          loadOp.getLocalBuffer() == localBuffer) {
-//        // Read-modify-write (self read/write)pattern is not a shared-buffer
-//        // copy.
-//        if (loadOp.getMemref() == storeOp.getMemref()) {
-//          return;
-//        }
-//        // When types differ, they can't share a CB - each needs its own.
-//        auto loadElemType =
-//        mlir::cast<ShapedType>(loadOp.getMemref().getType())
-//                                .getElementType();
-//        auto storeElemType =
-//            mlir::cast<ShapedType>(storeOp.getMemref().getType())
-//                .getElementType();
-//        if (loadElemType == storeElemType) {
-//          pairs.push_back({loadOp, storeOp});
-//        }
-//        return;
-//      }
-//    }
-//  });
-//  return pairs;
-//}
-
-// External allocs (e.g., hoisted CB allocs passed as additionalArgs)
-// must not be erased or replaced by the splitter.
-// static bool isLocalAlloc(memref::AllocOp allocOp, Block *block) {
-//  return block->getParent()->isAncestor(allocOp->getParentRegion());
-//}
-
-// ---------------------------------------------------------------------------
-// Compute thread: insert CB sync ops for implicit-form remote_load/store
-// ---------------------------------------------------------------------------
-
-// Handle load-store pairs that share the same local buffer (DMA-only
-// generics that copy input->output with no compute in between). The shared
-// buffer means one CB serves both ops.
-// static LogicalResult processSharedBufferPairs(Block *computeBlock,
-//                                              PatternRewriter &rewriter,
-//                                              DenseSet<Operation *> &toErase)
-//                                              {
-//  auto pairs = findSharedBufferPairs(computeBlock);
-//
-//  for (auto [loadOp, storeOp] : pairs) {
-//    Value sharedBuffer = loadOp.getLocalBuffer();
-//    bool loadNeedsDMA = needsDMA(loadOp.getMemref(), sharedBuffer);
-//    bool storeNeedsDMA = needsDMA(storeOp.getMemref(), sharedBuffer);
-//
-//    // If neither side needs DMA (L1-to-L1 copy): both ops still need actual
-//    DMA
-//    // through a shared CB. The DM thread handles
-//    // reserve-read-push-wait-write-pop cycle. Erase ops from the compute.
-//    if (!loadNeedsDMA && !storeNeedsDMA) {
-//      toErase.insert(storeOp);
-//      toErase.insert(loadOp);
-//      continue;
-//    }
-//
-//    // Insert compute-side CB ops for the aliased half of the pair.
-//    // The streaming half stays as a remote_load/store for DMA.
-//    Location loc = loadOp.getLoc();
-//    if (loadNeedsDMA && !storeNeedsDMA) {
-//      Value cb = getCB(storeOp, storeOp.getLocalBuffer(), rewriter);
-//      if (!cb) {
-//        return storeOp.emitError(
-//            "could not find associated CB for shared pair");
-//      }
-//      rewriter.setInsertionPoint(storeOp);
-//      rewriter.create<WaitOp>(loc, cb);
-//      rewriter.create<PopOp>(loc, cb);
-//    } else if (!loadNeedsDMA && storeNeedsDMA) {
-//      Value cb = getCB(loadOp, loadOp.getLocalBuffer(), rewriter);
-//      if (!cb) {
-//        return loadOp.emitError("could not find associated CB for shared
-//        pair");
-//      }
-//      rewriter.setInsertionPoint(loadOp);
-//      rewriter.create<ReserveOp>(loc, cb);
-//      rewriter.create<PushOp>(loc, cb);
-//    }
-//    // Else if both sides are streaming/need DMA, let the DM thread handle
-//    // everything.
-//
-//    toErase.insert(storeOp);
-//    toErase.insert(loadOp);
-//  }
-//  return success();
-//}
-
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
   llvm::errs() << "tracing value: " << value << "\n";
   while (value) {
@@ -273,9 +49,12 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
     if (auto subviewOp = mlir::dyn_cast<memref::CollapseShapeOp>(definingOp)) {
       value = subviewOp.getSrc();
       continue;
+    } else if (auto subviewOp = mlir::dyn_cast<memref::SubViewOp>(definingOp)) {
+      value = subviewOp.getSource();
+      continue;
     } else {
-      llvm::errs() << "definingOp is not a collapse_shape op: " << *definingOp
-                   << "\n";
+      llvm::errs() << "definingOp is not a collapse_shape or subview op: "
+                   << *definingOp << "\n";
       return nullptr;
     }
   }
@@ -297,10 +76,14 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       return WalkResult::advance();
     }
 
-    // TODO: fix this to: go up loops until we reach one of the two as a parent:
+    // Go up loops until we reach one of the two as a parent:
     // generic op or scf.for tagged as d2m.blocking_loop
     Operation *outermostOp = op;
-    while (outermostOp->getParentOp() != genericOp.getOperation()) {
+    auto isBlockingLoop = [](Operation *op) {
+      return mlir::isa<scf::ForOp>(op) && op->hasAttr("d2m.blocking_loop");
+    };
+    while (outermostOp->getParentOp() != genericOp.getOperation() &&
+           !isBlockingLoop(outermostOp->getParentOp())) {
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp)) {
         llvm::errs() << "op " << *outermostOp << "\n";
@@ -343,13 +126,15 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   }
 
   for (auto [start, end] : computeRegions) {
-    // for memref load and stores, trace to cb operand to get producers and
-    // consumers
+
     DenseSet<Value> loadedCBOperands;
     DenseSet<Value> storedCBOperands;
 
-    // and store in list of loaded operands
+    // for memref load and stores, trace to cb operand to get producers and
+    // consumers for syncrhonized region
     for (Operation &op : llvm::make_range(start, end)) {
+      // for load trace src memref up to defining op and check if its a cb (as
+      // opposed to dst)
       op.walk([&](memref::LoadOp loadOp) {
         Value cb = traceComputeMemrefToCB(loadOp.getMemref(), genericOp);
         if (cb) {
@@ -358,11 +143,30 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
         return WalkResult::advance();
       });
 
-      // for store trace up to list of allocs store into and then
+      // for store trace dst memref up to defining op and check if its a cb (as
+      // opposed to dst)
       op.walk([&](memref::StoreOp storeOp) {
         Value cb = traceComputeMemrefToCB(storeOp.getMemref(), genericOp);
         if (cb) {
           storedCBOperands.insert(cb);
+        }
+        return WalkResult::advance();
+      });
+
+      // TileMatmulBlockOp uses CBs directly without load/store
+      op.walk([&](d2m::TileMatmulBlockOp tileMatmulBlockOp) {
+        Value cbA = traceComputeMemrefToCB(tileMatmulBlockOp.getA(), genericOp);
+        Value cbB = traceComputeMemrefToCB(tileMatmulBlockOp.getB(), genericOp);
+        Value cbOutput =
+            traceComputeMemrefToCB(tileMatmulBlockOp.getOutput(), genericOp);
+        if (cbA) {
+          loadedCBOperands.insert(cbA);
+        }
+        if (cbB) {
+          loadedCBOperands.insert(cbB);
+        }
+        if (cbOutput) {
+          storedCBOperands.insert(cbOutput);
         }
         return WalkResult::advance();
       });
