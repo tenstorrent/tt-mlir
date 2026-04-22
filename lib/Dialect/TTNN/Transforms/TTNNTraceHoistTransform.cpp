@@ -92,10 +92,17 @@ private:
   }
 
   // Check if a value should remain on device during trace capture.
-  // Handles three cases:
+  // Handles four cases:
   // 1. Direct BlockArgument → checks shouldKeepArgOnDevice
   // 2. LoadCachedOp result → always device-resident (consteval)
   // 3. MeshShardOp result → traces through to the input and recurses
+  // 4. TTCoreCreationOpTrait result (e.g. ttnn.empty) that lives outside the
+  //    hoisted op set → a prelude-allocated scratch buffer that is already live
+  //    in device memory (e.g. the stats scratch tensor for distributed_rms_norm).
+  //    Such buffers must be passed directly into the trace function; allocating
+  //    a DRAM slot and writing from host would be both incorrect (they are
+  //    device-scratch, not host inputs) and would misplace the buffer address
+  //    that the fused kernel's globally-allocated CB depends on.
   bool isDeviceResidentValue(mlir::Value value) {
     if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
       auto funcOp =
@@ -117,6 +124,10 @@ private:
 
     if (auto meshShardOp = mlir::dyn_cast<ttnn::MeshShardOp>(defOp)) {
       return isDeviceResidentValue(meshShardOp.getInput());
+    }
+
+    if (defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
+      return true;
     }
 
     return false;
@@ -201,9 +212,13 @@ private:
       } else if (mlir::isa<mlir::OpResult>(input)) {
         auto result = mlir::cast<mlir::OpResult>(input);
         Operation *defOp = result.getDefiningOp();
-        // If the input is a result of a load cached op
-        // Then we can mark it as a constant since it's a consteval result
-        if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp)) {
+        // If the input is a result of a load cached op or a prelude creation op
+        // (e.g. ttnn.empty used as a device-scratch buffer), mark it as a
+        // constant so the trace wrapper treats it as device-resident and passes
+        // it through directly without allocating a DRAM slot.
+        if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp) ||
+            defOp->hasTrait<
+                mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
           llvm::SmallVector<mlir::NamedAttribute> namedAttrs;
           namedAttrs.emplace_back(
               mlir::StringAttr::get(context, ttcore::ArgumentTypeAttr::name),
