@@ -756,6 +756,16 @@ getOpInputRefs(OpContext opContextHandle,
   return {};
 }
 
+std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef) {
+  LOG_FATAL("getTensorRefShape for metal runtime is not implemented");
+  return {};
+}
+
+::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef) {
+  LOG_FATAL("getTensorRefDataType for metal runtime is not implemented");
+  return ::tt::target::DataType::Float32;
+}
+
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {

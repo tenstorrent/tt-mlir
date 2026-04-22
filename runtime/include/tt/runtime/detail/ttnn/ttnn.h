@@ -263,6 +263,16 @@ getOpOutputRefs(OpContext opContextHandle, CallbackContext programContextHandle)
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
+std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef);
+::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef tensorRef);
+
+using OpWalkFn =
+    std::function<void(tt::runtime::Binary, tt::runtime::CallbackContext,
+                       tt::runtime::OpContext)>;
+
+void walkBinary(tt::runtime::Binary executableHandle, uint32_t programIndex,
+                const OpWalkFn &cb);
+
 // Returns tensor to which tensorRef refers
 // In case that that tensor is not in the tensor pool, returns std::nullopt
 // For now only supports single device tensors

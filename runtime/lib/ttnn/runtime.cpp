@@ -2132,6 +2132,37 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   return hostTensors[0];
 }
 
+std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {
+  const auto &ref =
+      tensorRef.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  const auto *shape = ref.desc()->shape();
+  return std::vector<uint32_t>(shape->begin(), shape->end());
+}
+
+::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef tensorRef) {
+  const auto &ref =
+      tensorRef.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  return ref.desc()->layout()->memory_desc()->data_type();
+}
+
+void walkBinary(tt::runtime::Binary executableHandle, uint32_t programIndex,
+                const OpWalkFn &cb) {
+  const auto *fbb = ::tt::target::ttnn::GetSizePrefixedTTNNBinary(
+      executableHandle.handle.get());
+  const auto *program = fbb->programs()->Get(programIndex);
+
+  struct WalkContext {};
+  WalkContext stub;
+  auto stubHandle = ::tt::runtime::utils::unsafeBorrowShared(&stub);
+
+  for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+    auto opHandle = ::tt::runtime::utils::unsafeBorrowShared(
+        const_cast<::tt::target::ttnn::Operation *>(op));
+    cb(executableHandle, CallbackContext(stubHandle, DeviceRuntime::TTNN),
+       OpContext(opHandle, DeviceRuntime::TTNN));
+  }
+}
+
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor tensor) {
   auto &programContext =

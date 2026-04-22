@@ -245,7 +245,17 @@ void registerRuntimeBindings(nb::module_ &m) {
         return tt::runtime::getTensorLayout(self);
       });
 
-  nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
+  nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
+      .def("get_shape",
+           [](tt::runtime::TensorRef self) {
+             return tt::runtime::getTensorRefShape(self);
+           },
+           "Logical shape from the flatbuffer — no tensor allocation.")
+      .def("get_dtype",
+           [](tt::runtime::TensorRef self) {
+             return tt::runtime::getTensorRefDataType(self);
+           },
+           "Data type from the flatbuffer — no tensor allocation.");
   nb::class_<tt::runtime::Layout>(m, "Layout");
   nb::class_<tt::runtime::OpContext>(m, "OpContext");
   nb::class_<tt::runtime::CallbackContext>(m, "CallbackContext");
@@ -766,5 +776,19 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
+
+  m.def(
+      "walk_binary",
+      [](tt::runtime::Binary binary, uint32_t program_index, nb::callable cb) {
+        tt::runtime::walkBinary(
+            binary, program_index,
+            [cb](tt::runtime::Binary bin,
+                 tt::runtime::CallbackContext prog_ctx,
+                 tt::runtime::OpContext op_ctx) {
+              nb::gil_scoped_acquire gil;
+              cb(bin, prog_ctx, op_ctx);
+            });
+      },
+      nb::arg("binary"), nb::arg("program_index"), nb::arg("cb"));
 }
 } // namespace tt::runtime::python

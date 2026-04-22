@@ -1109,6 +1109,37 @@ getOpInputRefs(OpContext opContextHandle,
       });
 }
 
+std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef) {
+  using RetType = std::vector<uint32_t>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ttnn::getTensorRefShape(tensorRef); },
+      [&]() -> RetType { return ttmetal::getTensorRefShape(tensorRef); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefShape",
+                                    HostRuntime::Distributed);
+      });
+}
+
+::tt::target::DataType getTensorRefDataType(TensorRef tensorRef) {
+  using RetType = ::tt::target::DataType;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ttnn::getTensorRefDataType(tensorRef); },
+      [&]() -> RetType { return ttmetal::getTensorRefDataType(tensorRef); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefDataType",
+                                    HostRuntime::Distributed);
+      });
+}
+
+void walkBinary(Binary executableHandle, uint32_t programIndex,
+                const OpWalkFn &cb) {
+  LOG_ASSERT(getCurrentDeviceRuntime() == DeviceRuntime::TTNN,
+             "walkBinary is only supported for TTNN runtime");
+  tt::runtime::ttnn::walkBinary(executableHandle, programIndex, cb);
+}
+
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {

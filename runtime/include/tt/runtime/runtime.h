@@ -252,6 +252,9 @@ std::vector<TensorRef> getOpOutputRefs(OpContext opContextHandle,
 std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle);
 
+std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
+::tt::target::DataType getTensorRefDataType(TensorRef tensorRef);
+
 // For the given tensor reference, retrieves the tensor from the program's
 // tensor pool. Returns the tensor if found, or nullopt if not found or on
 // error.
@@ -266,6 +269,11 @@ void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
 
 size_t getProgramIndex(CallbackContext programContextHandle);
+
+using OpWalkFn = std::function<void(Binary, CallbackContext, OpContext)>;
+
+void walkBinary(Binary executableHandle, uint32_t programIndex,
+                const OpWalkFn &cb);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

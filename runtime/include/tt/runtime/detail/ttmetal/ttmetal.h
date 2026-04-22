@@ -165,6 +165,9 @@ getOpOutputRefs(OpContext opContextHandle, CallbackContext programContextHandle)
 std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
+std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
+::tt::target::DataType getTensorRefDataType(TensorRef tensorRef);
+
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize);
