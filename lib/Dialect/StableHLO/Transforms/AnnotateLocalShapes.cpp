@@ -105,13 +105,19 @@ static mlir::LogicalResult annotateArgumentLocalShapes(MLIRContext *context,
           } else if (argAttrDict.contains(
                          mlir::sdy::TensorShardingAttr::name)) {
             auto meshOp = shardy_utils::getMeshOps(module)[0];
-            auto global_shape =
-                mlir::cast<mlir::RankedTensorType>(arg.getType());
+            auto argType = mlir::cast<mlir::RankedTensorType>(arg.getType());
             mlir::sdy::TensorShardingAttr tensorShardingAttr =
                 mlir::cast<mlir::sdy::TensorShardingAttr>(
                     argAttrDict.get(mlir::sdy::TensorShardingAttr::name));
-            newType = mlir::tt::shardy_utils::populateShardedOutputType(
-                meshOp.getMesh(), global_shape, tensorShardingAttr);
+            FailureOr<mlir::RankedTensorType> shardedType =
+                mlir::tt::shardy_utils::populateShardedOutputType(
+                    meshOp.getMesh(), argType, tensorShardingAttr);
+            // If sharding succeeds, argType is the global shape and we compute
+            // the local shape. If it fails (e.g. batch-parallel where argType
+            // is already the per-device local shape), keep newType as argType.
+            if (succeeded(shardedType)) {
+              newType = *shardedType;
+            }
           }
         }
       }
@@ -194,13 +200,20 @@ static mlir::LogicalResult annotateResultLocalShapes(MLIRContext *context,
           } else if (resultAttrDict.contains(
                          mlir::sdy::TensorShardingAttr::name)) {
             auto meshOp = shardy_utils::getMeshOps(module)[0];
-            auto global_shape =
+            auto resultType =
                 mlir::cast<mlir::RankedTensorType>(funcType.getResult(i));
             mlir::sdy::TensorShardingAttr tensorShardingAttr =
                 mlir::cast<mlir::sdy::TensorShardingAttr>(
                     resultAttrDict.get(mlir::sdy::TensorShardingAttr::name));
-            newType = mlir::tt::shardy_utils::populateShardedOutputType(
-                meshOp.getMesh(), global_shape, tensorShardingAttr);
+            FailureOr<mlir::RankedTensorType> shardedType =
+                mlir::tt::shardy_utils::populateShardedOutputType(
+                    meshOp.getMesh(), resultType, tensorShardingAttr);
+            // If sharding succeeds, resultType is the global shape and we
+            // compute the local shape. If it fails (e.g. batch-parallel where
+            // resultType is already the per-device local shape), keep newType.
+            if (succeeded(shardedType)) {
+              newType = *shardedType;
+            }
           }
         }
       }
