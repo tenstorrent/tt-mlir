@@ -49,6 +49,7 @@ def execute_golden(
     golden_inputs: Dict[str, GoldenMapTensor] = {
         inp.get_name(asm_state): GoldenMapTensor({0: inputs[inp.get_name(asm_state)]}, (1, 1))
         for inp in op_inputs
+        if inp.get_name(asm_state) in inputs
     }
 
     result = golden_fn(op, golden_inputs, asm_state)

@@ -19,7 +19,7 @@ import re
 import einops
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug, func
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug, func, quant
 from ttmlir.ir import *
 from ttmlir.passes import DataType
 
@@ -8564,29 +8564,25 @@ def chisel_ttnn_mesh_partition(op, inputs, asm_state):
 
 def chisel_ttnn_quantize(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    scale_tensor = inputs[op.operands[1].get_name(asm_state)]
-    zero_point_tensor = inputs[op.operands[2].get_name(asm_state)]
+    q_type = quant.UniformQuantizedType(op.results[0].type.element_type)
     output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
-    return quantize_golden(input_tensor, float(scale_tensor.view(-1)[0]), int(zero_point_tensor.view(-1)[0]), output_dtype)
+    return quantize_golden(input_tensor, q_type.scale, int(q_type.zero_point), output_dtype)
 
 
 def chisel_ttnn_dequantize(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    scale_tensor = inputs[op.operands[1].get_name(asm_state)]
-    zero_point_tensor = inputs[op.operands[2].get_name(asm_state)]
+    q_type = quant.UniformQuantizedType(op.operands[0].type.element_type)
     output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
-    return ((input_tensor.float() - zero_point_tensor.float()) * scale_tensor.float()).to(output_dtype)
+    return ((input_tensor.float() - q_type.zero_point) * q_type.scale).to(output_dtype)
 
 
 def chisel_ttnn_requantize(op, inputs, asm_state):
     input_tensor = inputs[op.operands[0].get_name(asm_state)]
-    in_scale = inputs[op.operands[1].get_name(asm_state)]
-    in_zero_point = inputs[op.operands[2].get_name(asm_state)]
-    out_scale = inputs[op.operands[3].get_name(asm_state)]
-    out_zero_point = inputs[op.operands[4].get_name(asm_state)]
+    in_q = quant.UniformQuantizedType(op.operands[0].type.element_type)
+    out_q = quant.UniformQuantizedType(op.results[0].type.element_type)
     output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
-    dequantized = (input_tensor.float() - in_zero_point.float()) * in_scale.float()
-    requantized = torch.clamp(torch.round(dequantized / out_scale.float()) + out_zero_point.float(), -128, 127)
+    dequantized = (input_tensor.float() - in_q.zero_point) * in_q.scale
+    requantized = torch.clamp(torch.round(dequantized / out_q.scale) + out_q.zero_point, -128, 127)
     return requantized.to(output_dtype)
 
 

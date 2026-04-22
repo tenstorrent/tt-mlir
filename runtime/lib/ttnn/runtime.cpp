@@ -1523,7 +1523,19 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
-    tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
+    const auto *op = opContext.type_as_EltwiseUnaryCompositeOp();
+    tensorRefs = {op->in()};
+    if (op->type() ==
+        ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor) {
+      if (const auto *p = op->params_as_ClampTensorOpParams()) {
+        if (p->min()) {
+          tensorRefs.push_back(p->min());
+        }
+        if (p->max()) {
+          tensorRefs.push_back(p->max());
+        }
+      }
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
@@ -1575,7 +1587,9 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
-    tensorRefs = {opContext.type_as_EmbeddingBackwardOp()->input()};
+    tensorRefs = {opContext.type_as_EmbeddingBackwardOp()->input(),
+                  opContext.type_as_EmbeddingBackwardOp()->weight(),
+                  opContext.type_as_EmbeddingBackwardOp()->in_grad()};
     break;
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
@@ -1631,15 +1645,27 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
-    tensorRefs = {opContext.type_as_Conv2dOp()->input()};
+    const auto *op = opContext.type_as_Conv2dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::Conv3dOp: {
-    tensorRefs = {opContext.type_as_Conv3dOp()->input()};
+    const auto *op = opContext.type_as_Conv3dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
-    tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
+    const auto *op = opContext.type_as_ConvTranspose2dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
