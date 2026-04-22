@@ -1,6 +1,8 @@
 add_library(TTUnifiedOpLib STATIC
   utils/utils.cpp
   conv/unifiedConv2dOp.cpp
+  eltwise/unary/unifiedEltwiseUnaryCompositeOp.cpp
+  eltwise/unary/unifiedEltwiseUnaryOp.cpp
   matmul/unifiedMatmulOp.cpp
 )
 
