@@ -156,7 +156,7 @@ module {
   }
 
   func.func @floor_float_same() -> tensor<64x64xf32> {
-    // CHECK-LABEL: func.func @floor_float
+    // CHECK-LABEL: func.func @floor_float_same
     // CHECK: "ttir.ones"
     // CHECK-NOT: "ttir.floor"
     %0 = "ttir.ones"() <{shape = array<i32: 64, 64>}> : () -> tensor<64x64xf32>
@@ -318,7 +318,7 @@ module {
     // CHECK: "ttir.constant"
     // CHECK-SAME: value = dense<[-1.000000e+00, 0.000000e+00, 1.000000e+00, 1.000000e+00]>
     // CHECK-NOT: "ttir.sign"
-    %0 = "ttir.constant"() <{value = dense<[-4.0, 0.0, 0.5, 3.0]> : tensor<4xf32>}> : () -> tensor<4xbf16>
+    %0 = "ttir.constant"() <{value = dense<[-4.0, 0.0, 0.5, 3.0]> : tensor<4xbf16>}> : () -> tensor<4xbf16>
     %1 = "ttir.sign"(%0) : (tensor<4xbf16>) -> tensor<4xbf16>
     return %1 : tensor<4xbf16>
   }
