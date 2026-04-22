@@ -55,54 +55,59 @@ rewriteTenstorrentGatherDecomp(mlir::func::FuncOp func,
   mlir::Location loc = func.getLoc();
   mlir::TypeRange resultTypes = func.getFunctionType().getResults();
   mlir::ValueRange args = entry.getArguments();
-  (void)args;           // Available to the user's code below.
-  (void)compositeAttrs; // Available to the user's code below.
 
   llvm::SmallVector<mlir::Value> returnValues;
   returnValues.reserve(resultTypes.size());
 
-  // ============================================================
-  // vvvvv USER: ADD YOUR CUSTOM GATHER OPS HERE vvvvv
-  //
-  //  - Build replacement ops with `builder` (inserts at top of entry).
-  //  - Inputs:  `args` (ValueRange of block arguments; types = func inputs).
-  //  - Attrs:   `compositeAttrs` (DictionaryAttr from the composite op's
-  //             `composite_attributes`; empty dict if the composite had
-  //             none). Example lookups:
-  //                int64_t dim = 0;
-  //                if (auto a = compositeAttrs.getAs<mlir::IntegerAttr>("dim"))
-  //                  dim = a.getInt();
-  //                bool sparseGrad = false;
-  //                if (auto a =
-  //                compositeAttrs.getAs<mlir::BoolAttr>("sparse_grad"))
-  //                  sparseGrad = a.getValue();
-  //  - Outputs: push your final Values into `returnValues` in order,
-  //             matching `resultTypes`.
-  //  - Delete the default zero-constant loop below once you are emitting
-  //    real ops.
-  //
-  // Everything OUTSIDE this banner (including the final func.return below)
-  // is fixed plumbing: do not modify.
-  // ============================================================
-  for (mlir::Type resultType : resultTypes) {
-    auto rankedTy = mlir::cast<mlir::RankedTensorType>(resultType);
-    mlir::Type elemTy = rankedTy.getElementType();
-    mlir::Attribute zeroElt;
-    if (auto floatTy = mlir::dyn_cast<mlir::FloatType>(elemTy)) {
-      zeroElt = mlir::FloatAttr::get(
-          floatTy, llvm::APFloat::getZero(floatTy.getFloatSemantics()));
-    } else if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(elemTy)) {
-      zeroElt = mlir::IntegerAttr::get(intTy, 0);
-    } else {
-      llvm_unreachable("unsupported element type for placeholder body");
-    }
-    auto splat = mlir::DenseElementsAttr::get(rankedTy, zeroElt);
-    auto cst =
-        builder.create<mlir::stablehlo::ConstantOp>(loc, rankedTy, splat);
-    returnValues.push_back(cst.getResult());
+  // torch.gather semantics: result[i0,...,i_{dim-1}, k, i_{dim+1},..., i_{N-1}]
+  // = input[i0,..., i_{dim-1}, index[i0,...,k,...,i_{N-1}], i_{dim+1},...].
+  // Implemented as a stablehlo.gather where all non-`dim` axes are batching
+  // dims on both operand and (reshaped) start_indices.
+  mlir::Value input = args[0];
+  mlir::Value index = args[1];
+  auto inputTy = mlir::cast<mlir::RankedTensorType>(input.getType());
+  auto indexTy = mlir::cast<mlir::RankedTensorType>(index.getType());
+  int64_t rank = inputTy.getRank();
+
+  int64_t dim = 0;
+  if (auto dimAttr = compositeAttrs.getAs<mlir::IntegerAttr>("dim")) {
+    dim = dimAttr.getInt();
   }
-  // ^^^^^ USER: END CUSTOM GATHER OPS ^^^^^
-  // ============================================================
+  if (dim < 0) {
+    dim += rank;
+  }
+
+  // Reshape the index tensor to append a trailing size-1 dim so we have an
+  // explicit index_vector_dim for stablehlo.gather.
+  llvm::SmallVector<int64_t> reshapedIndexShape(indexTy.getShape());
+  reshapedIndexShape.push_back(1);
+  auto reshapedIndexTy =
+      mlir::RankedTensorType::get(reshapedIndexShape, indexTy.getElementType());
+  mlir::Value reshapedIndex =
+      builder.create<mlir::stablehlo::ReshapeOp>(loc, reshapedIndexTy, index);
+
+  // Batching dims: every operand/start_indices axis except `dim`.
+  llvm::SmallVector<int64_t> batchingDims;
+  batchingDims.reserve(rank - 1);
+  for (int64_t i = 0; i < rank; ++i) {
+    if (i != dim) {
+      batchingDims.push_back(i);
+    }
+  }
+  llvm::SmallVector<int64_t> sliceSizes(rank, 1);
+
+  auto dimNumbers = mlir::stablehlo::GatherDimensionNumbersAttr::get(
+      ctx,
+      /*offsetDims=*/{},
+      /*collapsedSliceDims=*/{dim},
+      /*operandBatchingDims=*/batchingDims,
+      /*startIndicesBatchingDims=*/batchingDims,
+      /*startIndexMap=*/{dim},
+      /*indexVectorDim=*/rank);
+
+  auto gather = builder.create<mlir::stablehlo::GatherOp>(
+      loc, resultTypes[0], input, reshapedIndex, dimNumbers, sliceSizes);
+  returnValues.push_back(gather.getResult());
 
   builder.create<mlir::func::ReturnOp>(loc, returnValues);
 }
@@ -135,17 +140,17 @@ public:
     mlir::SymbolTable symTable(module);
     const llvm::StringMap<DecompRewriter> &rewriters = getCompositeRewriters();
 
-    // Per unique decomposition func, record the rewriter to run and the
-    // composite_attributes to pass to it. Multiple composite ops may
-    // reference the same function; we rewrite each function exactly once.
-    // If two different composites that share a decomposition target carry
-    // different `composite_attributes`, the first one encountered wins
-    // (documented caveat: decomposition functions are expected to be
-    // specialized per attribute configuration; downstream ops always read
-    // `composite_attributes` off the composite itself, not the body).
+    // Per unique decomposition func, record the rewriter to run, the
+    // composite_attributes to pass to it, and the composite op that
+    // originally populated the entry (for diagnostics). Multiple composite
+    // ops may reference the same function; we rewrite each function exactly
+    // once. If two composites share a decomposition target but carry
+    // different `composite_attributes`, the pass errors out — decomposition
+    // functions must be specialized per attribute configuration.
     struct Task {
       DecompRewriter rewriter;
       mlir::DictionaryAttr compositeAttrs;
+      mlir::stablehlo::CompositeOp firstComposite;
     };
     llvm::DenseMap<mlir::func::FuncOp, Task> toRewrite;
 
@@ -177,7 +182,23 @@ public:
       if (!compAttrs) {
         compAttrs = emptyDict;
       }
-      toRewrite.try_emplace(callee, Task{it->second, compAttrs});
+      auto [entryIt, inserted] =
+          toRewrite.try_emplace(callee, Task{it->second, compAttrs, comp});
+      if (!inserted && entryIt->second.compositeAttrs != compAttrs) {
+        auto diag = comp.emitOpError()
+                    << "composite op '" << comp.getName()
+                    << "' shares decomposition target '" << leaf
+                    << "' with a prior composite but carries different "
+                       "composite_attributes (this: "
+                    << compAttrs
+                    << ", prior: " << entryIt->second.compositeAttrs
+                    << "); decomposition functions must be specialized per "
+                       "attribute configuration";
+        diag.attachNote(entryIt->second.firstComposite.getLoc())
+            << "prior composite referencing the same decomposition";
+        signalPassFailure();
+        return;
+      }
     });
 
     for (auto &kv : toRewrite) {
