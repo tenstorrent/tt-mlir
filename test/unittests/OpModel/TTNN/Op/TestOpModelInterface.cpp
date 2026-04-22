@@ -6480,4 +6480,81 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
   }
 }
 
+//===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, SamplingOp) {
+  // Typical vLLM non-greedy sampling shapes: batch=32, candidates=128
+  const int64_t batch = 32;
+  const int64_t candidates = 128;
+
+  llvm::SmallVector<int64_t> valuesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> indicesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> paramShape = {batch}; // k, p, temp
+  llvm::SmallVector<int64_t> outputShape = {batch};
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  // Build TTNNLayoutAttrs matching the kernel's expected tensor contracts.
+  auto bf16TileType = ttcore::TileType::get(builder.getBF16Type());
+  auto si32TileType = ttcore::TileType::get(builder.getIntegerType(32, true));
+  auto ui32TileType = ttcore::TileType::get(builder.getIntegerType(32, false));
+
+  auto valuesLayout =
+      TTNNLayoutAttr::get(&context, valuesShape, bf16TileType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto indicesLayout =
+      TTNNLayoutAttr::get(&context, indicesShape, si32TileType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto kLayout =
+      TTNNLayoutAttr::get(&context, paramShape, ui32TileType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto paramLayout =
+      TTNNLayoutAttr::get(&context, paramShape, bf16TileType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto outputLayout =
+      TTNNLayoutAttr::get(&context, outputShape, si32TileType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto inputValues = createEmptyTensor(valuesShape, bf16TileType, valuesLayout);
+  auto inputIndices =
+      createEmptyTensor(indicesShape, si32TileType, indicesLayout);
+  auto k = createEmptyTensor(paramShape, ui32TileType, kLayout);
+  auto p = createEmptyTensor(paramShape, bf16TileType, paramLayout);
+  auto temp = createEmptyTensor(paramShape, bf16TileType, paramLayout);
+
+  auto outputType =
+      createRankedTensorType(outputShape, si32TileType, outputLayout);
+
+  auto samplingOp =
+      builder.create<SamplingOp>(builder.getUnknownLoc(), outputType,
+                                 inputValues, inputIndices, k, p, temp,
+                                 /*seed=*/mlir::IntegerAttr{});
+
+  samplingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(samplingOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for SamplingOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(samplingOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0u);
+  } else {
+    FAIL() << "Runtime test failed for SamplingOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 } // namespace mlir::tt::ttnn
