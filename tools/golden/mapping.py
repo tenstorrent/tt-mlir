@@ -3516,11 +3516,12 @@ def ttir_trunc_golden(
 
 def ttir_selu_golden(
     input_tensor: GoldenMapTensor,
+    scale_attr: FloatAttr,
+    alpha_attr: FloatAttr,
     output_type_mlir: Type,
-    *,
-    scale: float = 1.0507009873390197,
-    alpha: float = 1.6732635498046875,
 ) -> GoldenMapTensor:
+    scale = unpack_mlir_attr(scale_attr)
+    alpha = unpack_mlir_attr(alpha_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     pos = torch.clamp(input_tensor, min=0)
     exp_m1 = torch.sub(torch.exp(input_tensor), 1.0)

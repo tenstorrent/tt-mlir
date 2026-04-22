@@ -67,13 +67,32 @@ the existing `named_elementwise` function (bump the `%N` numbering and add a
 `named_elementwise_*` func for the new op. **No** lit under `test/ttmlir/Conversion/D2MToTTKernel/`
 is required.
 
-**Golden (TTMetal-only, no TTNN):** add `ttir_<op>.mlir` under `mlir_snippets/ttir/`, golden +
-`ttir_builder.py` **`@tag` / `@parse` / `@split`** (same pattern as `square` / `exp`: pass
-`output_type_mlir` into the golden, no **`_op_proxy`**). In
-`test/python/golden/ttir_ops/eltwise/test_ttir_unary.py` (or sibling), mark the op with
+**Golden (TTMetal-only, no TTNN):** add `ttir_<op>.mlir` under `mlir_snippets/ttir/` — **one
+snippet per new op** so `test_parse_split_ops.py` exercises parse/split for each. Add the golden
+in `tools/golden/mapping.py` and the matching `@tag` / `@parse` / `@split` in
+`tools/builder/ttir/ttir_builder.py` (same pattern as `square` / `exp`: pass `output_type_mlir`
+into the golden, no **`_op_proxy`**).
+
+For ops that carry MLIR attributes (e.g. SELU's `scale` / `alpha`, clamp's `min` / `max`), the
+golden function should accept the **MLIR attr types** (`FloatAttr`, `IntegerAttr`, …) as
+positional arguments and unpack them internally with `unpack_mlir_attr` — do **not** give the
+golden Python-level defaults that duplicate the tablegen `DefaultValuedAttr`. The builder
+`@tag` method is allowed to keep Python-float defaults as a caller convenience; just convert them
+to `FloatAttr.get_f32(...)` and pass the `FloatAttr` directly into the golden (both from `@tag`
+and from `@parse`, where you already have the attr off `old_op`). Mirror the
+`ttnn_clamp_scalar_golden` / `ttnn_leaky_relu_golden` shape for this.
+
+In `test/python/golden/ttir_ops/eltwise/test_ttir_unary.py` (or sibling), mark the op with
 `SkipIf("ttnn", "emitc", "emitpy", "sim")` so it runs only on `ttmetal` on silicon until TTNN
 lowering exists. `SkipIf` is already imported from `test_utils`; prefer it over the more verbose
 `Marks(pytest.mark.skip_config([...]), …)` form.
+
+**Adding a TTIR op without TTNN support:** this is OK for the TTMetal-only path, but flag it to
+the TTNN codeowners (`@sdjordjevicTT`'s team) in the PR so they know the op is intentionally
+TTIR-only for now.
+
+**PR hygiene:** use a descriptive PR title (e.g. `[d2m] add exp2/selu/frac/... tile ops`, not
+`ops` or `first go`) so the squashed commit message is useful in `git log`.
 
 Run `cmake --build build` after changes.
 
@@ -84,4 +103,5 @@ Run `cmake --build build` after changes.
 - [ ] D2M→TTKernel map + rewriter in `D2MToTTKernel.cpp` (reuse `floatAttrToI32Bits` / `intAttrToI32` / `scalarToI32Bits` for any i32-encoded scalar params; don't inline new lambdas)
 - [ ] `TTKernelIncludesMap.h`: entries for any new `*_tile` / `*_tile_init` callees (skip if the callee is already mapped). Do **not** touch `TTKernelToCpp.cpp`.
 - [ ] Lit: chain the new op into the existing `named_elementwise` func in `named_to_generic.mlir` (no new func). No D2MToTTKernel lit required.
-- [ ] Optional golden: snippet + builder + `SkipIf("ttnn", "emitc", "emitpy", "sim")` for ttmetal-only-on-silicon (no TTNN)
+- [ ] Golden: one `mlir_snippets/ttir/ttir_<op>.mlir` **per new op** + `mapping.py` golden (take `FloatAttr`/`IntegerAttr` positionally and `unpack_mlir_attr` inside for ops with attrs — no Python defaults) + `ttir_builder.py` `@tag`/`@parse`/`@split` + `SkipIf("ttnn", "emitc", "emitpy", "sim")` for ttmetal-only-on-silicon (no TTNN)
+- [ ] PR: descriptive title for squash-merge; if the op has no TTNN support, give `@sdjordjevicTT`'s team a heads-up

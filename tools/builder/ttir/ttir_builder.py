@@ -4009,9 +4009,9 @@ class TTIRBuilder(Builder):
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
             input0,
+            scale_attr,
+            alpha_attr,
             mlir_output_type,
-            scale=scale,
-            alpha=alpha,
         )
         result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
@@ -4062,9 +4062,9 @@ class TTIRBuilder(Builder):
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
             input0,
+            scale_attr,
+            alpha_attr,
             result.element_type,
-            scale=unpack_mlir_attr(scale_attr),
-            alpha=unpack_mlir_attr(alpha_attr),
         )
         self._set_golden_tensor(new_op_result, golden_output)
 
