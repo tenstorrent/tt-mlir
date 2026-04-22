@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv3dConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
@@ -606,6 +607,7 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
+          workarounds::decomposition::Conv3dConfigRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
           workarounds::decomposition::
               LayerNormPostAllGatherDecompositionRewritePattern,

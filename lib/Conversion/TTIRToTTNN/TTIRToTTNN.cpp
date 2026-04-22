@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Conv3dBlocking.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
@@ -2030,14 +2031,28 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
+    // Pick Conv3d block sizes so the per-core circular-buffer footprint fits
+    // in L1. Weight preparation and the runtime Conv3dConfig MUST use the same
+    // cInBlock, or the kernel will scramble weight reads.
+    //
+    // Note: the heuristic must be fed the post-tile-alignment C_in (the value
+    // that the runtime Conv3dConfig will see after the input is padded to
+    // TILE_WIDTH below). reshapeWeightForConv3d internally aligns C_in the
+    // same way, so both sides will use the identical cInBlock.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
-                                                  rewriter, op.getLoc(),
-                                                  /*cInBlock=*/TILE_WIDTH);
+    int64_t rawInChannels = inputShape[channelDim];
+    int64_t paddedInChannels =
+        llvm::divideCeil(rawInChannels, TILE_WIDTH) * TILE_WIDTH;
+    auto blocking = mlir::tt::ttnn::utils::chooseConv3dBlocking(
+        static_cast<int32_t>(paddedInChannels), outChannelsAttr.getInt(),
+        static_cast<int32_t>(weightTy.getDimSize(2)),
+        static_cast<int32_t>(weightTy.getDimSize(3)),
+        static_cast<int32_t>(weightTy.getDimSize(4)));
+    uint32_t weightPrepCInBlock =
+        blocking.cInBlock.value_or(static_cast<uint32_t>(TILE_WIDTH));
+    Value reshapedWeight = reshapeWeightForConv3d(
+        adaptor.getWeight(), weightTy, rewriter, op.getLoc(),
+        /*cInBlock=*/weightPrepCInBlock);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2080,12 +2095,27 @@ public:
           outputType, permutedOutputShape);
     }
 
+    // Materialize the chosen blocking as a Conv3dConfigAttr so the runtime
+    // kernel uses the same cInBlock the weight was prepared for.
+    ttnn::Conv3dConfigAttr conv3dConfigAttr = nullptr;
+    if (blocking.cInBlock || blocking.cOutBlock) {
+      conv3dConfigAttr = ttnn::Conv3dConfigAttr::get(
+          rewriter.getContext(),
+          /*weights_dtype=*/std::nullopt,
+          /*t_out_block=*/std::nullopt,
+          /*w_out_block=*/std::nullopt,
+          /*h_out_block=*/std::nullopt,
+          /*c_out_block=*/blocking.cOutBlock,
+          /*c_in_block=*/blocking.cInBlock,
+          /*compute_with_storage_grid_size=*/std::nullopt);
+    }
+
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
         op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
-        nullptr);
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
+        conv3dConfigAttr, nullptr);
 
     if (needsPermute) {
       auto fromNdhwcPermutation =

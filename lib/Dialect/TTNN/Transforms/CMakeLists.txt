@@ -60,6 +60,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
+        Workarounds/Decomposition/Conv3dConfigRewritePattern.cpp
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
         Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.cpp
         Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
