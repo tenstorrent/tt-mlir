@@ -55,9 +55,11 @@ def test_device_execution(subtests, binary_path):
             logger=rt_logger,
             artifacts=rt_artifacts,
         )
-        print(run())
+        exit_code, result = run()
+        assert exit_code == 0, result
     except Exception as e:
         logger.error("Device execution failed for %s: %s", binary_path, e)
         raise
     finally:
         ChiselContext.reset_instance()
+        tt_runtime.unregister_hooks()
