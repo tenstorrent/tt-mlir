@@ -126,6 +126,13 @@ public:
 
       func->walk([&](Operation *op) {
         if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
+          // FillCacheOp is an in-place op with no tensor result. Bypass
+          // output-layout analysis (which requires a result type) and store
+          // a null-output OpConfig so processOp can validate fill_cache's
+          // input layout combinations as a constraint sink.
+          if (llvm::isa<FillCacheOp>(op) && mlir::dyn_cast<OpModel>(op)) {
+            legalConfigs[op] = {OpConfig{TTNNLayoutAttr()}};
+          }
           return;
         }
         // Skip ops that don't implement the OpModel interface (e.g.,
