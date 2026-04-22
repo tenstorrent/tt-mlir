@@ -68,8 +68,14 @@ void run(const ::tt::target::ttnn::DistributedRMSNormOp *op,
   auto shardSpec = input.shard_spec();
   LOG_ASSERT(shardSpec.has_value(),
              "Input tensor must have shard spec for distributed_rms_norm");
-  auto semaphore = ::ttnn::global_semaphore::create_global_semaphore(
-      &meshDevice, shardSpec->grid, 0);
+  // Cache the semaphore in ProgramContext so it is only created once (during
+  // the pre-capture warmup).  create_global_semaphore writes to device L1 and
+  // therefore cannot be called again during trace capture.
+  auto semaphore = context.getOrCreateImplicitGlobalSemaphore(
+      reinterpret_cast<uintptr_t>(op), [&]() {
+        return ::ttnn::global_semaphore::create_global_semaphore(
+            &meshDevice, shardSpec->grid, 0);
+      });
 
   ::ttnn::Tensor &statsTensor =
       tensorPool.getTTNNTensorAndValidate(op->stats());

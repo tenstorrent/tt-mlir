@@ -119,6 +119,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // width = tile_width (32). Reshape from 1D (N,) to 2D (N/32, 32) first.
   mlir::Value weight = op.getWeight();
   if (weight) {
+
     RankedTensorType weightType =
         mlir::cast<RankedTensorType>(weight.getType());
     ttnn::TTNNLayoutAttr weightLayout =
