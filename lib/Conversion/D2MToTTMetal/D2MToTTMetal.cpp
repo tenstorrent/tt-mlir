@@ -502,20 +502,31 @@ static Value stripEnqueueCbProducer(Value v) {
 }
 
 /// For each CB operand of this region's enqueue_program, if the backing buffer
-/// is a hoisted CB (CBLayoutAttr), set ttmetal.create_buffer's cb_core_range to
-/// this spatial region's tensix rectangle. Returns failure if a CBLayout buffer
-/// is not defined by ttmetal.create_buffer or cb_core_range would conflict.
+/// is defined by ttmetal.create_buffer with CBLayoutAttr or ShardLayoutAttr,
+/// set cb_core_range to this spatial region's tensix rectangle. Shard tensors
+/// that are not compiler-owned buffers (e.g. function block arguments) are
+/// skipped. Returns failure if a CBLayout buffer is not defined by
+/// ttmetal.create_buffer or cb_core_range would conflict.
 static LogicalResult
 stampSpatialRegionCbCoreRanges(ttmetal::EnqueueProgramOp enqueueProgram,
                                CoreRangeAttr spatialMetalRange) {
   for (Value cbVal : enqueueProgram.getCbs()) {
     Value root = stripEnqueueCbProducer(cbVal);
+    auto memrefTy = dyn_cast<MemRefType>(root.getType());
+    if (!memrefTy) {
+      continue;
+    }
+    const bool isCB = mlir::isa<ttcore::CBLayoutAttr>(memrefTy.getLayout());
+    const bool isShard =
+        mlir::isa<ttcore::ShardLayoutAttr>(memrefTy.getLayout());
+    if (!isCB && !isShard) {
+      continue;
+    }
     auto createBuffer = root.getDefiningOp<ttmetal::CreateBufferOp>();
     if (!createBuffer) {
-      return failure();
-    }
-    auto memrefTy = mlir::cast<MemRefType>(createBuffer.getType());
-    if (!mlir::isa<ttcore::CBLayoutAttr>(memrefTy.getLayout())) {
+      if (isCB) {
+        return failure();
+      }
       continue;
     }
     if (auto existing = createBuffer.getCbCoreRange()) {
