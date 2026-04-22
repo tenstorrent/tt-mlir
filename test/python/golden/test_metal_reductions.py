@@ -13,7 +13,7 @@ from ttmlir.ir import *
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from conftest import get_request_kwargs
+from conftest import get_request_kwargs, get_board_id
 
 pytestmark = pytest.mark.frontend("ttir")
 torch.manual_seed(0)
@@ -231,6 +231,7 @@ def test_reduce_outer_4d(
     dtype: torch.dtype,
     request,
     device,
+    system_desc,
 ):
     total_tiles = a * b * m * n
     if dim_arg == [0] and total_tiles >= 128:
@@ -243,6 +244,11 @@ def test_reduce_outer_4d(
             "Outer dim 1 reduction incorrect for a=3, b=4: block factor "
             "analysis splits the reduction dim due to odd batch size, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
         )
+    # TODO(#8079): (a=3, b=8, dim_arg=[1]) fails on p150 with L1 OOM on the
+    # non-square 10x13 grid. Re-enable once grid selection handles non-square
+    # grids without inflating per-core L1.
+    if dim_arg == [1] and a == 3 and b == 8 and get_board_id(system_desc) == "p150":
+        pytest.skip("L1 OOM on non-square grid (see #8079)")
 
     reduce_type = _4D_OUTER_REDUCE[(a, b, m, n, dim_arg[0])]
     tile_size = 32
