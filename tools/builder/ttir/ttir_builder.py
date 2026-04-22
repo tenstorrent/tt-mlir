@@ -25,7 +25,6 @@ from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 
 
 class TTIRBuilder(Builder):
-
     # ----- Methods -----
 
     def __init__(
@@ -471,7 +470,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(all_to_all_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -608,7 +606,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(collective_broadcast_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -740,7 +737,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(collective_permute_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -891,7 +887,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reduce_scatter_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -1036,7 +1031,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(all_reduce_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -1193,7 +1187,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(mesh_shard_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -1346,7 +1339,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(all_gather_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -1468,7 +1460,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(to_layout_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -1597,7 +1588,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(rearrange_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -1736,7 +1726,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reduce_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -1866,7 +1855,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(repeat_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2017,7 +2005,6 @@ class TTIRBuilder(Builder):
             op_input_types: List[Type] = []
 
             with InsertionPoint(arange_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2140,7 +2127,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(cumsum_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2255,7 +2241,6 @@ class TTIRBuilder(Builder):
             op_input_types: List[Type] = []
 
             with InsertionPoint(ones_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2365,7 +2350,6 @@ class TTIRBuilder(Builder):
             op_input_types: List[Type] = []
 
             with InsertionPoint(zeros_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2512,7 +2496,6 @@ class TTIRBuilder(Builder):
             op_input_types: List[Type] = []
 
             with InsertionPoint(rand_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2665,7 +2648,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(dropout_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2783,7 +2765,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(cos_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -2892,7 +2873,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(acos_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3001,7 +2981,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sin_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3110,7 +3089,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(asin_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3219,7 +3197,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(asinh_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3328,7 +3305,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sqrt_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3442,7 +3418,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(ge_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3560,7 +3535,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(lt_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3678,7 +3652,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(le_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3796,7 +3769,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(bitwise_and_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -3914,7 +3886,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(pow_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -4032,7 +4003,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(min_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -4150,7 +4120,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(lrs_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -4268,7 +4237,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(logical_and_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -4411,7 +4379,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             sort_module = Module.create()
             sort_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -4419,7 +4386,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sort_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -4552,7 +4518,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reverse_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -4712,7 +4677,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type, old_op.index.type, old_op.source.type]
 
             with InsertionPoint(scatter_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -4903,7 +4867,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(max_pool2d_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -5111,7 +5074,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(max_pool2d_with_indices_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -5256,7 +5218,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(log1p_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -5380,7 +5341,6 @@ class TTIRBuilder(Builder):
             op_input_types = [inp.type for inp in old_op.inputs]
 
             with InsertionPoint(concat_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -5513,7 +5473,6 @@ class TTIRBuilder(Builder):
             op_input_types = []
 
             with InsertionPoint(full_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -5650,7 +5609,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(clamp_tensor_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -5800,7 +5758,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reduce_or_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -5940,7 +5897,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(max_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -6061,7 +6017,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(logical_not_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -6176,7 +6131,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(log_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -6297,7 +6251,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(gt_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -6474,7 +6427,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(batch_norm_inference_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -6722,7 +6674,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(batch_norm_training_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -6896,7 +6847,6 @@ class TTIRBuilder(Builder):
             op_input_types = []
 
             with InsertionPoint(constant_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -7027,7 +6977,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(pad_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -7193,7 +7142,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(dot_general_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -7337,7 +7285,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(permute_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -7470,7 +7417,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(broadcast_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -7598,7 +7544,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(reshape_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -7841,7 +7786,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(maximum_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -7966,7 +7910,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(multiply_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8086,7 +8029,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             eq_module = Module.create()
             eq_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -8097,7 +8039,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(eq_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8238,7 +8179,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sum_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8370,7 +8310,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(add_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8489,7 +8428,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(sigmoid_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8604,7 +8542,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(hardsigmoid_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8728,7 +8665,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(subtract_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8840,7 +8776,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             tanh_module = Module.create()
             tanh_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -8848,7 +8783,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(tanh_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -8956,7 +8890,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             rsqrt_module = Module.create()
             rsqrt_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -8964,7 +8897,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(rsqrt_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9072,7 +9004,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             neg_module = Module.create()
             neg_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9080,7 +9011,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(neg_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9194,7 +9124,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             ne_module = Module.create()
             ne_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9205,7 +9134,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(ne_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9346,7 +9274,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             where_module = Module.create()
             where_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9358,7 +9285,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(where_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9474,7 +9400,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             abs_module = Module.create()
             abs_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9482,7 +9407,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(abs_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9590,7 +9514,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             erf_module = Module.create()
             erf_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9598,7 +9521,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(erf_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9706,7 +9628,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             floor_module = Module.create()
             floor_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9714,7 +9635,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(floor_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9818,7 +9738,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             typecast_module = Module.create()
             typecast_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9826,7 +9745,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(typecast_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -9935,7 +9853,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             exp_module = Module.create()
             exp_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -9943,7 +9860,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(exp_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -10057,7 +9973,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             div_module = Module.create()
             div_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -10068,7 +9983,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(div_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -10228,7 +10142,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(slice_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -10363,7 +10276,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             embedding_backward_module = Module.create()
             embedding_backward_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -10375,7 +10287,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(embedding_backward_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -10689,7 +10600,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(is_finite_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -11269,7 +11179,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.lhs.type, old_op.rhs.type]
 
             with InsertionPoint(logical_or_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -11571,7 +11480,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(argmax_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -11802,7 +11710,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type, old_op.weight.type]
 
             with InsertionPoint(embedding_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -12174,7 +12081,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(update_cache_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -12359,7 +12265,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.page_table.type)
 
             with InsertionPoint(puc_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -12562,7 +12467,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.batch_idx_tensor.type)
 
             with InsertionPoint(pfc_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -12838,7 +12742,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.attention_sink.type)
 
             with InsertionPoint(psdpad_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -13171,7 +13074,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.bias.type)
 
             with InsertionPoint(conv2d_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -13459,7 +13361,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.bias.type)
 
             with InsertionPoint(conv3d_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -13852,7 +13753,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(global_avg_pool_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -14145,7 +14045,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(clamp_scalar_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -14387,7 +14286,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.attention_mask.type)
 
             with InsertionPoint(sdpa_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -14570,7 +14468,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.a.type, old_op.b.type]
 
             with InsertionPoint(matmul_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -16026,7 +15923,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.bias.type)
 
             with InsertionPoint(rms_norm_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -16277,7 +16173,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.kv_input_tensor.type)
 
             with InsertionPoint(split_qkv_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -16673,7 +16568,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.residual.type)
 
             with InsertionPoint(distributed_layer_norm_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -16879,7 +16773,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.bias.type)
 
             with InsertionPoint(layer_norm_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -17049,7 +16942,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             topk_module = Module.create()
             topk_builder = TTIRBuilder(
                 old_ctx, old_loc, self._mesh_shape, self._mesh_dict
@@ -17057,7 +16949,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type]
 
             with InsertionPoint(topk_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -17219,7 +17110,6 @@ class TTIRBuilder(Builder):
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-
             module = Module.create()
             builder = TTIRBuilder(old_ctx, old_loc, self._mesh_shape, self._mesh_dict)
             op_input_types = [
@@ -17229,7 +17119,6 @@ class TTIRBuilder(Builder):
             ]
 
             with InsertionPoint(module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -17279,10 +17168,10 @@ class TTIRBuilder(Builder):
 
         return module, builder
 
-    ############### ttir.GatherDimOp ###############
+    ############### ttir.GatherOp ###############
 
-    @tag(ttir.GatherDimOp)
-    def gather_dim(
+    @tag(ttir.GatherOp)
+    def gather(
         self,
         in0: Operand,
         index: Operand,
@@ -17291,7 +17180,7 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.gather_dim)
+        ttir_op = self.get_opview_from_method(TTIRBuilder.gather)
 
         if output_type is None:
             mlir_output_type = self.get_type(in0)
@@ -17333,13 +17222,13 @@ class TTIRBuilder(Builder):
 
         return op_result
 
-    @parse(ttir.GatherDimOp)
-    def gather_dim_parser(
+    @parse(ttir.GatherOp)
+    def gather_parser(
         self,
-        old_op: ttir.GatherDimOp,
+        old_op: ttir.GatherOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.gather_dim_parser)
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.gather_parser)
 
         in0 = global_dict[old_op.input]
         index = global_dict[old_op.index]
@@ -17370,12 +17259,12 @@ class TTIRBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
-    @split(ttir.GatherDimOp)
-    def gather_dim_split(
+    @split(ttir.GatherOp)
+    def gather_split(
         self,
-        old_op: ttir.GatherDimOp,
+        old_op: ttir.GatherOp,
     ) -> Tuple[Module, TTIRBuilder]:
-        ttir_op = self.get_opview_from_split(TTIRBuilder.gather_dim_split)
+        ttir_op = self.get_opview_from_split(TTIRBuilder.gather_split)
 
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
@@ -17385,7 +17274,6 @@ class TTIRBuilder(Builder):
             op_input_types = [old_op.input.type, old_op.index.type]
 
             with InsertionPoint(gather_dim_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -17713,7 +17601,6 @@ class TTIRBuilder(Builder):
                 op_input_types.append(old_op.attention_sink.type)
 
             with InsertionPoint(pflmad_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 
@@ -18126,7 +18013,6 @@ class TTIRBuilder(Builder):
             num_groups_attr = old_op.num_groups
 
             with InsertionPoint(group_norm_module.body):
-
                 ordered_inputs = []
                 ordered_outputs = []
 

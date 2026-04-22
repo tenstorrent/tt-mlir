@@ -2537,6 +2537,184 @@ public:
   }
 };
 
+/// Lowers `ttir.rand` to a `d2m.generic` of `d2m.tile_rand` tiles, mapping
+/// `[low, high)` to the kernel's `[from, from + scale)` form. Non-f32 outputs
+/// are generated in f32 and then cast via a second `d2m.generic` wrapping
+/// `d2m.tile_typecast`.
+class D2MRandOpRewriter : public OpConversionPattern<ttir::RandOp>,
+                          D2MNamedRewriterCommon {
+public:
+  D2MRandOpRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                    bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::RandOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::RandOp op, ttir::RandOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    RankedTensorType finalResultType = op.getResult().getType();
+    Type finalElemType = finalResultType.getElementType();
+
+    const float low = op.getLow().convertToFloat();
+    const float high = op.getHigh().convertToFloat();
+    const float scale = high - low;
+    if (scale <= 0.0f) {
+      return rewriter.notifyMatchFailure(
+          op, "ttir.rand requires high > low for TTMetal lowering");
+    }
+
+    // `rand_tile` only produces f32 reliably; other dtypes rand in f32 and
+    // then get cast via `buildTypecastGeneric` below.
+    Type f32Ty = rewriter.getF32Type();
+    const bool needsCast = finalElemType != f32Ty;
+    RankedTensorType randResultType =
+        needsCast ? RankedTensorType::get(finalResultType.getShape(), f32Ty,
+                                          finalResultType.getEncoding())
+                  : finalResultType;
+
+    auto seedAttr = op.getSeedAttr();
+    auto fromAttr = rewriter.getF32FloatAttr(low);
+    auto scaleAttr = rewriter.getF32FloatAttr(scale);
+
+    mlir::Value randResult = buildRandGeneric(rewriter, loc, randResultType,
+                                              seedAttr, fromAttr, scaleAttr);
+
+    mlir::Value result =
+        needsCast
+            ? buildTypecastGeneric(rewriter, loc, randResult, finalResultType)
+            : randResult;
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+private:
+  /// Fills a fresh `randResultType` tensor with `d2m.tile_rand` tiles.
+  /// Returns the un-layouted logical result.
+  mlir::Value buildRandGeneric(ConversionPatternRewriter &rewriter,
+                               Location loc, RankedTensorType randResultType,
+                               mlir::IntegerAttr seedAttr,
+                               mlir::FloatAttr fromAttr,
+                               mlir::FloatAttr scaleAttr) const {
+    SmallVector<Value> origInputs;
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {randResultType});
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+    assert(outputs.size() == 1);
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    SmallVector<AffineMap> indexingMaps =
+        getIdentityAffineMapsArray(rewriter, 1, physicalRank);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    withD2MGenericRegion(
+        rewriter, loc, generic, inputs, outputs,
+        [&](mlir::ArrayRef<mlir::Value> blockArgs) -> SmallVector<Value> {
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+              iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+              loc,
+              llvm::to_vector(
+                  mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
+              /*inputs=*/ValueRange{},
+              /*outs=*/blockArgs.take_back(1), indexingMaps,
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange) {
+                auto shardTy =
+                    mlir::cast<RankedTensorType>(blockArgs.back().getType());
+                auto tType =
+                    mlir::cast<ttcore::TileType>(shardTy.getElementType());
+                mlir::Value yieldTile =
+                    bbBuilder
+                        .create<d2m::TileRandOp>(bbLoc, tType, seedAttr,
+                                                 fromAttr, scaleAttr)
+                        .getResult();
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yieldTile);
+              });
+
+          return {linalgGeneric.getResult(0)};
+        });
+
+    return unLayoutResult(rewriter, generic->getResult(0), randResultType)
+        ->getResult(0);
+  }
+
+  /// Casts `input` elementwise to `resultType` via `d2m.tile_typecast`.
+  /// Emitted inline instead of going through `ttir.typecast` so we don't
+  /// rely on the conversion driver revisiting a freshly-created op.
+  mlir::Value buildTypecastGeneric(ConversionPatternRewriter &rewriter,
+                                   Location loc, mlir::Value input,
+                                   RankedTensorType resultType) const {
+    SmallVector<Value> origInputs{input};
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {resultType});
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+    assert(inputs.size() == 1 && outputs.size() == 1);
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    SmallVector<AffineMap> indexingMaps =
+        getIdentityAffineMapsArray(rewriter, 2, physicalRank);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    withD2MGenericRegion(
+        rewriter, loc, generic, inputs, outputs,
+        [&](mlir::ArrayRef<mlir::Value> blockArgs) -> SmallVector<Value> {
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+              iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+              loc,
+              llvm::to_vector(
+                  mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
+              /*inputs=*/blockArgs.take_front(1),
+              /*outs=*/blockArgs.take_back(1), indexingMaps,
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                auto outShardTy =
+                    mlir::cast<RankedTensorType>(blockArgs.back().getType());
+                auto outTileTy =
+                    mlir::cast<ttcore::TileType>(outShardTy.getElementType());
+                mlir::Value casted = bbBuilder
+                                         .create<d2m::TileTypecastOp>(
+                                             bbLoc, outTileTy, bbArgs.front())
+                                         .getResult();
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, casted);
+              });
+
+          return {linalgGeneric.getResult(0)};
+        });
+
+    return unLayoutResult(rewriter, generic->getResult(0), resultType)
+        ->getResult(0);
+  }
+};
+
 class D2MArangeOpRewriter : public OpConversionPattern<ttir::ArangeOp>,
                             D2MNamedRewriterCommon {
 public:
@@ -3591,6 +3769,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Arange.
   patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
+    defaultOutputMemSpace, ttnnMode,
+    collapseTensors, enableMulticastInference);
+
+  // Rand.
+  patterns.add<D2MRandOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
     defaultOutputMemSpace, ttnnMode,
     collapseTensors, enableMulticastInference);
 

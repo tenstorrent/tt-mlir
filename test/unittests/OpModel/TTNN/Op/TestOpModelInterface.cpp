@@ -1951,6 +1951,92 @@ TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
 
 TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
+
+  llvm::SmallVector<int64_t> queryShape{1, batchSize, numHeads, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
+
+  llvm::SmallVector<int64_t> curPosShape{batchSize};
+  // Provide an attention mask to satisfy optional-arg handling in the
+  // interface. Use broadcastable mask shape [B, 1, nH, T].
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, numHeads, kvLen};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  auto tiledCurPosType = ttcore::TileType::get(builder.getI32Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto curPosLayout =
+      TTNNLayoutAttr::get(&context, curPosShape, tiledCurPosType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto curPos = createEmptyTensor(curPosShape, tiledCurPosType, curPosLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttentionDecode = builder.create<ScaledDotProductAttentionDecodeOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*is_causal=*/false,
+      /*attention_mask=*/attentionMask,
+      /*cur_pos_tensor=*/curPos,
+      /*attention_sink=*/nullptr,
+      /*scale=*/nullptr,
+      /*memory_config=*/nullptr,
+      /*program_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_FALSE(outputLayouts.empty());
+    EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayouts[0].hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for ScaledDotProductAttentionDecodeOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttentionDecode.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL()
+        << "Runtime test failed for ScaledDotProductAttentionDecodeOp; Error="
+        << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase,
+       ScaledDotProductAttentionDecodeOpInterfaceWithMultipleHeads) {
+  int64_t batchSize = 1;
   int64_t numHeads = 2;
   int64_t kvLen = 128;
   int64_t headSize = 32;

@@ -16,6 +16,7 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
     Marks,
+    SkipIf,
     shape_str,
     make_shard_shape,
     shard_wrap_factory,
@@ -30,10 +31,10 @@ pytestmark = pytest.mark.frontend("ttir")
 ### ----------------------------------------------------------------------- ###
 
 gridParams = [
-    "override-device-shape=1,1",
-    "override-device-shape=2,2",
-    "override-device-shape=4,4",
-    "override-device-shape=8,8",
+    "override-device-shape=1,1" | SkipIf("sim"),
+    "override-device-shape=2,2" | SkipIf("sim"),
+    "override-device-shape=4,4" | SkipIf("sim"),
+    "override-device-shape=8,8" | SkipIf("sim"),
 ]
 
 ### ----------------------------------------------------------------------- ###

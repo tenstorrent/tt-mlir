@@ -1752,6 +1752,7 @@ def sdpa_decode_golden(
         Query:  [1, batch, num_heads, head_dim]
         Key:    [batch, num_kv_heads, seq_len, head_dim]
         Value:  [batch, num_kv_heads, seq_len, head_dim]
+        Mask:   [1, batch_or_1, num_heads_or_1, seq_len]
         Output: [1, batch, num_heads, head_dim]
     """
     # Query: [1, B, H, D] -> [B, H, 1, D]
@@ -1774,9 +1775,9 @@ def sdpa_decode_golden(
     qk = torch.matmul(q, k.transpose(-2, -1))
 
     # Add attention mask (before scaling, matching tt-metal)
-    # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
+    # Mask is in decode layout [1, B, H, S], permute to [B, H, 1, S] to match qk
     if attention_mask is not None:
-        qk = torch.add(qk, attention_mask.float().transpose(1, 2))
+        qk = torch.add(qk, attention_mask.float().permute(1, 2, 0, 3))
 
     # Scale AFTER masking (tt-metal fuses scale into exp)
     if scale is not None:
@@ -4328,7 +4329,7 @@ def ttir_scatter_golden(
     return out_tensor.to(output_dtype)
 
 
-def ttir_gather_dim_golden(
+def ttir_gather_golden(
     input_tensor: GoldenMapTensor,
     index: GoldenMapTensor,
     dim: IntegerAttr,
@@ -6914,8 +6915,9 @@ def ttir_sdpa_golden(
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float())
 
-    if scale is not None:
-        qk = torch.mul(qk, scale)
+    if scale is None:
+        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+    qk = torch.mul(qk, scale)
 
     attn_weights = torch.softmax(qk, dim=-1)
     output = torch.matmul(attn_weights, value.float())
@@ -7256,7 +7258,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
-    ttir.GatherDimOp: ttir_gather_dim_golden,
+    ttir.GatherOp: ttir_gather_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
@@ -7451,7 +7453,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
-    ttnn.GatherOp: ttir_gather_dim_golden,
+    ttnn.GatherOp: ttir_gather_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----

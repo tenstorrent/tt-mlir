@@ -11,6 +11,7 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from builder.base.builder_enums import MeshShardDirection, MeshShardType
 from test_utils import (
+    SkipIf,
     shapes_list_str,
     shape_str,
     make_shard_shape,
@@ -38,7 +39,10 @@ pytestmark = pytest.mark.frontend("ttir")
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
 @pytest.mark.parametrize("dimension", [1])  # channel dimension
 @pytest.mark.parametrize("epsilon", [1e-5])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "emitc" | SkipIf("sim")],
+)
 def test_batch_norm(
     shapes: List[Shape],
     dtypes: List[torch.dtype],
@@ -91,7 +95,15 @@ def test_batch_norm(
 )
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy", "emitc"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal",
+        "emitpy" | SkipIf("sim"),
+        "emitc" | SkipIf("sim"),
+    ],
+)
 def test_rms_norm(
     shape: Shape,
     normalized_shape: List[int],
@@ -148,7 +160,10 @@ def test_rms_norm(
 @pytest.mark.parametrize("shape", [(32, 512, 1024)], ids=shape_str)
 @pytest.mark.parametrize("dimension", [0, 1, 2])
 @pytest.mark.parametrize("numeric_stable", [False, True])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "emitc" | SkipIf("sim")],
+)
 def test_softmax(
     shape: Shape, dimension: int, numeric_stable: bool, target: str, request, device
 ):
@@ -175,7 +190,10 @@ def test_softmax(
 
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_hoisted_softmax(
     shape: Shape,
     request,
@@ -215,7 +233,10 @@ def test_hoisted_softmax(
 )
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "emitc" | SkipIf("sim")],
+)
 def test_layer_norm(
     shape: Shape,
     normalized_shape: List[int],
@@ -276,7 +297,10 @@ def test_layer_norm(
 )
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_hoisted_layer_norm(
     shape: Shape,
     normalized_shape: List[int],
@@ -346,7 +370,7 @@ def test_hoisted_layer_norm(
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_distributed_rms_norm(
     shape: Shape,
     has_weight: bool,
@@ -476,7 +500,7 @@ def test_distributed_rms_norm(
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_distributed_layer_norm(
     shape: Shape,
     has_weight: bool,
@@ -619,7 +643,10 @@ def test_distributed_layer_norm(
 @pytest.mark.parametrize("shape", [(1, 8, 8, 480)])
 @pytest.mark.parametrize("has_weight", [True, False])
 @pytest.mark.parametrize("has_bias", [True, False])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "emitc" | SkipIf("sim")],
+)
 def test_group_norm(
     shape: Shape,
     num_groups: int,

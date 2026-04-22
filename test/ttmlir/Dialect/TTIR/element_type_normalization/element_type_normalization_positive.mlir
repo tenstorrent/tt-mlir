@@ -144,3 +144,12 @@ func.func @constant_bf16() -> tensor<32x32xbf16> {
   %0 = "ttir.constant"() <{value = dense<1.0> : tensor<32x32xbf16>}> : () -> tensor<32x32xbf16>
   return %0 : tensor<32x32xbf16>
 }
+
+// `ttir.rand`'s `dtype` attribute is rewritten alongside the result type.
+func.func @rand_i32() -> tensor<32x32xi32> {
+  // CHECK: "ttir.rand"
+  // CHECK-SAME: dtype = si32
+  // CHECK-SAME: -> tensor<32x32xsi32>
+  %0 = "ttir.rand"() <{dtype = i32, high = 1.000000e+02 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xi32>
+  return %0 : tensor<32x32xi32>
+}

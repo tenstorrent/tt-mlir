@@ -829,6 +829,40 @@ def D2M_TileFillOp : D2M_GenericRegionComputeOp<"tile_fill"> {
     }];
 }
 
+def D2M_TileRandOp : D2M_GenericRegionComputeOp<"tile_rand"> {
+    let summary = "D2M Rand Tile Op";
+    let description = [{
+        The `tile_rand` operation creates a tile filled with random float values
+        drawn from a uniform distribution over the range [from, from + scale).
+
+        Attributes:
+          - `seed` (UI32): Seed passed to `rand_tile_init` to initialize the PRNG.
+          - `from` (F32): Lower bound of the uniform distribution (inclusive).
+          - `scale` (F32): Width of the uniform distribution (must be > 0).
+
+        Lowers to `ttkernel.rand_tile_init(seed)` + `ttkernel.rand_tile(dst_idx,
+        from_bits, scale_bits)` where the `from`/`scale` parameters are the
+        bit-cast f32 values.
+    }];
+
+    let arguments = (ins DefaultValuedAttr<UI32Attr, "0">:$seed,
+                         DefaultValuedAttr<F32Attr, "0.0">:$from,
+                         DefaultValuedAttr<F32Attr, "1.0">:$scale);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` `)` attr-dict `:` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile).
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+    }];
+}
+
 def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
   [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
