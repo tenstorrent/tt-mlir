@@ -12,7 +12,7 @@ from .callbacks import (
 
 def bind():
     """Initialize ChiselContext and register op callbacks with DebugHooks."""
-    import _ttmlir_runtime as tt_runtime
+    from ttmlir_runtime import runtime as tt_runtime
 
     ChiselContext.get_instance()
     tt_runtime.DebugHooks.get(
@@ -23,5 +23,7 @@ def bind():
 
 def unbind():
     """Tear down ChiselContext singleton. Safe to call even if bind() was not called."""
-    tt_runtime.DebugHooks.unregister_hooks()
+    from ttmlir_runtime import runtime as tt_runtime
+
+    tt_runtime.unregister_hooks()
     ChiselContext.reset_instance()

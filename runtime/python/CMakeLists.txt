@@ -107,3 +107,69 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
       -Wno-covered-switch-default
   )
 endif()
+
+# ttmlir_runtime Python package
+include(AddMLIRPython)
+
+set(TTMLIR_RUNTIME_PY_SOURCES)
+file(GLOB_RECURSE TTMLIR_RUNTIME_PY_FILES ${CMAKE_CURRENT_SOURCE_DIR}/ttmlir_runtime/*)
+foreach(filename ${TTMLIR_RUNTIME_PY_FILES})
+  cmake_path(RELATIVE_PATH filename
+    BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE relative_filename)
+  configure_file(
+    "${filename}"
+    "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}"
+    COPYONLY)
+  list(APPEND TTMLIR_RUNTIME_PY_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}")
+endforeach()
+
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/setup.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/setup.py"
+  COPYONLY)
+
+file(MAKE_DIRECTORY "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir_runtime/runtime")
+file(MAKE_DIRECTORY "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir_runtime/binary")
+file(MAKE_DIRECTORY "${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir_runtime/utils")
+
+foreach(filename ${TTMLIR_RUNTIME_PY_FILES})
+  cmake_path(RELATIVE_PATH filename
+    BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE relative_filename)
+  configure_file(
+    "${filename}"
+    "${TTMLIR_PYTHON_PACKAGES_DIR}/${relative_filename}"
+    COPYONLY)
+endforeach()
+
+add_custom_command(
+  COMMAND rm -rf build
+  COMMAND TTMLIR_ENABLE_RUNTIME=${TTMLIR_ENABLE_RUNTIME}
+          TT_RUNTIME_ENABLE_TTNN=${TT_RUNTIME_ENABLE_TTNN}
+          TT_RUNTIME_ENABLE_TTMETAL=${TT_RUNTIME_ENABLE_TTMETAL}
+          TTMLIR_ENABLE_RUNTIME_TESTS=${TTMLIR_ENABLE_RUNTIME_TESTS}
+          TT_RUNTIME_ENABLE_PERF_TRACE=${TT_RUNTIME_ENABLE_PERF_TRACE}
+          TT_RUNTIME_DEBUG=${TT_RUNTIME_DEBUG}
+          TT_METAL_RUNTIME_ROOT=${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal
+          TTMLIR_BINARY_DIR=${TTMLIR_BINARY_DIR}
+          TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
+          TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
+          TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
+          CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
+          SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
+          python -m pip wheel . --wheel-dir build --no-deps
+  COMMAND PYTHONPATH=${TTMLIR_PYTHON_PACKAGES_DIR}
+          python -m nanobind.stubgen
+            -m ttmlir_runtime.runtime._ttmlir_runtime
+            -o ${TTMLIR_PYTHON_PACKAGES_DIR}/ttmlir_runtime/runtime/
+  COMMAND python -m pip install build/ttmlir_runtime-*.whl --force-reinstall --no-deps
+  COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  DEPENDS ${TTMLIR_RUNTIME_PY_SOURCES} ${TTMLIR_RUNTIME_PY_FILES} _ttmlir_runtime TTMLIRRuntime
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
+)
+
+add_custom_target(ttmlir_runtime_py ALL
+  COMMENT "python ttmlir_runtime package"
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)

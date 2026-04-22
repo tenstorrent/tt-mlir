@@ -363,7 +363,7 @@ class DeferredDevice:
         the mock device without conflict."""
         # Expected to be used through pytest
         from conftest import _current_device, clear_device_cache
-        import _ttmlir_runtime as tt_runtime
+        import ttmlir_runtime as tt_runtime
 
         if _current_device is not None:
             tt_runtime.runtime.close_mesh_device(_current_device)
@@ -378,7 +378,7 @@ class DeferredDevice:
     def close(self, device):
         """Close the device and clear the fixture cache so the next test
         can compile with a mock device."""
-        import _ttmlir_runtime as tt_runtime
+        import ttmlir_runtime as tt_runtime
 
         tt_runtime.runtime.close_mesh_device(device)
         tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)

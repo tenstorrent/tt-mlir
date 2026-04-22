@@ -30,7 +30,7 @@ sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
 # warnings caused by CPython module teardown order.
 import ttnn
 import utils
-import _ttmlir_runtime as tt_runtime
+import ttmlir_runtime as tt_runtime
 import torch
 from test_utils import SystemDesc
 

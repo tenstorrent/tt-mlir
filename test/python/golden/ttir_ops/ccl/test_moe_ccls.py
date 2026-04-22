@@ -7,7 +7,7 @@ import torch
 from collections import OrderedDict
 from typing import List, Optional, Tuple
 
-import _ttmlir_runtime as tt_runtime
+import ttmlir_runtime as tt_runtime
 from builder.base.builder_utils import Operand, Shape
 from builder.base.builder_enums import MeshShardDirection, MeshShardType
 from builder.ttir.ttir_builder import TTIRBuilder

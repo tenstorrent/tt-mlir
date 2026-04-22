@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-import _ttmlir_runtime as tt_runtime
+import ttmlir_runtime as tt_runtime
 from builder.base.builder_apis import (
     load_mlir_file,
     compile_ttir_module_to_flatbuffer,

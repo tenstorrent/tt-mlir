@@ -133,7 +133,7 @@ def chisel_pre_op_callback(binary, program_context, op_context):
     2. Copy device input tensors to host
     3. Stash inputs in ctx._stashed_inputs for postOp
     """
-    from ttrt import runtime as tt_runtime
+    from ttmlir_runtime import runtime as tt_runtime
 
     ctx = ChiselContext.get_instance()
     ctx.ensure_ir_module(binary, program_context)
@@ -159,7 +159,7 @@ def chisel_post_op_callback(binary, program_context, op_context):
     3. Run golden execution and call check_op_output (shape, dtype, PCC, ATOL, RTOL)
     4. Skip validation if no golden implementation exists for the op
     """
-    from ttrt import runtime as tt_runtime
+    from ttmlir_runtime import runtime as tt_runtime
 
     ctx = ChiselContext.get_instance()
     op_name = ctx._current_op.name

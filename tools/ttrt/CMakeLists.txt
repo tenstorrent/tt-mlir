@@ -35,7 +35,7 @@ add_custom_command(
   COMMAND python -m pip install build/ttrt-*.whl --force-reinstall --no-deps
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS ${TTRT_SOURCES} ${TTRT_FILES} TTMLIRRuntime TTRuntimeTTNNTypes TTRuntimeTTNNUtils _ttmlir_runtime
+  DEPENDS ${TTRT_SOURCES} ${TTRT_FILES} ttmlir_runtime_py
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
 )
 
