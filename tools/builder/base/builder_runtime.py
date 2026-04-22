@@ -523,15 +523,17 @@ def golden(callback_runtime_config, binary, program_context, op_context):
 
             # Bypass the runtime tensor by replacing it with the intermediate golden tensor if the op is in the bypass list
             if loc in callback_runtime_config.bypass_ops:
-                output_tensor_ref = tt_runtime.runtime.get_op_output_ref(
+                output_tensor_refs = tt_runtime.runtime.get_op_output_refs(
                     op_context, program_context
                 )
-                tensor = tt_runtime.runtime.retrieve_tensor_from_pool(
-                    program_context, output_tensor_ref
-                )
-                update_device_tensor(
-                    program_context, output_tensor_ref, tensor, golden_tensor_torch
-                )
+                if output_tensor_refs:
+                    output_tensor_ref = output_tensor_refs[0]
+                    tensor = tt_runtime.runtime.retrieve_tensor_from_pool(
+                        program_context, output_tensor_ref
+                    )
+                    update_device_tensor(
+                        program_context, output_tensor_ref, tensor, golden_tensor_torch
+                    )
                 results["bypassed"] = "True"
 
             device_results[device_id] = results

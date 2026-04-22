@@ -961,11 +961,11 @@ std::unordered_map<std::uint32_t, Tensor>
 getOpOutputTensor(OpContext opContextHandle,
                   CallbackContext programContextHandle) {
   std::unordered_map<std::uint32_t, Tensor> perDeviceOutputTensors;
-  std::optional<tt::runtime::TensorRef> tensorRef =
-      getOpOutputRef(opContextHandle, programContextHandle);
-  if (!tensorRef) {
+  std::vector<tt::runtime::TensorRef> refs = getOpOutputRefs(opContextHandle, programContextHandle);
+  if (refs.empty()) {
     return perDeviceOutputTensors;
   }
+  tt::runtime::TensorRef tensorRef = refs[0];
 
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
@@ -973,7 +973,7 @@ getOpOutputTensor(OpContext opContextHandle,
   const ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
 
   const auto *tensorRefPtr =
-      &tensorRef->as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
 
   if (!tensorRefPtr) {
     LOG_WARNING("Tensor ref pointer is null when retrieving tensor");
@@ -1001,8 +1001,8 @@ getOpOutputTensor(OpContext opContextHandle,
   return perDeviceOutputTensors;
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
+std::vector<tt::runtime::TensorRef>
+getOpOutputRefs(OpContext opContextHandle,
                CallbackContext programContextHandle) {
   const auto &opContext =
       opContextHandle.as<::tt::target::ttnn::Operation>(DeviceRuntime::TTNN);
@@ -1374,7 +1374,7 @@ getOpOutputRef(OpContext opContextHandle,
     LOG_WARNING("getting output tensor is not supported for ",
                 ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
                     opContext.type_type())]);
-    return std::nullopt;
+    return {};
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
     auto size = opContext.type_as_GenericOp()->io_tensors()->size();
@@ -1414,10 +1414,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
 
   if (!tensorRef.has_value()) {
-    return std::nullopt;
+    return {};
   }
 
-  return utils::createRuntimeTensorRefFromTTNN(tensorRef.value());
+  return {utils::createRuntimeTensorRefFromTTNN(tensorRef.value())};
 }
 
 std::vector<tt::runtime::TensorRef>
@@ -2119,6 +2119,37 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   }
 
   return hostTensors[0];
+}
+
+std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {
+  const auto &ref =
+      tensorRef.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  const auto *shape = ref.desc()->shape();
+  return std::vector<uint32_t>(shape->begin(), shape->end());
+}
+
+::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef tensorRef) {
+  const auto &ref =
+      tensorRef.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  return ref.desc()->layout()->memory_desc()->data_type();
+}
+
+void walkBinary(tt::runtime::Binary executableHandle, uint32_t programIndex,
+                const OpWalkFn &cb) {
+  const auto *fbb = ::tt::target::ttnn::GetSizePrefixedTTNNBinary(
+      executableHandle.handle.get());
+  const auto *program = fbb->programs()->Get(programIndex);
+
+  struct WalkContext {};
+  WalkContext stub;
+  auto stubHandle = ::tt::runtime::utils::unsafeBorrowShared(&stub);
+
+  for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
+    auto opHandle = ::tt::runtime::utils::unsafeBorrowShared(
+        const_cast<::tt::target::ttnn::Operation *>(op));
+    cb(executableHandle, CallbackContext(stubHandle, DeviceRuntime::TTNN),
+       OpContext(opHandle, DeviceRuntime::TTNN));
+  }
 }
 
 void updateTensorInPool(CallbackContext programContextHandle,
