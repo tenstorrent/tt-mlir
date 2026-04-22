@@ -52,3 +52,36 @@ func.func @test_bitwise_xor_i32(%lhs: !ttype_i32, %rhs: !ttype_i32) -> (!ttype_i
   %0 = "ttir.bitwise_xor"(%lhs, %rhs) : (!ttype_i32, !ttype_i32) -> !ttype_i32
   return %0 : !ttype_i32
 }
+
+// -----
+
+!ttype_i32 = tensor<32x32xsi32>
+// CHECK-LABEL: func.func @test_logical_left_shift_i32
+func.func @test_logical_left_shift_i32(%lhs: !ttype_i32, %rhs: !ttype_i32) -> (!ttype_i32) {
+  // CHECK: ttkernel.binary_shift_tile_init() : () -> ()
+  // CHECK: ttkernel.binary_left_shift_tile(%{{.*}}, %{{.*}}, %{{.*}}, <si32>)
+  %0 = "ttir.logical_left_shift"(%lhs, %rhs) : (!ttype_i32, !ttype_i32) -> !ttype_i32
+  return %0 : !ttype_i32
+}
+
+// -----
+
+!ttype_i32 = tensor<32x32xsi32>
+// CHECK-LABEL: func.func @test_logical_right_shift_i32
+func.func @test_logical_right_shift_i32(%lhs: !ttype_i32, %rhs: !ttype_i32) -> (!ttype_i32) {
+  // CHECK: ttkernel.binary_shift_tile_init() : () -> ()
+  // CHECK: ttkernel.binary_logical_right_shift_tile(%{{.*}}, %{{.*}}, %{{.*}}, <si32>)
+  %0 = "ttir.logical_right_shift"(%lhs, %rhs) : (!ttype_i32, !ttype_i32) -> !ttype_i32
+  return %0 : !ttype_i32
+}
+
+// -----
+
+!ttype_i32 = tensor<32x32xsi32>
+// CHECK-LABEL: func.func @test_right_shift_i32
+func.func @test_right_shift_i32(%lhs: !ttype_i32, %rhs: !ttype_i32) -> (!ttype_i32) {
+  // CHECK: ttkernel.binary_shift_tile_init() : () -> ()
+  // CHECK: ttkernel.binary_right_shift_tile(%{{.*}}, %{{.*}}, %{{.*}}, <si32>)
+  %0 = "ttir.right_shift"(%lhs, %rhs) : (!ttype_i32, !ttype_i32) -> !ttype_i32
+  return %0 : !ttype_i32
+}

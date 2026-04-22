@@ -577,6 +577,45 @@ def D2M_TileBitwiseXorOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileLogicalLeftShiftOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_logical_left_shift", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Logical Left Shift Op";
+    let description = [{
+        The `tile_logical_left_shift` operation computes an elementwise logical
+        left shift of `lhs` by `rhs` bits between two integer tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileLogicalRightShiftOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_logical_right_shift", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Logical Right Shift Op";
+    let description = [{
+        The `tile_logical_right_shift` operation computes an elementwise logical
+        right shift of `lhs` by `rhs` bits between two integer tiles. Unlike an
+        arithmetic right shift, the sign bit is not propagated; the high-order
+        bits are filled with zeros.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileRightShiftOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_right_shift", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Arithmetic Right Shift Op";
+    let description = [{
+        The `tile_right_shift` operation computes an elementwise arithmetic
+        right shift of `lhs` by `rhs` bits between two integer tiles. The
+        sign bit is propagated for signed integer element types.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{
