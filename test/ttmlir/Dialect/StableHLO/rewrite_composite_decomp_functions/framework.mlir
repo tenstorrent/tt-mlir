@@ -27,15 +27,15 @@ module @UnregisteredCompositeIsUntouched {
 // decomposition function is rewritten; the other is left alone.
 module @MixedRegisteredAndUnregistered {
   func.func @main(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> (tensor<2x3xf32>, tensor<5x3xf32>) {
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_mixed} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_mixed} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
     %1 = stablehlo.composite "tt.unused" %arg0 {decomposition = @tt.unused.impl} : (tensor<5x3xf32>) -> tensor<5x3xf32>
     return %0, %1 : tensor<2x3xf32>, tensor<5x3xf32>
   }
   // The gather decomposition is rewritten.
-  // CHECK-LABEL: func.func private @tenstorrent.gather.impl_mixed
+  // CHECK-LABEL: func.func private @tenstorrent.gather_dim.impl_mixed
   // CHECK:       stablehlo.reshape
   // CHECK:       "stablehlo.gather"
-  func.func private @tenstorrent.gather.impl_mixed(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_mixed(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
@@ -56,17 +56,17 @@ module @MixedRegisteredAndUnregistered {
 // once and must not error out.
 module @SharedDecompSameAttrs {
   func.func @main(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> (tensor<2x3xf32>, tensor<2x3xf32>) {
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_shared} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
-    %1 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_shared} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_shared} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    %1 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_shared} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
     return %0, %1 : tensor<2x3xf32>, tensor<2x3xf32>
   }
   // The shared decomposition function should contain exactly one reshape
   // and one gather — not two of each from duplicate rewrites.
-  // CHECK-LABEL: func.func private @tenstorrent.gather.impl_shared
+  // CHECK-LABEL: func.func private @tenstorrent.gather_dim.impl_shared
   // CHECK-COUNT-1: stablehlo.reshape
   // CHECK-COUNT-1: stablehlo.gather
   // CHECK:         return
-  func.func private @tenstorrent.gather.impl_shared(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_shared(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
@@ -79,19 +79,19 @@ module @SharedDecompSameAttrs {
 // composite, not just the first one.
 module @TwoDistinctDecomps {
   func.func @main(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> (tensor<2x3xf32>, tensor<2x3xf32>) {
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_a} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
-    %1 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_b} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    %0 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_a} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    %1 = stablehlo.composite "tenstorrent.gather_dim" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather_dim.impl_b} : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
     return %0, %1 : tensor<2x3xf32>, tensor<2x3xf32>
   }
-  // CHECK-LABEL: func.func private @tenstorrent.gather.impl_a
+  // CHECK-LABEL: func.func private @tenstorrent.gather_dim.impl_a
   // CHECK:       "stablehlo.gather"
-  func.func private @tenstorrent.gather.impl_a(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_a(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
-  // CHECK-LABEL: func.func private @tenstorrent.gather.impl_b
+  // CHECK-LABEL: func.func private @tenstorrent.gather_dim.impl_b
   // CHECK:       "stablehlo.gather"
-  func.func private @tenstorrent.gather.impl_b(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+  func.func private @tenstorrent.gather_dim.impl_b(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }

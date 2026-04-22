@@ -59,7 +59,7 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(createDecomposeCustomCallTuplesPass());
 
   // Rewrite bodies of decomposition functions referenced by targeted
-  // tenstorrent.* composite ops (currently "tenstorrent.gather"). Must run
+  // tenstorrent.* composite ops (currently "tenstorrent.gather_dim"). Must run
   // before FlattenOrConvertCompositesPass so the updated body is what gets
   // inlined at composite call sites.
   pm.addPass(createRewriteCompositeDecompFunctionsPass());
