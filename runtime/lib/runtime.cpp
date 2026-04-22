@@ -1193,6 +1193,23 @@ void updateTensorInPool(CallbackContext programContextHandle,
       });
 }
 
+size_t getProgramIndex(CallbackContext programContextHandle) {
+  using RetType = size_t;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getProgramIndex(programContextHandle);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getProgramIndex",
+          DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getProgramIndex",
+                                    HostRuntime::Distributed);
+      });
+}
+
 void setFabricConfig(tt::runtime::FabricConfig config) {
   using RetType = void;
   return DISPATCH_TO_CURRENT_RUNTIME(

@@ -599,6 +599,25 @@ void registerRuntimeBindings(nb::module_ &m) {
     -------
     None
     )");
+
+  m.def(
+      "get_program_index",
+      [](tt::runtime::CallbackContext program_context_handle) {
+        return tt::runtime::getProgramIndex(program_context_handle);
+      },
+      nb::arg("program_context_handle"),
+      R"(
+    Returns the program index from a callback context.
+
+    Parameters
+    ----------
+    program_context_handle : ttrt.runtime.CallbackContext
+
+    Returns
+    -------
+    int
+    )");
+
   m.def("get_op_debug_str", &tt::runtime::getOpDebugString,
         "Get the debug string of the op");
   m.def("get_op_loc_info", &tt::runtime::getOpLocInfo,

@@ -55,6 +55,7 @@ try:
         get_num_shards,
         to_layout,
         get_layout,
+        get_program_index,
         get_op_output_tensor,
         get_op_output_refs,
         get_op_input_refs,
