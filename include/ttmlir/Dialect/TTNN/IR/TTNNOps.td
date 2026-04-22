@@ -4022,13 +4022,13 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
     Inputs:
       - `input_values`: Pre-filtered candidate logit values [batch, candidates] bf16, TILE layout
       - `input_indices`: Global vocab indices for each candidate [batch, candidates] int32, ROW_MAJOR
-      - `k`: Per-request top-k values [32] uint32, ROW_MAJOR
-      - `p`: Per-request top-p values [32] bf16, ROW_MAJOR
-      - `temp`: Per-request temperature values [32] bf16, ROW_MAJOR
+      - `k`: Per-request top-k values [batch] uint32, ROW_MAJOR
+      - `p`: Per-request top-p values [batch] bf16, ROW_MAJOR
+      - `temp`: Per-request temperature values [batch] bf16, ROW_MAJOR
       - `seed`: Optional random seed (uint32 scalar attribute)
 
     Output:
-      - `result`: Sampled global token indices [1, 1, 1, batch] uint32, ROW_MAJOR
+      - `result`: Sampled global token indices [batch] int32, ROW_MAJOR
   }];
 
   let arguments = (ins AnyRankedTensor:$input_values,

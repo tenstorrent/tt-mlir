@@ -3850,18 +3850,42 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 ::mlir::LogicalResult SamplingOp::verify() {
   auto inputValuesType = getInputValues().getType();
   auto inputIndicesType = getInputIndices().getType();
+  auto kType = getK().getType();
+  auto pType = getP().getType();
+  auto tempType = getTemp().getType();
+  auto resultType = getResult().getType();
 
-  if (inputValuesType.getRank() < 2) {
-    return emitOpError("input_values must have at least 2 dimensions");
+  if (inputValuesType.getRank() != 2) {
+    return emitOpError("input_values must be 2D [batch, candidates]");
   }
-
-  if (inputIndicesType.getRank() < 2) {
-    return emitOpError("input_indices must have at least 2 dimensions");
+  if (inputIndicesType.getRank() != 2) {
+    return emitOpError("input_indices must be 2D [batch, candidates]");
   }
-
   if (inputValuesType.getShape() != inputIndicesType.getShape()) {
     return emitOpError(
         "input_values and input_indices must have the same shape");
+  }
+
+  int64_t batch = inputValuesType.getShape()[0];
+
+  // k, p, temp must be 1D with the same batch dimension.
+  for (auto [tensor, name] :
+       llvm::zip(std::array<mlir::RankedTensorType, 3>{kType, pType, tempType},
+                 std::array<llvm::StringRef, 3>{"k", "p", "temp"})) {
+    if (tensor.getRank() != 1) {
+      return emitOpError() << name << " must be 1D [batch]";
+    }
+    if (tensor.getShape()[0] != batch) {
+      return emitOpError() << name << " batch dimension ("
+                           << tensor.getShape()[0]
+                           << ") must match input_values batch (" << batch
+                           << ")";
+    }
+  }
+
+  // Result must be 1D [batch].
+  if (resultType.getRank() != 1 || resultType.getShape()[0] != batch) {
+    return emitOpError("result must be 1D [batch]");
   }
 
   return success();
