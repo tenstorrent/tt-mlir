@@ -7592,7 +7592,6 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
         return llvm::APInt(x.getBitWidth(), x.isZero() ? 1 : 0,
                            /*isSigned=*/false);
       });
-  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -7603,7 +7602,7 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   return constantFoldEltwiseUnaryConditional(
       *this, adaptor,
       [](const llvm::APFloat &x) -> std::optional<llvm::APFloat> {
-        llvm::APFloat result = llvm::APFloat(1.0f) / x;
+        llvm::APFloat result = llvm::APFloat::getOne(x.getSemantics()) / x;
         if (result.isFinite()) {
           return result;
         }
