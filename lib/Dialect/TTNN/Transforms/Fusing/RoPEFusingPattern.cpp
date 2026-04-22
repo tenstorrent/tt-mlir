@@ -318,9 +318,10 @@ private:
 // ---------------------------------------------------------------------------
 
 // Skip transparent TM ops (typecast, permute) to reach the semantic source.
+template <typename... AllowedOps>
 Value skipTMs(Value v) {
   while (Operation *defOp = v.getDefiningOp()) {
-    if (isa<TypecastOp, PermuteOp>(defOp)) {
+    if (isa<AllowedOps...>(defOp)) {
       v = defOp->getOperand(0);
     } else {
       break;
@@ -329,6 +330,8 @@ Value skipTMs(Value v) {
 
   return v;
 }
+
+Value skipTMs(Value v) { return skipTMs<TypecastOp, PermuteOp>(v); }
 
 // Collect a value and all predecessors reachable through TM ops.
 // Includes RepeatOp so that pre-broadcast values (with size-1 dims) are
@@ -518,6 +521,22 @@ bool isFirstHalfSlice(SliceStaticOp slice) {
     return false;
   }
   return opt->begins[*dimOpt] == 0;
+}
+
+bool isPackedCosSinPair(Value a, Value b) {
+  a = skipTMs<TypecastOp, PermuteOp, ReshapeOp>(a);
+  b = skipTMs<TypecastOp, PermuteOp, ReshapeOp>(b);
+  auto aSlice = a.getDefiningOp<SliceStaticOp>();
+  auto bSlice = b.getDefiningOp<SliceStaticOp>();
+  if (!aSlice || !bSlice) {
+    return false;
+  }
+  Value commonSource = findCommonTMAncestor(skipTMs(aSlice.getInput()),
+                                            skipTMs(bSlice.getInput()));
+  if (!commonSource) {
+    return false;
+  }
+  return areComplementaryHalfSlices(aSlice, bSlice).has_value();
 }
 
 // ---------------------------------------------------------------------------
@@ -766,6 +785,11 @@ bool matchExpandedRope(ExpandedRoPEComponents &c) {
   // sub.lhs embedding = cos_h, sub.rhs embedding = sin_h.
   Value cosValue = subLhs->second;
   Value sinValue = subRhs->second;
+
+  // if cosValue and sinValue are a packed cos/sin pair, return false
+  if (isPackedCosSinPair(cosValue, sinValue)) {
+    return false;
+  }
 
   // Cross-validate with the add branch: one add multiply should pair
   // second_half with cos_h, the other should pair first_half with sin_h.
