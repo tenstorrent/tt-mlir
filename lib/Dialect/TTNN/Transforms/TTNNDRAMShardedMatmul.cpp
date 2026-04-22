@@ -70,16 +70,20 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   p.in0ShardW = K / numCores;
   p.weightDataType = weightDataType;
 
-  // Choose in0BlockW to fit in L1.  The budget model matches the CB
-  // allocations in tt-metal's DRAM-sharded matmul program factory
-  // (matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp):
+  // Choose in0BlockW to fit in L1.  All CBs are created on every core in the
+  // bounding box (all_cores_in_rect_grid) by the factory.
   //
-  //   in0 CB : in0BlockW * perCoreM * bf16Tile  (2x when numBlocks > 1)
-  //   in1 CB : in0BlockW * perCoreNSender * bfp8Tile  (3x when numBlocks > 1)
-  //   out CB : perCoreM * perCoreN * bf16Tile   (1x, no double-buffer)
-  //   interm0: perCoreM * perCoreN * fp32Tile   (fp32 dest accumulator)
-  //   in2 CB : perCoreM * kPerCore * bf16Tile   (full in0 shard)
-  //   out_reshard: perCoreM * perCoreN * bf16Tile
+  // CB                New L1?  Size
+  // in0 (c_0)         yes      in0BlockW * perCoreM * bf16Tile  (2x double-buf)
+  // in1 (c_1)         yes      in0BlockW * shardWTiles * weightTile  (3x)
+  // out (c_4)         yes      perCoreM * shardWTiles * bf16Tile
+  // interm0 (c_5)     yes      perCoreM * shardWTiles * fp32Tile
+  // in2 (c_2)         NO       globally allocated to in0 tensor buffer
+  // out_reshard (c_6) NO       globally allocated to out tensor buffer
+  //
+  // in2 and out_reshard use set_globally_allocated_address() (factory lines
+  // 519, 589) — they map onto pre-existing tensor buffers and consume no
+  // additional L1.  Exclude them from this budget estimate.
   //
   // L1 available after base reservation: 1,499,136 - 103,712 = 1,395,424.
   // We subtract an additional ~10% for kernel binary sizes on compute cores
@@ -94,15 +98,14 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
       (weightDataType == ttcore::DataType::BFP_BFloat4) ? kBfp4Tile : kBfp8Tile;
 
   int64_t kPerCore = p.kTiles / numCores;
-  // per_core_N_in1_sender = ceil(N_tiles / numBanks), same as shardWTiles.
-  int64_t perCoreNSender = p.shardWTiles;
+  // per_core_N on compute cores = ceil(N_tiles / numBanks) = shardWTiles.
+  int64_t perCoreNCompute = p.shardWTiles;
 
-  // Fixed CBs (independent of in0BlockW):
-  int64_t outCB = p.perCoreM * p.perCoreN * kBf16Tile;
-  int64_t interm0CB = p.perCoreM * p.perCoreN * kFp32Tile;
-  int64_t in2CB = p.perCoreM * kPerCore * kBf16Tile;
-  int64_t outReshardCB = p.perCoreM * p.perCoreN * kBf16Tile;
-  int64_t fixedCost = outCB + interm0CB + in2CB + outReshardCB;
+  // Fixed CBs (independent of in0BlockW, no double/triple buffering).
+  // Excludes in2 and out_reshard — both are globally allocated.
+  int64_t outCB = p.perCoreM * perCoreNCompute * kBf16Tile;
+  int64_t interm0CB = p.perCoreM * perCoreNCompute * kFp32Tile;
+  int64_t fixedCost = outCB + interm0CB;
 
   // If the fixed CBs alone don't fit (e.g. per_core_n too large on matmuls
   // with very wide outputs like LM head), the matmul cannot be DRAM sharded
@@ -119,7 +122,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
 
     int64_t in0CB = p.in0BlockW * p.perCoreM * kBf16Tile * (doubleBuf ? 2 : 1);
     int64_t in1CB =
-        p.in0BlockW * perCoreNSender * kWeightTile * (doubleBuf ? 3 : 1);
+        p.in0BlockW * perCoreNCompute * kWeightTile * (doubleBuf ? 3 : 1);
 
     if (fixedCost + in0CB + in1CB <= kL1Available &&
         kPerCore % p.in0BlockW == 0) {
