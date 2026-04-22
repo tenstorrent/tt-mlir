@@ -5,15 +5,40 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Support/Logger.h"
-#include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn {
 
 OutputHints Conv2dRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
   // Conv2d configs carry Conv2dConfig tied to output hint.
-  return OutputHints{legalConfigs, {}, /*attemptL1Sharding=*/true};
+  // Embed the output shard layout into the conv2d config so that the tt-metal
+  // runtime respects it when choosing a kernel variant. Only propagate for
+  // sharded outputs; shard_layout is not applicable (and rejected by the
+  // backend) for interleaved DRAM/L1 outputs.
+  std::vector<OpConfig> configs = legalConfigs;
+  for (auto &config : configs) {
+    assert(config.outputLayout &&
+           "Conv2d legal config must have output layout");
+    auto ml = config.outputLayout.getMemLayout();
+    assert(ml &&
+           "Conv2d legal config must have memory layout in output layout");
+    if (!isShardedMemoryLayout(ml.getValue())) {
+      continue;
+    }
+
+    auto *attrs = std::get_if<Conv2dAttrs>(&config.opSpecificAttrs);
+    assert(attrs && "Conv2d legal config must have Conv2dAttrs");
+    assert(attrs->conv2dConfig.has_value() &&
+           "Conv2d legal config must have conv2d config");
+
+    Conv2dConfigParams params(attrs->conv2dConfig.value());
+    params.shardLayout = ml.getValue();
+    attrs->conv2dConfig =
+        params.buildConv2dConfigAttr(config.outputLayout.getContext());
+  }
+  return OutputHints{configs, {}};
 }
 
 void Conv2dRuleBook::applyOpSpecificAttrs(
@@ -60,7 +85,7 @@ static uint32_t getActBlockHOverride(const BeamCandidate &c) {
   return UINT32_MAX;
 }
 
-bool Conv2dRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
+bool Conv2dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
                                      const BeamCandidate &b) const {
   // Prefer act_block_h_override=0 (auto, best), then higher over lower.
   // Ordering: 0 > 64 > 32 > ...
@@ -75,7 +100,30 @@ bool Conv2dRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
     }
     return abhA > abhB;
   }
-  return false;
+  return OpRuleBook::preferCandidate(op, a, b);
+}
+
+bool Conv2dRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty() || !hint.outputLayout) {
+    return true;
+  }
+
+  auto inputML = inputLayouts[0].getMemLayout();
+  auto outputML = hint.outputLayout.getMemLayout();
+  if (!inputML || !outputML) {
+    return true;
+  }
+
+  // If both input and output are sharded, require matching sharding type.
+  // Mixing sharding types (e.g. HS input -> BS output) forces costly reshards
+  // and can cascade into DRAM fallbacks at downstream concat ops.
+  if (isShardedMemoryLayout(inputML.getValue()) &&
+      isShardedMemoryLayout(outputML.getValue())) {
+    return inputML.getValue() == outputML.getValue();
+  }
+
+  return true;
 }
 
 void applyConvSliceConfig(ModuleOp moduleOp) {

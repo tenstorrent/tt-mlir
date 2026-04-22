@@ -21,6 +21,7 @@ module {
 // CHECK: module {
 // CHECK:   emitpy.import import "ttnn"
 // CHECK:   emitpy.import import "utils"
+// CHECK:   emitpy.import import "ttir_cpu"
 // CHECK-NOT: emitpy.file
 // CHECK:   func.func @cpu_hoisted_const_eval_{{.*}}
 // CHECK:   func.func private @forward_const_eval_0(

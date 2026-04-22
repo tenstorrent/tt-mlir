@@ -6,10 +6,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
@@ -399,14 +401,52 @@ private:
   mlir::Value createToMemoryConfigOpIfNeeded(ttnn::ToLayoutOp op,
                                              IRRewriter &rewriter,
                                              mlir::Value currentInput,
-                                             const OpCreationInfo &info) const {
-    if (!info.opsToCreate.createToMemoryConfigOp) {
+                                             const OpCreationInfo &info,
+                                             bool forceCreate = false) const {
+    if (!info.opsToCreate.createToMemoryConfigOp && !forceCreate) {
       return currentInput;
     }
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        info.output.createMemoryConfigAttr(op.getContext());
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
+    TTNNLayoutAttr currentLayout =
+        utils::getLayoutAttrFromTensor(currentInputType);
+
+    // Skip if the current input is already interleaved in the target buffer
+    // type. This can happen when a forced createToDeviceOp already placed
+    // the tensor in the correct memory config — the precomputed
+    // createToMemoryConfigOp flag doesn't account for intermediate ops.
+    // For interleaved tensors the only remaining difference would be the
+    // physical encoding shape (memref), which has no runtime effect.
+    // We only skip for interleaved because sharded tensors may need a
+    // reshard (different shard grid) even with matching buffer type and
+    // memory layout.
+    if (currentLayout.getBufferType() == info.output.bufferType &&
+        currentLayout.getMemLayout() == info.output.tensorMemoryLayout &&
+        currentLayout.getMemLayout().getValue() ==
+            TensorMemoryLayout::Interleaved) {
+      return currentInput;
+    }
+
+    ttcore::DataType dataType = currentLayout.getDataType();
+
+    // ttnn.copy (used internally by to_memory_config) does not support uint16.
+    // Cast to uint32 first, perform the memory config change, then cast back.
+    // Metal issue reference:
+    // https://github.com/tenstorrent/tt-metal/issues/41689
+    bool needsWorkaround = dataType == ttcore::DataType::UInt16;
+    if (needsWorkaround) {
+      ttcore::DataType workaroundDtype = ttcore::DataType::UInt32;
+      ttcore::DataTypeAttr workaroundDtypeAttr =
+          ttcore::DataTypeAttr::get(op.getContext(), workaroundDtype);
+      RankedTensorType workaroundType = utils::RankedTensorTypeFactory::create(
+          currentInputType, workaroundDtype);
+      currentInput = this->createOp<ttnn::TypecastOp>(
+          rewriter, op, workaroundType, currentInput, workaroundDtypeAttr);
+      currentInputType = mlir::cast<RankedTensorType>(currentInput.getType());
+    }
+
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        info.output.createMemoryConfigAttr(op.getContext());
     TTNNLayoutAttr newLayout =
         utils::getLayoutAttrFromTensor(currentInputType)
             .withBufferType(info.output.bufferType)
@@ -415,8 +455,147 @@ private:
             .withShardShape(info.output.shardShape);
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
-    return this->createOp<ttnn::ToMemoryConfigOp>(
+    mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(
         rewriter, op, newResultType, currentInput, memoryConfigAttr);
+
+    if (needsWorkaround) {
+      ttcore::DataTypeAttr origDtypeAttr =
+          ttcore::DataTypeAttr::get(op.getContext(), dataType);
+      RankedTensorType origType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(result.getType()), dataType);
+      result = this->createOp<ttnn::TypecastOp>(rewriter, op, origType, result,
+                                                origDtypeAttr);
+    }
+
+    return result;
+  }
+
+  // Workaround for tt-metal#30541: ttnn.tilize does not support
+  // HEIGHT_SHARDED L1 tensors with non-tile-aligned shard shapes.
+  // Check whether the tilize pad workaround is needed.
+  bool needsShardedTilizePadWorkaround(ttnn::ToLayoutOp op,
+                                       const OpCreationInfo &info) const {
+    if (!info.input.isL1Sharded()) {
+      return false;
+    }
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto encoding = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+    if (!encoding) {
+      return false;
+    }
+    auto memLayout = encoding.getMemLayout();
+    if (!memLayout ||
+        memLayout.getValue() != TensorMemoryLayout::HeightSharded) {
+      return false;
+    }
+    ArrayRef<int64_t> shape = inputType.getShape();
+    int64_t rank = inputType.getRank();
+    if (rank < 2) {
+      return false;
+    }
+    return (shape[rank - 2] % TILE_HEIGHT != 0) ||
+           (shape[rank - 1] % TILE_WIDTH != 0);
+  }
+
+  // Workaround for tt-metal#30541: unshard → pad → tilize → slice.
+  // Returns a DRAM INTERLEAVED, tilized, original-shape tensor.
+  // The caller is responsible for typecast and final memory config (reshard).
+  mlir::Value handleShardedTilizeWithPadding(ttnn::ToLayoutOp op,
+                                             IRRewriter &rewriter,
+                                             mlir::Value currentInput,
+                                             const OpCreationInfo &info) const {
+    auto inputType = mlir::cast<RankedTensorType>(currentInput.getType());
+    TTNNLayoutAttr inputEncoding =
+        mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
+    ArrayRef<int64_t> shape = inputType.getShape();
+    int64_t rank = inputType.getRank();
+    ttcore::DataType dataType = inputEncoding.getDataType();
+
+    // Step 1: Unshard to DRAM INTERLEAVED.
+    // ttnn.copy (to_memory_config) doesn't support u16 (tt-metal#41689),
+    // so u16 tensors use a host round-trip (from_device → to_device).
+    TTNNLayoutAttr dramEncoding =
+        inputEncoding.withBufferType(BufferType::DRAM)
+            .withMemoryLayout(TensorMemoryLayout::Interleaved)
+            .withGrid(shape, ttcore::GridAttr::get(op.getContext(), {1, 1}));
+    RankedTensorType dramType =
+        RankedTensorType::get(shape, inputType.getElementType(), dramEncoding);
+
+    MemoryConfigAttr dramMemConfig = MemoryConfigAttr::get(
+        op.getContext(),
+        TensorMemoryLayoutAttr::get(op.getContext(),
+                                    TensorMemoryLayout::Interleaved),
+        BufferTypeAttr::get(op.getContext(), BufferType::DRAM),
+        /*shard_spec=*/std::nullopt);
+
+    rewriter.setInsertionPoint(op);
+
+    if (dataType == ttcore::DataType::UInt16) {
+      auto hostType = utils::RankedTensorTypeFactory::create(
+          inputType, BufferType::SystemMemory);
+      mlir::Value hostVal =
+          rewriter.create<FromDeviceOp>(op.getLoc(), hostType, currentInput);
+      mlir::Value device = utils::getOrInsertDevice(rewriter, op);
+      currentInput = rewriter.create<ToDeviceOp>(op.getLoc(), dramType, hostVal,
+                                                 device, dramMemConfig);
+    } else {
+      currentInput = rewriter.create<ToMemoryConfigOp>(
+          op.getLoc(), dramType, currentInput, dramMemConfig);
+    }
+
+    // Step 2: Pad to tile-aligned dimensions.
+    int64_t h = shape[rank - 2];
+    int64_t w = shape[rank - 1];
+    int64_t paddedH =
+        llvm::divideCeil(h, static_cast<int64_t>(TILE_HEIGHT)) * TILE_HEIGHT;
+    int64_t paddedW =
+        llvm::divideCeil(w, static_cast<int64_t>(TILE_WIDTH)) * TILE_WIDTH;
+
+    SmallVector<int64_t> paddedShape(shape);
+    paddedShape[rank - 2] = paddedH;
+    paddedShape[rank - 1] = paddedW;
+
+    SmallVector<int32_t> padding(rank * 2, 0);
+    if (h % TILE_HEIGHT != 0) {
+      padding[(rank - 2) * 2 + 1] = paddedH - h;
+    }
+    if (w % TILE_WIDTH != 0) {
+      padding[(rank - 1) * 2 + 1] = paddedW - w;
+    }
+
+    auto currentInputType =
+        mlir::cast<RankedTensorType>(currentInput.getType());
+    auto paddedType =
+        utils::RankedTensorTypeFactory::create(currentInputType, paddedShape);
+
+    currentInput = rewriter.create<PadOp>(
+        op.getLoc(), paddedType, currentInput,
+        rewriter.getDenseI32ArrayAttr(padding), rewriter.getF32FloatAttr(0.0f),
+        /*use_multicore=*/rewriter.getBoolAttr(true),
+        /*memory_config=*/nullptr);
+
+    // Step 3: Tilize on padded DRAM tensor.
+    RankedTensorType paddedTiledType = utils::RankedTensorTypeFactory::create(
+        mlir::cast<RankedTensorType>(currentInput.getType()),
+        info.output.layoutEnum);
+    ttnn::LayoutAttr layoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
+    currentInput = rewriter.create<ttnn::ToLayoutOp>(
+        op.getLoc(), paddedTiledType, currentInput, layoutAttr,
+        /*dtype=*/nullptr, /*memory_config=*/nullptr);
+
+    // Step 4: Slice back to original shape.
+    SmallVector<int32_t> begins(rank, 0);
+    SmallVector<int32_t> ends(shape.begin(), shape.end());
+    SmallVector<int32_t> steps(rank, 1);
+
+    RankedTensorType slicedType = utils::RankedTensorTypeFactory::create(
+        mlir::cast<RankedTensorType>(currentInput.getType()), shape);
+    currentInput = rewriter.create<SliceStaticOp>(
+        op.getLoc(), slicedType, currentInput, rewriter.getI32ArrayAttr(begins),
+        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+
+    return currentInput;
   }
 
   /* Functions that create ops based on the layouts of the input output tensors
@@ -765,12 +944,19 @@ private:
       return;
     }
 
-    // If the output data type is untilizable on device, untilize on device then
-    // move to host
+    // If the output data type is untilizable on device, untilize on device
+    // then move to host.
     if (info.shouldUntilize() && canUntilizeDataTypeOnDevice(input.dataType)) {
-      // If input is L1 sharded, unshard first since untilize doesn't support
-      // sharded input with sharded output.
-      if (input.isL1Sharded()) {
+      if (input.isL1Sharded() ||
+          (input.bufferType == ttnn::BufferType::L1 &&
+           output.bufferType == ttnn::BufferType::DRAM)) {
+        // Move to target memory first, then untilize.
+        // L1 sharded: unshard first since untilize doesn't support
+        // sharded input with sharded output.
+        // L1 interleaved → DRAM: move to DRAM while still tiled
+        // (compact), then untilize in DRAM. Untilizing in L1 creates a
+        // large row-major intermediate whose subsequent prim::copy CBs
+        // can clash with live L1 buffers.
         currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
                                                             currentInput, info);
         currentInput =
@@ -820,10 +1006,18 @@ private:
     // If we should tilize and the input data type is device-tilizable, tilize
     // on device
     if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
-      currentInput =
-          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      if (needsShardedTilizePadWorkaround(op, info)) {
+        // tt-metal#30541: unshard → pad → tilize → slice, then force reshard.
+        currentInput =
+            handleShardedTilizeWithPadding(op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(
+            op, rewriter, currentInput, info, /*forceCreate=*/true);
+      } else {
+        currentInput =
+            this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+      }
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);
@@ -1014,12 +1208,23 @@ private:
     // If we should tilize and the input data type is device tilizable, tilize
     // and typecast on device
     if (info.shouldTilize() && canTilizeDataTypeOnDevice(input.dataType)) {
-      currentInput =
-          this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
-      currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
-                                                           currentInput, info);
-      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
-                                                          currentInput, info);
+      if (needsShardedTilizePadWorkaround(op, info)) {
+        // tt-metal#30541: unshard → pad → tilize → slice, then typecast and
+        // force reshard.
+        currentInput =
+            handleShardedTilizeWithPadding(op, rewriter, currentInput, info);
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(
+            op, rewriter, currentInput, info, /*forceCreate=*/true);
+      } else {
+        currentInput =
+            this->createToLayoutOpIfNeeded(op, rewriter, currentInput, info);
+        currentInput = this->createDataTypeCastingOpIfNeeded(
+            op, rewriter, currentInput, info);
+        currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                            currentInput, info);
+      }
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       op.getResult().replaceAllUsesWith(currentInput);

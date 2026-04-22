@@ -5,11 +5,13 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/FusionValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -67,11 +69,18 @@ class RoPEAnalyzer {
 public:
   std::optional<RoPEInputs> findValidInputs(Value root,
                                             const RoPEComponents &components) {
+    return findValidInputs(root, components.x, components.cos, components.sin);
+  }
+
+  std::optional<RoPEInputs> findValidInputs(Value root,
+                                            ArrayRef<Value> xCandidates,
+                                            ArrayRef<Value> cosCandidates,
+                                            ArrayRef<Value> sinCandidates) {
     SmallVector<Axis> expected = {Axis::B, Axis::H, Axis::S, Axis::D};
 
-    for (Value xCandidate : components.x) {
-      for (Value cosCandidate : components.cos) {
-        for (Value sinCandidate : components.sin) {
+    for (Value xCandidate : xCandidates) {
+      for (Value cosCandidate : cosCandidates) {
+        for (Value sinCandidate : sinCandidates) {
           cache.clear();
           currentX = xCandidate;
           currentCos = cosCandidate;
@@ -195,6 +204,7 @@ private:
     SemanticShape result =
         llvm::TypeSwitch<Operation *, SemanticShape>(op)
             .Case<ttnn::AddOp>([&](auto add) { return visitAdd(add); })
+            .Case<SubtractOp>([&](auto sub) { return visitSubtract(sub); })
             .Case<MultiplyOp>([&](auto mul) { return visitMul(mul); })
             .Case<ConcatOp>([&](auto cat) { return visitConcat(cat); })
             .Case<SliceStaticOp>([&](auto s) { return visitSlice(s); })
@@ -219,6 +229,10 @@ private:
   }
 
   SemanticShape visitAdd(ttnn::AddOp op) {
+    return visitElementwise(op.getLhs(), op.getRhs());
+  }
+
+  SemanticShape visitSubtract(SubtractOp op) {
     return visitElementwise(op.getLhs(), op.getRhs());
   }
 
@@ -450,6 +464,62 @@ bool isValidHalfRotationSlices(SliceStaticOp lhsSlice, SliceStaticOp rhsSlice,
   return true;
 }
 
+// Validates that two slices form complementary halves of the same dimension.
+// Returns the sliced dimension index, or nullopt if invalid. Unlike
+// isValidHalfRotationSlices, this does not require negation — it is used for
+// the expanded RoPE form where both halves are used directly.
+std::optional<size_t> areComplementaryHalfSlices(SliceStaticOp sliceA,
+                                                 SliceStaticOp sliceB) {
+  auto aOpt = getSliceParams(sliceA);
+  auto bOpt = getSliceParams(sliceB);
+  if (!aOpt || !bOpt) {
+    return std::nullopt;
+  }
+  const SliceParams &a = *aOpt;
+  const SliceParams &b = *bOpt;
+
+  if (a.inputShape != b.inputShape || a.inputShape.empty()) {
+    return std::nullopt;
+  }
+
+  auto aDimOpt = findSlicedDim(a);
+  auto bDimOpt = findSlicedDim(b);
+  if (!aDimOpt || !bDimOpt || *aDimOpt != *bDimOpt) {
+    return std::nullopt;
+  }
+  size_t dim = *aDimOpt;
+
+  int64_t dimSize = a.inputShape[dim];
+  if ((dimSize % 2) != 0 || a.steps[dim] != 1 || b.steps[dim] != 1) {
+    return std::nullopt;
+  }
+
+  int64_t half = dimSize / 2;
+  bool aIsFirstHalf = (a.begins[dim] == 0 && a.ends[dim] == half);
+  bool bIsSecondHalf = (b.begins[dim] == half && b.ends[dim] == dimSize);
+  bool aIsSecondHalf = (a.begins[dim] == half && a.ends[dim] == dimSize);
+  bool bIsFirstHalf = (b.begins[dim] == 0 && b.ends[dim] == half);
+
+  if ((aIsFirstHalf && bIsSecondHalf) || (aIsSecondHalf && bIsFirstHalf)) {
+    return dim;
+  }
+
+  return std::nullopt;
+}
+
+// Returns true if the slice selects the first half [0, D/2) of the sliced dim.
+bool isFirstHalfSlice(SliceStaticOp slice) {
+  auto opt = getSliceParams(slice);
+  if (!opt) {
+    return false;
+  }
+  auto dimOpt = findSlicedDim(*opt);
+  if (!dimOpt) {
+    return false;
+  }
+  return opt->begins[*dimOpt] == 0;
+}
+
 // ---------------------------------------------------------------------------
 // Structural pattern matching
 // ---------------------------------------------------------------------------
@@ -578,73 +648,233 @@ bool matchRope(RoPEComponents &c) {
 }
 
 // ---------------------------------------------------------------------------
+// Expanded RoPE structural pattern matching
+// ---------------------------------------------------------------------------
+//
+// Matches the expanded (trig-identity) RoPE form:
+//   concat(
+//     subtract(first_half * cos_h, second_half * sin_h),
+//     add(second_half * cos_h, first_half * sin_h))
+//
+// Where first_half = x[:D/2], second_half = x[D/2:], and cos_h/sin_h are
+// half-dim embeddings.
+
+struct ExpandedRoPEComponents {
+  SmallVector<Value> x;   // Input candidates (TM chain)
+  SmallVector<Value> cos; // Half-dim cosine candidates (TM chain)
+  SmallVector<Value> sin; // Half-dim sine candidates (TM chain)
+  ConcatOp concatOp;      // Root concat
+  SubtractOp subOp;       // subtract(first_half*cos, second_half*sin)
+  AddOp addOp;            // add(second_half*cos, first_half*sin)
+  SmallVector<MultiplyOp, 4> mulOps; // All 4 multiply ops
+};
+
+// For a MultiplyOp, identify the slice operand and the embedding operand.
+// Returns (sliceOp, embeddingValue) or nullopt if neither operand is a slice.
+std::optional<std::pair<SliceStaticOp, Value>>
+classifyMulOperands(MultiplyOp mul) {
+  Value lhs = skipTMs(mul.getLhs());
+  Value rhs = skipTMs(mul.getRhs());
+
+  auto lhsSlice = lhs.getDefiningOp<SliceStaticOp>();
+  auto rhsSlice = rhs.getDefiningOp<SliceStaticOp>();
+
+  // Exactly one operand should be a slice.
+  if (lhsSlice && !rhsSlice) {
+    return std::make_pair(lhsSlice, mul.getRhs());
+  }
+  if (rhsSlice && !lhsSlice) {
+    return std::make_pair(rhsSlice, mul.getLhs());
+  }
+  return std::nullopt;
+}
+
+// Match the expanded RoPE form rooted at a ConcatOp.
+bool matchExpandedRope(ExpandedRoPEComponents &c) {
+  if (c.concatOp.getNumOperands() != 2) {
+    return false;
+  }
+
+  // Operand 0 must be SubtractOp, operand 1 must be AddOp.
+  Value op0 = skipTMs(c.concatOp.getOperand(0));
+  Value op1 = skipTMs(c.concatOp.getOperand(1));
+
+  c.subOp = op0.getDefiningOp<SubtractOp>();
+  c.addOp = op1.getDefiningOp<AddOp>();
+  if (!c.subOp || !c.addOp) {
+    return false;
+  }
+
+  // Extract 4 multiply ops: 2 from subtract, 2 from add.
+  auto subLhsMul = skipTMs(c.subOp.getLhs()).getDefiningOp<MultiplyOp>();
+  auto subRhsMul = skipTMs(c.subOp.getRhs()).getDefiningOp<MultiplyOp>();
+  auto addMul0 = skipTMs(c.addOp.getLhs()).getDefiningOp<MultiplyOp>();
+  auto addMul1 = skipTMs(c.addOp.getRhs()).getDefiningOp<MultiplyOp>();
+
+  if (!subLhsMul || !subRhsMul || !addMul0 || !addMul1) {
+    return false;
+  }
+
+  // Classify each multiply's operands into (slice, embedding).
+  auto subLhs = classifyMulOperands(subLhsMul);
+  auto subRhs = classifyMulOperands(subRhsMul);
+  auto addOp0 = classifyMulOperands(addMul0);
+  auto addOp1 = classifyMulOperands(addMul1);
+
+  if (!subLhs || !subRhs || !addOp0 || !addOp1) {
+    return false;
+  }
+
+  // All 4 slices must come from the same source x.
+  SmallVector<SliceStaticOp, 4> slices = {subLhs->first, subRhs->first,
+                                          addOp0->first, addOp1->first};
+  Value source = slices[0].getInput();
+  for (size_t i = 1; i < slices.size(); ++i) {
+    Value ancestor =
+        findCommonTMAncestor(skipTMs(source), skipTMs(slices[i].getInput()));
+    if (!ancestor) {
+      return false;
+    }
+    source = ancestor;
+  }
+
+  // Slices must form two complementary pairs: first_half [0,D/2) and
+  // second_half [D/2,D). Verify via any two distinct slices.
+  auto dimOpt = areComplementaryHalfSlices(slices[0], slices[1]);
+  if (!dimOpt) {
+    dimOpt = areComplementaryHalfSlices(slices[0], slices[2]);
+  }
+  if (!dimOpt) {
+    return false;
+  }
+
+  // Classify slices as first-half or second-half.
+  bool subLhsIsFirst = isFirstHalfSlice(subLhs->first);
+  bool subRhsIsFirst = isFirstHalfSlice(subRhs->first);
+  bool addOp0IsFirst = isFirstHalfSlice(addOp0->first);
+  bool addOp1IsFirst = isFirstHalfSlice(addOp1->first);
+
+  // The pattern requires:
+  //   sub.lhs = first_half * cos_h
+  //   sub.rhs = second_half * sin_h
+  //   add: one is second_half * cos_h, other is first_half * sin_h
+  if (!subLhsIsFirst || subRhsIsFirst) {
+    return false;
+  }
+
+  // Identify cos_h and sin_h from the subtract branch.
+  // sub.lhs embedding = cos_h, sub.rhs embedding = sin_h.
+  Value cosValue = subLhs->second;
+  Value sinValue = subRhs->second;
+
+  // Cross-validate with the add branch: one add multiply should pair
+  // second_half with cos_h, the other should pair first_half with sin_h.
+  auto matchesEmbedding = [](Value mulEmb, Value expected) {
+    return findCommonTMAncestor(mulEmb, expected) != nullptr ||
+           mulEmb == expected;
+  };
+
+  bool addValid = false;
+  if (!addOp0IsFirst && addOp1IsFirst) {
+    // addMul0 = second_half * cos_h, addMul1 = first_half * sin_h
+    addValid = matchesEmbedding(addOp0->second, cosValue) &&
+               matchesEmbedding(addOp1->second, sinValue);
+  } else if (addOp0IsFirst && !addOp1IsFirst) {
+    // addMul0 = first_half * sin_h, addMul1 = second_half * cos_h
+    addValid = matchesEmbedding(addOp0->second, sinValue) &&
+               matchesEmbedding(addOp1->second, cosValue);
+  }
+
+  if (!addValid) {
+    return false;
+  }
+
+  c.x = collectCandidates(source);
+  c.cos = collectCandidates(cosValue);
+  c.sin = collectCandidates(sinValue);
+  c.mulOps = {subLhsMul, subRhsMul, addMul0, addMul1};
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Fused op creation
 // ---------------------------------------------------------------------------
+
+// Check whether any of the given ops compute in f32.
+bool anyUsesF32(ArrayRef<Operation *> ops) {
+  for (Operation *op : ops) {
+    auto resultType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    if (resultType.getElementType().isF32()) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // Check whether any of the RoPE multiply/add ops compute in f32 and, if so,
 // return a DeviceComputeKernelConfig with fp32_dest_acc_en set.
 DeviceComputeKernelConfigAttr buildComputeConfig(mlir::MLIRContext *ctx,
                                                  const RoPEComponents &c) {
-  auto usesF32 = [](Operation *op) {
-    auto resultType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    return resultType.getElementType().isF32();
-  };
-  if (usesF32(c.cosMul) || usesF32(c.sinMul) || usesF32(c.addOp)) {
+  if (anyUsesF32({c.cosMul, c.sinMul, c.addOp})) {
     return DeviceComputeKernelConfigAttr::get(ctx).withFp32DestAccEn(true);
   }
   return nullptr;
 }
 
-mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
-                                      AddOp srcOp, const RoPEInputs &inputs,
-                                      const RoPEComponents &components) {
-  op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp.getOperation());
+DeviceComputeKernelConfigAttr
+buildComputeConfig(mlir::MLIRContext *ctx, const ExpandedRoPEComponents &c) {
+  SmallVector<Operation *, 6> ops;
+  for (auto mul : c.mulOps) {
+    ops.push_back(mul);
+  }
+  ops.push_back(c.subOp);
+  ops.push_back(c.addOp);
+  if (anyUsesF32(ops)) {
+    return DeviceComputeKernelConfigAttr::get(ctx).withFp32DestAccEn(true);
+  }
+  return nullptr;
+}
 
-  auto computeConfig = buildComputeConfig(rewriter.getContext(), components);
+// Validate, create, and replace srcOp with a fused RotaryEmbeddingOp.
+// x, cos, sin must be fully prepared (full-dim cos/sin for expanded form).
+// Inserts an output PermuteOp if outPermutation is not the identity.
+mlir::LogicalResult
+createAndReplaceWithRoPEOp(mlir::PatternRewriter &rewriter, Operation *srcOp,
+                           Value x, Value cos, Value sin,
+                           ArrayRef<int64_t> outPermutation,
+                           DeviceComputeKernelConfigAttr computeConfig,
+                           const FusionValidationConfig &validationConfig) {
+  op_model::ScopedSingletonDeviceGuard deviceGuard(srcOp);
+
+  // Validate in an isolated module before committing to fusion.
+  FusionValidator validator(rewriter.getContext(), validationConfig);
+  auto validationResult = validator.validateFusion<RotaryEmbeddingOp>(
+      srcOp, srcOp->getLoc(), {x.getType()}, x, cos, sin,
+      /*token_index=*/nullptr,
+      /*memory_config=*/MemoryConfigAttr(),
+      /*compute_config=*/computeConfig);
+
+  if (!validationResult.isSuccess()) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::FusionValidator,
+                 "RoPE fusion validation failed: {0}",
+                 validationResult.errorMessage);
+    return failure();
+  }
 
   auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
-      srcOp.getLoc(), inputs.x.getType(), inputs.x, inputs.cos, inputs.sin,
+      srcOp->getLoc(), x.getType(), x, cos, sin,
       /*token_index=*/nullptr,
       /*memory_config=*/nullptr,
       /*compute_config=*/computeConfig);
 
-  // Validate the fused op. If validation fails, try the workaround-padded
-  // version since the workaround pass (seq_len tile alignment) hasn't run yet.
-  std::vector<TTNNLayoutAttr> inputLayouts =
-      utils::extractInputLayouts(ropeOp.getOperation());
-  auto resultType = mlir::cast<RankedTensorType>(ropeOp.getType());
-  OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-  auto validationResult = op_constraint_validation::validateOperation(
-      ropeOp.getOperation(), inputLayouts, config);
-
-  if (!validationResult.isSuccess()) {
-    auto workaround =
-        workarounds::decomposition::getWorkaroundedOp(ropeOp, rewriter);
-    if (workaround) {
-      auto paddedOp = workaround->first;
-      auto sliceOp = workaround->second;
-      inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
-      resultType = mlir::cast<RankedTensorType>(paddedOp.getType());
-      config = OpConfig(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
-      validationResult = op_constraint_validation::validateOperation(
-          paddedOp.getOperation(), inputLayouts, config);
-      rewriter.eraseOp(sliceOp);
-      rewriter.eraseOp(paddedOp);
-    }
-
-    if (!validationResult.isSuccess()) {
-      rewriter.eraseOp(ropeOp);
-      return failure();
-    }
-  }
-
   Value result = ropeOp.getResult();
-  if (!llvm::equal(inputs.outPermutation,
-                   llvm::seq<int64_t>(0, inputs.outPermutation.size()))) {
+  if (!llvm::equal(outPermutation,
+                   llvm::seq<int64_t>(0, outPermutation.size()))) {
     DenseI64ArrayAttr permutationAttr =
-        rewriter.getDenseI64ArrayAttr(inputs.outPermutation);
+        rewriter.getDenseI64ArrayAttr(outPermutation);
     auto permuted = rewriter.create<ttnn::PermuteOp>(
-        srcOp.getLoc(), srcOp.getType(), result, permutationAttr,
+        srcOp->getLoc(), srcOp->getResult(0).getType(), result, permutationAttr,
         ttnn::MemoryConfigAttr(), mlir::FloatAttr());
     result = permuted.getResult();
   }
@@ -653,15 +883,56 @@ mlir::LogicalResult createFusedRoPEOp(mlir::PatternRewriter &rewriter,
   return success();
 }
 
+// Prepare full-dim cos/sin for the expanded form by concatenating half-dim
+// values with themselves along the D axis.
+std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
+                                              ConcatOp srcOp, Value cosHalf,
+                                              Value sinHalf) {
+  int64_t concatDim = srcOp.getDim();
+  auto cosType = mlir::cast<RankedTensorType>(cosHalf.getType());
+  auto sinType = mlir::cast<RankedTensorType>(sinHalf.getType());
+
+  SmallVector<int64_t> cosFullShape(cosType.getShape());
+  cosFullShape[concatDim] *= 2;
+  Attribute cosEncoding = nullptr;
+  if (auto layout =
+          mlir::dyn_cast_or_null<TTNNLayoutAttr>(cosType.getEncoding())) {
+    cosEncoding =
+        layout.withElementType(cosType.getElementType(), cosFullShape);
+  }
+  auto cosFullType = RankedTensorType::get(
+      cosFullShape, cosType.getElementType(), cosEncoding);
+
+  SmallVector<int64_t> sinFullShape(sinType.getShape());
+  sinFullShape[concatDim] *= 2;
+  Attribute sinEncoding = nullptr;
+  if (auto layout =
+          mlir::dyn_cast_or_null<TTNNLayoutAttr>(sinType.getEncoding())) {
+    sinEncoding =
+        layout.withElementType(sinType.getElementType(), sinFullShape);
+  }
+  auto sinFullType = RankedTensorType::get(
+      sinFullShape, sinType.getElementType(), sinEncoding);
+
+  auto cosFull = rewriter.create<ConcatOp>(
+      srcOp.getLoc(), cosFullType, ValueRange{cosHalf, cosHalf}, concatDim,
+      /*memory_config=*/MemoryConfigAttr());
+  auto sinFull = rewriter.create<ConcatOp>(
+      srcOp.getLoc(), sinFullType, ValueRange{sinHalf, sinHalf}, concatDim,
+      /*memory_config=*/MemoryConfigAttr());
+
+  return {cosFull.getResult(), sinFull.getResult()};
+}
+
 } // namespace
 
 // =============================================================================
-// RoPEFusing
+// RoPERotateHalfFusing
 // =============================================================================
 
 mlir::LogicalResult
-RoPEFusing::matchAndRewrite(AddOp srcOp,
-                            mlir::PatternRewriter &rewriter) const {
+RoPERotateHalfFusing::matchAndRewrite(AddOp srcOp,
+                                      mlir::PatternRewriter &rewriter) const {
   RoPEComponents c;
   c.addOp = srcOp;
 
@@ -675,7 +946,49 @@ RoPEFusing::matchAndRewrite(AddOp srcOp,
     return failure();
   }
 
-  return createFusedRoPEOp(rewriter, srcOp, *validInputs, c);
+  auto computeConfig = buildComputeConfig(rewriter.getContext(), c);
+  return createAndReplaceWithRoPEOp(
+      rewriter, srcOp, validInputs->x, validInputs->cos, validInputs->sin,
+      validInputs->outPermutation, computeConfig, validationConfig);
+}
+
+// =============================================================================
+// RoPEExpandedFusing
+// =============================================================================
+
+mlir::LogicalResult
+RoPEExpandedFusing::matchAndRewrite(ConcatOp srcOp,
+                                    mlir::PatternRewriter &rewriter) const {
+  ExpandedRoPEComponents c;
+  c.concatOp = srcOp;
+
+  if (!matchExpandedRope(c)) {
+    return failure();
+  }
+
+  RoPEAnalyzer analyzer;
+  auto validInputs =
+      analyzer.findValidInputs(srcOp.getResult(), c.x, c.cos, c.sin);
+  if (!validInputs) {
+    return failure();
+  }
+
+  // Prepare full-dim cos/sin by doubling the half-dim values.
+  auto [cosFull, sinFull] = prepareExpandedCosSin(
+      rewriter, srcOp, validInputs->cos, validInputs->sin);
+
+  auto computeConfig = buildComputeConfig(rewriter.getContext(), c);
+  auto result = createAndReplaceWithRoPEOp(
+      rewriter, srcOp, validInputs->x, cosFull, sinFull,
+      validInputs->outPermutation, computeConfig, validationConfig);
+
+  if (failed(result)) {
+    // Clean up the intermediate concat ops on failure.
+    rewriter.eraseOp(sinFull.getDefiningOp());
+    rewriter.eraseOp(cosFull.getDefiningOp());
+  }
+
+  return result;
 }
 
 // =============================================================================

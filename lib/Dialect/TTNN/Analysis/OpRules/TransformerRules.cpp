@@ -11,7 +11,8 @@ namespace mlir::tt::ttnn {
 // ConcatenateHeadsRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn ConcatenateHeadsRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn
+ConcatenateHeadsRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // ConcatenateHeads: cannot consume any sharded inputs.
   // https://github.com/tenstorrent/tt-mlir/issues/7145
   return layout_filter_utils::rejectAllSharded;
@@ -42,6 +43,39 @@ OutputHints SDPARuleBook::getOutputHints(
   // NLPConcatHeadsDecode: tt-metal requires height-sharded L1 input
   // (set by workaround pass) and always outputs DRAM-interleaved.
   // Probing sharded output configs crashes compute_output_specs.
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+RotaryEmbeddingRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
+  return layout_filter_utils::allowOnlyShardingType(
+      TensorMemoryLayout::HeightSharded);
+}
+
+bool RotaryEmbeddingRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints RotaryEmbeddingRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// SplitQKVRuleBook
+//===----------------------------------------------------------------------===//
+
+bool SplitQKVRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints SplitQKVRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  // The sharded create_qkv_heads kernel (BLOCK_SHARDED input →
+  // HEIGHT_SHARDED output) corrupts data when the sequence dimension
+  // is non-tile-aligned (e.g. ViT sequence length 197).
+  // Use NULL hint only to keep input/output DRAM-interleaved.
+  // https://github.com/tenstorrent/tt-metal/issues/41526
   return layout_filter_utils::nullHintOnly();
 }
 

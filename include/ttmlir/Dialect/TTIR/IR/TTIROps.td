@@ -944,6 +944,28 @@ def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
     }];
 }
 
+def TTIR_AsinhOp: TTIR_ElementwiseUnaryOp<"asinh"> {
+    let summary = "Eltwise inverse hyperbolic sine op.";
+    let description = [{
+      The `asinh` operation computes the inverse hyperbolic sine of each element in the input tensor.
+
+      For each element, it returns the value whose hyperbolic sine is the input value. Unlike `asin`,
+      this function accepts all real numbers as input.
+
+      Example:
+      ```mlir
+      // Compute inverse hyperbolic sine of all elements in %input
+      %result = ttir.asinh(%input) : (tensor<4xf32>) -> tensor<4xf32>
+      // Input tensor:
+      // [0.0, 1.0, -1.0, 10.0]
+      // Output tensor:
+      // [0.0, 0.8814, -0.8814, 2.9982]
+      ```
+
+      Mathematical definition: asinh(x) = ln(x + √(x² + 1))
+    }];
+}
+
 
 def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
     let summary = "Eltwise square root.";
@@ -1005,6 +1027,27 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
 
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;
+}
+
+def TTIR_BitcastConvertOp : TTIR_ElementwiseUnaryOp<"bitcast_convert"> {
+    let summary = "Elementwise bitcast operation.";
+    let description = [{
+      The `bitcast_convert` operation reinterprets the bits of each element in
+      the input tensor as a data type of the output tensor. This leads to change
+      in numerical values in data.
+      Only same-bit-width element types are supported (e.g. ui32 -> f32).
+
+      Example:
+      ```mlir
+      // Reinterpret the raw bits of each ui32 element as f32.
+      // Input:  [0x3F800000, 0x40000000] (ui32)
+      // Output: [1.0,        2.0       ] (f32) — same bits, read as float
+      %result = ttir.bitcast_convert(%input) : (tensor<16384xui32>) -> tensor<16384xf32>
+      ```
+    }];
+
+    let hasVerifier = 1;
+    // TODO implement a hasCanonicalizeMethod later
 }
 
 def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
@@ -2194,6 +2237,55 @@ def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedO
   let hasVerifier = 1;
 }
 
+def TTIR_DistributedLayerNormOp : TTIR_NamedOp<"distributed_layer_norm", [AttrSizedOperandSegments]> {
+  let summary = "Distributed layer normalization with all-gather operation";
+  let description = [{
+    Fused distributed layer normalization across mesh devices. Each device
+    computes local partial statistics (sum of x and sum of x²), the statistics are all-gathered along cluster_axis to obtain
+    globally-correct mean and variance, and each device then normalizes its
+    local shard. The steps are:
+    1. Optional residual addition: norm_input = input + residual
+    2. Compute local partial statistics and all-gather across cluster_axis
+    3. Layer normalization: output = (norm_input - mean) / sqrt(var + epsilon) * weight + bias
+
+    Only statistics are communicated across devices — the input data itself
+    is not all-gathered. Each device's output shape equals its input shape.
+
+    This is a multi-device operation that requires the tensor to be sharded
+    across a device mesh along the normalized (last) dimension.
+
+    Decomposes in the TTNN dialect into:
+      layer_norm_pre_all_gather → all_gather → layer_norm_post_all_gather.
+
+    Inputs:
+    - `input` (Tensor): The input tensor to be normalized.
+    - `weight` (Optional Tensor): The scale parameter (gamma).
+    - `bias` (Optional Tensor): The shift parameter (beta).
+    - `residual` (Optional Tensor): Residual tensor for fused add before
+        normalization.
+
+    Attributes:
+    - `cluster_axis` specifies which mesh dimension to all-gather the
+        statistics across (0 or 1).
+    - `epsilon` is a small constant added for numerical stability
+        (default: 1e-05).
+
+    Output:
+    - `result` (Tensor): The normalized output tensor (same shape as input).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       Optional<AnyRankedTensor>:$residual,
+                       UI32Attr:$cluster_axis,
+                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_LayerNormOp : TTIR_NamedOp<"layer_norm", [AttrSizedOperandSegments]> {
   let summary = "Layer normalization operation";
   let description = [{
@@ -3231,6 +3323,8 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
@@ -3752,65 +3846,6 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-}
-
-def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
-    let summary = "Gather operation.";
-    let description = [{
-      The `gather` operation collects slices from an input tensor at positions specified by start indices.
-
-      This operation is based on the StableHLO Gather operation (https://openxla.org/stablehlo/spec#gather) and
-      allows for flexible slicing and indexing of tensors. It can be used to implement operations like array
-      indexing, slicing, dynamic indexing, and more complex gathering patterns.
-
-      Example:
-      ```mlir
-      // Basic gather example: gather elements from a 2D tensor using indices
-      %input = ... : tensor<5x3xf32>         // Input tensor with shape [5,3]
-      %indices = ... : tensor<2xi64>         // Indices tensor with values [2, 1]
-      %result = ttir.gather(%input, %indices) {
-          offset_dims = [0],                 // Output dimensions that are gathered from input
-          collapsed_slice_dims = [0],        // Input dimensions that are collapsed
-          operand_batching_dims = [],        // Batch dimensions of the input
-          start_indices_batching_dims = [],  // Batch dimensions of the indices
-          start_index_map = [0],             // Maps indices to input dimensions
-          index_vector_dim = 0,              // Which dimension of indices contains the index vector
-          slice_sizes = [1, 3],              // Size of the slice to extract from each position
-          indices_are_sorted = false         // Whether indices are sorted
-      } : (tensor<5x3xf32>, tensor<2xi64>) -> tensor<3xf32>
-
-      // This gathers a slice of size [1,3] starting at position [2,0] from the input tensor,
-      // which results in the values from the third row of the input tensor.
-      ```
-
-      Inputs:
-      - `input` (Tensor): The tensor from which to gather values.
-      - `start_indices` (Tensor): Tensor containing the starting indices for slices.
-
-      Attributes:
-      - `offset_dims` (Array of Integer): Output dimensions that correspond to dimensions of the gathered slice.
-      - `collapsed_slice_dims` (Array of Integer): Input dimensions that are collapsed when gathering.
-      - `operand_batching_dims` (Array of Integer): Batch dimensions of the input tensor.
-      - `start_indices_batching_dims` (Array of Integer): Batch dimensions of the indices tensor.
-      - `start_index_map` (Array of Integer): Maps index values to input dimensions.
-      - `index_vector_dim` (Integer): Which dimension of indices contains the index vector.
-      - `slice_sizes` (Array of Integer): Size of the slice to extract from each position.
-      - `indices_are_sorted` (Boolean): Whether indices are sorted (for optimization).
-
-      Output:
-      - `result` (Tensor): The gathered tensor.
-    }];
-    let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$start_indices,
-                         DenseI64ArrayAttr:$offset_dims,
-                         DenseI64ArrayAttr:$collapsed_slice_dims,
-                         DenseI64ArrayAttr:$operand_batching_dims,
-                         DenseI64ArrayAttr:$start_indices_batching_dims,
-                         DenseI64ArrayAttr:$start_index_map,
-                         SI64Attr:$index_vector_dim,
-                         DenseI64ArrayAttr:$slice_sizes,
-                         BoolAttr:$indices_are_sorted);
-    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
@@ -4960,6 +4995,34 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let hasFolder = 1;
 }
 
+def TTIR_GatherOp : TTIR_NamedOp<"gather"> {
+  let summary = "Gather operation along a single dimension";
+  let description = [{
+    The `gather` operation gathers values from an input tensor along a
+    given dimension using an index tensor. This corresponds to torch.gather
+    semantics and maps directly to the tt-metal `ttnn::gather` device op.
+
+    Parameters:
+      - `input` (Tensor): The source tensor to gather from.
+      - `index` (Tensor): Indices specifying which values to gather.
+      - `dim` (int32_t): The dimension along which to gather.
+
+    Example:
+    ```mlir
+    %result = "ttir.gather"(%input, %index)
+        <{dim = 0 : i32}> : (tensor<4x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
+    ```
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$index,
+                       I32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR creation ops
 //===----------------------------------------------------------------------===//
@@ -5359,7 +5422,7 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
 // TTIR ccl ops
 //===----------------------------------------------------------------------===//
 
-def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
+def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather", [TTIR_CCL]> {
     let summary = "All gather operation.";
     let description = [{
       All gather op.
@@ -5374,7 +5437,7 @@ def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
+def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce", [TTIR_CCL]> {
     let summary = "AllReduce operation.";
     let description = [{
       AllReduce op.
@@ -5389,7 +5452,25 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
+def TTIR_AllReduceAsyncOp : TTIR_NamedOp<"all_reduce_async", [TTIR_CCL]> {
+    let summary = "Asynchronous AllReduce operation.";
+    let description = [{
+      Asynchronous all-reduce collective communication operation. Performs a
+      reduction (e.g. sum) across all devices in a mesh and distributes the
+      result back to all devices, using async execution to overlap
+      communication with computation.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_ReduceTypeAttr:$reduce_type,
+                         UI32Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter", [TTIR_CCL]> {
     let summary = "Reduce scatter operation.";
     let description = [{
       Reduce scatter op.
@@ -5403,7 +5484,7 @@ def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
+def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute", [TTIR_CCL]> {
     let summary = "Collective permute operation.";
     let description = [{
       Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
@@ -5659,7 +5740,7 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
   let hasVerifier = 1;
 }
 
-def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
+def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all", [TTIR_CCL]> {
     let summary = "All to All operation.";
     let description = [{
       The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends
@@ -5687,7 +5768,7 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
 }
 
 
-def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
+def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast", [TTIR_CCL]> {
   let summary = "Collective Broadcast op";
   let description = [{
     The collective_broadcast operation distributes a tensor from a single source device to all
@@ -5812,6 +5893,37 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
   let hasVerifier = 1;
 }
 
+def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
+  let summary = "Paged flash multi-latent attention decode operation.";
+  let description = [{
+    Paged flash Multi-Latent Attention (MLA) for the decode phase. This is a
+    specialized attention kernel that combines flash attention with multi-latent
+    attention and paged KV cache support, optimized for single-token decode.
+
+    MLA compresses the KV cache using low-rank projections, significantly
+    reducing memory requirements for long-context inference. The paged variant
+    manages cache memory in fixed-size pages.
+
+    Key difference from PagedScaledDotProductAttentionDecode: the value tensor
+    is optional (may be null for latent-only MLA) and head_dim_v specifies the
+    value head dimension separately.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       Optional<AnyRankedTensor>:$value,
+                       UI32Attr:$head_dim_v,
+                       AnyRankedTensor:$page_table,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
 
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
   let summary = "Scaled dot product attention operation.";
@@ -5946,6 +6058,37 @@ def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
   let hasVerifier = 1;
 }
 
+def TTIR_TopKRouterGptOp : TTIR_NamedOp<"topk_router_gpt"> {
+  let summary = "Fused router linear layer for GPT-style mixture-of-experts models.";
+  let description = [{
+    A fused multi-core matmul + top-k for the GPT-OSS MoE router. Computes the
+    router logits via a linear projection (input @ weight + bias) and returns
+    the top-k expert indices and weights for each token.
+
+    Inputs:
+    - input:  [B, hidden_dim] bf16 hidden states
+    - weight: [hidden_dim, num_experts] bf16 router weight matrix
+    - bias:   [B, num_experts] bf16 router bias (pre-broadcast across batch)
+
+    Outputs:
+    - expert_indices: [B, k_padded] ui16 top-k expert indices
+    - expert_weights: [B, k_padded] bf16 top-k router weights
+
+    where k_padded = round_up(k, 8).
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$weight,
+                       AnyRankedTensor:$bias,
+                       I32Attr:$k,
+                       I32Attr:$num_experts);
+
+  let results = (outs AnyRankedTensor:$expert_indices,
+                      AnyRankedTensor:$expert_weights);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{
@@ -6001,7 +6144,7 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
+def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch", [TTIR_CCL]> {
     let summary = "Dispatch tokens to expert devices for MoE computation.";
     let description = [{
       Routes tokens to devices holding their selected experts via all-to-all
@@ -6028,7 +6171,48 @@ def TTIR_AllToAllDispatchOp : TTIR_NamedOp<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
-def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
+def TTIR_AllToAllDispatchMetadataOp : TTIR_NamedOp<"all_to_all_dispatch_metadata", [TTIR_CCL]> {
+    let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
+    let description = [{
+      Routes tokens along with expert scores to devices holding their selected
+      experts via all-to-all communication within a ring (cluster_axis).
+      Returns dispatched tokens (sparse — only routed token slots are filled),
+      all-gathered expert indices, and all-gathered expert scores.
+
+      Dimensions:
+        M = tokens per ring device
+        K = selected experts per token
+        D = total devices
+        E = total experts
+
+      Input shapes (per device, after mesh sharding):
+      - input_tensor: [1, 1, M, H]
+      - expert_indices: [1, 1, M, K]
+      - expert_scores: [1, 1, M, K]
+      - expert_mapping: [1, 1, D, E]
+        Each entry [d, e] is the device ID that owns expert e.
+
+      Output shapes (3D, per device, num_devices * M = tokens_global):
+      - dispatched: [1, tokens_global, H]
+      - indices: [1, tokens_global, K] (all-gathered across ring)
+      - scores: [1, tokens_global, K] (all-gathered across ring)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$dispatched,
+                       AnyRankedTensor:$indices,
+                       AnyRankedTensor:$scores);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine", [TTIR_CCL]> {
     let summary = "Combine expert outputs back to original token positions.";
     let description = [{
       Inverse of dispatch: gathers expert computation results from expert devices
@@ -6048,7 +6232,41 @@ def TTIR_AllToAllCombineOp : TTIR_NamedOp<"all_to_all_combine"> {
                          AnyRankedTensor:$expert_mapping,
                          I64Attr:$num_devices,
                          I64Attr:$cluster_axis,
-                         I64Attr:$num_experts_per_tok);
+                         I64Attr:$num_experts_per_tok,
+                         DefaultValuedAttr<I64Attr, "2">:$output_shard_dim);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_SelectiveReduceCombineOp : TTIR_NamedOp<"selective_reduce_combine",
+    [TTIR_CCL]> {
+    let summary = "Reduce and combine phase of the MoE pipeline.";
+    let description = [{
+      Takes dense blocks of expert-computed tokens from the MoE compute kernel,
+      sparsifies them, and sends tokens back to their originating devices via
+      fabric.
+
+      Input shapes:
+      - dense_input_tensor: dense expert output
+      - dense_activations_tensor: activation metadata
+      - dense_token_maps_tensor: token routing maps
+      - dense_token_counts_tensor: token counts per expert
+
+      Output shape:
+      - result: combined expert contributions
+    }];
+
+    let arguments = (ins AnyRankedTensor:$dense_input_tensor,
+                         AnyRankedTensor:$dense_activations_tensor,
+                         AnyRankedTensor:$dense_token_maps_tensor,
+                         AnyRankedTensor:$dense_token_counts_tensor,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$batch_size,
+                         UI32Attr:$seq_size,
+                         UI32Attr:$select_experts_k,
+                         UI32Attr:$experts);
 
     let results = (outs AnyRankedTensor:$result);
 

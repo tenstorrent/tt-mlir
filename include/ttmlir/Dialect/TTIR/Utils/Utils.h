@@ -242,6 +242,15 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
+// Given a "from" shape and a "to" shape with the same total element count,
+// find the dimension in `toShape` whose size and trailing-stride (product of
+// all dimensions to its right) match the dimension at position `dim` in
+// `fromShape`. This identifies the dimension preserved by a reshape between
+// the two shapes (i.e. neither split nor merged). Returns -1 if no such
+// dimension exists. `dim` uses LTR (left-to-right) indexing.
+int64_t findMatchingDim(llvm::ArrayRef<int64_t> fromShape,
+                        llvm::ArrayRef<int64_t> toShape, int64_t dim);
+
 // Given a reshape operation and an input dimension position (RTL - right to
 // left, 0 = rightmost), finds the corresponding output dimension position where
 // that dimension maps to. Returns -1 if no matching dimension is found.
@@ -252,6 +261,15 @@ int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
 // the product of trailing dimensions (stride) is preserved.
 // Dimension can be negative (counted from back, e.g. -1 for last dimension).
 bool preservesDim(mlir::Operation *op, int64_t dim);
+
+// If `originalOp` consumes values that were typecasted from the same source
+// dtype, add an inverse typecast pair after `newValue`. The first typecast
+// converts `newValue` back to that common source dtype and is returned for new
+// uses, while the inverse typecast preserves the original dtype for existing
+// users of `originalOp`.
+mlir::Value revertTypecastFolding(mlir::PatternRewriter &rewriter,
+                                  mlir::Operation *originalOp,
+                                  mlir::Value newValue);
 
 // In tt-metal, implicit broadcast is supported up to rank 5.
 // For rank >= 6, the device ops require a_dim == b_dim (and c_dim) on all
@@ -417,6 +435,53 @@ inline mlir::Value reshapeAndCastToType(mlir::PatternRewriter &rewriter,
   }
 
   return result;
+}
+
+// Converts a splat ElementsAttr to an i32/f32 attribute that can be used as a
+// fill value in ttir::FullOp. Returns nullptr on failure.
+inline mlir::Attribute splatToFillValue(mlir::OpBuilder &builder,
+                                        mlir::ElementsAttr valueAttr) {
+  // valueAttr is ElementsAttr (not SplatElementsAttr) because ConstantOp's
+  // value attribute uses that type; this helper is mainly for that case.
+  if (!valueAttr || !valueAttr.isSplat()) {
+    return nullptr;
+  }
+
+  if (auto integerType =
+          mlir::dyn_cast<mlir::IntegerType>(valueAttr.getElementType())) {
+    auto fillValue = valueAttr.getSplatValue<llvm::APInt>();
+    if (integerType.isSigned()) {
+      return builder.getI32IntegerAttr(fillValue.getSExtValue());
+    }
+    return builder.getI32IntegerAttr(fillValue.getZExtValue());
+  }
+  if (valueAttr.getElementType().isFloat()) {
+    auto fillValue = valueAttr.getSplatValue<mlir::APFloat>();
+    return builder.getF32FloatAttr(fillValue.convertToDouble());
+  }
+  return nullptr;
+}
+
+/// True when the reduction touches a dim before the last two (tile C/R).
+/// Those go through the D2M outer-reduction path and must not be decomposed.
+template <typename TTIRReductionOp>
+bool isOuterReduction(TTIRReductionOp op) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+  int64_t rank = inputType.getRank();
+  std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+  if (rank < 2 || !maybeDimArg.has_value()) {
+    return false;
+  }
+  for (auto dimAttr : *maybeDimArg) {
+    int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
+    if (dim < 0) {
+      dim += rank;
+    }
+    if (dim < rank - 2) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace mlir::tt::ttir::utils

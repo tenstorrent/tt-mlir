@@ -527,9 +527,10 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // Define the 2 target layouts for fallbacks
   std::vector<Layout> targetLayouts = {Layout::RowMajor, Layout::Tile};
 
-  // Define the 2 buffer types for fallbacks
-  std::vector<BufferType> targetBufferTypes = {BufferType::DRAM,
-                                               BufferType::SystemMemory};
+  // Only DRAM for fallbacks. SystemMemory cannot be used as tt-metal allocator
+  // rejects it and asserts. Anyway, there should not be a need to fallback to
+  // system memory.
+  std::vector<BufferType> targetBufferTypes = {BufferType::DRAM};
 
   for (Layout targetLayout : targetLayouts) {
     for (ttcore::DataType targetDataType : targetDataTypes) {
@@ -562,6 +563,13 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
 
         if (targetBufferType != result.getBufferType()) {
           result = result.withBufferType(targetBufferType);
+          // Recompute memref dimensions for DRAM: withBufferType(DRAM) sets
+          // grid to 1x1 but preserves the old per-core shard shape in the
+          // memref, producing incorrect dimensions for formerly-sharded
+          // layouts.
+          if (targetBufferType == BufferType::DRAM) {
+            result = result.withTensorShape(tensorShape);
+          }
         }
 
         fallbackLayoutsSet.insert(result);
@@ -696,13 +704,15 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
                         const std::vector<TTNNLayoutAttr> &inputLayouts) {
 
   // For all fallbacks, constrain output layout to be DRAM Interleaved.
+  // Use withTensorShape to recompute memref dimensions from the full tensor
+  // shape — withBufferType(DRAM) alone preserves per-core shard dimensions.
   OpConfig testConfig = originalConfig;
   if (testConfig.outputLayout) {
-    testConfig.outputLayout = originalConfig.outputLayout;
+    auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
     testConfig.outputLayout =
-        testConfig.outputLayout.withBufferType(BufferType::DRAM);
-    testConfig.outputLayout = testConfig.outputLayout.withMemoryLayout(
-        TensorMemoryLayout::Interleaved);
+        testConfig.outputLayout.withBufferType(BufferType::DRAM)
+            .withMemoryLayout(TensorMemoryLayout::Interleaved)
+            .withTensorShape(tensorType.getShape());
   }
 
   return op_constraint_validation::validateOperation(op, inputLayouts,

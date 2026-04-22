@@ -144,7 +144,7 @@ jobs:
           sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ env.UPLIFTED_TT_METAL_VERSION }}\")/" third_party/CMakeLists.txt
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         id: create-pr
         with:
           branch: ${{ inputs.branch_name || 'uplift' }}
@@ -162,7 +162,7 @@ jobs:
             ### Checklist
             - **Frontend CI passing links**
               - [ ] [tt-forge-onnx](https://github.com/tenstorrent/tt-forge-onnx/actions/workflows/on-pr.yml):
-              - [ ] [tt-xla (mlir-uplift-qualification)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
+              - [ ] [tt-xla (full-mlir-uplift-qualification.json)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
             - **Follow-up Actions**
               - [ ] **Issues filed** to follow up on incomplete changes (if any):
               - [ ] **Frontend fix PRs** ready (if needed by this uplift):

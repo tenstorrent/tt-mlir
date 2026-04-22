@@ -1,6 +1,11 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
-        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp Fusing/SDPAFusingPattern.cpp Fusing/TopKFusingPattern.cpp Fusing/FusionValidator.cpp)
+        set(OPMODEL_SRCS
+                Fusing/RoPEFusingPattern.cpp
+                Fusing/SDPAFusingPattern.cpp
+                Fusing/SplitQKVFusingPatterns.cpp
+                Fusing/TopKFusingPattern.cpp
+                Fusing/FusionValidator.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
@@ -8,6 +13,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/DevicePassesWrapper.cpp
+        OptimizerPasses/GreedyL1SpillManagement.cpp
         OptimizerPasses/GreedyMemoryLayoutPropagation.cpp
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
@@ -18,6 +24,9 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFileSplit.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
+        Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
+        Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
+        Decomposition/TTNNDecompositionPass.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
@@ -34,6 +43,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
+        Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
@@ -43,7 +53,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
-        Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/ScatterOpRewritePattern.cpp
@@ -52,7 +61,10 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
+        Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.cpp
         Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
+        Workarounds/Decomposition/LayerNormPreAllGatherZeroPadRewritePattern.cpp
+        Workarounds/Decomposition/LayerNormPostAllGatherDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/PadHighDimRewritePattern.cpp
@@ -71,10 +83,12 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         PUBLIC
         MLIRTTNNDialect
         MLIRTTNNAnalysis
+        MLIRTTNNDiagnostics
         MLIRTTCoreDialect
         PRIVATE
         TTMLIRTTIRToTTNN
         MLIRTTNNValidation
         TTMLIRTTNNToEmitC
+        TTMLIRTTIRToEmitPy
         TTMLIRTTNNToEmitPy
         )

@@ -220,7 +220,7 @@ module {
 
   // CHECK-LABEL: func @named_reductions_R
   func.func @named_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim C>
@@ -230,7 +230,7 @@ module {
 
   // CHECK-LABEL: func @named_reductions_C
   func.func @named_reductions_C(%arg: !ttype) -> (tensor<128x1xf32>) {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim R>
@@ -240,7 +240,7 @@ module {
 
   // CHECK-LABEL: func @named_reductions_RC
   func.func @named_reductions_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
     // CHECK: d2m.tile_reduce_sum{{.+}}d2m<reduce_dim RC>
@@ -250,7 +250,7 @@ module {
 
   // CHECK-LABEL: func @named_mean_reductions_R
   func.func @named_mean_reductions_R(%arg: !ttype) -> (tensor<1x96xf32>) {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
     // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim C>
@@ -260,7 +260,7 @@ module {
 
   // CHECK-LABEL: func @named_mean_reductions_C
   func.func @named_mean_reductions_C(%arg: !ttype) -> (tensor<128x1xf32>) {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
     // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim R>
@@ -270,7 +270,7 @@ module {
 
   // CHECK-LABEL: func @named_mean_reductions_RC
   func.func @named_mean_reductions_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
     // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim RC>
@@ -282,7 +282,7 @@ module {
   // CHECK-LABEL: func @named_min_reduction_R
   func.func @named_min_reduction_R(%arg: !ttype) -> (tensor<1x96xf32>) {
     // CHECK: d2m.tile_negative
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "parallel"]
     // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim C>
@@ -294,7 +294,7 @@ module {
   // CHECK-LABEL: func @named_min_reduction_C
   func.func @named_min_reduction_C(%arg: !ttype) -> (tensor<128x1xf32>) {
     // CHECK: d2m.tile_negative
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "reduction"]
     // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim R>
@@ -306,7 +306,7 @@ module {
   // CHECK-LABEL: func @named_min_reduction_RC
   func.func @named_min_reduction_RC(%arg: !ttype) -> (tensor<1x1xf32>) {
     // CHECK: d2m.tile_negative
-    // CHECK: d2m.full
+    // CHECK: d2m.tile_fill
     // CHECK: d2m.generic{{.+}}iterator_types = [#reduction, #reduction]
     // CHECK: linalg.generic{{.+}}iterator_types = ["reduction", "reduction"]
     // CHECK: d2m.tile_reduce_max{{.+}}d2m<reduce_dim RC>
@@ -459,5 +459,38 @@ module {
     // CHECK: d2m.tile_nez
     %0 = "ttir.logical_xor"(%lhs, %rhs) : (!ttype, !ttype) -> !ttype
     return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @named_rand
+  func.func @named_rand() -> !ttype {
+    // f32 rand: single d2m.generic + d2m.tile_rand, no cast.
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_rand
+    // CHECK-NOT: d2m.tile_typecast
+    %0 = "ttir.rand"() <{dtype = f32, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> !ttype
+    return %0 : !ttype
+  }
+
+  // CHECK-LABEL: func @named_rand_bf16
+  func.func @named_rand_bf16() -> tensor<128x96xbf16> {
+    // bf16 rand: f32 d2m.tile_rand followed by a d2m.tile_typecast to bf16.
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: d2m.tile_rand
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: d2m.tile_typecast
+    %0 = "ttir.rand"() <{dtype = bf16, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> tensor<128x96xbf16>
+    return %0 : tensor<128x96xbf16>
+  }
+
+  // CHECK-LABEL: func @named_rand_i32
+  func.func @named_rand_i32() -> tensor<128x96xi32> {
+    // i32 rand: f32 d2m.tile_rand followed by a d2m.tile_typecast to i32.
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: d2m.tile_rand
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: d2m.tile_typecast
+    %0 = "ttir.rand"() <{dtype = i32, high = 1.280000e+02 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> tensor<128x96xi32>
+    return %0 : tensor<128x96xi32>
   }
 }

@@ -457,4 +457,48 @@ void MyLogicalYOp::inferResultRanges(
                  getIndexRange(0, std::numeric_limits<uint32_t>::max()));
 }
 
+void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](NocAsyncReadBarrierOp op,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    for (Operation *it = op->getPrevNode(); it != nullptr;
+         it = it->getPrevNode()) {
+      if (mlir::isa<NocAsyncReadBarrierOp>(it)) {
+        rewriter.eraseOp(op);
+        return success();
+      }
+      if (mlir::isa<NocAsyncReadOp, NocAsyncReadTileOp,
+                    NocAsyncReadOnePacketSetStateOp,
+                    NocAsyncReadOnePacketWithStateOp, NocAsyncReadSetTridOp,
+                    NocAsyncReadOnePacketWithStateWithTridOp>(it) ||
+          it->getNumRegions() > 0) {
+        break;
+      }
+    }
+    return failure();
+  });
+}
+
+void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](NocAsyncWriteBarrierOp op,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    for (Operation *it = op->getPrevNode(); it != nullptr;
+         it = it->getPrevNode()) {
+      if (mlir::isa<NocAsyncWriteBarrierOp>(it)) {
+        rewriter.eraseOp(op);
+        return success();
+      }
+      if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
+                    NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
+                    NocAsyncWriteMulticastOp, NocAsyncWriteMulticastOnePacketOp,
+                    NocAsyncWriteMulticastLoopbackSrcOp>(it) ||
+          it->getNumRegions() > 0) {
+        break;
+      }
+    }
+    return failure();
+  });
+}
+
 } // namespace mlir::tt::ttkernel

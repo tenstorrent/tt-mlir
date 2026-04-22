@@ -2,11 +2,11 @@
 /env/ @nsmithtt @vwellsTT
 /env/patches/shardy* @tenstorrent/forge-developers-mlir-stablehlo
 *.fbs @nsmithtt
-/.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 LICENSE @nsmithtt
 
 # CI
 /.github/ @tenstorrent/forge-developers-mlir-devops
+/.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 
 # Build
 *.cmake @tenstorrent/forge-developers-mlir-build
@@ -16,6 +16,9 @@ LICENSE @nsmithtt
 *.md @nsmithtt @sdjordjevicTT
 /docs/ @nsmithtt @sdjordjevicTT
 /docs/src/specs/ttnn-optimizer.md @rpavlovicTT @odjuricicTT
+
+# Claude Skills
+/.claude/skills/ @nsmithtt @sdjordjevicTT @svuckovicTT
 
 # tt-mlir Bindings
 /include/ttmlir/Bindings/ @tapspatel
@@ -171,11 +174,11 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /tools/ttnn-jit/ @xanderchin @vtangTT @arminaleTT @sgholamiTT
 /test/ttnn-jit/ @xanderchin @vtangTT @arminaleTT @sgholamiTT
 
-# TTIRBuilder
-/tools/builder @tapspatel @jgrimTT @dlokeTT
-
-# ttrt
-/tools/ttrt @tapspatel @jgrimTT @dlokeTT
+# Tooling
+/tools/builder @tenstorrent/forge-developers-mlir-tooling
+/tools/chisel @tenstorrent/forge-developers-mlir-tooling
+/tools/golden @tenstorrent/forge-developers-mlir-tooling
+/tools/ttrt @tenstorrent/forge-developers-mlir-tooling
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer
@@ -190,7 +193,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /tools/scripts/ @nsmithtt @ddilbazTT
 
 # python golden tests
-test/python/golden/test_metal_dma.py @bgrady-tt
+test/python/golden/test_metal_dma.py @vtangTT
 
 # model snippet tests
 test/python/golden/mlir_snippets/models/ @nsmithtt @tapspatel

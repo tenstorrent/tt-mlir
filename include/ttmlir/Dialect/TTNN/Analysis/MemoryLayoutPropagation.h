@@ -13,10 +13,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -39,7 +41,7 @@ public:
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
       size_t beamWidth = 8, size_t maxInputCandidatesPerOperand = 64,
-      size_t maxReshardCandidates = 8,
+      size_t maxReshardCandidatesPerType = 4,
       std::unique_ptr<LayoutPropagationObserver> observer = nullptr);
 
   /// Destructor defined in .cpp (observer is forward-declared).
@@ -77,7 +79,7 @@ private:
   size_t maxInputCandidatesPerOperand = 64;
 
   /// Max reshard candidates per tensor type.
-  size_t maxReshardCandidates = 8;
+  size_t maxReshardCandidatesPerType = 4;
 
   /// Final candidate choice per op (set by backward pass, used by applyToIR).
   /// Maps op -> index into beamState[op]. For K=1, always 0.
@@ -96,11 +98,15 @@ private:
   /// Returns one vector per operand.
   std::vector<std::vector<InputCandidate>> getInputCandidateSets(Operation *op);
 
-  /// Generate reshard candidate layouts for a tensor type: sharded-to-sharded
-  /// variants derived from the current layout.
-  std::vector<TTNNLayoutAttr>
-  generateReshardCandidates(RankedTensorType tensorType,
-                            TTNNLayoutAttr currentLayout);
+  /// Generate reshard candidate layouts for a tensor type: sharded target
+  /// layouts from any source layout (interleaved or sharded).
+  /// When exploreInterleavedToSharded is false (default), only sharded source
+  /// layouts generate candidates. Set to true to also explore
+  /// interleaved-to-sharded reshards for ops that benefit from sharded inputs.
+  std::vector<TTNNLayoutAttr> generateReshardCandidates(
+      RankedTensorType tensorType, TTNNLayoutAttr currentLayout,
+      bool exploreInterleavedToSharded = false,
+      int64_t maxGridVolume = std::numeric_limits<int64_t>::max());
 
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
@@ -130,12 +136,10 @@ private:
 
   /// Validate that a reshard (ToMemoryConfigOp) from producerOutputLayout to
   /// reshardLayout is feasible via backend constraint validation.
-  /// producerResultIdx specifies which result of the producer to use for the
-  /// input shape (relevant for multi-output producers).
-  bool validateReshard(Operation *consumerOp, Operation *producerOp,
+  bool validateReshard(Operation *consumerOp,
+                       llvm::ArrayRef<int64_t> inputShape,
                        TTNNLayoutAttr producerOutputLayout,
-                       TTNNLayoutAttr reshardLayout,
-                       size_t producerResultIdx = 0);
+                       TTNNLayoutAttr reshardLayout);
 
   /// Map from tensor-operand index (used in producerCandidateIndices) back to
   /// the actual defining op. Skips non-tensor operands.
@@ -164,12 +168,14 @@ private:
   /// Apply per-op input layout filters, removing candidates that the op
   /// cannot consume efficiently.
   void applyInputLayoutFilter(std::vector<InputCandidate> &candidates,
-                              Operation *op, TTNNLayoutAttr currentLayout);
+                              Operation *op, unsigned operandIdx,
+                              TTNNLayoutAttr currentLayout);
 
   /// Generate and add reshard candidates for one operand.
   void addReshardCandidates(
-      std::vector<InputCandidate> &candidates, Operation *op, Value operand,
-      TTNNLayoutAttr currentLayout, RankedTensorType tensorType,
+      std::vector<InputCandidate> &candidates, Operation *op,
+      unsigned operandIdx, Value operand, TTNNLayoutAttr currentLayout,
+      RankedTensorType tensorType,
       const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
       Operation *producerOp, size_t resultIdx, size_t maxCandidates);
 

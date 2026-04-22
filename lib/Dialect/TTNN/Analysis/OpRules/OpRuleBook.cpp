@@ -28,7 +28,6 @@ OpRuleBook::getOutputHints(Operation * /*op*/,
   // Fallback: sharded configs -- tried only when NULL yields non-sharded
   // output.
   OutputHints result;
-  result.attemptL1Sharding = true;
   result.hints.push_back(OpConfig(TTNNLayoutAttr()));
   for (const auto &cfg : legalConfigs) {
     if (!cfg.outputLayout) {
@@ -40,6 +39,22 @@ OpRuleBook::getOutputHints(Operation * /*op*/,
     }
   }
   return result;
+}
+
+bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
+                                 const BeamCandidate &b) const {
+  // Prefer more sharded inputs: fewer interleaved reads = less NOC traffic.
+  auto countShardedInputs = [](const BeamCandidate &c) {
+    unsigned count = 0;
+    for (const auto &layout : c.inputLayouts) {
+      auto ml = layout.getMemLayout();
+      if (ml && isShardedMemoryLayout(ml.getValue())) {
+        ++count;
+      }
+    }
+    return count;
+  };
+  return countShardedInputs(a) > countShardedInputs(b);
 }
 
 //===----------------------------------------------------------------------===//
@@ -58,6 +73,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SDPARuleBook sdpa;
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
+  static RotaryEmbeddingRuleBook rotaryEmbedding;
+  static SplitQKVRuleBook splitQKV;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -74,6 +91,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SliceStaticOp::getOperationName(), &slice);
     reg(SliceDynamicOp::getOperationName(), &slice);
     reg(ReshapeOp::getOperationName(), &reshape);
+
+    // TODO(rpavlovicTT): split permute's from reshape's rule book
+    // https://github.com/tenstorrent/tt-mlir/issues/7988
     reg(PermuteOp::getOperationName(), &reshape);
     reg(PadOp::getOperationName(), &pad);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
@@ -84,6 +104,9 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(EmbeddingOp::getOperationName(), &embedding);
     reg(TypecastOp::getOperationName(), &typecast);
     reg(WhereOp::getOperationName(), &typecast);
+    reg(RotaryEmbeddingOp::getOperationName(), &rotaryEmbedding);
+    reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
+    reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;

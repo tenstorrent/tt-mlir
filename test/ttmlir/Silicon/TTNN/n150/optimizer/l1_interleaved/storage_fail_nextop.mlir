@@ -1,7 +1,7 @@
 // Test for L1InterleavedFallbackAnalysis: relu op should NOT be upgraded to L1 interleaved due to insufficient L1 memory when add op is overridden to use L1 height-sharded layout.
 // Tensor l1 usage cap is set to 0.6 to ensure that relu op cannot fit into L1 interleaved layout along with add op being sharded in L1.
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=false l1-interleaved-fallback-analysis-enabled=true override-output-layout=add_op=l1:height_sharded tensor-l1-usage-cap=0.6" -o %t_ttnn.mlir %s --mlir-print-debuginfo
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1 enable-greedy-optimizer=false l1-interleaved-fallback-analysis-enabled=true override-output-layout=add_op=l1:height_sharded tensor-l1-usage-cap=0.6" -o %t_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: FileCheck %s --input-file=%t_ttnn.mlir
 
 module @L1InterleavedTestLargeTensorSharded attributes {} {

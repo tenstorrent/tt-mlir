@@ -12,7 +12,7 @@
 //   6. Decode mode (seq_len=1)
 
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s | FileCheck %s
 
 module {
 
@@ -257,5 +257,148 @@ module {
     %rot_sin_perm = "ttir.permute"(%rot_sin) <{permutation = array<i64: 0, 2, 1, 3>}> : (tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16>
     %result = "ttir.add"(%x_cos, %rot_sin_perm) : (tensor<1x32x32x64xbf16>, tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16>
     return %result : tensor<1x32x32x64xbf16>
+  }
+
+  // =========================================================================
+  // Expanded (trig-identity) RoPE tests
+  // =========================================================================
+  //
+  // Pattern: concat(
+  //            subtract(x[:half] * cos_h, x[half:] * sin_h),
+  //            add(x[half:] * cos_h, x[:half] * sin_h))
+  // where cos_h and sin_h are half-dim embeddings.
+
+  // Basic expanded RoPE: GPT-OSS 20B decode shapes with broadcast cos/sin.
+  // cos_h/sin_h are [1,1,1,32] broadcast to [16,8,1,32] before multiply,
+  // matching the real model where cos/sin are computed once and broadcast.
+  // CHECK-LABEL: @rope_expanded_basic
+  // CHECK: "ttnn.rotary_embedding"
+  // CHECK-NOT: ttnn.subtract"
+  func.func @rope_expanded_basic(
+      %x: tensor<16x8x1x64xbf16>,
+      %cos_h: tensor<1x1x1x32xbf16>,
+      %sin_h: tensor<1x1x1x32xbf16>) -> tensor<16x8x1x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [16:i32, 8:i32, 1:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [16:i32, 8:i32, 1:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %ss = "ttir.multiply"(%second, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %sub = "ttir.subtract"(%fc, %ss) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %sc = "ttir.multiply"(%second, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %fs = "ttir.multiply"(%first, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %add = "ttir.add"(%sc, %fs) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x64xbf16>
+    return %result : tensor<16x8x1x64xbf16>
+  }
+
+  // Expanded RoPE with broadcast cos/sin: batch=32.
+  // CHECK-LABEL: @rope_expanded_broadcast_b32
+  // CHECK: "ttnn.rotary_embedding"
+  // CHECK-NOT: ttnn.subtract"
+  func.func @rope_expanded_broadcast_b32(
+      %x: tensor<32x8x1x64xbf16>,
+      %cos_h: tensor<1x1x1x32xbf16>,
+      %sin_h: tensor<1x1x1x32xbf16>) -> tensor<32x8x1x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 32, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 32, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [32:i32, 8:i32, 1:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<32x8x1x64xbf16>) -> tensor<32x8x1x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [32:i32, 8:i32, 1:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<32x8x1x64xbf16>) -> tensor<32x8x1x32xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_bc) : (tensor<32x8x1x32xbf16>, tensor<32x8x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+    %ss = "ttir.multiply"(%second, %sin_bc) : (tensor<32x8x1x32xbf16>, tensor<32x8x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+    %sub = "ttir.subtract"(%fc, %ss) : (tensor<32x8x1x32xbf16>, tensor<32x8x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+
+    %sc = "ttir.multiply"(%second, %cos_bc) : (tensor<32x8x1x32xbf16>, tensor<32x8x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+    %fs = "ttir.multiply"(%first, %sin_bc) : (tensor<32x8x1x32xbf16>, tensor<32x8x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+    %add = "ttir.add"(%sc, %fs) : (tensor<32x8x1x32xbf16>, tensor<32x8x1x32xbf16>) -> tensor<32x8x1x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<32x8x1x32xbf16>, tensor<32x8x1x32xbf16>) -> tensor<32x8x1x64xbf16>
+    return %result : tensor<32x8x1x64xbf16>
+  }
+
+  // Expanded RoPE with head_dim=128, broadcast cos/sin.
+  // CHECK-LABEL: @rope_expanded_head_dim_128
+  // CHECK: "ttnn.rotary_embedding"
+  // CHECK-NOT: ttnn.subtract"
+  func.func @rope_expanded_head_dim_128(
+      %x: tensor<32x8x1x128xbf16>,
+      %cos_h: tensor<1x1x1x64xbf16>,
+      %sin_h: tensor<1x1x1x64xbf16>) -> tensor<32x8x1x128xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 32, 8, 1, 1>}> : (tensor<1x1x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 32, 8, 1, 1>}> : (tensor<1x1x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [32:i32, 8:i32, 1:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<32x8x1x128xbf16>) -> tensor<32x8x1x64xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 64:i32], ends = [32:i32, 8:i32, 1:i32, 128:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<32x8x1x128xbf16>) -> tensor<32x8x1x64xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_bc) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+    %ss = "ttir.multiply"(%second, %sin_bc) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+    %sub = "ttir.subtract"(%fc, %ss) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+
+    %sc = "ttir.multiply"(%second, %cos_bc) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+    %fs = "ttir.multiply"(%first, %sin_bc) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+    %add = "ttir.add"(%sc, %fs) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x128xbf16>
+    return %result : tensor<32x8x1x128xbf16>
+  }
+
+  // Negative: wrong concat order (add first, subtract second) — not valid RoPE.
+  // CHECK-LABEL: @rope_expanded_wrong_concat_order_no_fuse
+  // CHECK-NOT: ttnn.rotary_embedding"
+  // CHECK: ttnn.concat"
+  func.func @rope_expanded_wrong_concat_order_no_fuse(
+      %x: tensor<16x8x1x64xbf16>,
+      %cos_h: tensor<1x1x1x32xbf16>,
+      %sin_h: tensor<1x1x1x32xbf16>) -> tensor<16x8x1x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [16:i32, 8:i32, 1:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [16:i32, 8:i32, 1:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %ss = "ttir.multiply"(%second, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %sub = "ttir.subtract"(%fc, %ss) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %sc = "ttir.multiply"(%second, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %fs = "ttir.multiply"(%first, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %add = "ttir.add"(%sc, %fs) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    // Wrong order: add first, subtract second.
+    %result = "ttir.concat"(%add, %sub) <{dim = 3 : si32}> : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x64xbf16>
+    return %result : tensor<16x8x1x64xbf16>
+  }
+
+  // Negative: sub.lhs uses second_half instead of first_half — breaks cross pattern.
+  // CHECK-LABEL: @rope_expanded_wrong_slice_roles_no_fuse
+  // CHECK-NOT: ttnn.rotary_embedding"
+  // CHECK: ttnn.concat"
+  func.func @rope_expanded_wrong_slice_roles_no_fuse(
+      %x: tensor<16x8x1x64xbf16>,
+      %cos_h: tensor<1x1x1x32xbf16>,
+      %sin_h: tensor<1x1x1x32xbf16>) -> tensor<16x8x1x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 16, 8, 1, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [16:i32, 8:i32, 1:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [16:i32, 8:i32, 1:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<16x8x1x64xbf16>) -> tensor<16x8x1x32xbf16>
+
+    // sub.lhs uses second_half*cos instead of first_half*cos
+    %sc = "ttir.multiply"(%second, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %fs = "ttir.multiply"(%first, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %sub = "ttir.subtract"(%sc, %fs) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %ss = "ttir.multiply"(%second, %sin_bc) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+    %add = "ttir.add"(%fc, %ss) : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x64xbf16>
+    return %result : tensor<16x8x1x64xbf16>
   }
 }

@@ -28,13 +28,19 @@ namespace mlir::tt::ttnn {
 //     ConcatOp: device close hang,
 //     https://github.com/tenstorrent/tt-metal/issues/39419
 //
-// Reshard exploration: disabled for all data movement ops.
+// Reshard exploration: disabled for all data movement ops except ConcatOp.
 //===----------------------------------------------------------------------===//
 
-/// ConcatOp: reject all sharded inputs, non-sharded output, no reshards.
+/// ConcatOp: sharded inputs/output re-enabled after tt-metal hang fix.
+/// https://github.com/tenstorrent/tt-metal/pull/39882
 struct ConcatRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter() const override;
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
+  bool isValidInputCombination(
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
@@ -43,17 +49,18 @@ struct ConcatRuleBook : OpRuleBook {
 /// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
 /// output, no reshards.
 struct SliceRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter() const override;
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// ReshapeOp, PermuteOp: reject width-sharded inputs, non-sharded output,
-/// no reshards.
+/// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
+/// View-eligible reshapes use NULL hint only (inherit input memory config).
+/// Non-view reshapes use non-sharded output hints.
 struct ReshapeRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter() const override;
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,

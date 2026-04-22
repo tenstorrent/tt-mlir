@@ -101,8 +101,10 @@ class Builder(metaclass=BuilderMeta):
         for name, mesh in zip(mesh_name, mesh_dict):
             self._meshes[name] = mesh
 
+        self._mesh_dict = mesh_dict
         self._mesh_shape = tuple(mesh_dict[0].values())
         self._mesh_name = mesh_name[0]
+        self._mesh_offset = [0] * len(self._mesh_shape)
 
         # Internal values to keep track
         self._root_module_insertion_point = None
@@ -638,6 +640,21 @@ class Builder(metaclass=BuilderMeta):
 
         return input_goldens
 
+    def _annotate_presharded_arg(self, operand: Operand):
+        if self.mesh_shape == (1, 1):
+            return
+
+        local_shape = operand.type.shape
+        element_type = self._get_type(operand).element_type
+        local_shape_rtt = RankedTensorType.get(local_shape, element_type)
+        local_shape_attr = ttcore.ir.LocalShapeAttr.get(self._ctx, local_shape_rtt)
+        shard_status_attr = ttcore.ir.ShardStatusAttr.get(
+            self._ctx, ttcore.ir.ShardStatus.Presharded
+        )
+
+        self.set_arg_attribute(operand, "ttcore.shard_status", shard_status_attr)
+        self.set_arg_attribute(operand, "ttcore.local_shape", local_shape_attr)
+
     def _set_golden_tensor(
         self,
         operand: Operand,
@@ -1089,6 +1106,8 @@ class Builder(metaclass=BuilderMeta):
                         )
                     elif isinstance(op, ttir.EmptyOp):
                         continue
+                    elif isinstance(op, ttnn.DeallocateOp):
+                        continue
                     else:
                         (
                             parsed_op,
@@ -1310,9 +1329,10 @@ class Builder(metaclass=BuilderMeta):
 
             for block in nested_func_op.body:
                 for op in block.operations:
-                    if isinstance(op, func.ReturnOp) or isinstance(
-                        op,
-                        ttir.EmptyOp,
+                    if (
+                        isinstance(op, func.ReturnOp)
+                        or isinstance(op, ttir.EmptyOp)
+                        or isinstance(op, ttnn.DeallocateOp)
                     ):
                         continue
                     elif isinstance(op, func.CallOp):

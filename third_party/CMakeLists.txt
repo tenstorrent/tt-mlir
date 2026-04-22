@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "23d35e2d6d74f047b770976bb75978b3ce7dffe1")
+set(TT_METAL_VERSION "90c914ef258b5cc92ad172f3604b784ec77253ca")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -63,7 +63,7 @@ set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
 set(TTNN_PY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
-set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libdevice.so)
+set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt-umd.so)
 set(TT_STL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_stl.so)
 set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
 set(TRACY_BINARY_DIR ${TTMETAL_BUILD_DIR}/tools/profiler/bin)

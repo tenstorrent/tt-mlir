@@ -51,6 +51,16 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNDecomposition : Pass<"ttnn-decomposition", "::mlir::ModuleOp"> {
+  let summary = "Decompose TTNN ops into primitive equivalents.";
+  let description = [{
+    This pass decomposes TTNN ops that cannot be handled by any available
+    fused kernel into sequences of primitive TTNN ops. Unlike workarounds,
+    these decompositions are permanent and functional - they apply when no
+    suitable kernel exists for the given op configuration (e.g. shape).
+  }];
+}
+
 def TTNNCreateInputGenerators: Pass<"ttnn-create-input-gens", "::mlir::ModuleOp"> {
   let summary = "Create input generators for the forward functions.";
   let description = [{
@@ -403,13 +413,13 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
 }
 
 def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
-  let summary = "Convert weight tensors to a specified dtype in matmul and linear operations.";
+  let summary = "Convert weight tensors to a specified dtype in matmul, linear, and sparse_matmul operations.";
   let description = [{
-    This pass converts weight tensors in matrix multiplication and linear
-    operations to a specified data type while keeping activations and outputs
-    in high precision (bf16/f32).
+    This pass converts weight tensors in matrix multiplication, linear, and
+    sparse matrix multiplication operations to a specified data type while
+    keeping activations and outputs in high precision (bf16/f32).
 
-    For matmul/linear operations:
+    For matmul/linear/sparse_matmul operations:
       - Inserts ttnn.typecast operations to convert weights to the target dtype
       - Only converts weights that trace back to constant/parameter arguments
       - Keeps activation inputs and outputs in their original precision
@@ -447,8 +457,8 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     The metrics are serialized to JSON format for debugging, profiling, and external analysis.
 
     Usage:
-    Enable performance metrics collection in the TTIR to TTNN backend pipeline using:
-    --ttir-to-ttnn-backend-pipeline="ttnn-perf-metrics-enabled=true"
+    Enable performance metrics collection in the TTIR to TTNN runtime pipeline using:
+    --ttir-to-ttnn-runtime-pipeline="ttnn-perf-metrics-enabled=true"
 
     Output file naming:
     - If --ttnn-perf-metrics-output-file is not specified or is the default, files are automatically
@@ -609,6 +619,21 @@ def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
+  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let description = [{
+    This pass uses Belady's optimal page replacement algorithm to enforce L1
+    memory budgets by spilling tensors to DRAM when necessary.
+  }];
+  let options = [
+    Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
+           "Enable decision trace JSON output.">,
+    Option<"decisionTraceDir", "decision-trace-dir", "std::string",
+           "\"ttrt-artifacts/decision_trace\"",
+           "Directory for decision trace JSON output.">,
+  ];
+}
+
 def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagation", "::mlir::ModuleOp"> {
   let summary = "Greedy edge-based memory layout propagation for all operands.";
   let description = [{
@@ -628,9 +653,9 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"maxInputCandidatesPerOperand", "max-input-candidates-per-operand",
            "int64_t", "64",
            "Maximum number of input candidates per operand before truncation.">,
-    Option<"maxReshardCandidates", "max-reshard-candidates",
-           "int64_t", "8",
-           "Maximum number of reshard candidates per tensor type.">,
+    Option<"maxReshardCandidatesPerType", "max-reshard-candidates-per-type",
+           "int64_t", "4",
+           "Maximum reshard candidates per sharding type (block, height, width).">,
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
            "Enable decision trace JSON output.">,
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",

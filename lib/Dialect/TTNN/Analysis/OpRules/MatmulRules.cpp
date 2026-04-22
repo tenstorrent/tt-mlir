@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
@@ -10,6 +11,18 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttnn {
+
+LayoutFilterFn MatmulRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  // Operand 1 (RHS/weights): reject all sharded layouts.
+  // DRAM width-sharded RHS is a special case in tt-metal but not yet
+  // supported by our program config generation.
+  if (operandIdx == 1) {
+    return layout_filter_utils::rejectAllSharded;
+  }
+
+  // Sharding activation/bias operands is supported.
+  return nullptr;
+}
 
 static bool isL1Interleaved(const OpConfig &config) {
   if (!config.outputLayout) {
@@ -51,7 +64,7 @@ OutputHints MatmulRuleBook::getOutputHints(
     filtered.push_back(cfg);
   }
 
-  return OutputHints{filtered, {}, /*attemptL1Sharding=*/true};
+  return OutputHints{filtered, {}};
 }
 
 void MatmulRuleBook::applyOpSpecificAttrs(

@@ -12,9 +12,10 @@
 // CHECK-NOT: # File:
 // CHECK: import ttnn
 // CHECK: import utils
+// CHECK: import ttir_cpu
 // CHECK-NOT: from consteval import
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}(
-// CHECK:   ttnn.add.golden_function(
+// CHECK:   ttir_cpu.add(
 // CHECK-LABEL: def forward_const_eval_0(
 // CHECK: _cached_forward = {}
 // CHECK: def forward(input

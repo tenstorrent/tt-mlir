@@ -15,9 +15,12 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
+#include "ttmlir/Dialect/TTNN/Diagnostics/CompileTimeStatsObserver.h"
+#include "ttmlir/Dialect/TTNN/Diagnostics/DecisionTrace.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -59,7 +62,7 @@ public:
     rowMajorEnabled = opts.rowMajorEnabled;
     beamWidth = opts.beamWidth;
     maxInputCandidatesPerOperand = opts.maxInputCandidatesPerOperand;
-    maxReshardCandidates = opts.maxReshardCandidates;
+    maxReshardCandidatesPerType = opts.maxReshardCandidatesPerType;
     enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
@@ -109,6 +112,10 @@ public:
 
     if (!enableL1ShardingLayouts) {
       clearShardedLayouts(tensorTypePossibleLayouts);
+
+      // Clear interleaved layouts that have L1 buffer type too, as we dont want
+      // to consider any L1 layouts if L1 sharding layouts are disabled.
+      clearL1InterleavedLayouts(tensorTypePossibleLayouts);
     }
 
     // Step 3: Walk operations and run per-op analyses.
@@ -163,12 +170,43 @@ public:
                    "{1} legal op configs.",
                    func.getName(), legalConfigs.size());
 
+      std::unique_ptr<LayoutPropagationObserver> observer;
+      if (enableDecisionTrace) {
+        if (enableCompileTimeStats) {
+          TTMLIR_TRACE(
+              ttmlir::LogComponent::GreedyOptimizer,
+              "Both decision-trace and compile-time-stats enabled; "
+              "using decision trace (options are mutually exclusive).");
+        }
+        observer = std::make_unique<DecisionTraceObserver>();
+      } else if (enableCompileTimeStats) {
+        observer = std::make_unique<CompileTimeStatsObserver>();
+      }
+
       MemoryLayoutPropagation propagation(
           func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
-          static_cast<size_t>(maxReshardCandidates));
+          static_cast<size_t>(maxReshardCandidatesPerType),
+          std::move(observer));
       propagation.run();
+
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after reshard insertion, operand types may have changed).
+      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
+
+      // Write decision trace JSON if enabled.
+      if (enableDecisionTrace) {
+        if (const DecisionTrace *dt =
+                propagation.getObserver()->getDecisionTrace()) {
+          if (DecisionTrace::writeTraceForFunc(decisionTraceDir, func.getName(),
+                                               *dt)) {
+            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                         "Decision trace written to {0}/{1}", decisionTraceDir,
+                         func.getName());
+          }
+        }
+      }
     });
 #endif
   }

@@ -66,6 +66,17 @@ pytestmark = pytest.mark.frontend("ttir")
         ([(3, 2, 96, 64), (3, 2, 32, 64), (3, 2, 64, 64)], 2),
         ([(4, 2, 64, 64), (4, 1, 64, 64), (4, 3, 64, 64)], 1),
         ([(3, 3, 64, 64), (2, 3, 64, 64), (1, 3, 64, 64)], 0),
+        ##################################
+        #    Large tensors (multi-core)  #
+        ##################################
+        # These exercise the grid selection path where concat inputs are
+        # large enough that single-core allocation would overflow L1,
+        # requiring the to_layout ops to distribute data across cores.
+        ([(1, 32, 128, 64), (1, 32, 128, 64)], 3),
+        ([(1, 32, 128, 128), (1, 32, 128, 128)], 3),
+        ([(1, 32, 64, 128), (1, 32, 64, 128)], 2),
+        ([(512, 512), (512, 512)], 1),
+        ([(512, 512), (512, 512)], 0),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
@@ -105,7 +116,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_concat_op(
     shapes: List[Shape],
     dim: int,
@@ -180,7 +191,7 @@ def test_pad(
     ],
 )
 @pytest.mark.parametrize("value", [0])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_pad_op(
     shape: Shape,
     padding: List[int],
@@ -377,7 +388,7 @@ def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
 
 @x86_only
 @pytest.mark.parametrize("shapes", [[(128, 128), (16384,)]], ids=shapes_list_str)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_reshape_op(
     shapes: List[Shape],
     request,
@@ -574,7 +585,7 @@ def test_transpose(
 @x86_only
 @pytest.mark.parametrize("shape", [(32, 64, 128)], ids=shape_str)
 @pytest.mark.parametrize("transpose_dims", [(0, 1)])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_cpu_hoistable_transpose_op(
     shape: Shape,
     transpose_dims: List[int],

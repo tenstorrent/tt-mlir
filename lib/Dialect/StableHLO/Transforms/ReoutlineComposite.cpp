@@ -152,8 +152,35 @@ static bool analyzeBoundary(const llvm::SmallVector<mlir::Operation *> &ops,
     return orderByBlockPos(a, b); // both unknown: fallback
   });
 
+  // Collect reoutline.result_pos annotations set by FlattenOrConvertComposites
+  // pass, so the original result order can be restored.
+  llvm::DenseMap<mlir::Value, int64_t> escapeResultPos;
+  for (mlir::Value v : escapeSet) {
+    if (mlir::Operation *def = v.getDefiningOp()) {
+      if (auto posAttr = def->getAttrOfType<mlir::DenseI64ArrayAttr>(
+              utils::kReoutlineResultPosAttr)) {
+        unsigned resultIdx = mlir::cast<mlir::OpResult>(v).getResultNumber();
+        if (resultIdx < posAttr.size() && posAttr[resultIdx] >= 0) {
+          escapeResultPos[v] = posAttr[resultIdx];
+        }
+      }
+    }
+  }
+
   escapes.assign(escapeSet.begin(), escapeSet.end());
-  llvm::sort(escapes, orderByBlockPos);
+  llvm::sort(escapes, [&](mlir::Value a, mlir::Value b) {
+    auto itA = escapeResultPos.find(a);
+    auto itB = escapeResultPos.find(b);
+    bool hasA = (itA != escapeResultPos.end());
+    bool hasB = (itB != escapeResultPos.end());
+    if (hasA && hasB) {
+      return itA->second < itB->second;
+    }
+    if (hasA != hasB) {
+      return hasA; // prioritize known positions before unknowns
+    }
+    return orderByBlockPos(a, b); // fallback to block order
+  });
 
   return true;
 }

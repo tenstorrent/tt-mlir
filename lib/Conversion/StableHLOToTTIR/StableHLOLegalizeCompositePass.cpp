@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
@@ -24,6 +25,7 @@
 
 using namespace mlir;
 using namespace mlir::tt;
+using namespace mlir::tt::stablehlo::utils;
 
 namespace mlir::tt::ttir {
 
@@ -273,9 +275,66 @@ public:
   }
 };
 
-// Special handling for tenstorrent.rms_norm -> ttir.rms_norm
-// Converts normalized_shape tensor attribute to DenseI64ArrayAttr
-// and sets operandSegmentSizes for AttrSizedOperandSegments
+// Shared helper: extract normalized_shape and epsilon from a DictionaryAttr,
+// build the named attributes and operand segment sizes, and replace srcOp
+// with ttir::RMSNormOp.
+static LogicalResult convertToTTIRRMSNorm(mlir::Operation *srcOp,
+                                          mlir::ValueRange operands,
+                                          DictionaryAttr compositeAttrs,
+                                          ConversionPatternRewriter &rewriter) {
+  auto outputType = mlir::cast<RankedTensorType>(srcOp->getResult(0).getType());
+
+  auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+  SmallVector<int64_t> normalizedShapeVec;
+
+  if (auto denseAttr =
+          mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
+    for (auto val : denseAttr.getValues<int64_t>()) {
+      normalizedShapeVec.push_back(val);
+    }
+  } else if (auto arrayAttr = mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
+    for (auto attr : arrayAttr) {
+      normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
+    }
+  } else {
+    return rewriter.notifyMatchFailure(
+        srcOp, "normalized_shape must be a dense tensor or array attribute");
+  }
+
+  auto normalizedShapeDenseAttr =
+      rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
+
+  auto epsilonAttr = compositeAttrs.get("epsilon");
+
+  SmallVector<NamedAttribute> namedAttrs;
+  namedAttrs.push_back(
+      rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
+  if (epsilonAttr) {
+    namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+  }
+
+  // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias]
+  size_t numOperands = operands.size();
+  SmallVector<int32_t> segmentSizes;
+  if (numOperands == 3) { // input, weight, bias
+    segmentSizes = {1, 1, 1};
+  } else if (numOperands == 2) { // input, weight
+    segmentSizes = {1, 1, 0};
+  } else { // input
+    segmentSizes = {1, 0, 0};
+  }
+
+  namedAttrs.push_back(rewriter.getNamedAttr(
+      "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+  rewriter.replaceOpWithNewOp<ttir::RMSNormOp>(srcOp, outputType, operands,
+                                               namedAttrs);
+  return success();
+}
+
+// Converts stablehlo.composite @tenstorrent.rms_norm -> ttir.rms_norm.
+// Used in the non-sharded path where composites are not converted to
+// custom_calls.
 class TenstorrentRMSNormConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 
@@ -290,62 +349,125 @@ public:
     if (srcOp.getName() != "tenstorrent.rms_norm") {
       return failure();
     }
-
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
           srcOp, "CompositeOp must have exactly one result.");
+    }
+    return convertToTTIRRMSNorm(srcOp, adaptor.getOperands(),
+                                srcOp.getCompositeAttributes(), rewriter);
+  }
+};
+
+// Converts stablehlo.custom_call @tenstorrent.rms_norm -> ttir.rms_norm.
+// Used in the sharded path where composites with custom sharding rules
+// were converted to custom_calls by FlattenOrConvertCompositesPass.
+class CustomCallRMSNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallRMSNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != kTTRMSNormCustomCallTargetName ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
+    }
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing attributes on converted custom_call op");
+    }
+    return convertToTTIRRMSNorm(srcOp, adaptor.getOperands(), compositeAttrs,
+                                rewriter);
+  }
+};
+
+// Converts stablehlo.custom_call @tenstorrent.distributed_rms_norm ->
+// ttir.distributed_rms_norm.
+// This handles custom_calls created by FuseDistributedCustomCallsPass when
+// fusing all_gather + rms_norm + all_slice into a distributed variant.
+// Attributes (cluster_axis, epsilon) are metadata read from an attribute.
+// Operands: input, optional weight.
+class CustomCallDistributedRMSNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallDistributedRMSNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() !=
+        mlir::tt::stablehlo::utils::kDistributedRmsNormTargetName) {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
     }
 
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
-    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
-
-    auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
-    SmallVector<int64_t> normalizedShapeVec;
-
-    if (auto denseAttr =
-            mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
-      for (auto val : denseAttr.getValues<int64_t>()) {
-        normalizedShapeVec.push_back(val);
-      }
-    } else if (auto arrayAttr =
-                   mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
-      for (auto attr : arrayAttr) {
-        normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
-      }
-    } else {
+    auto compositeAttrs =
+        mlir::dyn_cast_or_null<DictionaryAttr>(srcOp->getDiscardableAttr(
+            mlir::tt::stablehlo::utils::kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
       return rewriter.notifyMatchFailure(
-          srcOp, "normalized_shape must be a dense tensor or array attribute");
+          srcOp, "missing attributes on converted custom_call op");
     }
 
-    auto normalizedShapeDenseAttr =
-        rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
-
-    auto epsilonAttr = compositeAttrs.get("epsilon");
+    // Extract cluster_axis attribute and convert to UI32.
+    auto clusterAxisAttr = compositeAttrs.get("cluster_axis");
+    if (!clusterAxisAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "distributed_rms_norm requires cluster_axis attribute");
+    }
+    auto intAttr = mlir::dyn_cast<IntegerAttr>(clusterAxisAttr);
+    if (!intAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "cluster_axis must be an integer attribute");
+    }
+    auto ui32ClusterAxisAttr =
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(intAttr.getInt()));
 
     SmallVector<NamedAttribute> namedAttrs;
     namedAttrs.push_back(
-        rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
+        rewriter.getNamedAttr("cluster_axis", ui32ClusterAxisAttr));
+
+    auto epsilonAttr = compositeAttrs.get("epsilon");
     if (epsilonAttr) {
       namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
     }
 
-    // ttir.rms_norm has AttrSizedOperandSegments: [input, weight, bias, output]
+    // ttir.distributed_rms_norm has AttrSizedOperandSegments:
+    //   [input, weight, residual]
     size_t numOperands = adaptor.getOperands().size();
     SmallVector<int32_t> segmentSizes;
-    if (numOperands == 3) { // input, weight, bias
+    if (numOperands == 3) { // input, weight, residual
       segmentSizes = {1, 1, 1};
     } else if (numOperands == 2) { // input, weight
       segmentSizes = {1, 1, 0};
-    } else { // input
+    } else { // input only
       segmentSizes = {1, 0, 0};
     }
 
     namedAttrs.push_back(rewriter.getNamedAttr(
         "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-    rewriter.replaceOpWithNewOp<ttir::RMSNormOp>(
+    rewriter.replaceOpWithNewOp<ttir::DistributedRMSNormOp>(
         srcOp, outputType, adaptor.getOperands(), namedAttrs);
     return success();
   }
@@ -604,6 +726,152 @@ public:
   }
 };
 
+// Special handling for tenstorrent.scaled_dot_product_attention ->
+// ttir.scaled_dot_product_attention
+// Extracts is_causal, scale from composite attributes and sets
+// operandSegmentSizes for AttrSizedOperandSegments
+class TenstorrentScaledDotProductAttentionConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentScaledDotProductAttentionConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.scaled_dot_product_attention") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands < 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.scaled_dot_product_attention composite op must have "
+          "at least 3 operands (query, key, value).");
+    }
+
+    // For now, frontend composite doesnt support attention_sink.
+    // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
+    if (numOperands > 4) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.scaled_dot_product_attention composite op must have "
+          "at most 4 operands (query, key, value, attention_mask). "
+          "Attention sink is not supported yet.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    SmallVector<NamedAttribute> namedAttrs;
+
+    bool isCausal = true;
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
+        isCausal = attr.getValue();
+        namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
+      }
+      if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
+        namedAttrs.push_back(rewriter.getNamedAttr(
+            "scale", rewriter.getF32FloatAttr(
+                         static_cast<float>(attr.getValueAsDouble()))));
+      }
+    }
+
+    // The composite's first 3 operands are always query, key, value.
+    // A 4th boundary input (attention_mask) is present only when
+    // is_causal is false and the frontend marked 4 inputs.
+    bool hasAttnMask = !isCausal && numOperands == 4;
+    SmallVector<Value> sdpaOperands = {adaptor.getOperands()[0],
+                                       adaptor.getOperands()[1],
+                                       adaptor.getOperands()[2]};
+    if (hasAttnMask) {
+      sdpaOperands.push_back(adaptor.getOperands()[3]);
+    }
+
+    // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
+    //   [query, key, value, attention_mask, attention_sink]
+    SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+        srcOp, outputType, sdpaOperands, namedAttrs);
+    return success();
+  }
+};
+
+class TenstorrentGatherConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentGatherConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.gather") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly 2 operands");
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.gather must have exactly one result");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    IntegerAttr dimAttr = rewriter.getI32IntegerAttr(0);
+
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+        dimAttr =
+            rewriter.getI32IntegerAttr(static_cast<int32_t>(attr.getInt()));
+      }
+    }
+
+    auto input = adaptor.getOperands()[0];
+    auto index = adaptor.getOperands()[1];
+
+    // Cast the index tensor to UInt32 type if it isn't already UInt32 or UInt16
+    auto indexType = mlir::cast<RankedTensorType>(index.getType());
+    if (!indexType.getElementType().isInteger()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Index tensor must be of an integer type");
+    }
+    if (!indexType.getElementType().isUnsignedInteger(32) &&
+        !indexType.getElementType().isUnsignedInteger(16)) {
+      auto ui32Type = RankedTensorType::get(indexType.getShape(),
+                                            rewriter.getIntegerType(32, false));
+      index =
+          rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
+                                                dimAttr);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -639,10 +907,14 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
+  patterns.add<CustomCallRMSNormConversionPattern>(context);
+  patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
+  patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
+  patterns.add<TenstorrentGatherConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt
