@@ -1,4 +1,8 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-unscheduled %s -split-input-file -verify-diagnostics
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access-scheduled %s -split-input-file -verify-diagnostics
 
 #l1_ = #ttcore.memory_space<l1>
 
