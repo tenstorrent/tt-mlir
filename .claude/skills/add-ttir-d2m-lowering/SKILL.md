@@ -87,13 +87,6 @@ In `test/python/golden/ttir_ops/eltwise/test_ttir_unary.py` (or sibling), mark t
 lowering exists. `SkipIf` is already imported from `test_utils`; prefer it over the more verbose
 `Marks(pytest.mark.skip_config([...]), …)` form.
 
-**Adding a TTIR op without TTNN support:** this is OK for the TTMetal-only path, but flag it to
-the TTNN codeowners (`@sdjordjevicTT`'s team) in the PR so they know the op is intentionally
-TTIR-only for now.
-
-**PR hygiene:** use a descriptive PR title (e.g. `[d2m] add exp2/selu/frac/... tile ops`, not
-`ops` or `first go`) so the squashed commit message is useful in `git log`.
-
 Run `cmake --build build` after changes.
 
 ## Checklist
@@ -104,4 +97,3 @@ Run `cmake --build build` after changes.
 - [ ] `TTKernelIncludesMap.h`: entries for any new `*_tile` / `*_tile_init` callees (skip if the callee is already mapped). Do **not** touch `TTKernelToCpp.cpp`.
 - [ ] Lit: chain the new op into the existing `named_elementwise` func in `named_to_generic.mlir` (no new func). No D2MToTTKernel lit required.
 - [ ] Golden: one `mlir_snippets/ttir/ttir_<op>.mlir` **per new op** + `mapping.py` golden (take `FloatAttr`/`IntegerAttr` positionally and `unpack_mlir_attr` inside for ops with attrs — no Python defaults) + `ttir_builder.py` `@tag`/`@parse`/`@split` + `SkipIf("ttnn", "emitc", "emitpy", "sim")` for ttmetal-only-on-silicon (no TTNN)
-- [ ] PR: descriptive title for squash-merge; if the op has no TTNN support, give `@sdjordjevicTT`'s team a heads-up
