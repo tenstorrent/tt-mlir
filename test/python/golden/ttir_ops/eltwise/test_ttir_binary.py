@@ -193,7 +193,9 @@ binary_ops = [
     ],
     ids=["f32", "bf16", "i32", "i64"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -319,7 +321,9 @@ def create_logical_op_goldens(
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 @pytest.mark.parametrize("test_fn", logical_ops)
 def test_logical_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -599,9 +603,9 @@ binary_bitwise_ops = [
 
 binary_bitwise_dtypes = [
     torch.int32 | SkipIf("sim"),
-    torch.uint32,
-    torch.uint16,
-    torch.uint8,
+    torch.uint32 | SkipIf("sim"),
+    torch.uint16 | SkipIf("sim"),
+    torch.uint8 | SkipIf("sim"),
 ]
 
 
@@ -659,8 +663,8 @@ binary_logical_shift_ops = [
 
 binary_logical_shift_dtypes = [
     torch.int32 | SkipIf("sim"),
-    torch.uint32,
-    torch.uint16,
+    torch.uint32 | SkipIf("sim"),
+    torch.uint16 | SkipIf("sim"),
 ]
 
 
@@ -769,7 +773,9 @@ binary_comparison_ops = [
     ],
     ids=["f32", "bf16", "i32", "i64", "i1", "u8"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
 def test_comparison_ops(
     test_fn: Callable,
@@ -929,7 +935,10 @@ hoisted_binary_shapes = [
 @pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops_float)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_binary_ops_float(
     test_fn: Callable,
     shapes: List[Shape],
@@ -960,7 +969,10 @@ def test_cpu_hoistable_binary_ops_float(
 @pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops_float_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_binary_ops_float_integer(
     test_fn: Callable,
     shapes: List[Shape],
@@ -990,7 +1002,10 @@ def test_cpu_hoistable_binary_ops_float_integer(
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 @pytest.mark.parametrize("test_fn", logical_ops)
 def test_hoisted_logical_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -1025,7 +1040,10 @@ def test_hoisted_logical_ops(
 @pytest.mark.parametrize("shapes", hoisted_binary_shapes, ids=shapes_list_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("test_fn", hoisted_binary_ops_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_binary_ops_integer(
     test_fn: Callable,
     shapes: List[Shape],
@@ -1056,7 +1074,10 @@ def test_cpu_hoistable_binary_ops_integer(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("test_fn", binary_logical_shift_ops)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_hoisted_logical_shift_ops(
     test_fn: Callable,
     shape: Shape,
@@ -1237,7 +1258,7 @@ def test_binary_ops_broadcast_shard_dims(
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -1303,7 +1324,10 @@ def test_binary_eltwise_ops_implicit_broadcast(
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
     # Separate from the generic hoisted test because pow needs torch.abs() on
     # the base operand to avoid negative bases with fractional exponents (NaN).
