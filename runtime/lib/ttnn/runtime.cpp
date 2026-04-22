@@ -73,7 +73,8 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
 
   ::ttnn::Shape ttnnShape(shape);
-  ::ttnn::DataType ttnnDataType = utils::toTTNNDataType(dataTypeToUse);
+  ::ttnn::DataType ttnnDataType =
+      unifiedOpLib::operations::utils::toTTNNDataType(dataTypeToUse);
 
   switch (ttnnDataType) {
   case ::ttnn::DataType::FLOAT32:
@@ -837,8 +838,9 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
       input->desc()->layout()->memory_desc()->memory_config();
 
   ::ttnn::Layout inputLayout = utils::inferLayoutFromTileShape(input);
-  ::ttnn::DataType inputDataType = utils::toTTNNDataType(
-      input->desc()->layout()->memory_desc()->data_type());
+  ::ttnn::DataType inputDataType =
+      unifiedOpLib::operations::utils::toTTNNDataType(
+          input->desc()->layout()->memory_desc()->data_type());
   ::ttnn::StorageType inputStorageType = utils::toTTNNStorageType(
       input->desc()->layout()->memory_desc()->storage_type());
 

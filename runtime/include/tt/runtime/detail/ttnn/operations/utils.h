@@ -22,9 +22,6 @@ bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 ::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRef *tensorRef);
 
-::ttnn::operations::unary::UnaryOpType
-toTTNNUnaryOpType(::tt::target::ttnn::EltwiseUnaryOpType unaryOpType);
-
 ::ttnn::operations::unary::UnaryWithParam
 toTTNNUnaryWithParam(const ::tt::target::ttnn::UnaryWithParam &unaryWithParam);
 
