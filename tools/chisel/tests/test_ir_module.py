@@ -15,7 +15,7 @@ def _iterate_programs(binary):
         yield i, binary.get_program_name(i)
 
 
-def test_ops(ir_module, binary):
+def test_ops(ir_module, binary, mlir_source_path):
     """Cross-validate walk order, debug info, and tensor shapes against the flatbuffer."""
     for prog_idx, prog_name in _iterate_programs(binary):
         mlir_ops = ir_module.get_function_ops(prog_name)
@@ -24,6 +24,7 @@ def test_ops(ir_module, binary):
         assert len(mlir_ops) == len(fb_ops), (
             f"Program '{prog_name}': count mismatch "
             f"(MLIR={len(mlir_ops)}, FB={len(fb_ops)})"
+            f"\nMLIR source: {mlir_source_path}"
         )
 
         for i, (mlir_op, fb_op) in enumerate(zip(mlir_ops, fb_ops, strict=True)):
@@ -33,4 +34,5 @@ def test_ops(ir_module, binary):
                 f"Program '{prog_name}' op {i}: debug info mismatch\n"
                 f"  MLIR: {mlir_debug}\n"
                 f"  FB:   {fb_debug}"
+                f"\nMLIR source: {mlir_source_path}"
             )
