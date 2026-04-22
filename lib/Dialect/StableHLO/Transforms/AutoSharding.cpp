@@ -577,6 +577,11 @@ public:
       rootModule.emitWarning("AutoSharding: no FuncOp found, skipping");
       return;
     }
+    if (std::distance(funcOps.begin(), funcOps.end()) > 1) {
+      rootModule.emitWarning(
+          "AutoSharding: multiple FuncOps found (e.g. from composite ops); "
+          "only the first will be used for sharding enumeration");
+    }
 
     LLVM_DEBUG(llvm::dbgs()
                << "AutoSharding: mesh='" << meshName << "', sharding axis='"
@@ -595,7 +600,11 @@ public:
     std::string dumpRoot;
     if (!dumpDir.empty()) {
       dumpRoot = createDumpRoot(dumpDir);
-      if (!dumpRoot.empty()) {
+      if (dumpRoot.empty()) {
+        rootModule.emitWarning(
+            "AutoSharding: failed to create dump directory '")
+            << dumpDir << "', continuing without dumping";
+      } else {
         LLVM_DEBUG(llvm::dbgs()
                    << "AutoSharding: dumping to " << dumpRoot << "\n");
       }

@@ -25,6 +25,7 @@
 // =============================================================================
 
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingCostModel.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -127,10 +128,19 @@ static double evaluateMemoryBenefit(
         cast<RankedTensorType>(funcOp.getArgument(argIdx).getType());
     int64_t numElements = tensorType.getNumElements();
 
-    // Heuristic: tensors with rank <= 4 and > 1024 elements are likely model
-    // weights/parameters rather than activations.
+    // When ttcore.argument_type is available (tt-xla frontend), use it to
+    // distinguish weights from activations. Otherwise fall back to a
+    // shape-based heuristic.
     double typeMultiplier = 1.0;
-    if (tensorType.getRank() <= 4 && numElements > 1024) {
+    auto argAttrDict = funcOp.getArgAttrDict(argIdx);
+    if (argAttrDict && argAttrDict.contains(ttcore::ArgumentTypeAttr::name)) {
+      auto argTypeAttr = mlir::cast<ttcore::ArgumentTypeAttr>(
+          argAttrDict.get(ttcore::ArgumentTypeAttr::name));
+      if (argTypeAttr.getValue() == ttcore::ArgumentType::Parameter ||
+          argTypeAttr.getValue() == ttcore::ArgumentType::Constant) {
+        typeMultiplier = parameterMultiplier;
+      }
+    } else if (tensorType.getRank() <= 4 && numElements > 1024) {
       typeMultiplier = parameterMultiplier;
     }
 
