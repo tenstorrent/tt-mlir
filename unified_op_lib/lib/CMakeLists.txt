@@ -3,8 +3,10 @@ add_library(TTUnifiedOpLib STATIC
   conv/unifiedConv2dOp.cpp
   eltwise/binary/unifiedEltwiseBinaryCompositeOp.cpp
   eltwise/binary/unifiedEltwiseBinaryOp.cpp
+  eltwise/ternary/unifiedEltwiseTernaryOp.cpp
   eltwise/unary/unifiedEltwiseUnaryCompositeOp.cpp
   eltwise/unary/unifiedEltwiseUnaryOp.cpp
+  eltwise/quantization/unifiedEltwiseQuantizationOp.cpp
   matmul/unifiedMatmulOp.cpp
 )
 
