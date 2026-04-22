@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <shared_mutex>
@@ -304,6 +305,21 @@ public:
     return globalSemaphorePool;
   }
 
+  // Returns a cached GlobalSemaphore for the given op-pointer key, creating it
+  // via `factory` on the first call.  Subsequent calls return the cached value
+  // without touching device memory, which is required for trace compatibility
+  // (create_global_semaphore writes to device L1 and cannot run during trace
+  // capture).
+  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
+      uintptr_t opKey,
+      const std::function<::ttnn::GlobalSemaphore()> &factory) {
+    auto it = implicitOpSemaphores.find(opKey);
+    if (it == implicitOpSemaphores.end()) {
+      it = implicitOpSemaphores.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -315,6 +331,12 @@ private:
   ProgramTensorPool tensorPool;
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
+
+  // Cache for GlobalSemaphores implicitly created by ops (e.g.
+  // DistributedRMSNormOp).  Keyed by the flatbuffer op pointer cast to
+  // uintptr_t so each op instance gets its own semaphore, but the same
+  // semaphore is reused across repeated calls (warmup + trace capture).
+  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
 
   common::DylibManager dylibManager;
 
