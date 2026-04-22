@@ -1,5 +1,6 @@
 add_library(TTUnifiedOpLib STATIC
   utils/utils.cpp
+  conv/unifiedConv2dOp.cpp
 )
 
 set_property(TARGET TTUnifiedOpLib PROPERTY CXX_STANDARD 20)
