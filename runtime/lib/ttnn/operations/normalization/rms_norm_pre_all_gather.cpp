@@ -41,7 +41,7 @@ void run(const ::tt::target::ttnn::RMSNormPreAllGatherOp *op,
   bool use2DCoreGrid = op->use_2d_core_grid();
 
   ::ttnn::DataType dtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+      unifiedOpLib::operations::utils::toTTNNDataType(op->dtype());
 
   // Call TTNN RMS Norm Pre all-gather Op
   ::ttnn::Tensor output = ::ttnn::rms_norm_pre_all_gather(
