@@ -53,7 +53,8 @@ static int64_t padToDRAMBanks(int64_t n, int64_t numBanks) {
 /// in0BlockW.
 static std::optional<DRAMShardParams>
 computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
-                   int64_t numCores, ttcore::DataType weightDataType) {
+                   int64_t numCores, ttcore::DataType weightDataType,
+                   int64_t l1Available) {
   DRAMShardParams p;
   p.K = K;
   p.N = N;
@@ -85,10 +86,6 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   // 519, 589) — they map onto pre-existing tensor buffers and consume no
   // additional L1.  Exclude them from this budget estimate.
   //
-  // L1 available after base reservation: 1,499,136 - 103,712 = 1,395,424.
-  // We subtract an additional ~10% for kernel binary sizes on compute cores
-  // and runtime scratch buffers that are not modeled here.
-  static constexpr int64_t kL1Available = 1250000;
   static constexpr int64_t kBf16Tile = 2048;
   static constexpr int64_t kBfp8Tile = 1088;
   static constexpr int64_t kBfp4Tile = 576;
@@ -110,7 +107,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   // If the fixed CBs alone don't fit (e.g. per_core_n too large on matmuls
   // with very wide outputs like LM head), the matmul cannot be DRAM sharded
   // on this core/bank config. Skip.
-  if (fixedCost > kL1Available) {
+  if (fixedCost > l1Available) {
     return std::nullopt;
   }
 
@@ -124,7 +121,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
     int64_t in1CB =
         p.in0BlockW * perCoreNCompute * kWeightTile * (doubleBuf ? 3 : 1);
 
-    if (fixedCost + in0CB + in1CB <= kL1Available &&
+    if (fixedCost + in0CB + in1CB <= l1Available &&
         kPerCore % p.in0BlockW == 0) {
       found = true;
       break;
@@ -331,6 +328,15 @@ public:
 
     auto deviceGrid = ttcore::lookupDevice(moduleOp).getWorkerGrid();
 
+    // Compute usable L1 the same way GreedyOptimizer does:
+    //   chipDesc.getUsableL1Size() = l1Size - l1UnreservedBase
+    //   getTensorL1UsageCap()      = 0.95 by default (or module attribute)
+    ttcore::SystemDescAttr systemDesc = mlir::cast<ttcore::SystemDescAttr>(
+        moduleOp->getAttr(ttcore::SystemDescAttr::name));
+    int64_t l1Available =
+        static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
+                             systemDesc.getChipDescs()[0].getUsableL1Size());
+
     // Collect matmul ops that are eligible for DRAM sharding.
     // We collect first to avoid modifying while iterating.
     SmallVector<MatmulOp> eligibleMatmuls;
@@ -393,7 +399,7 @@ public:
       auto [K, N] = getWeightKN(weightType);
       auto weightDataType = getWeightDataType(weight);
       auto pOpt = computeShardParams(M, K, N, numDRAMBanks, numComputeCores,
-                                     weightDataType);
+                                     weightDataType, l1Available);
       if (!pOpt) {
         // Matmul cannot be DRAM sharded on this config (e.g. output too wide
         // for L1). Leave the original matmul in place.
