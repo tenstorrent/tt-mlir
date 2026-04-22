@@ -661,6 +661,9 @@ def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
       Unlike reduce_init this call carries no CB/DST operands: it only
       configures the SFPU for the given PoolType and DataFormat.
 
+      Only Sum/Max reductions over Int32 tiles are supported today; the
+      verifier enforces this.
+
       Lowers to: sfpu_reduce_init<PoolType, DataFormat>().
     }];
 
@@ -670,6 +673,8 @@ def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
     let assemblyFormat = [{
       `(` $reduce_type `,` $data_format `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
@@ -683,11 +688,9 @@ def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
 
       Only 32x32 tile dimensions are supported.
 
-      Supports PoolType::{SUM, AVG, MAX, MIN} for REDUCE_COL, and
-      PoolType::{SUM, MAX} for REDUCE_ROW (sfpu_reduce currently does not
-      support MIN across rows).
-
-      Supported data formats are Float32, Int32, UInt32, UInt16, Float16_b.
+      Only Sum/Max reductions over Int32 tiles are supported today, and
+      reduce_dim must be Row or Col (Scalar must be decomposed into Col + Row
+      by the caller); the verifier enforces these constraints.
 
       Lowers to: sfpu_reduce<PoolType, DataFormat, ReduceDim>(dst_index).
     }];
@@ -700,6 +703,8 @@ def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
     let assemblyFormat = [{
       `(` $dst_index `,` $reduce_type `,` $data_format `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

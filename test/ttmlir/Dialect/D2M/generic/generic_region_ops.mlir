@@ -60,7 +60,7 @@ func.func @sfpu_reduce_sum(%arg0: tensor<64x128xsi32>) -> tensor<64x128xsi32> {
                 ins(%arg2: tensor<2x4x!ttcore.tile<32x32, si32>, #l1_alias>)
                 outs(%arg4: tensor<2x4x!ttcore.tile<32x32, si32>, #l1_alias>) {
                 ^bb0(%a: !ttcore.tile<32x32, si32>, %c: !ttcore.tile<32x32, si32>):
-                    // CHECK: %{{[0-9]+}} = "d2m.tile_sfpu_reduce_sum"(%{{[a-z0-9_]+}}, %{{[a-z0-9_]+}}) <{reduce_dim = #d2m<reduce_dim R>}> : (!ttcore.tile<32x32, si32>, !ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
+                    // CHECK: %{{[0-9]+}} = "d2m.tile_sfpu_reduce_sum"(%{{[a-z0-9_]+}}, %{{[a-z0-9_]+}}) <{dst_scratch_index = -1 : i64, reduce_dim = #d2m<reduce_dim R>}> : (!ttcore.tile<32x32, si32>, !ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
                     %4 = "d2m.tile_sfpu_reduce_sum" (%a, %c) {reduce_dim = #d2m<reduce_dim R>} : (!ttcore.tile<32x32, si32>, !ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
                     linalg.yield %4: !ttcore.tile<32x32, si32>
             } -> tensor<2x4x!ttcore.tile<32x32, si32>, #l1_alias>
@@ -90,7 +90,7 @@ func.func @sfpu_reduce_max(%arg0: tensor<64x128xsi32>) -> tensor<64x128xsi32> {
                 ins(%arg2: tensor<2x4x!ttcore.tile<32x32, si32>, #l1_alias>)
                 outs(%arg4: tensor<2x4x!ttcore.tile<32x32, si32>, #l1_alias>) {
                 ^bb0(%a: !ttcore.tile<32x32, si32>, %c: !ttcore.tile<32x32, si32>):
-                    // CHECK: %{{[0-9]+}} = "d2m.tile_sfpu_reduce_max"(%{{[a-z0-9_]+}}, %{{[a-z0-9_]+}}) <{reduce_dim = #d2m<reduce_dim C>}> : (!ttcore.tile<32x32, si32>, !ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
+                    // CHECK: %{{[0-9]+}} = "d2m.tile_sfpu_reduce_max"(%{{[a-z0-9_]+}}, %{{[a-z0-9_]+}}) <{dst_scratch_index = -1 : i64, reduce_dim = #d2m<reduce_dim C>}> : (!ttcore.tile<32x32, si32>, !ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
                     %4 = "d2m.tile_sfpu_reduce_max" (%a, %c) {reduce_dim = #d2m<reduce_dim C>} : (!ttcore.tile<32x32, si32>, !ttcore.tile<32x32, si32>) -> !ttcore.tile<32x32, si32>
                     linalg.yield %4: !ttcore.tile<32x32, si32>
             } -> tensor<2x4x!ttcore.tile<32x32, si32>, #l1_alias>

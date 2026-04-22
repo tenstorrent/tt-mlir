@@ -976,6 +976,9 @@ public:
 
       // Reserve any extra DST scratch slices the op declares via the
       // interface so they don't collide with operand/output slots.
+      // TODO(https://github.com/tenstorrent/tt-mlir/issues/8081): scratch
+      // becomes the new `getCurrSliceIndex()`; safe today but a future
+      // in-region fusion would trip it.
       for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
         setDstScratchIndex(computeOp, dstSliceAllocationState.allocate());
       }
@@ -2028,6 +2031,9 @@ public:
       // Reserve any extra DST scratch slices the op declares via the
       // interface so they don't collide with operand/output slots. No
       // deallocate: the slot is logically owned by the op for its lifetime.
+      // TODO(https://github.com/tenstorrent/tt-mlir/issues/8081): scratch
+      // lands on `inputStack`; safe today but a future in-region fusion
+      // would trip `deallocateAllButFirstInput()`.
       for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
         setDstScratchIndex(computeOp, dstStackAllocator.allocate());
       }

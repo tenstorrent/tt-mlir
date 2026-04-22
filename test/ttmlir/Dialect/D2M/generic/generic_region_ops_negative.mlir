@@ -145,7 +145,7 @@ func.func @sfpu_reduce_max_rejects_float(%arg0: tensor<64x128xf32>) -> tensor<64
               ins(%arg2: tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>)
               outs(%arg4: tensor<2x4x!ttcore.tile<32x32, f32>, #l1_alias>) {
               ^bb0(%a: !ttcore.tile<32x32, f32>, %c: !ttcore.tile<32x32, f32>):
-                  // CHECK: error: 'd2m.tile_sfpu_reduce_max' op requires 32-bit integer tile element types
+                  // CHECK: error: 'd2m.tile_sfpu_reduce_max' op requires signed 32-bit integer tile element types
                   %4 = "d2m.tile_sfpu_reduce_max" (%a, %c) {reduce_dim = #d2m<reduce_dim R>} : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
                   linalg.yield %4: !ttcore.tile<32x32, f32>
               }

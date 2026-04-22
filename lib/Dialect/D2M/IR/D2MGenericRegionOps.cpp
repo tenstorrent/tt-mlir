@@ -1769,16 +1769,18 @@ static mlir::LogicalResult verifyFPUTileReduce(OpT op) {
 
 template <typename OpT>
 static mlir::LogicalResult verifySFPUTileReduce(OpT op) {
-  // The SFPU reduce lowering uses i32-only TTKernel ops (fill_tile_int,
-  // binary_max_int32_tile, add_int_tile), so restrict this op to i32 tiles.
-  auto isI32Tile = [](mlir::Value v) {
-    auto intType = mlir::dyn_cast<mlir::IntegerType>(
-        mlir::cast<mlir::tt::ttcore::TileType>(v.getType()).getElementType());
-    return intType && intType.getWidth() == 32;
+  // The SFPU reduce lowering uses signed i32-only TTKernel ops
+  // (fill_tile_int, binary_max_int32_tile, add_int_tile), so restrict this
+  // op to signed i32 tiles.
+  auto isSI32Tile = [](mlir::Value v) {
+    return mlir::cast<mlir::tt::ttcore::TileType>(v.getType())
+        .getElementType()
+        .isSignedInteger(32);
   };
-  if (!isI32Tile(op.getA()) || !isI32Tile(op.getC())) {
-    return op.emitOpError("requires 32-bit integer tile element types; use "
-                          "the matching tile_reduce_* op for float reductions");
+  if (!isSI32Tile(op.getA()) || !isSI32Tile(op.getC())) {
+    return op.emitOpError("requires signed 32-bit integer tile element types; "
+                          "use the matching tile_reduce_* op for float "
+                          "reductions");
   }
   return mlir::success();
 }

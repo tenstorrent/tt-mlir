@@ -1005,38 +1005,37 @@ public:
     const auto inTileType = mlir::cast<ttcore::TileType>(op.getA().getType());
     ttcore::DataType dataFormat = inTileType.getDataType();
 
-    auto insertionPoint = rewriter.getInsertionPoint();
     Value cbA = getCB(rewriter, op.getA());
     Value outCB = getOutCB(rewriter, op);
     Value cIdx = adaptor.getC();
 
     // cIdx is defined inside the scf loops, so re-materialize a constant
     // copy for use at the hoisted init point.
-    auto cIdxConst = cIdx.template getDefiningOp<arith::ConstantOp>();
-    if (!cIdxConst) {
+    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
+    if (!cIdxVal) {
       return op->emitOpError(
           "tile_sfpu_reduce_* expects C operand's DST index to be a "
           "compile-time constant; got a non-constant value");
     }
-    int64_t cIdxVal = mlir::cast<IntegerAttr>(cIdxConst.getValue()).getInt();
 
     int32_t identityInt = (reduceType == ttkernel::ReduceType::Max)
                               ? std::numeric_limits<int32_t>::min()
                               : 0;
 
-    setInsertionPointAfterOperands(rewriter, {cbA, outCB},
-                                   /*allowHoisting*/ true);
-    rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), cbA, outCB);
-    Value hoistedCIdx =
-        rewriter.create<arith::ConstantIndexOp>(op->getLoc(), cIdxVal);
-    Value identityVal = rewriter.create<arith::ConstantOp>(
-        op->getLoc(), rewriter.getI32Type(),
-        rewriter.getI32IntegerAttr(identityInt));
-    rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
-    rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
-                                             identityVal);
-
-    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      setInsertionPointAfterOperands(rewriter, {cbA, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), cbA, outCB);
+      Value hoistedCIdx =
+          rewriter.create<arith::ConstantIndexOp>(op->getLoc(), *cIdxVal);
+      Value identityVal = rewriter.create<arith::ConstantOp>(
+          op->getLoc(), rewriter.getI32Type(),
+          rewriter.getI32IntegerAttr(identityInt));
+      rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
+      rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
+                                               identityVal);
+    }
 
     int64_t scratchIdxVal = op.getDstScratchIndex();
     if (scratchIdxVal < 0) {
