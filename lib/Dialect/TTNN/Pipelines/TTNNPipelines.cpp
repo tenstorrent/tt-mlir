@@ -339,6 +339,8 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
+    // KV cache dtype conversion runs before analysis passes so that the
+    // optimizer sees the target dtype and can make informed sharding decisions.
     if (options.experimentalKVCacheDtype != BFPDtype::None) {
       TTNNKVCacheDtypeConversionOptions convOpts;
       convOpts.targetDtype = options.experimentalKVCacheDtype;

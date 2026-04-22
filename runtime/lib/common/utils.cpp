@@ -185,17 +185,24 @@ bool isBlockFormatDataType(::tt::target::DataType dataType) {
 
 uint64_t blockFormatTileSizeBytes(::tt::target::DataType dataType) {
   // BFP formats are only valid for 32x32 tiles.
-  // Each tile: mantissa bytes + 1 shared exponent byte per 16 elements
+  constexpr uint64_t kTileElements = 32 * 32;
+  constexpr uint64_t kBfpExpGroupSize = 16;
+  constexpr uint64_t kBfpExpBytesPerTile = kTileElements / kBfpExpGroupSize;
+
+  auto tileSizeBytes = [](uint64_t mantissaBits) {
+    return (kTileElements * mantissaBits) / 8 + kBfpExpBytesPerTile;
+  };
+
   switch (dataType) {
   case ::tt::target::DataType::BFP_Float8:
   case ::tt::target::DataType::BFP_BFloat8:
-    return 1088; // 1024 mantissa + 64 shared exponents
+    return tileSizeBytes(8);
   case ::tt::target::DataType::BFP_Float4:
   case ::tt::target::DataType::BFP_BFloat4:
-    return 576; // 512 mantissa + 64 shared exponents
+    return tileSizeBytes(4);
   case ::tt::target::DataType::BFP_Float2:
   case ::tt::target::DataType::BFP_BFloat2:
-    return 320; // 256 mantissa + 64 shared exponents
+    return tileSizeBytes(2);
   default:
     LOG_FATAL("Not a block format data type");
     return 0;

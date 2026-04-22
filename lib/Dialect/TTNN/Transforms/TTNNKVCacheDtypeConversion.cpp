@@ -8,10 +8,11 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -20,45 +21,6 @@ namespace mlir::tt::ttnn {
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
-
-// Template pattern that inserts a typecast on the input operand of kv cache
-// ops where it requires input and cache dtypes to match (e.g. fill_cache).
-template <typename OpTy>
-class KVCacheDtypePattern : public mlir::OpRewritePattern<OpTy> {
-public:
-  KVCacheDtypePattern(mlir::MLIRContext *ctx, ttcore::DataType targetDtype)
-      : mlir::OpRewritePattern<OpTy>(ctx), targetDtype(targetDtype) {}
-
-  mlir::LogicalResult
-  matchAndRewrite(OpTy op, mlir::PatternRewriter &rewriter) const override {
-    auto input = op.getInput();
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    mlir::Type elType = inputType.getElementType();
-
-    // Skip if input is already the target dtype.
-    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
-      if (tileType.getDataType() == targetDtype) {
-        return mlir::failure();
-      }
-    } else if (ttcore::elementTypeToDataType(elType) == targetDtype) {
-      return mlir::failure();
-    }
-
-    auto newInputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputType, targetDtype);
-    auto typecastOp = rewriter.create<TypecastOp>(
-        op.getLoc(), newInputType, input,
-        ttcore::DataTypeAttr::get(rewriter.getContext(), targetDtype));
-
-    rewriter.modifyOpInPlace(
-        op, [&]() { op.getInputMutable().assign(typecastOp.getResult()); });
-
-    return mlir::success();
-  }
-
-private:
-  ttcore::DataType targetDtype;
-};
 
 class TTNNKVCacheDtypeConversionPass
     : public impl::TTNNKVCacheDtypeConversionBase<
@@ -80,7 +42,7 @@ public:
 
   static void changeCacheArgTypes(func::FuncOp funcOp,
                                   ttcore::DataType targetDtype) {
-    if (funcOp.isDeclaration()) {
+    if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
       return;
     }
 
@@ -143,6 +105,32 @@ public:
         mlir::FunctionType::get(ctx, newArgTypes, newResultTypes));
   }
 
+  // Inserts a ttnn.typecast before `op`'s input operand if it is not already
+  // the target dtype.
+  template <typename OpTy>
+  static void insertTypecastIfNeeded(mlir::OpBuilder &builder, OpTy op,
+                                     ttcore::DataType dtype) {
+    auto input = op.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    mlir::Type elType = inputType.getElementType();
+
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elType)) {
+      if (tileType.getDataType() == dtype) {
+        return;
+      }
+    } else if (ttcore::elementTypeToDataType(elType) == dtype) {
+      return;
+    }
+
+    auto newInputType =
+        ttnn::utils::RankedTensorTypeFactory::create(inputType, dtype);
+    builder.setInsertionPoint(op);
+    auto typecastOp = builder.create<TypecastOp>(
+        op.getLoc(), newInputType, input,
+        ttcore::DataTypeAttr::get(builder.getContext(), dtype));
+    op.getInputMutable().assign(typecastOp.getResult());
+  }
+
   void runOnOperation() final {
     if (targetDtype == BFPDtype::None) {
       return;
@@ -151,21 +139,25 @@ public:
     ttcore::DataType dtype = bfpDtypeToDataType(targetDtype);
 
     // Change kv_cache argument types to the target dtype and update the
-    // function signature.
-    getOperation().walk(
-        [&](func::FuncOp funcOp) { changeCacheArgTypes(funcOp, dtype); });
+    // function signature. Insert typecast operations on the input operands of
+    // all cache ops so written data matches the new cache dtype.
+    // PagedUpdateCacheOp is excluded: tt-metal enforces FLOAT32/BFLOAT16 for
+    // that op and handles any dtype mismatch internally.
+    mlir::OpBuilder builder(&getContext());
+    getOperation().walk([&](func::FuncOp funcOp) {
+      changeCacheArgTypes(funcOp, dtype);
 
-    // Insert typecast operations on the input operands of all cache ops so
-    // written data matches the new cache dtype.
-    mlir::RewritePatternSet patterns(&getContext());
-    patterns.add<KVCacheDtypePattern<FillCacheOp>>(&getContext(), dtype);
-    patterns.add<KVCacheDtypePattern<UpdateCacheOp>>(&getContext(), dtype);
-    patterns.add<KVCacheDtypePattern<PagedFillCacheOp>>(&getContext(), dtype);
-
-    if (failed(
-            mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-    }
+      if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+        return;
+      }
+      funcOp.walk([&](Operation *op) {
+        llvm::TypeSwitch<Operation *>(op)
+            .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp>(
+                [&](auto cacheOp) {
+                  insertTypecastIfNeeded(builder, cacheOp, dtype);
+                });
+      });
+    });
   }
 };
 
