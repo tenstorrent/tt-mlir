@@ -2604,7 +2604,7 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
 }
 
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
-    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
+    [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface]> {
     let summary = "Distributed RMS normalization with all-gather op.";
     let description = [{
       Fused distributed RMS normalization operation across mesh devices.
@@ -3208,7 +3208,7 @@ def TTNN_GatherOp : TTNN_Op<"gather"> {
     }];
 }
 
-def TTNN_AllGatherOp: TTNN_Op<"all_gather", [OpModelExempt]> {
+def TTNN_AllGatherOp: TTNN_Op<"all_gather", []> {
     let summary = "All gather op.";
     let description = [{
         Tensor All Gather operation
@@ -3229,7 +3229,7 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather", [OpModelExempt]> {
 }
 
 def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
-    [TTNN_ComputeKernelConfigOpInterface, OpModelExempt]> {
+    [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
@@ -3251,7 +3251,7 @@ def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter",
     let hasFolder = 1;
 }
 
-def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [OpModelExempt]> {
+def TTNN_AllReduceOp: TTNN_Op<"all_reduce", []> {
     let summary = "All reduce op.";
     let description = [{
         Tensor All Reduce operation

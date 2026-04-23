@@ -66,7 +66,8 @@ createDefaultQuasarSystemDesc(mlir::MLIRContext *context,
 }
 
 SystemDescAttr createDefaultBlackholeSystemDesc(
-    mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape) {
+    mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape,
+    const ::llvm::SmallVector<int64_t> &chipGrid = {10, 11}) {
   // Set default values
   constexpr auto l1Size = 1572864;
   constexpr auto numDramChannels = 8;
@@ -89,7 +90,8 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
                       std::multiplies<int64_t>());
 
   // Populate dummy values for single chip or multi chip config.
-  llvm::SmallVector<std::int64_t> gridShape = {10, 13};
+  // Blackhole's compute-with-storage worker grid defaults to 10 rows x 11 cols.
+  llvm::SmallVector<std::int64_t> gridShape(chipGrid.begin(), chipGrid.end());
   llvm::SmallVector<std::int64_t> dramGridShape = {1, 8};
 
   // Captured from a p150 device. Blackhole's optimal mapping is identical
@@ -188,9 +190,9 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
       chipChannelList);
 }
 
-SystemDescAttr
-createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
-                                const ::llvm::SmallVector<int64_t> &meshShape) {
+SystemDescAttr createDefaultWormholeSystemDesc(
+    mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape,
+    const ::llvm::SmallVector<int64_t> &chipGrid = {8, 8}) {
   // Set default values
   constexpr auto l1Size = 1499136;
   constexpr auto numDramChannels = 12;
@@ -213,7 +215,7 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
                       std::multiplies<int64_t>());
 
   // Populate dummy values for single chip or multi chip config.
-  llvm::SmallVector<std::int64_t> gridShape = {8, 8};
+  llvm::SmallVector<std::int64_t> gridShape(chipGrid.begin(), chipGrid.end());
   llvm::SmallVector<std::int64_t> dramGridShape = {1, 12};
 
   // Captured from an n150 device. Wormhole's optimal mapping is identical
@@ -324,6 +326,22 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
   case Arch::Blackhole:
     return createDefaultBlackholeSystemDesc(context, meshShape);
   case Arch::Quasar:
+    return createDefaultQuasarSystemDesc(context, meshShape);
+  }
+}
+
+SystemDescAttr
+SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
+                           const ::llvm::SmallVector<int64_t> &meshShape,
+                           const ::llvm::SmallVector<int64_t> &chipGrid) {
+  switch (arch) {
+  case Arch::WormholeB0:
+    return createDefaultWormholeSystemDesc(context, meshShape, chipGrid);
+  case Arch::Blackhole:
+    return createDefaultBlackholeSystemDesc(context, meshShape, chipGrid);
+  case Arch::Quasar:
+    // Quasar has no chipGrid-aware default descriptor yet; use its built-in
+    // grid.
     return createDefaultQuasarSystemDesc(context, meshShape);
   }
 }

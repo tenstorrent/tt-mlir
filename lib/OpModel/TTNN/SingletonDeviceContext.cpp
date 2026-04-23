@@ -14,6 +14,7 @@
 
 #include <tt-metalium/dispatch_core_common.hpp>
 #include <tt-metalium/experimental/context/metal_env.hpp>
+#include <tt-metalium/experimental/fabric/fabric_types.hpp>
 #include <tt-metalium/experimental/mock_device.hpp>
 
 #include <umd/device/cluster.hpp>
@@ -22,6 +23,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -60,8 +62,12 @@ ttcore::Arch fromMetalArch(::tt::ARCH arch) {
 
 // Build a MetalEnvDescriptor for the requested device. Mock mode loads the
 // per-(arch, numChips) mock cluster descriptor; silicon uses the default.
-// Fabric is left DISABLED: multi-chip mock CCL fabric setup is blocked on
-// tt-metal-side work (https://github.com/tenstorrent/tt-metal/issues/44748).
+// For multi-chip mock we enable 1D fabric in the descriptor so CCL
+// op-constraint queries (AllGather/ReduceScatter/AllReduce/DistributedRMSNorm)
+// can build routing across the mock mesh. The mock-fabric routing path was
+// fixed in tt-metal#46133; external callers enable it by passing a
+// FabricConfigDescriptor in the MetalEnvDescriptor. Single-chip mock and
+// silicon need no fabric here.
 ::tt::tt_metal::MetalEnvDescriptor
 makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
   if (!isMock) {
@@ -97,7 +103,20 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
     }
   }();
 
-  if (discovered && discovered->arch == toMetalArch(arch) &&
+  // Prefer the live descriptor only for a single-chip op-model device. For a
+  // multi-chip device we must use the canned mock instead. The discovered
+  // descriptor is the live machine's real cluster desc (serialized), which
+  // carries that chip's harvested/inactive eth cores. Even though the resulting
+  // device is still a mock (MetalEnvDescriptor::is_mock_device() is true and
+  // physical fabric bring-up is skipped), multi-chip CCL/DistributedRMSNorm
+  // op-model queries compute fabric routing during metal graph-capture and read
+  // that topology, fataling when a fabric-router eth core is inactive ("Logical
+  // eth core N is not an active eth core on chip M") — which happens on a real
+  // multi-chip host such as an n300/n300-llmbox CI runner. The canned mock has
+  // a clean topology, so the query traces cleanly and portably; single-chip
+  // queries have no fabric routing, so discovery is safe there.
+  // See https://github.com/tenstorrent/tt-mlir/issues/9035.
+  if (numChips == 1 && discovered && discovered->arch == toMetalArch(arch) &&
       discovered->numChips == numChips) {
     return ::tt::tt_metal::MetalEnvDescriptor{discovered->path};
   }
@@ -109,7 +128,16 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
     llvm::report_fatal_error(
         "Unsupported (arch, numChips) for mock cluster descriptor");
   }
-  return ::tt::tt_metal::MetalEnvDescriptor{*mockClusterPath};
+  if (numChips <= 1) {
+    return ::tt::tt_metal::MetalEnvDescriptor{*mockClusterPath};
+  }
+  ::tt::tt_metal::FabricConfigDescriptor fabricDesc{};
+  fabricDesc.fabric_config = ::tt::tt_fabric::FabricConfig::FABRIC_1D;
+  fabricDesc.reliability_mode =
+      ::tt::tt_fabric::FabricReliabilityMode::RELAXED_SYSTEM_HEALTH_SETUP_MODE;
+  fabricDesc.num_routing_planes = std::numeric_limits<uint8_t>::max();
+  return ::tt::tt_metal::MetalEnvDescriptor{*mockClusterPath,
+                                            std::move(fabricDesc)};
 }
 
 // Pick the dispatch core type for a device opened on this env. When every
@@ -264,21 +292,30 @@ void SingletonDeviceContext::openDevice(
   assert(m_env == nullptr && "MetalEnv must be torn down before opening.");
 
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
-  uint32_t numChips = 1;
   if (isMock) {
     assert(m_systemDesc && "System desc must be set for mock device mode");
     arch = m_systemDesc.getChipDesc(0).getArch().getValue();
-    numChips = m_systemDesc.getChipDescIndices().size();
   }
+
+  ::tt::tt_metal::distributed::MeshShape shape{
+      meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
+      meshShape ? static_cast<unsigned int>(meshShape->second) : 1};
+
+  // Size the mock env (and thus its fabric enablement) to the mesh we actually
+  // open, not the system descriptor's chip count. makeEnvDescriptor enables 1D
+  // fabric for a multi-chip env; opening a mesh smaller than a fabric-enabled
+  // env launches fabric on a device subset, which tt-metal rejects with a fatal
+  // ("Device N is not active"). Callers that need a multi-device op-model
+  // device (DevicePassesWrapper, reshapeMeshDevice) pass the full meshShape;
+  // the default (no meshShape) opens a single-device env with no fabric, and
+  // CCL op-model queries on it fall back gracefully (see
+  // requireMultiDeviceMesh).
+  uint32_t numChips = static_cast<uint32_t>(shape.mesh_size());
 
   // Build into locals; commit to members only on success so a throw leaves
   // m_env/m_device null and the context reusable.
   auto env = std::make_unique<::tt::tt_metal::MetalEnv>(
       makeEnvDescriptor(isMock, arch, numChips));
-
-  ::tt::tt_metal::distributed::MeshShape shape{
-      meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
-      meshShape ? static_cast<unsigned int>(meshShape->second) : 1};
 
   // create_mesh_device registers a process-global MetalContext before it
   // validates the mesh size and does not unwind it if the size check fails,
