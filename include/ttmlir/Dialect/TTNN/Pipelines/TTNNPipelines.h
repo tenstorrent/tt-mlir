@@ -298,9 +298,10 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
-  Option<bool> enableD2MSubgraphs{*this, "enable-d2m-subgraphs",
-                               llvm::cl::desc("Enable creation of D2M subgraphs."),
-                               llvm::cl::init(false)};
+  Option<bool> enableD2MSubgraphs{
+      *this, "enable-d2m-subgraphs",
+      llvm::cl::desc("Enable creation of D2M subgraphs."),
+      llvm::cl::init(false)};
 
   // Enable the d2m elementwise fusion pass when enable-d2m-subgraphs is on.
   // See resolveD2MSubgraphsOptions for more details.

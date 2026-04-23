@@ -365,7 +365,8 @@ void createTTIRToTTNNCommonPipeline(
     if (options.enableD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {
         llvm::errs()
-            << "WARNING: D2M subgraph creation pass only supported with Optimizer "
+            << "WARNING: D2M subgraph creation pass only supported with "
+               "Optimizer "
                "enabled. Automatically enabling Optimizer as a dependency.\n";
       }
       options.optimizerPassEnabled = true;

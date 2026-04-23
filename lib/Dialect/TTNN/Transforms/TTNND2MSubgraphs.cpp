@@ -170,7 +170,8 @@ private:
 // Pass Definition
 //===----------------------------------------------------------------------===//
 
-class TTNND2MSubgraphsPass : public impl::TTNND2MSubgraphsBase<TTNND2MSubgraphsPass> {
+class TTNND2MSubgraphsPass
+    : public impl::TTNND2MSubgraphsBase<TTNND2MSubgraphsPass> {
 public:
   using impl::TTNND2MSubgraphsBase<TTNND2MSubgraphsPass>::TTNND2MSubgraphsBase;
 
