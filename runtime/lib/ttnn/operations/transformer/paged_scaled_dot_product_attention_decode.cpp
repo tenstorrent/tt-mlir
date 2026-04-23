@@ -67,6 +67,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     programConfig->q_chunk_size = 0;
     programConfig->k_chunk_size = 0;
     programConfig->compute_with_storage_grid_size = computeGrid;
+    programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
   }
 
   ::ttnn::Tensor out =
