@@ -6397,4 +6397,16 @@ def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
     let hasVerifier = 1;
 }
 
+def TTIR_InvokeExternalOp : TTIR_NamedOp<"invoke_external"> {
+    let summary = "Invoke external code.";
+    let description = [{
+      TODO
+    }];
+
+    let arguments = (ins Variadic<AnyType>:$arguments);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let hasVerifier = 1;
+}
+
 #endif

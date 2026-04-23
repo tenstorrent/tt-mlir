@@ -7288,4 +7288,26 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// InvokeExternalOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::InvokeExternalOp::verify() {
+  for (auto in : getArguments()) {
+    ::mlir::Type inType = in.getType();
+    if (::mlir::isa<RankedTensorType>(inType)) {
+      // TODO: check that the ranked tensor shape is supported.
+    }
+  }
+
+  for (auto out : getResults()) {
+    ::mlir::Type outType = out.getType();
+    if (::mlir::isa<RankedTensorType>(outType)) {
+      // TODO: check that the ranked tensor shape is supported.
+    }
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttir
