@@ -2033,19 +2033,30 @@ public:
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
     // Force channel blocking in lowered conv3d config while respecting HAL L1
-    // alignment requirements.
+    // alignment requirements and conv3d C_out runtime constraints.
     constexpr int64_t kRequestedChannelBlock = 16;
     const int64_t l1Alignment =
         static_cast<int64_t>(
             ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes());
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    const int64_t channelBlock = std::max(kRequestedChannelBlock, l1Alignment);
+    const int64_t cInBlock = std::max(kRequestedChannelBlock, l1Alignment);
+    const int64_t requestedCOutBlock =
+        llvm::divideCeil(std::max(kRequestedChannelBlock, l1Alignment),
+                         TILE_WIDTH) *
+        TILE_WIDTH;
+    const int64_t outChannels = outChannelsAttr.getInt();
+    const int64_t paddedOutChannels =
+        llvm::divideCeil(outChannels, TILE_WIDTH) * TILE_WIDTH;
+    const int64_t cOutBlock =
+        (paddedOutChannels % requestedCOutBlock == 0) ? requestedCOutBlock
+                                                      : TILE_WIDTH;
     llvm::errs() << "[conv3d-lowering] channel blocks: requested="
                  << kRequestedChannelBlock << ", l1_alignment=" << l1Alignment
-                 << ", selected=" << channelBlock << "\n";
+                 << ", c_in_selected=" << cInBlock
+                 << ", c_out_selected=" << cOutBlock << "\n";
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
-                                                  /*cInBlock=*/channelBlock);
+                                                  /*cInBlock=*/cInBlock);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2094,8 +2105,8 @@ public:
         /*t_out_block=*/std::nullopt,
         /*w_out_block=*/std::nullopt,
         /*h_out_block=*/std::nullopt,
-        /*c_out_block=*/static_cast<uint32_t>(channelBlock),
-        /*c_in_block=*/static_cast<uint32_t>(channelBlock),
+        /*c_out_block=*/static_cast<uint32_t>(cOutBlock),
+        /*c_in_block=*/static_cast<uint32_t>(cInBlock),
         /*compute_with_storage_grid_size=*/std::nullopt);
 
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
