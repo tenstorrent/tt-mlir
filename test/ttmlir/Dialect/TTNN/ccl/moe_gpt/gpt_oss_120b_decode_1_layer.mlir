@@ -12,33 +12,38 @@
 //    tensor. Prior to allowing L1 in the const-eval hoist transform
 //    this chain was blocked because its result is in L1.
 //
-// 2. After layout decomposition rebuilds the terminal `to_device`
-//    with the flattened L1 page layout (memref<1x4096xui16>), the
-//    enclosing `@main_const_eval_N` signature must be kept in sync
-//    with the actual return operand type. Without the signature
-//    fixup the pass manager verifier fires with a "return operand
-//    type doesn't match function result type" error during the
-//    TTIR -> TTNN conversion.
-//
-// The output prints layouts as aliases (e.g. `#ttnn_layout61`), so
-// we anchor on the layout declaration (`memref<1x4096xui16, #l1>,
-// <interleaved>`) first, bind the alias name, and reuse it in the
-// subsequent function-signature and call-site checks.
+// 2. After layout decomposition rebuilds the terminal `to_device` for
+//    L1 interleaved, the new op wants to advertise a flattened page
+//    memref (`memref<1x4096xui16>`) instead of the original 2-D
+//    `memref<32x128xui16>`. TTNNDecomposeLayouts reconciles this by
+//    snapping the *op's* result type back to the declared function
+//    return type, keeping the function signature — and therefore
+//    every caller's view (ttcore.load_cached, and critically
+//    `ttnn.capture_or_execute_trace`'s capture-callee arg types) —
+//    stable. Without this, callers diverged from the trace-capture
+//    function signature and the trace verifier failed.
 
-// Anchor on the L1-flat layout declaration and capture its alias.
-// CHECK: #[[L1_MAP:ttnn_layout[0-9]+]] = #ttnn.ttnn_layout<{{.*}}memref<1x4096xui16, #l1>, <interleaved>>
+// Anchor on the L1 layout declaration and capture its alias. After
+// the reconciliation, this layout keeps the 2-D memref<32x128xui16>
+// shape (not the decomposer's flat `1x4096`).
+// CHECK: #[[L1_MAP:ttnn_layout[0-9]+]] = #ttnn.ttnn_layout<{{.*}}memref<32x128xui16, #l1>, <interleaved>>
 
-// The hoisted const-eval function's return type must reference the
-// L1-flat layout above. Without the signature fixup the declared
-// return type would still be the DRAM (2-D memref<32x128>) layout
-// that was current before layout decomposition ran.
+// The flat memref form introduced by layout decomposition must not
+// survive past the pass — if it does, callers and the trace capture
+// function will disagree on the type of this tensor.
+// CHECK-NOT: memref<1x4096xui16
+
+// The hoisted const-eval function's return type references the L1
+// layout above. The declared return type matches the op's (snapped)
+// result type; the function signature is unchanged from its form at
+// const-eval-hoist time.
 // CHECK: func.func private @main_const_eval_{{[0-9]+}}(%arg0: tensor<1x1x32x128xsi32{{.*}}) -> tensor<32x128xui16, #[[L1_MAP]]>
 
 // In @main the moe_gpt_mapping parameter (%arg25, aka
 // "model.model.layers.0.mlp.moe_gpt_mapping_linearized") flows through
-// a single ttcore.load_cached whose result is the L1-flat mapping
-// tensor. This confirms the whole prep chain was hoisted into the
-// cache rather than re-run per iteration.
+// a single ttcore.load_cached whose result is the L1 mapping tensor.
+// This confirms the whole prep chain was hoisted into the cache rather
+// than re-run per iteration.
 // CHECK: ttcore.load_cached({{.*}}, [%arg25]) : (tensor<1x1x32x128xsi32{{.*}}) -> tensor<32x128xui16, #[[L1_MAP]]>
 
 #loc1 = loc("p0.3")

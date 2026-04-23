@@ -60,20 +60,32 @@ public:
     // than the original ToLayoutOp's result — most commonly when moving
     // to L1 interleaved produces a flattened page layout. If that result
     // happens to be a terminator operand, the enclosing func.func's
-    // declared result type is now out of sync with its return op. This
-    // matters especially for const-eval subgraphs, whose signatures are
-    // set at hoist time and never otherwise touched. Re-sync them before
-    // the pass manager verifier runs.
+    // declared result type is now out of sync with its return op.
+    //
+    // We reconcile by pushing the mismatch back onto the defining op
+    // instead of the function signature. The function signature is the
+    // stable contract with callers — including ones we don't otherwise
+    // touch here, such as `ttnn.capture_or_execute_trace`, whose capture
+    // callee's argument types are pinned at trace-hoist time. If we
+    // instead changed the function return type (and cascaded that to
+    // `ttcore.load_cached` results), the new type would propagate into
+    // the trace call site and mismatch the capture callee's declared
+    // arg type, failing the capture_or_execute_trace verifier. Keeping
+    // the signature fixed and snapping the defining op's result type
+    // back to the declared type keeps both sides consistent.
     syncFunctionSignatures(module);
   }
 
   // Walk every func.func in `module` and, if its declared result types
-  // disagree with its terminating return op's operand types, rewrite the
-  // signature to match. Callers (ttcore.load_cached, func.call) that
-  // reference the function through the module's symbol table have their
-  // result types updated in-place too.
+  // disagree with its terminating return op's operand types, snap each
+  // mismatched return-operand's type back to the function's declared
+  // result type. This propagates "up" through the defining op (since
+  // `Value::setType` mutates the OpResult in place) so the op that
+  // produced the mismatched memref now advertises the originally
+  // declared one. The function signature itself — and therefore all
+  // caller-visible types, including `ttnn.capture_or_execute_trace`
+  // argument positions — is left unchanged.
   static void syncFunctionSignatures(ModuleOp module) {
-    llvm::SmallVector<func::FuncOp> funcsToSync;
     module.walk([&](func::FuncOp func) {
       if (func.isDeclaration() || func.getBody().empty()) {
         return;
@@ -83,45 +95,18 @@ public:
       if (!returnOp) {
         return;
       }
-      llvm::SmallVector<Type> actualReturnTypes(
-          returnOp.getOperandTypes().begin(),
-          returnOp.getOperandTypes().end());
-      llvm::SmallVector<Type> declaredReturnTypes(
-          func.getResultTypes().begin(), func.getResultTypes().end());
-      if (actualReturnTypes != declaredReturnTypes) {
-        funcsToSync.push_back(func);
+      ArrayRef<Type> declaredReturnTypes = func.getResultTypes();
+      if (returnOp.getNumOperands() != declaredReturnTypes.size()) {
+        return;
+      }
+      for (size_t i = 0; i < declaredReturnTypes.size(); ++i) {
+        Value operand = returnOp.getOperand(i);
+        Type declared = declaredReturnTypes[i];
+        if (operand.getType() != declared) {
+          operand.setType(declared);
+        }
       }
     });
-
-    for (func::FuncOp func : funcsToSync) {
-      auto returnOp =
-          mlir::cast<func::ReturnOp>(func.getBody().back().getTerminator());
-      llvm::SmallVector<Type> newResultTypes(
-          returnOp.getOperandTypes().begin(),
-          returnOp.getOperandTypes().end());
-      llvm::SmallVector<Type> argTypes(func.getArgumentTypes().begin(),
-                                       func.getArgumentTypes().end());
-      func.setType(
-          FunctionType::get(func.getContext(), argTypes, newResultTypes));
-
-      std::optional<SymbolTable::UseRange> uses =
-          SymbolTable::getSymbolUses(func, module.getOperation());
-      if (!uses) {
-        continue;
-      }
-      for (SymbolTable::SymbolUse use : *uses) {
-        Operation *caller = use.getUser();
-        if (caller->getNumResults() != newResultTypes.size()) {
-          continue;
-        }
-        for (size_t i = 0; i < newResultTypes.size(); ++i) {
-          Value result = caller->getResult(i);
-          if (result.getType() != newResultTypes[i]) {
-            result.setType(newResultTypes[i]);
-          }
-        }
-      }
-    }
   }
 
 private:
