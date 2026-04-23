@@ -1,0 +1,36 @@
+- kernel:
+    watcher_kernel_id: 3
+    name: cq_dispatch_subordinate
+    path: /root/.cache/tt-metal-cache/12238854107133685924/kernels/cq_dispatch_subordinate/3989604248692079073/
+    source: tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp
+    program_id: 0
+- kernel:
+    watcher_kernel_id: 2
+    name: cq_dispatch
+    path: /root/.cache/tt-metal-cache/12238854107133685924/kernels/cq_dispatch/16695679818403927669/
+    source: tt_metal/impl/dispatch/kernels/cq_dispatch.cpp
+    program_id: 0
+- kernel:
+    watcher_kernel_id: 1
+    name: cq_prefetch
+    path: /root/.cache/tt-metal-cache/12238854107133685924/kernels/cq_prefetch/16473876254342419312/
+    source: tt_metal/impl/dispatch/kernels/cq_prefetch.cpp
+    program_id: 0
+- kernel:
+    watcher_kernel_id: 4
+    name: writer_interleaved_no_bcast
+    path: /root/.cache/tt-metal-cache/12238854107133685924/kernels/writer_interleaved_no_bcast/8635642873700358910/
+    source: ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow/writer_interleaved_no_bcast.cpp
+    program_id: 1
+- kernel:
+    watcher_kernel_id: 6
+    name: reader_interleaved_no_bcast
+    path: /root/.cache/tt-metal-cache/12238854107133685924/kernels/reader_interleaved_no_bcast/9222715915482570023/
+    source: ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow/reader_interleaved_no_bcast.cpp
+    program_id: 1
+- kernel:
+    watcher_kernel_id: 5
+    name: eltwise_binary_sfpu_no_bcast
+    path: /root/.cache/tt-metal-cache/12238854107133685924/kernels/eltwise_binary_sfpu_no_bcast/11174964400956721081/
+    source: ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels/compute/eltwise_binary_sfpu_no_bcast.cpp
+    program_id: 1
