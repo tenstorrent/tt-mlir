@@ -18,22 +18,19 @@ from ttmlir.ir import (
 )
 
 
-def get_op_outputs(op: Operation) -> list[OpResult]:
-    """Extract output tensors (results with shape and element_type) from a MLIR operation."""
-    return [
-        result
-        for result in op.results
-        if hasattr(result.type, "shape") and hasattr(result.type, "element_type")
-    ]
+def _is_tensor_like(value: Value) -> bool:
+    """True if a MLIR Value carries a tensor-shaped type (has shape + element_type)."""
+    return hasattr(value.type, "shape") and hasattr(value.type, "element_type")
 
 
 def get_op_inputs(op: Operation) -> list[Value]:
     """Extract input tensors (operands with shape and element_type) from a MLIR operation."""
-    return [
-        operand
-        for operand in op.operands
-        if hasattr(operand.type, "shape") and hasattr(operand.type, "element_type")
-    ]
+    return [operand for operand in op.operands if _is_tensor_like(operand)]
+
+
+def get_op_outputs(op: Operation) -> list[OpResult]:
+    """Extract output tensors (results with shape and element_type) from a MLIR operation."""
+    return [result for result in op.results if _is_tensor_like(result)]
 
 
 class IRModule:
