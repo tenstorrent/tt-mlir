@@ -291,19 +291,19 @@ def test_all_gather(
                 device=device,
                 shard_dims=shard_dims,
             )
-            tilized = builder.to_layout(distributed, layout=ttnn.Layout.Tile)
-            on_device = builder.to_device(tilized, device=device)
+            on_device = builder.to_device(distributed, device=device)
+            tilized = builder.to_layout(on_device, layout=ttnn.Layout.Tile)
 
             gathered = builder.all_gather(
-                on_device,
+                tilized,
                 all_gather_dim=all_gather_dim,
                 cluster_axis=cluster_axis,
             )
 
-            from_dev = builder.from_device(gathered)
-            untilized = builder.to_layout(from_dev, layout=ttnn.Layout.RowMajor)
+            untilized = builder.to_layout(gathered, layout=ttnn.Layout.RowMajor)
+            from_dev = builder.from_device(untilized)
             return builder.aggregate_tensor(
-                untilized,
+                from_dev,
                 device=device,
                 shard_dims=shard_dims,
             )
@@ -397,20 +397,21 @@ def test_reduce_scatter(
                 device=device,
                 shard_dims=shard_dims,
             )
-            tilized = builder.to_layout(distributed, layout=ttnn.Layout.Tile)
-            on_device = builder.to_device(tilized, device=device)
+            on_device = builder.to_device(distributed, device=device)
+            tilized = builder.to_layout(on_device, layout=ttnn.Layout.Tile)
 
             scattered = builder.reduce_scatter(
-                on_device,
+                tilized,
                 reduce_type=ReduceType.Sum,
                 scatter_dim=scatter_dim,
                 cluster_axis=cluster_axis,
             )
 
-            from_dev = builder.from_device(scattered)
-            untilized = builder.to_layout(from_dev, layout=ttnn.Layout.RowMajor)
+            untilized = builder.to_layout(scattered, layout=ttnn.Layout.RowMajor)
+            from_dev = builder.from_device(untilized)
+
             return builder.aggregate_tensor(
-                untilized,
+                from_dev,
                 device=device,
                 shard_dims=shard_dims,
             )
@@ -450,13 +451,20 @@ def test_full(
         @builder.func([], [])
         def full(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
             get_device = builder.get_device()
+
+            if full_layout == ttnn.Layout.RowMajor:
+                buffer_type = ttnn.BufferType.SystemMemory
+            else:
+                buffer_type = ttnn.BufferType.DRAM
+
             full = builder.full(
                 device=get_device,
                 shape=list(shape),
                 fill_value=fill_value,
                 output_type=dtype,
-                unit_attrs=unit_attrs,
                 layout=full_layout,
+                buffer_type=buffer_type,
+                unit_attrs=unit_attrs,
             )
             if full_layout == ttnn.Layout.RowMajor:
                 return builder.to_layout(
@@ -490,8 +498,10 @@ def test_constant(
         def constant(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
             if constant_layout == ttnn.Layout.Tile:
                 get_device = builder.get_device()
+                buffer_type = ttnn.BufferType.DRAM
             else:
                 get_device = None
+                buffer_type = ttnn.BufferType.SystemMemory
             # Create a simple constant tensor with values from 0 to size-1
             size = 1
             for dim in shape:
@@ -504,10 +514,14 @@ def test_constant(
                 output_type=dtype,
                 unit_attrs=unit_attrs,
                 layout=constant_layout,
+                buffer_type=buffer_type,
             )
             if constant_layout == ttnn.Layout.RowMajor:
                 return builder.to_layout(
-                    constant, layout=ttnn.Layout.Tile, output_type=dtype
+                    constant,
+                    layout=ttnn.Layout.Tile,
+                    buffer_type=ttnn.BufferType.DRAM,
+                    output_type=dtype,
                 )
             return constant
 
