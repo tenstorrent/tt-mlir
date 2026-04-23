@@ -247,7 +247,9 @@ All live in `lib/Dialect/TTIR/Transforms/DecomposeComposites.cpp`:
   `reciprocal -> multiply` to work around a broadcast-multiply bug).
   When `numericStable=false`, the max-subtract step is skipped.
 
-- **DecomposeMinReduction** (separate pass):
-  `lib/Dialect/TTIR/Transforms/DecomposeMinReduction.cpp` — Decomposes
-  `min(x)` into `neg(max(neg(x)))`. This is a standalone pass, not part
-  of the composites pass.
+- **Inner-min decomposition** (in TTIRToD2M):
+  `D2MInnerMinDecompositionRewriter` in
+  `lib/Conversion/TTIRToD2M/TTIRToD2M.cpp` rewrites inner-dim `ttir.min`
+  into `neg(max(neg(x)))` during conversion (there is no
+  `tile_reduce_min` kernel). Outer-dim min reductions use the
+  accumulation path with `d2m.tile_minimum`.
