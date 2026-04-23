@@ -55,8 +55,9 @@ public:
   }
 
   static llvm::SmallVector<int64_t> GetPhysicalGridSize() {
-    llvm::SmallVector<int64_t> grid = {gridShapeHwN300[0], gridShapeHwN300[1]};
-    return grid;
+    return llvm::to_vector(
+        mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
+            .getComputeGridShape());
   }
 
   // helper function to get virtual grid shape based on tensor shape and
