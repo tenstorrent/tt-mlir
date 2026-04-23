@@ -36,9 +36,12 @@
 #include <cstddef>
 #include <utility>
 
-// Maximum number of mock chips configured once per binary.
-// Individual tests can reshape to any topology whose volume <= maxMockChips.
-static constexpr size_t maxMockChips = 8;
+// Base mock topology: Galaxy 6U (4×8, 32 chips).
+// configure_mock_mode is called once per binary with this chip count (uses
+// 6u_cluster_desc.yaml). Individual tests reshape to any sub-topology with
+// rows ≤ 4 and cols ≤ 8 — covers N300 (1×2), T3K (1×8), Galaxy (4×8), etc.
+static constexpr size_t mockMeshRows = 4;
+static constexpr size_t mockMeshCols = 8;
 
 // Configures mock mode once for the entire test binary.
 // Register via ::testing::AddGlobalTestEnvironment(new MockDeviceEnvironment())
@@ -50,13 +53,13 @@ public:
     tmpCtx.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     auto systemDesc = mlir::tt::ttcore::SystemDescAttr::getDefault(
         &tmpCtx, mlir::tt::ttcore::Arch::WormholeB0,
-        {1, static_cast<int>(maxMockChips)});
+        {static_cast<int>(mockMeshRows), static_cast<int>(mockMeshCols)});
     mlir::tt::ttnn::op_model::SingletonDeviceContext::setSystemDesc(systemDesc);
     mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
         .openMockDevice(
             /*traceRegionSize=*/0,
             /*meshShape=*/
-            std::make_pair(static_cast<size_t>(1), maxMockChips));
+            std::make_pair(mockMeshRows, mockMeshCols));
   }
 
   void TearDown() override {

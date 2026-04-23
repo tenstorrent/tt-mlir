@@ -117,6 +117,19 @@ public:
   // (no real HW).
   bool isMockDevice() const { return m_isMockDevice; }
 
+  // Returns the device's compute grid shape as {rows, cols}, queried from the
+  // actual metal device. Use this instead of hardcoding per-arch defaults since
+  // the effective grid depends on the cluster descriptor's harvesting masks.
+  llvm::SmallVector<int64_t> getComputeGridShape() const;
+
+  // Initializes fabric config for mock devices. CCL ops (all_gather,
+  // reduce_scatter) require fabric to be configured; mock devices skip the
+  // auto-enable path in device_manager so this must be called manually after
+  // openMockDevice(). RELAXED mode tolerates missing ETH links in mock
+  // descriptors. Call disableFabric() before closing the device.
+  static void initializeFabricForMockDevice();
+  static void disableFabric();
+
 private:
   SingletonDeviceContext() = default;
   ~SingletonDeviceContext();

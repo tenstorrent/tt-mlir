@@ -269,11 +269,17 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW, gridH),
           /*subblock_w=*/1, blockH, blockW, /*inplace=*/false);
 
+  // Omit the memory_config attribute (pass nullptr): the optimizer can
+  // re-decide the result tensor's encoding (e.g. between width_sharded and
+  // a block_sharded label that's equivalent for a 1xN grid), and a hard
+  // memory_config attribute would then clash with the new encoding via
+  // verifyMemoryConfigWithLayout. Flatbuffer serialization and EmitC fall
+  // back to deriving memory_config from the result tensor type.
   auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
       op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
       residual, statsEmptyOp.getResult(), op.getDevice(),
       static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
-      op.getSubDeviceIdAttr(), inputMemoryConfig, op.getNumLinksAttr(),
+      op.getSubDeviceIdAttr(), /*memory_config=*/nullptr, op.getNumLinksAttr(),
       op.getTopologyAttr(), computeConfigAttr, programConfigAttr);
 
   // If the original output had a different layout (e.g. interleaved DRAM),

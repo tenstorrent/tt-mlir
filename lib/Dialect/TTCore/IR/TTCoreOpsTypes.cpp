@@ -162,9 +162,9 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
       chipChannelList);
 }
 
-SystemDescAttr
-createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
-                                const ::llvm::SmallVector<int64_t> &meshShape) {
+SystemDescAttr createDefaultWormholeSystemDesc(
+    mlir::MLIRContext *context, const ::llvm::SmallVector<int64_t> &meshShape,
+    const ::llvm::SmallVector<int64_t> &chipGrid = {8, 8}) {
   // Set default values
   constexpr auto l1Size = 1499136;
   constexpr auto numDramChannels = 12;
@@ -187,7 +187,7 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
                       std::multiplies<int64_t>());
 
   // Populate dummy values for single chip or multi chip config.
-  llvm::SmallVector<std::int64_t> gridShape = {8, 8};
+  llvm::SmallVector<std::int64_t> gridShape(chipGrid.begin(), chipGrid.end());
   llvm::SmallVector<std::int64_t> dramGridShape = {1, 12};
 
   // Captured from an n150 device. Wormhole's optimal mapping is identical
@@ -295,6 +295,18 @@ SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
   switch (arch) {
   case Arch::WormholeB0:
     return createDefaultWormholeSystemDesc(context, meshShape);
+  case Arch::Blackhole:
+    return createDefaultBlackholeSystemDesc(context, meshShape);
+  }
+}
+
+SystemDescAttr
+SystemDescAttr::getDefault(MLIRContext *context, Arch arch,
+                           const ::llvm::SmallVector<int64_t> &meshShape,
+                           const ::llvm::SmallVector<int64_t> &chipGrid) {
+  switch (arch) {
+  case Arch::WormholeB0:
+    return createDefaultWormholeSystemDesc(context, meshShape, chipGrid);
   case Arch::Blackhole:
     return createDefaultBlackholeSystemDesc(context, meshShape);
   }
