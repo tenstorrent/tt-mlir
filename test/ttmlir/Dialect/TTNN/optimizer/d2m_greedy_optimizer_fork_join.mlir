@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-fusing-pass=true" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-fusing-pass=true enable-d2m-elementwise-fusion=false" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that the full TTIR-to-TTNN backend pipeline with the greedy optimizer
