@@ -177,91 +177,20 @@ class ChiselChecker:
             return False
 
     def check_golden_vs_runtime_tensor(
-        self, slot: str, golden: torch.Tensor, device: torch.Tensor
+        self, slot: str, golden: torch.Tensor, device: torch.Tensor,
+        *, accum: bool = False,
     ) -> bool:
         """Full comparison: shape, dtype, PCC, atol, rtol.
+
+        When accum=True, records under check="accum_golden_vs_runtime_tensor"
+        so isolation and accumulation results are distinguishable in the JSONL
+        output.
 
         Raises AssertionError if ctx.strict=True and the check fails,
         so pytest-subtest integration continues to work.
         """
-        try:
-            if list(golden.shape) != list(device.shape):
-                msg = (
-                    f"{self.op_name} {slot} [golden_vs_runtime_tensor]: shape MISMATCH "
-                    f"expected={list(golden.shape)} actual={list(device.shape)}"
-                )
-                self._record(
-                    slot, "golden_vs_runtime_tensor", "shape_mismatch",
-                    expected_shape=list(golden.shape), actual_shape=list(device.shape),
-                )
-                logger.warning(msg)
-                if self.ctx.strict:
-                    raise AssertionError(msg)
-                return False
-
-            if golden.dtype != device.dtype:
-                msg = (
-                    f"{self.op_name} {slot} [golden_vs_runtime_tensor]: dtype MISMATCH "
-                    f"expected={golden.dtype} actual={device.dtype}"
-                )
-                self._record(
-                    slot, "golden_vs_runtime_tensor", "dtype_mismatch",
-                    expected_dtype=str(golden.dtype), actual_dtype=str(device.dtype),
-                )
-                logger.warning(msg)
-                if self.ctx.strict:
-                    raise AssertionError(msg)
-                return False
-
-            pcc = compute_pcc(golden, device)
-            atol = compute_atol(golden, device)
-            rtol = compute_rtol(golden, device)
-
-            if pcc >= _PCC_THRESHOLD:
-                self._record(
-                    slot, "golden_vs_runtime_tensor", "ok",
-                    pcc=pcc, atol=atol, rtol=rtol,
-                )
-                logger.info(
-                    f"{self.op_name} {slot}: OK  "
-                    f"pcc={pcc:.6f} atol={atol:.6e} rtol={rtol:.6e}"
-                )
-                return True
-
-            msg = (
-                f"{self.op_name} {slot} [golden_vs_runtime_tensor]: PCC FAIL "
-                f"pcc={pcc:.6f} (threshold={_PCC_THRESHOLD}) "
-                f"atol={atol:.6e} rtol={rtol:.6e}"
-            )
-            self._record(
-                slot, "golden_vs_runtime_tensor", "pcc_fail",
-                pcc=pcc, atol=atol, rtol=rtol,
-            )
-            logger.warning(msg)
-            if self.ctx.strict:
-                raise AssertionError(msg)
-            return False
-
-        except AssertionError:
-            raise
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(
-                f"{self.op_name} {slot} [golden_vs_runtime_tensor]: ERROR\n{tb}"
-            )
-            self._record(slot, "golden_vs_runtime_tensor", "error", traceback=tb)
-            return False
-
-    def check_accum_golden_vs_runtime_tensor(
-        self, slot: str, golden: torch.Tensor, device: torch.Tensor
-    ) -> bool:
-        """Full comparison using accumulation golden: shape, dtype, PCC, atol, rtol.
-
-        Same logic as check_golden_vs_runtime_tensor but records under
-        check="accum_golden_vs_runtime_tensor" so isolation and accumulation
-        results are distinguishable in the JSONL output.
-        """
-        check = "accum_golden_vs_runtime_tensor"
+        check = "accum_golden_vs_runtime_tensor" if accum else "golden_vs_runtime_tensor"
+        log_tag = " [accum]" if accum else ""
         try:
             if list(golden.shape) != list(device.shape):
                 msg = (
@@ -298,7 +227,7 @@ class ChiselChecker:
             if pcc >= _PCC_THRESHOLD:
                 self._record(slot, check, "ok", pcc=pcc, atol=atol, rtol=rtol)
                 logger.info(
-                    f"{self.op_name} {slot} [accum]: OK  "
+                    f"{self.op_name} {slot}{log_tag}: OK  "
                     f"pcc={pcc:.6f} atol={atol:.6e} rtol={rtol:.6e}"
                 )
                 return True

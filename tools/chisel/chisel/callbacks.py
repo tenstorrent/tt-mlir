@@ -135,7 +135,7 @@ def _default_post_op(
 
     Accumulation golden (pool inputs):
     7. execute_golden_from_pool with program.golden_tensor_pool
-    8. check_accum_golden_vs_runtime_tensor — PCC/atol/rtol (skip if skip_accum_pcc)
+    8. check_golden_vs_runtime_tensor(accum=True) — PCC/atol/rtol (skip if skip_accum_pcc)
     """
     from ttrt import runtime as tt_runtime
 
@@ -228,7 +228,7 @@ def _default_post_op(
             if skip_accum_pcc:
                 checker._record(name, "accum_golden_vs_runtime_tensor", "skipped_pcc")
             else:
-                checker.check_accum_golden_vs_runtime_tensor(name, acc_out, device_tensor)
+                checker.check_golden_vs_runtime_tensor(name, acc_out, device_tensor, accum=True)
 
     if skip_this_op:
         _apply_skip(
