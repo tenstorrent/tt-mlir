@@ -302,6 +302,12 @@ struct TTIRToTTNNCommonPipelineOptions
                                llvm::cl::desc("Enable D2M fusing pass."),
                                llvm::cl::init(false)};
 
+  // Enable the d2m elementwise fusion pass when enable-d2m-fusing-pass is on.
+  // See resolveD2MFusingOptions for more details.
+  mutable Option<bool> enableD2MElementwiseFusion{
+      *this, "enable-d2m-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion pass."), llvm::cl::init(false)};
+
   // Enable fusing of conv2d + multiply pattern.
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
@@ -477,6 +483,20 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "enable-compile-time-stats",
       llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
       llvm::cl::init(false)};
+
+  void resolveD2MFusingOptions() const {
+    // enable-d2m-elementwise-fusion is a sub-option of enable-d2m-fusing-pass
+    // and should only be enabled if enable-d2m-fusing-pass is also enabled.
+    if (enableD2MElementwiseFusion && !enableD2MFusing) {
+      llvm::reportFatalUsageError("enable-d2m-elementwise-fusion=true requires "
+                                  "enable-d2m-fusing-pass to be enabled.");
+    }
+
+    if (enableD2MFusing &&
+        enableD2MElementwiseFusion.getNumOccurrences() == 0) {
+      enableD2MElementwiseFusion = true;
+    }
+  }
 
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
@@ -677,7 +697,20 @@ struct RecoverStructureXLATorchPipelineOptions
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
-void createTTNNPipelineD2MPass(OpPassManager &pm);
+// TTNN Pipeline D2M pass options.
+struct TTNNPipelineD2MPassOptions
+    : public PassPipelineOptions<TTNNPipelineD2MPassOptions> {
+  // Enable the d2m elementwise fusion pass.
+  // Same downstream pass as TTIRToTTNNCommonPipelineOptions::
+  // enableD2MElementwiseFusion / enable-d2m-elementwise-fusion.
+  Option<bool> enableElementwiseFusion{
+      *this, "enable-elementwise-fusion",
+      llvm::cl::desc("Enable elementwise fusion of d2m.generic ops."),
+      llvm::cl::init(false)};
+};
+
+void createTTNNPipelineD2MPass(OpPassManager &pm,
+                               const TTNNPipelineD2MPassOptions &options);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn
