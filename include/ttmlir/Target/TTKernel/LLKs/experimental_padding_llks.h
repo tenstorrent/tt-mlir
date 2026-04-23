@@ -97,10 +97,12 @@ inline void _write_col_mask_to_l1_(volatile T *ptr, uint32_t validCols,
 // 2-byte elements (2048 B/tile).
 
 constexpr uint16_t ONE_BF16 = 0x3F80; // 1.0 in bfloat16
+constexpr uint32_t ONE_I32 = 1;       // integer 1
 
 template <DataFormat df = DataFormat::Float32>
 ALWI void write_row_mask_tile(uint32_t validRows, uint32_t cb_id) {
-  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
+  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b ||
+                    df == DataFormat::Int32,
                 "write_row_mask_tile: unsupported DataFormat");
 #ifdef TRISC_UNPACK
   uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
@@ -112,13 +114,18 @@ ALWI void write_row_mask_tile(uint32_t validRows, uint32_t cb_id) {
     volatile tt_l1_ptr uint16_t *ptr =
         reinterpret_cast<volatile tt_l1_ptr uint16_t *>(write_addr);
     _write_row_mask_to_l1_(ptr, validRows, ONE_BF16);
+  } else if constexpr (df == DataFormat::Int32) {
+    volatile tt_l1_ptr uint32_t *ptr =
+        reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
+    _write_row_mask_to_l1_(ptr, validRows, ONE_I32);
   }
 #endif
 }
 
 template <DataFormat df = DataFormat::Float32>
 ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
-  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
+  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b ||
+                    df == DataFormat::Int32,
                 "write_col_mask_tile: unsupported DataFormat");
 #ifdef TRISC_UNPACK
   uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
@@ -130,6 +137,10 @@ ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
     volatile tt_l1_ptr uint16_t *ptr =
         reinterpret_cast<volatile tt_l1_ptr uint16_t *>(write_addr);
     _write_col_mask_to_l1_(ptr, validCols, ONE_BF16);
+  } else if constexpr (df == DataFormat::Int32) {
+    volatile tt_l1_ptr uint32_t *ptr =
+        reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
+    _write_col_mask_to_l1_(ptr, validCols, ONE_I32);
   }
 #endif
 }
