@@ -19,14 +19,14 @@ namespace mlir::tt::ttir {
 
 namespace {
 
-// collect all values that are preserved from the function arguments, return
-// operands, and DPS init operands
+// collect all values that should be preserved.  These include the function
+// arguments, return operands, and any DPS init operands of DPS ops.
 static llvm::DenseSet<Value> collectPreservedValues(func::FuncOp funcOp) {
   llvm::DenseSet<Value> preserved;
   llvm::SmallVector<Value> frontier;
 
-  // Add `v` to the preserved set if not already present, and enqueue it on
-  // the propagation frontier so its DPS-init operands (if any) get visited.
+  // Add value `v` to the preserved set if not already present, and enqueue it
+  // on the propagation frontier so its DPS-init operands (if any) get visited.
   auto markPreserved = [&](Value v) {
     if (preserved.insert(v).second) {
       frontier.push_back(v);
@@ -38,33 +38,31 @@ static llvm::DenseSet<Value> collectPreservedValues(func::FuncOp funcOp) {
   }
 
   for (Block &block : funcOp.getBody()) {
-    auto returnOp = mlir::dyn_cast<func::ReturnOp>(block.getTerminator());
-    if (!returnOp) {
-      continue;
+    if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(block.getTerminator())) {
+      for (Value returnedValue : returnOp.getOperands()) {
+        markPreserved(returnedValue);
+      }
     }
-    for (Value returnedValue : returnOp.getOperands()) {
-      markPreserved(returnedValue);
+    for (ttir::ToLayoutOp toLayoutOp : block.getOps<ttir::ToLayoutOp>()) {
+      for (Value result : toLayoutOp.getResults()) {
+        markPreserved(result);
+      }
     }
   }
 
   // For any preserved value defined by a DPS op, the
-  // DestinationStyleOpInterface verifier requires the op's DPS init operands to
-  // share their result's type (including the ttnn_layout encoding). Stripping
-  // such an init operand while keeping its result encoded would produce an
-  // invalid op, so we propagate preservation backward through DPS init
-  // operands.
+  // verifier requires the op's DPS init operands to
+  // have the same type as the result (including the ttnn_layout encoding).
+  // Stripping the layout from such an init operand while keeping its result
+  // encoded would produce an invalid op, so we propagate preservation backward
+  // by checking the DPS init operands of DPS ops.
   while (!frontier.empty()) {
     Value v = frontier.pop_back_val();
-    Operation *defOp = v.getDefiningOp();
-    if (!defOp) {
-      continue;
-    }
-    auto dps = mlir::dyn_cast<DestinationStyleOpInterface>(defOp);
-    if (!dps) {
-      continue;
-    }
-    for (Value init : dps.getDpsInits()) {
-      markPreserved(init);
+    if (auto dpsOp = mlir::dyn_cast_if_present<DestinationStyleOpInterface>(
+            v.getDefiningOp())) {
+      for (Value init : dpsOp.getDpsInits()) {
+        markPreserved(init);
+      }
     }
   }
 
@@ -102,17 +100,18 @@ public:
             continue;
           }
 
-          auto rt = mlir::dyn_cast<RankedTensorType>(result.getType());
-          if (!rt) {
+          auto rankedTensor =
+              mlir::dyn_cast<RankedTensorType>(result.getType());
+          if (!rankedTensor) {
             continue;
           }
 
-          RankedTensorType stripped = stripTTNNLayout(rt);
-          if (stripped == rt) {
+          RankedTensorType strippedTensorType = stripTTNNLayout(rankedTensor);
+          if (strippedTensorType == rankedTensor) {
             continue;
           }
 
-          result.setType(stripped);
+          result.setType(strippedTensorType);
         }
       });
     });
