@@ -1,4 +1,3 @@
-# tools/chisel/chisel/executor.py
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
@@ -9,22 +8,30 @@ Each golden function has the interface:
     fn(op: Operation, inputs: Dict[str, GoldenMapTensor], asm_state: AsmState) -> GoldenMapTensor
 
 The executor wraps host tensors as GoldenMapTensor, calls the golden function,
-and extracts the result back to a torch.Tensor.
+and normalizes the result to a tuple of torch.Tensor with one entry per op
+output. Single-tensor goldens on multi-output ops (e.g. sort/topk return only
+values) are broadcast to every output slot so downstream consumers of any
+output find a value.
 """
-from typing import Dict
+from typing import Dict, Tuple
 
 import torch
 from ttmlir.ir import Operation
 
 from golden import get_chisel_golden_function, GoldenMapTensor
 
+from .exceptions import (
+    GoldenExecutionError,
+    GoldenInputMissing,
+    NoGoldenImplementation,
+)
 from .ops import IRModule, get_op_inputs, get_op_outputs
 from .tensors import TensorPool
 
 
 def execute_golden(
     op: Operation, ir_module: IRModule, function_name: str, inputs: dict
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, ...]:
     """
     Execute a TTNN op on CPU via CHISEL_GOLDEN_MAPPINGS.
 
@@ -35,31 +42,51 @@ def execute_golden(
         inputs: Dict mapping SSA names to torch.Tensor (device inputs copied to host).
 
     Returns:
-        torch.Tensor — the golden output.
+        Tuple[torch.Tensor, ...] — one tensor per op output. Single-tensor
+        goldens on multi-output ops are broadcast to every slot.
 
     Raises:
-        RuntimeError: If no golden implementation exists for the op type.
+        NoGoldenImplementation: If no golden mapping exists for the op type.
+        GoldenExecutionError: If the golden function itself raises.
+        TypeError: If the golden returns a type we cannot interpret as tensors.
     """
     golden_fn = get_chisel_golden_function(type(op))
     if golden_fn is None:
-        raise RuntimeError(f"No golden implementation for {type(op).__name__}")
+        raise NoGoldenImplementation(
+            f"No golden implementation for {type(op).__name__}"
+        )
 
     # Wrap input tensors as GoldenMapTensor keyed by SSA name
     op_inputs = get_op_inputs(op)
     asm_state = ir_module.get_asm_state(function_name)
-    golden_inputs: Dict[str, GoldenMapTensor] = {
-        inp.get_name(asm_state): GoldenMapTensor({0: inputs[inp.get_name(asm_state)]}, (1, 1))
-        for inp in op_inputs
-    }
+    golden_inputs: Dict[str, GoldenMapTensor] = {}
+    for inp in op_inputs:
+        name = inp.get_name(asm_state)
+        golden_inputs[name] = GoldenMapTensor({0: inputs[name]}, (1, 1))
 
-    result = golden_fn(op, golden_inputs, asm_state)
+    try:
+        result = golden_fn(op, golden_inputs, asm_state)
+    except Exception as e:
+        raise GoldenExecutionError(
+            f"golden for {type(op).__name__} raised: {e}"
+        ) from e
 
-    # Extract torch.Tensor from GoldenMapTensor
     if isinstance(result, GoldenMapTensor):
-        return result.golden_map_tensor_as_torch_tensors()[0]
-    if isinstance(result, torch.Tensor):
-        return result
-    return result
+        tensors: Tuple[torch.Tensor, ...] = (result.golden_map_tensor_as_torch_tensors()[0],)
+    elif isinstance(result, torch.Tensor):
+        tensors = (result,)
+    elif isinstance(result, (list, tuple)):
+        tensors = tuple(result)
+    else:
+        raise TypeError(
+            f"Golden for {type(op).__name__} returned unsupported type "
+            f"{type(result).__name__}"
+        )
+
+    num_outputs = len(get_op_outputs(op))
+    if len(tensors) == 1 and num_outputs > 1:
+        tensors = tensors * num_outputs
+    return tensors
 
 
 def execute_golden_from_pool(
@@ -67,40 +94,34 @@ def execute_golden_from_pool(
     ir_module: IRModule,
     function_name: str,
     tensor_pool: TensorPool,
-):
+) -> Tuple[torch.Tensor, ...]:
     """
     Pool-aware golden execution.
 
     Pulls input tensors from tensor_pool by SSA name, calls execute_golden,
-    stores ALL output tensors back in the pool, and returns the raw result.
+    stores each output tensor back in the pool under its SSA name, and
+    returns the tuple.
 
     ir_module is used to obtain asm_state for SSA name resolution of both
     inputs (pool lookup) and outputs (pool store).
 
     Raises:
-        KeyError: If a required input is not present in tensor_pool.
-        RuntimeError: If no golden implementation exists for the op type.
+        GoldenInputMissing: If a required input is not present in tensor_pool.
+        NoGoldenImplementation / GoldenExecutionError: Propagated from execute_golden.
     """
     asm_state = ir_module.get_asm_state(function_name)
     op_inputs = get_op_inputs(op)
-    inputs = {
-        inp.get_name(asm_state): tensor_pool[inp.get_name(asm_state)]
-        for inp in op_inputs
-    }
+    try:
+        inputs = {
+            inp.get_name(asm_state): tensor_pool[inp.get_name(asm_state)]
+            for inp in op_inputs
+        }
+    except KeyError as e:
+        raise GoldenInputMissing(f"missing input in pool: {e}") from e
 
     result = execute_golden(op, ir_module, function_name, inputs)
 
-    op_outputs = get_op_outputs(op)
-    if op_outputs:
-        if isinstance(result, (list, tuple)):
-            # Multi-output golden: zip result tensors with op outputs
-            for out_val, res_tensor in zip(op_outputs, result):
-                tensor_pool[out_val.get_name(asm_state)] = res_tensor
-        else:
-            # Single-output golden (most ops, including sort/topk which return
-            # only values by design): store under all output SSA names so that
-            # downstream ops that consume any output find a value in the pool.
-            for out_val in op_outputs:
-                tensor_pool[out_val.get_name(asm_state)] = result
+    for out_val, res_tensor in zip(get_op_outputs(op), result, strict=True):
+        tensor_pool[out_val.get_name(asm_state)] = res_tensor
 
     return result

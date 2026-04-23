@@ -32,8 +32,6 @@ class ChiselContext:
         self.binaries: Dict[int, "BinaryState"] = {}
         self.current_binary: Optional["BinaryState"] = None
         self.current_program: Optional["ProgramState"] = None
-        # Per-op transient state (set in preop, consumed in postop)
-        self._stashed_inputs: Optional[dict] = None
         # Output / behavior flags
         self.strict: bool = False
         self.isolation_check: bool = True
@@ -131,7 +129,7 @@ class BinaryState:
 
 
 class ProgramState:
-    """Per-program state: owns golden_tensor_pool and op_iter."""
+    """Per-program state: owns golden_tensor_pool, op_iter, and per-op stashed inputs."""
 
     def __init__(self, program_index: int, program_name: str, ir_module: IRModule):
         self.program_index = program_index
@@ -140,8 +138,12 @@ class ProgramState:
         self.ops = ir_module.get_function_ops(program_name)
         self.current_op: Optional[Operation] = None
         self.op_iter: Iterator = iter(self.ops)
+        # Per-op transient state (set in preop, consumed in postop). Lives on
+        # ProgramState because op execution is scoped to the active program.
+        self.stashed_inputs: Optional[dict] = None
 
     def reset_for_new_execution(self) -> None:
         self.op_iter = iter(self.ops)
         self.current_op = None
+        self.stashed_inputs = None
         # golden_tensor_pool is intentionally NOT cleared — cross-run chaining

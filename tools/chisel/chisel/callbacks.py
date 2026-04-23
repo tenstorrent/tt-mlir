@@ -13,50 +13,22 @@ Each op output produces two PCC records:
 
 Either check can be disabled via ctx.isolation_check / ctx.accum_check.
 """
-import functools
 import logging
-import traceback
 
 from .checker import ChiselChecker
 from .context import ChiselContext
+from .exceptions import record_check
 from .executor import execute_golden, execute_golden_from_pool
 from .op_configs import get_op_config
 from .ops import get_op_inputs, get_op_outputs
-from .utils import debug_wrap, retrieve_torch_tensor, write_torch_tensor_to_pool
+from .utils import (
+    chisel_safe,
+    debug_wrap,
+    retrieve_torch_tensor,
+    write_torch_tensor_to_pool,
+)
 
 logger = logging.getLogger("chisel")
-
-DEBUG = False
-
-
-def with_pytest_subtests(subtests):
-    """Decorator that wraps a post_op callback so each op runs as a pytest subtest.
-
-    Pairs with ctx.strict=True: the subtest fixture catches the AssertionError
-    raised on mismatch, records the failure, and continues to the next op.
-
-    Usage:
-        ctx.strict = True
-        tt_runtime.DebugHooks.get(
-            pre_op=chisel_pre_op_callback,
-            post_op=with_pytest_subtests(subtests)(chisel_post_op_callback),
-            pre_program=chisel_pre_program_callback,
-            post_program=chisel_post_program_callback,
-        )
-    """
-
-    def decorator(fn):
-        @functools.wraps(fn)
-        def wrapper(binary, program_context, op_context):
-            ctx = ChiselContext.get_instance()
-            program = ctx.current_program
-            op_name = program.current_op.name if program and program.current_op else "unknown"
-            with subtests.test(op=op_name):
-                fn(binary, program_context, op_context)
-
-        return wrapper
-
-    return decorator
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +36,12 @@ def with_pytest_subtests(subtests):
 # ---------------------------------------------------------------------------
 
 
+@chisel_safe
 def chisel_pre_program_callback(binary, program_context):
     ChiselContext.get_instance().preprogram(binary, program_context)
 
 
+@chisel_safe
 def chisel_post_program_callback(binary, program_context):
     ChiselContext.get_instance().postprogram(binary, program_context)
 
@@ -83,7 +57,7 @@ def _default_pre_op(binary, program_context, op_context) -> None:
     1. For each input: validate MLIR IR type against TensorRef metadata
     2. Retrieve device input tensors to host
     3. For each input: validate MLIR IR type against retrieved tensor
-    4. Stash inputs in ctx._stashed_inputs for isolation golden in postOp
+    4. Stash inputs in program.stashed_inputs for isolation golden in postOp
     5. Seed golden_tensor_pool for inputs not yet present (program inputs)
     """
     from ttrt import runtime as tt_runtime
@@ -94,7 +68,7 @@ def _default_pre_op(binary, program_context, op_context) -> None:
     op = program.current_op
     checker = ChiselChecker(ctx, op.name)
 
-    ctx._stashed_inputs = {}
+    program.stashed_inputs = {}
     op_inputs = get_op_inputs(op)
     input_refs = tt_runtime.get_op_input_refs(op_context, program_context)
     asm_state = binary_state.ir_module.get_asm_state(program.program_name)
@@ -102,19 +76,16 @@ def _default_pre_op(binary, program_context, op_context) -> None:
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
         name = mlir_input.get_name(asm_state)
         checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_input, tensor_ref)
-        try:
+        tensor = None
+        with record_check([name], "retrieve_input", checker, log_prefix=op.name):
             tensor = retrieve_torch_tensor(program_context, tensor_ref)
-            checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_input, tensor)
-            ctx._stashed_inputs[name] = tensor
-            # Seed pool for program inputs (never produced by a prior golden op)
-            if name not in program.golden_tensor_pool:
-                program.golden_tensor_pool[name] = tensor
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(
-                f"{op.name} {name}: failed to retrieve input tensor\n{tb}"
-            )
-            checker.record(name, "retrieve_input", "error", traceback=tb)
+        if tensor is None:
+            continue
+        checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_input, tensor)
+        program.stashed_inputs[name] = tensor
+        # Seed pool for program inputs (never produced by a prior golden op)
+        if name not in program.golden_tensor_pool:
+            program.golden_tensor_pool[name] = tensor
 
 
 def _default_post_op(
@@ -129,7 +100,7 @@ def _default_post_op(
 
     Then two golden checks (each gated by ctx.isolation_check / ctx.accum_check):
     Isolation golden (device-stashed inputs):
-    4. execute_golden with ctx._stashed_inputs
+    4. execute_golden with program.stashed_inputs
     5. check_shape_dtype(mlir_vs_golden)         — MLIR IR shape/dtype vs isolation golden
     6. check_golden_vs_runtime_tensor            — PCC/atol/rtol (skip if skip_pcc)
 
@@ -150,7 +121,7 @@ def _default_post_op(
 
     op_outputs = get_op_outputs(op)
     if not op_outputs:
-        ctx._stashed_inputs = None
+        program.stashed_inputs = None
         return
 
     output_refs = tt_runtime.get_op_output_refs(op_context, program_context)
@@ -158,45 +129,30 @@ def _default_post_op(
 
     # --- Execute golden functions ONCE per op, before the per-output loop ---
 
-    iso_result = None
     # Compute isolation golden if either the isolation check is on OR the op is
     # marked for skipping — skip mode writes the isolation golden back into the
     # device pool, so it needs the tensor even when isolation_check is off.
     # Error/skip records are still gated on isolation_check so disabling the
     # check means a clean report.
     skip_this_op = ctx.should_skip(op)
+    slots = [out.get_name(asm_state) for out in op_outputs]
+
+    iso_result = None
     if ctx.isolation_check or skip_this_op:
-        try:
+        with record_check(
+            slots, "golden", checker,
+            log_prefix=op_name, record=ctx.isolation_check,
+        ):
             iso_result = execute_golden(
-                op.opview, ir_module, program_name, ctx._stashed_inputs
+                op.opview, ir_module, program_name, program.stashed_inputs
             )
-        except RuntimeError:
-            logger.debug(f"{op_name}: no golden implementation, skipping isolation check")
-            if ctx.isolation_check:
-                for out in op_outputs:
-                    checker.record(out.get_name(asm_state), "golden", "skipped")
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"{op_name}: isolation golden execution failed\n{tb}")
-            if ctx.isolation_check:
-                for out in op_outputs:
-                    checker.record(out.get_name(asm_state), "golden", "error", traceback=tb)
 
     acc_result = None
     if ctx.accum_check:
-        try:
+        with record_check(slots, "accum_golden", checker, log_prefix=op_name):
             acc_result = execute_golden_from_pool(
                 op.opview, ir_module, program_name, program.golden_tensor_pool
             )
-        except (RuntimeError, KeyError) as e:
-            logger.debug(f"{op_name}: accumulation golden skipped ({type(e).__name__}: {e})")
-            for out in op_outputs:
-                checker.record(out.get_name(asm_state), "accum_golden", "skipped")
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"{op_name}: accumulation golden execution failed\n{tb}")
-            for out in op_outputs:
-                checker.record(out.get_name(asm_state), "accum_golden", "error", traceback=tb)
 
     # --- Per-output validation loop ---
 
@@ -205,18 +161,16 @@ def _default_post_op(
 
         checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
 
-        try:
+        device_tensor = None
+        with record_check([name], "retrieve_output", checker, log_prefix=op_name):
             device_tensor = retrieve_torch_tensor(program_context, output_ref)
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"{op_name} {name}: failed to retrieve device output tensor\n{tb}")
-            checker.record(name, "retrieve_output", "error", traceback=tb)
+        if device_tensor is None:
             continue
 
         checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_output, device_tensor)
 
         if ctx.isolation_check and iso_result is not None:
-            iso_out = iso_result[i] if isinstance(iso_result, (list, tuple)) else iso_result
+            iso_out = iso_result[i]
             checker.check_shape_dtype(name, "mlir_vs_golden", mlir_output, iso_out)
             if skip_pcc:
                 checker.record(name, "golden_vs_runtime_tensor", "skipped_pcc")
@@ -224,7 +178,7 @@ def _default_post_op(
                 checker.check_golden_vs_runtime_tensor(name, iso_out, device_tensor)
 
         if acc_result is not None:
-            acc_out = acc_result[i] if isinstance(acc_result, (list, tuple)) else acc_result
+            acc_out = acc_result[i]
             if skip_accum_pcc:
                 checker.record(name, "accum_golden_vs_runtime_tensor", "skipped_pcc")
             else:
@@ -235,7 +189,7 @@ def _default_post_op(
             program_context, op, op_outputs, output_refs, asm_state, iso_result, checker
         )
 
-    ctx._stashed_inputs = None
+    program.stashed_inputs = None
 
 
 def _apply_skip(
@@ -259,14 +213,12 @@ def _apply_skip(
         zip(op_outputs, output_refs, strict=True)
     ):
         name = mlir_output.get_name(asm_state)
-        tensor = iso_result[i] if isinstance(iso_result, (list, tuple)) else iso_result
-        try:
+        tensor = iso_result[i]
+        with record_check(
+            [name], "skip_on_device", checker,
+            log_prefix=op.name, success="applied",
+        ):
             write_torch_tensor_to_pool(program_context, output_ref, tensor)
-            checker.record(name, "skip_on_device", "applied")
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"{op.name} {name}: skip_on_device write failed\n{tb}")
-            checker.record(name, "skip_on_device", "error", traceback=tb)
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +226,8 @@ def _apply_skip(
 # ---------------------------------------------------------------------------
 
 
-@debug_wrap(debug=DEBUG)
+@chisel_safe
+@debug_wrap
 def chisel_pre_op_callback(binary, program_context, op_context):
     """
     Pre-operation callback: advance op iterator, then dispatch to per-op or default preOp.
@@ -292,7 +245,8 @@ def chisel_pre_op_callback(binary, program_context, op_context):
         _default_pre_op(binary, program_context, op_context)
 
 
-@debug_wrap(debug=DEBUG)
+@chisel_safe
+@debug_wrap
 def chisel_post_op_callback(binary, program_context, op_context):
     """
     Post-operation callback: dispatch to per-op or default postOp.

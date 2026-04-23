@@ -9,6 +9,7 @@ first mismatch.
 Usage:
     pytest tools/chisel/tests/test_device_execution.py --binary path/to/model.ttnn -v
 """
+import functools
 import logging
 
 from ttrt.common.api import API
@@ -20,7 +21,6 @@ from chisel.callbacks import (
     chisel_post_program_callback,
     chisel_pre_op_callback,
     chisel_post_op_callback,
-    with_pytest_subtests,
 )
 from chisel.context import ChiselContext
 
@@ -28,6 +28,23 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 _ARTIFACTS_DIR = "/localdev/ndrakulic/tt-mlir/ttrt-artifacts"
+
+
+def wrap_for_subtests(fn, subtests):
+    """Wrap a post_op callback so each op runs as a named pytest subtest.
+
+    Pairs with ctx.strict=True: the subtest fixture catches the AssertionError
+    raised on mismatch, records the failure, and continues to the next op.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(binary, program_context, op_context):
+        program = ChiselContext.get_instance().current_program
+        op_name = program.current_op.name if program and program.current_op else "unknown"
+        with subtests.test(op=op_name):
+            fn(binary, program_context, op_context)
+
+    return wrapper
 
 
 def test_device_execution(subtests, binary_path):
@@ -40,7 +57,7 @@ def test_device_execution(subtests, binary_path):
     # Keep a reference so the GC doesn't collect the callbacks before execution
     hooks = tt_runtime.DebugHooks.get(
         pre_op=chisel_pre_op_callback,
-        post_op=with_pytest_subtests(subtests)(chisel_post_op_callback),
+        post_op=wrap_for_subtests(chisel_post_op_callback, subtests),
         pre_program=chisel_pre_program_callback,
         post_program=chisel_post_program_callback,
     )

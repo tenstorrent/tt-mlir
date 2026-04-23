@@ -12,7 +12,6 @@ Usage:
     register_op_config(MyOp, ChiselOpConfig(pre_op=my_pre, post_op=my_post))
 """
 import logging
-import traceback
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Type
 
@@ -20,6 +19,7 @@ from ttmlir.dialects import ttcore, ttnn
 
 from .checker import ChiselChecker
 from .context import ChiselContext
+from .exceptions import record_check
 from .ops import get_op_outputs
 from .utils import retrieve_torch_tensor
 
@@ -75,7 +75,7 @@ def _load_cached_pre_op(binary, program_context, op_context) -> None:
     entirely; provide an empty stash so postOp sees consistent state.
     """
     ctx = ChiselContext.get_instance()
-    ctx._stashed_inputs = {}
+    ctx.current_program.stashed_inputs = {}
 
 
 def _load_cached_post_op(binary, program_context, op_context) -> None:
@@ -100,7 +100,7 @@ def _load_cached_post_op(binary, program_context, op_context) -> None:
 
     op_outputs = get_op_outputs(op)
     if not op_outputs:
-        ctx._stashed_inputs = None
+        program.stashed_inputs = None
         return
 
     output_refs = tt_runtime.get_op_output_refs(op_context, program_context)
@@ -109,20 +109,16 @@ def _load_cached_post_op(binary, program_context, op_context) -> None:
     for mlir_output, output_ref in zip(op_outputs, output_refs, strict=True):
         name = mlir_output.get_name(asm_state)
         checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
-        try:
+        device_tensor = None
+        with record_check([name], "retrieve_output", checker, log_prefix=op_name):
             device_tensor = retrieve_torch_tensor(program_context, output_ref)
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(
-                f"{op_name} {name}: failed to retrieve device output tensor\n{tb}"
-            )
-            checker.record(name, "retrieve_output", "error", traceback=tb)
+        if device_tensor is None:
             continue
         checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_output, device_tensor)
         checker.record(name, "golden", "skipped")
         checker.record(name, "accum_golden", "skipped")
 
-    ctx._stashed_inputs = None
+    program.stashed_inputs = None
 
 
 # ---------------------------------------------------------------------------
