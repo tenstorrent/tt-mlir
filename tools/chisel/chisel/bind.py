@@ -42,4 +42,6 @@ def unbind():
     from ttrt import runtime as tt_runtime
 
     tt_runtime.DebugHooks.get()
+    if ChiselContext._instance is not None:
+        ChiselContext._instance.close_results()
     ChiselContext.reset_instance()
