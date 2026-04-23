@@ -2321,8 +2321,18 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
               mlir::isa<tensor::EmptyOp>(localBufferDefiningOp)) &&
              "local buffer defining op must be a memref::AllocOp or "
              "tensor::EmptyOp");
+      // Get number of stream buffers from the exisitng buffer layout if it's
+      // set
+      std::optional<uint32_t> numStreamBuffers = std::nullopt;
+      if (mlir::isa<memref::AllocOp>(localBufferDefiningOp)) {
+        auto allocOp = mlir::cast<memref::AllocOp>(localBufferDefiningOp);
+        numStreamBuffers = mlir::dyn_cast<ttcore::CBLayoutAttr>(
+                               allocOp.getResult().getType().getLayout())
+                               .getBuffers();
+      }
       Type newLocalBufferType = d2m::utils::cloneWithShardShape(
-          newMemref, localBufferDefiningOp->getResult(0).getType());
+          newMemref, localBufferDefiningOp->getResult(0).getType(),
+          numStreamBuffers);
       llvm::errs() << "updating localbuffer type to " << newLocalBufferType
                    << "\n";
       if (newLocalBufferType != localBufferDefiningOp->getResult(0).getType()) {
@@ -2344,8 +2354,18 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
               mlir::isa<tensor::EmptyOp>(localBufferDefiningOp)) &&
              "local buffer defining op must be a memref::AllocOp or "
              "tensor::EmptyOp");
+      // Get number of stream buffers from the exisitng buffer layout if it's
+      // set
+      std::optional<uint32_t> numStreamBuffers = std::nullopt;
+      if (mlir::isa<memref::AllocOp>(localBufferDefiningOp)) {
+        auto allocOp = mlir::cast<memref::AllocOp>(localBufferDefiningOp);
+        numStreamBuffers = mlir::dyn_cast<ttcore::CBLayoutAttr>(
+                               allocOp.getResult().getType().getLayout())
+                               .getBuffers();
+      }
       Type newLocalBufferType = d2m::utils::cloneWithShardShape(
-          newMemref, localBufferDefiningOp->getResult(0).getType());
+          newMemref, localBufferDefiningOp->getResult(0).getType(),
+          numStreamBuffers);
       if (newLocalBufferType != localBufferDefiningOp->getResult(0).getType()) {
         localBufferDefiningOp->getResult(0).setType(newLocalBufferType);
       }
@@ -2373,15 +2393,6 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
       for (unsigned i = 0; i < numOuts; ++i) {
         clonedOp->getResult(i).setType(
             clonedOp->getOperand(numIns + i).getType());
-      }
-    }
-
-    // TODO: remove this hack
-    // repair block arguments of synchronized region ops
-    if (auto synchronizedOp = mlir::dyn_cast<SynchronizedRegionOp>(clonedOp)) {
-      for (BlockArgument arg :
-           synchronizedOp.getRegion().front().getArguments()) {
-        arg.setType(clonedOp->getOperand(arg.getArgNumber()).getType());
       }
     }
   });

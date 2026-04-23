@@ -419,10 +419,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    // if (failed(markSynchronizedOpBuffers(funcOp))) {
-    //   funcOp.emitOpError("Failed to mark synchronized op buffers");
-    // }
-
     if (failed(remapMemorySpacesOnOperandViews(funcOp, analysis))) {
       return failure();
     }
