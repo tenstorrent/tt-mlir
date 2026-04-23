@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRD2MDialect
         MLIRD2MOpsAttrsIncGen
         D2MGenericRegionOpsIncGen
         D2MOpsInterfacesIncGen
+        D2MGenericRegionOpsInterfacesIncGen
 
         LINK_LIBS PUBLIC
         MLIRAffineDialect

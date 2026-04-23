@@ -10,6 +10,7 @@ include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.td"
 include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
+include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.td"
 
 include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
@@ -902,6 +903,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Tile Tilize Block Op";
     let description = [{
@@ -914,6 +916,13 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getOutput();
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getInput();
+      }
     }];
 
     let hasVerifier = 1;
@@ -928,6 +937,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
@@ -940,6 +950,13 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getOutput();
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getInput();
+      }
     }];
 
     let hasVerifier = 1;
@@ -1569,6 +1586,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       "hasTensorSemantics",
       "isNotConflicting"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Remote/Aliased Load Op";
     let description = [{
@@ -1824,6 +1842,16 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return {StringAttr::get(getContext(), getMapAttrStrName()),
                 getAffineMapAttr()};
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getLocalBuffer();
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return false;
+      }
+
+
     }];
 }
 
@@ -1842,6 +1870,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       "getBufferType",
       "hasTensorSemantics"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Remote/Aliased Store Op";
     let description = [{
@@ -2030,7 +2059,68 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         return {StringAttr::get(getContext(), getMapAttrStrName()),
                 getAffineMapAttr()};
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return false;
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getLocalBuffer();
+      }
     }];
+}
+
+def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AttrSizedOperandSegments,
+  DestinationStyleOpInterface,
+  NoTerminator,
+  D2M_SynchronizableOpInterface
+  ]> {
+
+  let summary = "D2M Synchronized Region Op";
+  let description = [{
+    This is a generic op to wrap a region of non synchronized ops to be synchronizeable.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$consumers, Variadic<AnyRankedTensorOrMemRef>:$producers);
+  let regions = (region AnyRegion:$region);
+
+  let assemblyFormat = [{
+    `consumers` `(` $consumers `)` `producers` `(` $producers `)` $region attr-dict `:` type($consumers) type($producers)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "TypeRange":$resultTypes, "ValueRange":$consumers, "ValueRange":$producers,
+      "function_ref<void(OpBuilder &, Location, ValueRange)>":$regionBuilder),
+    [{
+      build($_builder, $_state, resultTypes, consumers, producers);
+      Region &region = *$_state.regions.front().get();
+      {
+        OpBuilder::InsertionGuard guard($_builder);
+        Block *block = $_builder.createBlock(&region, region.end());
+        for (Value consumer : consumers)
+          block->addArgument(consumer.getType(), consumer.getLoc());
+        for (Value producer : producers)
+          block->addArgument(producer.getType(), producer.getLoc());
+        $_builder.setInsertionPointToStart(block);
+        regionBuilder($_builder, $_state.location, block->getArguments());
+      }
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getProducersMutable(); }
+
+    bool isProducer(mlir::OpOperand &operand) {
+      return llvm::find(getProducers(), operand.get()) != getProducers().end();
+    }
+
+    bool isConsumer(mlir::OpOperand &operand) {
+      return llvm::find(getConsumers(), operand.get()) != getConsumers().end();
+    }
+  }];
+
 }
 
 //===----------------------------------------------------------------------===//
