@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-fusing-pass=true enable-d2m-elementwise-fusion=false" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-fusing-pass=true" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that the full TTIR-to-TTNN backend pipeline with the greedy optimizer
@@ -40,10 +40,11 @@ module {
 // CHECK: %[[MATMUL_1:.*]] = "ttnn.matmul"
 // CHECK-SAME: #ttnn.buffer_type<l1>
 
-// D2M subgraph compiled into generic ops (add + multiply + to_layout).
+// D2M subgraph compiled into 2 generic ops (fused add/multiply + to_layout).
 // CHECK: "ttnn.generic"
+// CHECK-SAME: #ttnn.compute_kernel<symbol_ref = @[[FUSED_KERNEL:[a-zA-Z0-9_]+]]
 // CHECK: "ttnn.generic"
-// CHECK: "ttnn.generic"
+// CHECK-NOT: "ttnn.generic"
 
 // Third matmul: output in L1.
 // CHECK: %[[MATMUL_2:.*]] = "ttnn.matmul"
@@ -51,3 +52,8 @@ module {
 
 // No D2M subgraph ops should remain after compilation.
 // CHECK-NOT: ttnn.d2m_subgraph
+
+// The fused compute kernel contains both add_tiles and mul_tiles.
+// CHECK: func.func private @[[FUSED_KERNEL]]()
+// CHECK: add_tiles
+// CHECK: mul_tiles
