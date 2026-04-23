@@ -306,17 +306,10 @@ public:
     return globalSemaphorePool;
   }
 
-  // Returns a cached GlobalSemaphore for the given op-pointer key, creating it
-  // via `factory` on the first call.  Subsequent calls return the cached value
-  // without touching device memory, which is required for trace compatibility
-  // (create_global_semaphore writes to device L1 and cannot run during trace
-  // capture).
-  //
-  // The cache lives on the root context: when this context was created as a
-  // child of a parent program (e.g. via FuncCallOp during trace capture, where
-  // the parent capture program calls the trace function once for warmup and
-  // once for the actual capture), the lookup is forwarded up the chain so that
-  // the semaphore created during warmup is reused on the capture call.
+  // Returns a cached GlobalSemaphore for `opKey`, creating it on first use.
+  // Lookups forward to the root context so a semaphore created during warmup
+  // is reused during trace capture (create_global_semaphore writes L1 and
+  // cannot run inside capture).
   ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
       uintptr_t opKey,
       const std::function<::ttnn::GlobalSemaphore()> &factory) {
@@ -342,12 +335,7 @@ private:
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
 
-  // Cache for GlobalSemaphores implicitly created by ops (e.g.
-  // DistributedRMSNormOp).  Keyed by the flatbuffer op pointer cast to
-  // uintptr_t so each op instance gets its own semaphore, but the same
-  // semaphore is reused across repeated calls (warmup + trace capture).
-  // Only populated on the root context; child contexts forward lookups to
-  // their parent via `parentContext`.
+  // Op-implicit GlobalSemaphores keyed by flatbuffer op pointer; root only.
   std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
 
   common::DylibManager dylibManager;
@@ -360,11 +348,8 @@ private:
   // The index of the program within the binary
   const size_t programIndex;
 
-  // Optional parent ProgramContext.  Set when this context was created as part
-  // of executing a sub-program (e.g. via FuncCallOp).  Used to share state
-  // that must persist across nested program invocations within the same outer
-  // execution (currently: implicit GlobalSemaphores).  Non-owning pointer; the
-  // parent context is guaranteed to outlive the child by construction.
+  // Caller's context (e.g. FuncCallOp), used to forward state shared across
+  // nested invocations. Non-owning.
   ProgramContext *parentContext = nullptr;
 };
 

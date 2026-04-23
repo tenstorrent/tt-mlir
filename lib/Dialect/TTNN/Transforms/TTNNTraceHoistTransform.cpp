@@ -96,14 +96,9 @@ private:
   // 1. Direct BlockArgument → checks shouldKeepArgOnDevice
   // 2. LoadCachedOp result → always device-resident (consteval)
   // 3. MeshShardOp result → traces through to the input and recurses
-  // 4. TTCoreCreationOpTrait result (e.g. ttnn.empty) that lives outside the
-  //    hoisted op set → a prelude-allocated scratch buffer that is already live
-  //    in device memory (e.g. the stats scratch tensor for
-  //    distributed_rms_norm). Such buffers must be passed directly into the
-  //    trace function; allocating a DRAM slot and writing from host would be
-  //    both incorrect (they are device-scratch, not host inputs) and would
-  //    misplace the buffer address that the fused kernel's globally-allocated
-  //    CB depends on.
+  // 4. ttnn.empty / ttnn.alloc result → prelude-allocated device scratch
+  //    buffer (e.g. stats scratch for distributed_rms_norm) that must be
+  //    passed through, not host-staged.
   bool isDeviceResidentValue(mlir::Value value) {
     if (auto blockArg = mlir::dyn_cast<BlockArgument>(value)) {
       auto funcOp =
@@ -127,7 +122,7 @@ private:
       return isDeviceResidentValue(meshShardOp.getInput());
     }
 
-    if (defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
+    if (mlir::isa<ttnn::EmptyOp, ttnn::AllocOp>(defOp)) {
       return true;
     }
 
@@ -213,12 +208,11 @@ private:
       } else if (mlir::isa<mlir::OpResult>(input)) {
         auto result = mlir::cast<mlir::OpResult>(input);
         Operation *defOp = result.getDefiningOp();
-        // If the input is a result of a load cached op or a prelude creation op
-        // (e.g. ttnn.empty used as a device-scratch buffer), mark it as a
-        // constant so the trace wrapper treats it as device-resident and passes
-        // it through directly without allocating a DRAM slot.
+        // LoadCachedOp results are consteval; ttnn.empty / ttnn.alloc are
+        // prelude device-scratch buffers. Mark both as Constant so the trace
+        // wrapper passes them through device-resident.
         if (mlir::isa<mlir::tt::ttcore::LoadCachedOp>(defOp) ||
-            defOp->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
+            mlir::isa<ttnn::EmptyOp, ttnn::AllocOp>(defOp)) {
           llvm::SmallVector<mlir::NamedAttribute> namedAttrs;
           namedAttrs.emplace_back(
               mlir::StringAttr::get(context, ttcore::ArgumentTypeAttr::name),

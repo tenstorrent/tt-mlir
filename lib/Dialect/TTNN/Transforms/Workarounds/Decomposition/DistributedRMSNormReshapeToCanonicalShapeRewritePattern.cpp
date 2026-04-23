@@ -10,13 +10,8 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 namespace {
 
-// Returns true if the op is eligible for the tt-metal fused_rms_minimal
-// kernel after a shape-only reshape into (1, 1, 32, M):
-//   - weight is present,
-//   - dim -2 is 32,
-//   - dim -1 is a multiple of 32,
-//   - all leading dims (everything before dim -2) are 1.
-//
+// Eligible when weight is present, dim -2 == 32, dim -1 is a multiple of 32,
+// and all leading dims are 1 (so the reshape into (1,1,32,M) is data-free).
 // Must stay in sync with isSupportedByFusedKernel in
 // DistributedRMSNormDecompositionRewritePattern.cpp.
 bool isReshapableToCanonicalShape(ttnn::DistributedRMSNormOp op) {
@@ -43,7 +38,6 @@ bool isAlreadyCanonicalShape(ArrayRef<int64_t> shape) {
   return shape.size() == 4 && shape[0] == 1 && shape[1] == 1;
 }
 
-// Insert a ttnn.reshape op that reinterprets `v` as `targetShape`.
 mlir::Value reshapeTo(PatternRewriter &rewriter, Location loc, mlir::Value v,
                       ArrayRef<int64_t> targetShape) {
   auto srcType = mlir::cast<RankedTensorType>(v.getType());
@@ -90,9 +84,8 @@ DistributedRMSNormReshapeToCanonicalShapeRewritePattern::matchAndRewrite(
   RankedTensorType canonicalResultType = utils::RankedTensorTypeFactory::create(
       originalResultType, canonicalShape);
 
-  // The stats scratch tensor is created later by
-  // DistributedRMSNormWidthShardInputRewritePattern, so it is typically
-  // null here; forward whatever the source op currently has.
+  // The stats scratch is added later by the width-shard pattern; forward
+  // whatever the source op currently carries (typically null).
   auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
       loc, canonicalResultType, reshapedInput, srcOp.getWeight(),
       reshapedResidual, srcOp.getStats(), srcOp.getDevice(),

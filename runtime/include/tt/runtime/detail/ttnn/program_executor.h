@@ -19,13 +19,9 @@ class ProgramContext; // Forward declaration
  */
 class ProgramExecutor {
 public:
-  // Constructor for executing a program.
-  //
   // `parentContext` (optional) links this executor's ProgramContext to the
-  // context of the program that invoked it (e.g. via FuncCallOp).  This lets
-  // child programs share state (currently: implicit GlobalSemaphores) with
-  // their parent so that resources created during a warmup invocation are
-  // reused when the same sub-program is replayed inside a trace capture.
+  // caller's context so child programs can share state (e.g. implicit
+  // GlobalSemaphores) across nested invocations.
   ProgramExecutor(::tt::runtime::Device deviceHandle,
                   ::tt::runtime::Binary &executableHandle,
                   const size_t programIndex,

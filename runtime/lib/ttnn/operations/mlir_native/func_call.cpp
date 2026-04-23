@@ -18,13 +18,8 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
         context.getTensorPool().getRuntimeTensorAndValidate(input));
   }
 
-  // Forward `context` as the parent so that state which must persist across
-  // nested program invocations (e.g. implicit GlobalSemaphores created by
-  // distributed_rms_norm) is shared with the caller.  This is required for
-  // trace capture, where the capture program calls the trace function once
-  // for warmup and once for the actual capture: without a shared cache the
-  // semaphore would be re-created during capture and trigger a write to
-  // device L1, which tt-metal forbids inside a trace.
+  // Forward the caller's context so state that must persist across nested
+  // invocations (e.g. implicit GlobalSemaphores) is shared with the parent.
   ProgramExecutor executor(context.getDeviceHandle(),
                            context.getExecutableHandle(), programIndex, inputs,
                            /*constEvalProgram=*/false, &context);

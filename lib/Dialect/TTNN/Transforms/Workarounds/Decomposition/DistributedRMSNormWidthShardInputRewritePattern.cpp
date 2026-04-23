@@ -119,7 +119,6 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // width = tile_width (32). Reshape from 1D (N,) to 2D (N/32, 32) first.
   mlir::Value weight = op.getWeight();
   if (weight) {
-
     RankedTensorType weightType =
         mlir::cast<RankedTensorType>(weight.getType());
     ttnn::TTNNLayoutAttr weightLayout =
@@ -247,12 +246,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
 
   auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
 
-  // Create the stats scratch EmptyOp at the top of the block, right after the
-  // GetDeviceOp. Creation ops (TTCoreCreationOpTrait) are not hoistable by the
-  // TTNNTraceHoistTransform pass, so leaving this EmptyOp inline with the
-  // distributed_rms_norm would break trace capture with "Non-hoistable op
-  // found in the middle of hoistable ops". Inserting it alongside the other
-  // block-prelude ops keeps it outside the hoistable region.
+  // Insert the scratch EmptyOp right after GetDeviceOp so it sits with the
+  // block-prelude ops; leaving it inline would trip TTNNTraceHoistTransform
+  // ("Non-hoistable op in the middle of hoistable ops").
   ttnn::EmptyOp statsEmptyOp;
   {
     OpBuilder::InsertionGuard guard(rewriter);

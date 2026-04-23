@@ -10,22 +10,15 @@
 
 namespace mlir::tt::ttnn::decomposition {
 
-// Returns true if the op is eligible for the tt-metal fused_rms_minimal
-// kernel, possibly after a shape-only reshape into the canonical (1,1,32,M)
-// form performed by DistributedRMSNormReshapeToCanonicalShapeRewritePattern.
-//
-// The kernel requires the canonical (1,1,32,M) shape with M a multiple of
-// 32 (rms_allgather_device_operation.cpp) and a weight (gamma) tensor (the
-// kernel asserts gamma.has_value(),
-// https://github.com/tenstorrent/tt-metal/issues/38211).
-//
-// We relax the rank requirement: any input whose -2 dim is 32, whose -1
-// dim is a multiple of 32, and whose remaining leading dims are all 1 can
-// be reshaped (no data movement) into (1,1,32,M) and handed to the fused
-// kernel.
-//
-// Must stay in sync with isReshapableToCanonicalShape in
-// DistributedRMSNormReshapeToCanonicalShapeRewritePattern.cpp.
+// Returns true if the op can be lowered to the fused_rms_minimal kernel.
+// The kernel requires:
+//   - input shape with second-to-last dim == 32 and last dim a multiple of
+//     32, with all leading dims == 1 (canonical (1,...,1,32,M)). Equivalent
+//     shapes are reshaped to canonical form by
+//     DistributedRMSNormReshapeToCanonicalShapeRewritePattern; keep the
+//     predicates in sync.
+//   - a weight (gamma) tensor must be present; the kernel asserts
+//     gamma.has_value() (https://github.com/tenstorrent/tt-metal/issues/38211)
 static bool isSupportedByFusedKernel(ttnn::DistributedRMSNormOp op) {
   if (!op.getWeight()) {
     return false;
@@ -38,8 +31,6 @@ static bool isSupportedByFusedKernel(ttnn::DistributedRMSNormOp op) {
   if (shape[shape.size() - 2] != 32 || shape.back() % 32 != 0) {
     return false;
   }
-  // All leading dims must be 1 so the input can be reshaped into
-  // (1, 1, 32, M) without any data movement.
   for (size_t i = 0; i + 2 < shape.size(); ++i) {
     if (shape[i] != 1) {
       return false;
