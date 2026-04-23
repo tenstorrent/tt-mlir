@@ -14,7 +14,9 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 
 // tt-metal's slice op fails when the circular buffer for the last output
 // dimension exceeds L1 memory (check: output_shape[-1] * elem_size * 2 >
-// l1_size). This pattern decomposes such a slice into permute -> slice ->
+// l1_size). A factor of 2 is used because of double-buffering: the reader and
+// writer work simultaneously on the same CB.
+// This pattern decomposes such a slice into permute -> slice ->
 // permute, swapping the last dimension with a smaller-output dimension so
 // the CB fits in L1.
 class SliceStaticOpRewritePattern
