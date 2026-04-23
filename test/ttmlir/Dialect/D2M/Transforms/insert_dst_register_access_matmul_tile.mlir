@@ -75,7 +75,7 @@ module {
       // CHECK: %[[C_VAL:.*]] = affine.load %[[DST]][%[[I]] * 2 + %[[J]]] : memref<8x!ttcore.tile<32x32, f16>, #dst>
 
       // Check matmul operation uses values from correct memory spaces
-      // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[A_VAL]], %[[B_VAL]], %[[C_VAL]]) : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+      // CHECK: %[[MATMUL_RESULT:.*]] = "d2m.tile_matmul"(%[[A_VAL]], %[[B_VAL]], %[[C_VAL]]) {{<\{transpose_b = false\}>}} : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
 
       // Check result is stored back to dst with linearized index
       // CHECK: affine.store %[[MATMUL_RESULT]], %[[DST]][%[[I]] * 2 + %[[J]]] : memref<8x!ttcore.tile<32x32, f16>, #dst>

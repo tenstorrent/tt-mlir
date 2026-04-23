@@ -860,9 +860,15 @@ def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
   let summary = "D2M Tile Matmul Op";
   let description = [{
         The `tile_matmul` operation computes the matrix multiplication of A and B input tiles and element-wise adds C tile: result <- a @ b + c.
+
+        The optional `transpose_b` attribute records whether the enclosing
+        matmul semantically transposes the B operand.  It is preserved through
+        the pipeline so `D2MInsertTileMatmulBlock` can forward it onto the
+        lowered `tile_matmul_block` op.
     }];
 
-  let arguments = (ins TTCore_Tile:$a, TTCore_Tile:$b, TTCore_Tile:$c);
+  let arguments = (ins TTCore_Tile:$a, TTCore_Tile:$b, TTCore_Tile:$c,
+                       DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
   let results = (outs TTCore_Tile:$result);
 
   let extraClassDeclaration = [{
@@ -880,11 +886,16 @@ def D2M_TileMatmulBlockOp : D2M_GenericRegionComputeOp<"tile_matmul_block",
     let summary = "D2M Tile Matmul Block Op";
     let description = [{
         The `tile_matmul_block` operation computes the matrix multiplication of two input blocks.
+
+        The optional `transpose_b` attribute controls whether the B operand is
+        transposed during the matmul. This maps onto the `transpose` flag
+        supported natively by the underlying ttkernel matmul_block API.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$a,
                          AnyRankedTensorOrMemRef:$b,
-                         AnyRankedTensorOrMemRef:$output);
+                         AnyRankedTensorOrMemRef:$output,
+                         DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }

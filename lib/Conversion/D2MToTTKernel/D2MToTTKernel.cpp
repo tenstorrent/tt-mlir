@@ -863,19 +863,20 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
+      const int32_t transposeValue = op.getTransposeB() ? 1 : 0;
 
       // Must have only 1 MatmulInit op per kernel, so we always insert at
       // beginning of the func, and only if no MatmulInit already exists.
       if (auto func = op->template getParentOfType<func::FuncOp>();
           !hasMatmulInit(func)) {
         setInsertionPointToFuncStart(rewriter, func, op);
-        auto transposeInit = i32(rewriter, op->getLoc(), 0);
+        auto transposeInit = i32(rewriter, op->getLoc(), transposeValue);
         rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
                                                 transposeInit);
       }
 
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-      auto transpose = i32(rewriter, op->getLoc(), 0);
+      auto transpose = i32(rewriter, op->getLoc(), transposeValue);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
@@ -895,11 +896,18 @@ public:
 
       auto typeA = llvm::cast<MemRefType>(op.getA().getType());
       auto typeB = llvm::cast<MemRefType>(op.getB().getType());
+      const bool transposeB = op.getTransposeB();
       auto rt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[0]);
       auto kt_i32 = i32(rewriter, op->getLoc(), typeA.getShape()[1]);
-      auto ct_i32 = i32(rewriter, op->getLoc(), typeB.getShape()[1]);
+      // When B is transposed its block shape is [nt, kt]; when not, it is
+      // [kt, nt].  ct_dim always denotes the number of output columns (nt).
+      auto ct_i32 = i32(rewriter, op->getLoc(),
+                        transposeB ? typeB.getShape()[0] : typeB.getShape()[1]);
 
-      auto getNumColumns = [](Value view) {
+      // nt_dim is the source-memref stride in the N direction (total number of
+      // N tiles across the full B tensor).  For an un-transposed B this is the
+      // source's column count; for a transposed B it's the source's row count.
+      auto getSourceDim = [](Value view, unsigned dim) {
         if (auto castOp =
                 dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
           view = castOp.getSource();
@@ -908,11 +916,12 @@ public:
           view = svOp.getSource();
         }
         auto srcTy = cast<MemRefType>(view.getType());
-        return srcTy.getShape()[1];
+        return srcTy.getShape()[dim];
       };
-      auto nt_i32 = i32(rewriter, op->getLoc(), getNumColumns(op.getB()));
+      auto nt_i32 = i32(rewriter, op->getLoc(),
+                        getSourceDim(op.getB(), transposeB ? 0 : 1));
 
-      auto transpose = i32(rewriter, op->getLoc(), 0);
+      auto transpose = i32(rewriter, op->getLoc(), transposeB ? 1 : 0);
 
       rewriter.create<ttkernel::MatmulBlockInitOp>(
           op->getLoc(), cbA, cbB, outCB, transpose, ct_i32, rt_i32, kt_i32);

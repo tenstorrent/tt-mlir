@@ -26,7 +26,13 @@ pytestmark = pytest.mark.frontend("ttir")
 #    output, which is too slow.
 # Solution: constraint the input range to within (0.001, 0.999) to avoid large
 # differences of magnitudes in the calculation.
-def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype=torch.float32):
+def create_matmul_constrained_inputs(
+    lhs_shape,
+    rhs_shape,
+    dtype=torch.float32,
+    transpose_a: bool = False,
+    transpose_b: bool = False,
+):
     def module(builder: TTIRBuilder):
         @builder.func([lhs_shape, rhs_shape], [dtype, dtype])
         def matmul_constrained_inputs(
@@ -42,7 +48,13 @@ def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype=torch.float32):
                 in_lhs = torch.rand(lhs_shape, dtype=torch.bfloat16)
                 in_rhs = torch.rand(rhs_shape, dtype=torch.bfloat16)
             builder.set_goldens(inputs={in0: in_lhs, in1: in_rhs})
-            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+            return builder.matmul(
+                in0,
+                in1,
+                transpose_a=transpose_a,
+                transpose_b=transpose_b,
+                unit_attrs=unit_attrs,
+            )
 
     return module
 
@@ -315,4 +327,74 @@ def test_matmul_1d_shapes(
         **get_request_kwargs(request),
         save_artifacts=True,
         skip_exec=getattr(request.node, "skip_exec", False),
+    )
+
+
+# transpose_b semantics: rhs has shape (n, k), compute C = A @ B^T with output
+# (m, n).  Only the tile_matmul_block path threads the transpose flag down to
+# the ttkernel matmul_block API today, so these tests force use-tile-matmul=false.
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (64, 128, 64),
+        (128, 128, 128),
+        (256, 512, 256),
+        # Larger shapes mirroring the ttnn benchmark sizes used in
+        # test_matmul_ttnn_shapes_single_buffered.
+        (512, 512, 512),
+        (512, 1024, 1024),
+        (1024, 1024, 1024),
+        (1024, 1024, 2048),
+        (1024, 2048, 2048),
+        (2048, 2048, 2048),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("enable_l1_acc", [True, False], ids=["l1_acc", "no_l1_acc"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_transpose_b(
+    shape: tuple[int, ...],
+    dtype: torch.dtype,
+    enable_l1_acc: bool,
+    target: str,
+    request,
+    device,
+):
+    m, k, n = shape
+    lhs = (m, k)
+    # transpose_b=True: rhs is stored as (N, K) instead of (K, N).
+    rhs = (n, k)
+
+    pcc = 0.99 if dtype == torch.float32 else 0.96
+
+    # Mirror the known-problematic precision cases from
+    # test_matmul_ttnn_shapes_single_buffered so we don't falsely flag them.
+    if (
+        dtype == torch.bfloat16
+        and not enable_l1_acc
+        and shape
+        in (
+            (2048, 2048, 2048),
+            (1024, 2048, 2048),
+        )
+    ):
+        pytest.xfail(reason="bf16 PCC below threshold for these shapes")
+
+    options = [
+        f"matmul-interchange=2,0,1",
+        f"num-stream-buffers=1",
+        f"use-tile-matmul=false",
+        f"enable-l1-acc={enable_l1_acc}",
+    ]
+    options.extend(get_allocator_policy_override(shape, dtype, enable_l1_acc))
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs, rhs, dtype, transpose_b=True),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        **get_request_kwargs(request),
+        save_artifacts=True,
+        skip_exec=getattr(request.node, "skip_exec", False),
+        pcc=pcc,
     )
