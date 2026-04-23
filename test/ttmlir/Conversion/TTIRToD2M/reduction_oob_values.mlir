@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that reduction ops set the correct identity OOB fill values on their
@@ -49,7 +49,7 @@ module {
     return %0 : tensor<128x96xf32>
   }
 
-  // Min is decomposed to neg→max→neg by TTIRDecomposeMinReduction.
+  // Inner min is decomposed to neg→max→neg inside TTIRToD2M.
   // CHECK-LABEL: func @min_reduce_R
   // CHECK: d2m.tile_negative
   // CHECK: d2m.tile_reduce_max

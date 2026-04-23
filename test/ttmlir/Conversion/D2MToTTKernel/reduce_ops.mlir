@@ -137,17 +137,20 @@ func.func @test_max_i32_RC(%in: !ttype_i32) -> (tensor<1x1xsi32>) {
 
 // -----
 
-// i32 min decomposes to neg → max → neg, so we still see the SFPU reduce_max
-// sequence, surrounded by negative int tile ops.
+// i32 min decomposes to bitwise_not → max → bitwise_not (using bitwise NOT
+// instead of negation since ~INT_MIN == INT_MAX keeps it order-reversing at
+// INT_MIN, unlike neg), so we still see the SFPU reduce_max sequence,
+// surrounded by bitwise_not_tile.
 
 !ttype_i32 = tensor<128x96xsi32>
 // CHECK-LABEL: func.func @test_min_i32
 func.func @test_min_i32(%in: !ttype_i32) -> (tensor<128x1xsi32>) {
-  // CHECK: ttkernel.negative_tile_int32
+  // CHECK: ttkernel.bitwise_not_tile
   // CHECK: ttkernel.sfpu_reduce_init
   // CHECK: ttkernel.sfpu_reduce
   // CHECK: ttkernel.binary_max_int32_tile(
-  // CHECK: ttkernel.negative_tile_int32
+  // CHECK: ttkernel.bitwise_not_tile
+  // CHECK-NOT: ttkernel.negative_tile_int32
   %0 = "ttir.min"(%in) <{dim_arg = [-1 : i32], keep_dim = true}> : (!ttype_i32) -> tensor<128x1xsi32>
   return %0 : tensor<128x1xsi32>
 }
