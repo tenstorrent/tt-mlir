@@ -1920,6 +1920,11 @@ inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";
 
+// Name for the function that creates a GlobalSemaphore from a tensor's shard
+// spec.
+inline constexpr const char *kCreateGlobalSemaphoreFunctionName =
+    "::ttnn::createGlobalSemaphore";
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:
