@@ -163,7 +163,8 @@ enum EltwiseUnaryOpType: uint32 {
   Hardsigmoid,
   Mish,
   Acos,
-  Asin
+  Asin,
+  Asinh
 }
 
 union EltwiseUnaryOpParams {

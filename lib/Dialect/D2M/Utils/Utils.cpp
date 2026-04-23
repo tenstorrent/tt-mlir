@@ -401,6 +401,16 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
       return std::nullopt;
     }
 
+    if (auto spatialOp = mlir::dyn_cast<SpatialOp>(defOp)) {
+      for (auto [idx, result] : llvm::enumerate(spatialOp.getResults())) {
+        if (result == val) {
+          Value outputOperand = spatialOp.getOutputs()[idx];
+          return getVirtualGridInverseMapping(outputOperand);
+        }
+      }
+      return std::nullopt;
+    }
+
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       if (viewOp.isComposite()) {
@@ -446,6 +456,16 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
       for (auto [idx, result] : llvm::enumerate(genericOp.getResults())) {
         if (result == val) {
           Value outputOperand = genericOp.getOutputs()[idx];
+          return getVirtualGridForwardMapping(outputOperand);
+        }
+      }
+      return std::nullopt;
+    }
+
+    if (auto spatialOp = mlir::dyn_cast<SpatialOp>(defOp)) {
+      for (auto [idx, result] : llvm::enumerate(spatialOp.getResults())) {
+        if (result == val) {
+          Value outputOperand = spatialOp.getOutputs()[idx];
           return getVirtualGridForwardMapping(outputOperand);
         }
       }
@@ -661,9 +681,8 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device,
                           memrefAndView.second, baseOffset);
 }
 
-static AffineMap canonicalStridedMap(MLIRContext *context,
-                                     ArrayRef<int64_t> shape, Type elementType,
-                                     AffineMap map) {
+AffineMap canonicalStridedMap(MLIRContext *context, ArrayRef<int64_t> shape,
+                              Type elementType, AffineMap map) {
   assert(map.isIdentity() && "Only identity maps are supported for now.");
   auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
   int64_t elementSizeBytes = tileType ? tileType.getSizeBytes()

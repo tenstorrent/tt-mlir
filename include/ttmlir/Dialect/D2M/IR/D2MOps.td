@@ -235,7 +235,6 @@ def D2M_GenericOp
       I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
       TTCore_IteratorTypeArrayAttr:$iterator_types,
       D2M_ThreadArrayAttr:$threads,
-      OptionalAttr<DenseI64ArrayAttr>:$scratch_inputs,
       OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
@@ -388,11 +387,6 @@ def D2M_GenericOp
       /// positional counting.  Returns null if not found.
       static Value getOperandAlloc(Region &region, unsigned operandIndex);
 
-      bool isScratchInput(int64_t inputIndex) {
-        auto scratchAttr = getScratchInputsAttr();
-        if (!scratchAttr) return false;
-        return llvm::is_contained(scratchAttr.asArrayRef(), inputIndex);
-      }
       // Declare methods here - they go in the .h.inc file
       ::mlir::Operation::operand_range getInputsAndOutputs();
       MutableArrayRef<OpOperand> getInputsAndOutputsMutable();
@@ -514,6 +508,18 @@ def D2M_ResetGlobalSemaphoreOp : D2M_Op<"reset_global_semaphore"> {
   let results = (outs);
 
   let assemblyFormat = [{ `(` $semaphore `)` attr-dict `:` type($semaphore) }];
+}
+
+def D2M_CreateLocalSemaphoreOp : D2M_Op<"create_local_semaphore"> {
+  let summary = "Create local semaphore op.";
+
+  let description = [{
+    This operation is a representational op. It creates a local semaphore in the core range within the generic op in which it is consumed.
+  }];
+
+  let arguments = (ins UI32Attr:$initialValue);
+  let results = (outs D2M_LocalSemaphore:$result);
+  let assemblyFormat = "prop-dict attr-dict `->` type($result)";
 }
 
 def D2M_MeshShardOp

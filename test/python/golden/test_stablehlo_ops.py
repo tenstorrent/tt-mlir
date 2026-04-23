@@ -175,6 +175,61 @@ def module_logistic(builder: StableHLOBuilder):
         return builder.logistic(in0, unit_attrs=unit_attrs)
 
 
+def module_sign(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def sign(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.sign(in0, unit_attrs=unit_attrs)
+
+
+def module_convert(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def convert(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.convert(in0, output_type=torch.bfloat16, unit_attrs=unit_attrs)
+
+
+def module_cbrt(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def cbrt(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.cbrt(in0, unit_attrs=unit_attrs)
+
+
+def module_expm1(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def expm1(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.expm1(in0, unit_attrs=unit_attrs)
+
+
+def module_is_finite(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def is_finite(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.is_finite(in0, unit_attrs=unit_attrs)
+
+
 def module_shift_right_logical(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
     def shift_right_logical(
@@ -576,6 +631,10 @@ def test_compare_ops(test_fn: Callable, target: str, request, device):
         module_sqrt,
         module_tan,
         module_tanh,
+        module_sign,
+        module_convert,
+        module_cbrt,
+        module_expm1,
     ],
 )
 def test_unary_ops(
@@ -598,6 +657,22 @@ def test_unary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="TTNN IsFiniteOp runtime DataType mismatch: expected BFLOAT16, got FLOAT32. Issue: #7930"
+)
+def test_is_finite(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    compile_and_execute_shlo(
+        module_is_finite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        check_pcc=False,
     )
 
 

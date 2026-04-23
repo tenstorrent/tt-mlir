@@ -29,4 +29,29 @@ module attributes {} {
     %1 = "ttir.pow"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xi32>) -> tensor<64x128xf32>
     return %1 : tensor<64x128xf32>
   }
+
+  // Negative float exponent must fall back to pow_tensor, because
+  // ttnn.pow_scalar's verifier rejects negative exponents.
+  func.func @power_scalar_negative_float(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    %0 = "ttir.constant"() <{value = dense<-2.0> : tensor<64x128xf32>}> : () -> tensor<64x128xf32>
+    // CHECK-LABEL: func.func @power_scalar_negative_float
+    // CHECK-NOT: "ttnn.pow_scalar"
+    // CHECK: "ttnn.pow_tensor"
+    // CHECK-SAME: tensor<64x128xf32
+    // CHECK-SAME: -> tensor<64x128xf32
+    %1 = "ttir.pow"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    return %1 : tensor<64x128xf32>
+  }
+
+  // Negative integer exponent must also fall back to pow_tensor.
+  func.func @power_scalar_negative_integer(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+    %0 = "ttir.constant"() <{value = dense<-3> : tensor<64x128xi32>}> : () -> tensor<64x128xi32>
+    // CHECK-LABEL: func.func @power_scalar_negative_integer
+    // CHECK-NOT: "ttnn.pow_scalar"
+    // CHECK: "ttnn.pow_tensor"
+    // CHECK-SAME: tensor<64x128xf32
+    // CHECK-SAME: -> tensor<64x128xf32
+    %1 = "ttir.pow"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xi32>) -> tensor<64x128xf32>
+    return %1 : tensor<64x128xf32>
+  }
 }

@@ -97,10 +97,12 @@ inline void _write_col_mask_to_l1_(volatile T *ptr, uint32_t validCols,
 // 2-byte elements (2048 B/tile).
 
 constexpr uint16_t ONE_BF16 = 0x3F80; // 1.0 in bfloat16
+constexpr uint32_t ONE_I32 = 1;       // integer 1
 
 template <DataFormat df = DataFormat::Float32>
 ALWI void write_row_mask_tile(uint32_t validRows, uint32_t cb_id) {
-  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
+  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b ||
+                    df == DataFormat::Int32,
                 "write_row_mask_tile: unsupported DataFormat");
 #ifdef TRISC_UNPACK
   uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
@@ -112,13 +114,18 @@ ALWI void write_row_mask_tile(uint32_t validRows, uint32_t cb_id) {
     volatile tt_l1_ptr uint16_t *ptr =
         reinterpret_cast<volatile tt_l1_ptr uint16_t *>(write_addr);
     _write_row_mask_to_l1_(ptr, validRows, ONE_BF16);
+  } else if constexpr (df == DataFormat::Int32) {
+    volatile tt_l1_ptr uint32_t *ptr =
+        reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
+    _write_row_mask_to_l1_(ptr, validRows, ONE_I32);
   }
 #endif
 }
 
 template <DataFormat df = DataFormat::Float32>
 ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
-  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b,
+  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b ||
+                    df == DataFormat::Int32,
                 "write_col_mask_tile: unsupported DataFormat");
 #ifdef TRISC_UNPACK
   uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
@@ -130,6 +137,10 @@ ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
     volatile tt_l1_ptr uint16_t *ptr =
         reinterpret_cast<volatile tt_l1_ptr uint16_t *>(write_addr);
     _write_col_mask_to_l1_(ptr, validCols, ONE_BF16);
+  } else if constexpr (df == DataFormat::Int32) {
+    volatile tt_l1_ptr uint32_t *ptr =
+        reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
+    _write_col_mask_to_l1_(ptr, validCols, ONE_I32);
   }
 #endif
 }
@@ -138,11 +149,12 @@ ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
 // Index tile functions for arange operations
 // =============================================================================
 
-// Write a FULL INDEX tile to L1 in F32 format.
-// Each element gets its linear index: element[i,j] = i * 32 + j (0-1023)
-// This is used for arange operations where we need the global element index
-// within a tile.
-inline void _fill_arange_tile_to_l1_(volatile uint32_t *ptr) {
+// Write a FULL INDEX tile to L1: element[i,j] = i * 32 + j (0-1023).
+// Templated on DataFormat so the index is encoded in the CB's native format.
+// Float32 writes 4-byte IEEE 754 elements; Float16_b writes 2-byte bfloat16
+// elements; Int32 writes 4-byte raw integer elements.
+template <DataFormat df, typename T>
+inline void _fill_arange_tile_to_l1_(volatile T *ptr) {
   uint32_t count = 0;
 
   for (uint32_t i = 0; i < 2; ++i) {      // Face row (0-1)
@@ -150,22 +162,35 @@ inline void _fill_arange_tile_to_l1_(volatile uint32_t *ptr) {
       for (uint32_t k = 0; k < 16; ++k) { // Row within face
         uint32_t global_row = k + 16 * i;
         for (uint32_t l = 0; l < 16; ++l) { // Col within face
-          uint32_t global_col = l + 16 * j;
-          uint32_t linear_idx = global_row * 32 + global_col;
-          uint32_t val = float_to_bits(static_cast<float>(linear_idx));
-          ptr[count++] = val;
+          uint32_t linear_idx = global_row * 32 + (l + 16 * j);
+          if constexpr (df == DataFormat::Float32) {
+            ptr[count++] = float_to_bits(static_cast<float>(linear_idx));
+          } else if constexpr (df == DataFormat::Float16_b) {
+            ptr[count++] = static_cast<uint16_t>(
+                float_to_bits(static_cast<float>(linear_idx)) >> 16);
+          } else if constexpr (df == DataFormat::Int32) {
+            ptr[count++] = linear_idx;
+          }
         }
       }
     }
   }
 }
 
+template <DataFormat df = DataFormat::Float32>
 ALWI void fill_arange_tile(uint32_t cb_id) {
+  static_assert(df == DataFormat::Float32 || df == DataFormat::Float16_b ||
+                    df == DataFormat::Int32,
+                "fill_arange_tile: unsupported DataFormat");
 #ifdef TRISC_UNPACK
   uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
-  volatile tt_l1_ptr uint32_t *ptr =
-      reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
-  _fill_arange_tile_to_l1_(ptr);
+  if constexpr (df == DataFormat::Float32 || df == DataFormat::Int32) {
+    auto *ptr = reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
+    _fill_arange_tile_to_l1_<df>(ptr);
+  } else if constexpr (df == DataFormat::Float16_b) {
+    auto *ptr = reinterpret_cast<volatile tt_l1_ptr uint16_t *>(write_addr);
+    _fill_arange_tile_to_l1_<df>(ptr);
+  }
 #endif
 }
 

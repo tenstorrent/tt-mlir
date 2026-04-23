@@ -56,9 +56,10 @@ module @jit_clamp {
     %0 = "ttir.constant"() <{value = dense<3.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
     %2 = "ttir.typecast"(%0) : (tensor<1xf32>) -> tensor<1xbf16>
     %4 = "ttir.reshape"(%2) <{shape = [1 : i32]}> : (tensor<1xbf16>) -> tensor<1xbf16>
-    // CHECK: [[MIN:[0-9]+]] = "ttir.broadcast"
-    // CHECK-SAME: <{broadcast_dimensions = array<i64: 1, 16>}> :
-    // CHECK-SAME: (tensor<1x1xbf16>) -> tensor<1x16xbf16>
+    // CHECK: [[MIN:[0-9]+]] = "ttir.full"
+    // CHECK-SAME: fill_value = 3.000000e+00 : f32
+    // CHECK-SAME: shape = array<i32: 1, 16>
+    // CHECK-SAME: () -> tensor<1x16xbf16>
     // CHECK: [[MAX:[0-9]+]] = "ttir.broadcast"
     // CHECK-SAME: <{broadcast_dimensions = array<i64: 1, 16>}> :
     // CHECK-SAME: (tensor<1x1xbf16>) -> tensor<1x16xbf16>

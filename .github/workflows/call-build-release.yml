@@ -92,7 +92,7 @@ jobs:
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
     - name: ccache
-      uses: hendrikmuhs/ccache-action@v1.2
+      uses: hendrikmuhs/ccache-action@v1.2.22
       with:
         create-symlink: true
         key: ${{ matrix.build.name }}-${{ env.SDK_VERSION }}
@@ -205,7 +205,7 @@ jobs:
       run: tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst lib tt-metal bin tools
 
     - name: Upload Install Folder
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: install-artifacts-${{ matrix.build.name }}
         path: ${{ steps.strings.outputs.install-output-dir }}/artifact.tar.zst
@@ -222,7 +222,7 @@ jobs:
         tar -I 'zstd --adapt=min=9 -T0' -cf artifact.tar.zst test runtime bin python_packages python stablehlo shardy
 
     - name: Upload Build Folder
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: build-artifacts-${{ matrix.build.name }}
         path: ${{ steps.strings.outputs.build-output-dir }}/artifact.tar.zst

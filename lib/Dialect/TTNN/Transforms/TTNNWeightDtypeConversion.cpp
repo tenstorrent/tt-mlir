@@ -103,11 +103,13 @@ public:
         op.getLoc(), newWeightType, weight,
         ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
 
-    // Update op to use the typecast result and clean up the attribute.
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getBMutable().assign(typecastOp.getResult());
-      op->removeAttr("ttcore.weight_dtype");
-    });
+    // Update op to use the typecast result. The per-op "ttcore.weight_dtype"
+    // attribute is intentionally kept: the greedy rewriter may re-match this
+    // op, and without the attribute it would fall back to the global default,
+    // defeating per-op overrides (e.g. bf16 overridden by global bfp_bf8).
+    // The attribute is discardable and harmless in the final IR.
+    rewriter.modifyOpInPlace(
+        op, [&]() { op.getBMutable().assign(typecastOp.getResult()); });
 
     return mlir::success();
   }

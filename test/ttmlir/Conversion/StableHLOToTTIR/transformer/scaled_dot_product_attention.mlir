@@ -48,4 +48,15 @@ module @sdpa attributes {} {
     %0 = stablehlo.custom_call @tt.scaled_dot_product_attention(%query, %key, %value, %mask, %attention_sink) {api_version = 0 : i32, mhlo.frontend_attributes = {has_attention_mask = "True", has_attention_sink = "True", is_causal = "False"}} : (tensor<1x12x32x64xbf16>, tensor<1x12x32x64xbf16>, tensor<1x12x32x64xbf16>, tensor<1x1x32x32xbf16>, tensor<12x32xbf16>) -> tensor<1x12x32x64xbf16>
     return %0 : tensor<1x12x32x64xbf16>
   }
+
+  func.func public @sdpa_with_sliding_window(%query: tensor<1x12x64x64xbf16>, %key: tensor<1x12x64x64xbf16>, %value: tensor<1x12x64x64xbf16>) -> tensor<1x12x64x64xbf16> {
+    // CHECK-LABEL: @sdpa_with_sliding_window
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-DAG: (%arg0, %arg1, %arg2)
+    // CHECK-DAG: is_causal = true,
+    // CHECK-DAG: sliding_window_size = 16 : ui32
+    // CHECK-DAG: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>
+    %0 = stablehlo.custom_call @tt.scaled_dot_product_attention(%query, %key, %value) {api_version = 0 : i32, mhlo.frontend_attributes = {is_causal = "True", sliding_window_size = "16"}} : (tensor<1x12x64x64xbf16>, tensor<1x12x64x64xbf16>, tensor<1x12x64x64xbf16>) -> tensor<1x12x64x64xbf16>
+    return %0 : tensor<1x12x64x64xbf16>
+  }
 }

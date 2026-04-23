@@ -12,8 +12,10 @@
 #include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
 #include <string>
@@ -67,7 +69,22 @@ struct TensorInfo {
 // Helper to extract scalar type from potentially tiled type.
 static Type getScalarType(Type type) {
   if (auto tileType = mlir::dyn_cast<ttcore::TileType>(type)) {
-    return tileType.getElementType();
+    // For block-float tiles, TileType::getElementType returns another
+    // TileType with the same DataType (see dataTypeToElementType), which is
+    // not usable as a scalar element type. Map to the uncompressed scalar
+    // equivalent explicitly.
+    switch (tileType.getDataType()) {
+    case ttcore::DataType::BFP_Float8:
+    case ttcore::DataType::BFP_Float4:
+    case ttcore::DataType::BFP_Float2:
+      return Float32Type::get(type.getContext());
+    case ttcore::DataType::BFP_BFloat8:
+    case ttcore::DataType::BFP_BFloat4:
+    case ttcore::DataType::BFP_BFloat2:
+      return BFloat16Type::get(type.getContext());
+    default:
+      return tileType.getElementType();
+    }
   }
   return type;
 }
@@ -813,9 +830,6 @@ public:
         },
         ThreadType::Unified);
 
-    // Mark mask inputs (indices 1, 2) as scratch - they don't need streaming.
-    genericOp.setScratchInputsAttr(rewriter.getDenseI64ArrayAttr({1, 2}));
-
     return genericOp.getResult(0);
   }
 
@@ -856,18 +870,51 @@ public:
     // Each step emits lowered ops and updates currentValue/currentInfo.
 
     // Helper to create empty ops for intermediate types. If the type matches
-    // the final target, reuse the original output.
+    // the final target, reuse the original output. Otherwise, try to preserve
+    // virtual grid maps from the current value first, then from the final
+    // output, and fall back to targetGridShape-based EmptyOp creation.
     auto createEmpty = [&](RankedTensorType type) -> Value {
-      // If this type matches the final target, reuse the original output
       if (type == op.getOutput().getType()) {
         return op.getOutput();
       }
 
-      auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      auto emptyOp = rewriter.create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                                   type.getElementType(),
-                                                   layout, targetGridShape);
-      return emptyOp.getResult();
+      auto typeLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          type.getEncoding());
+      auto tryCreateWithVgm = [&](Value source) -> Value {
+        if (!typeLayout) {
+          return Value();
+        }
+        auto sourceTy = mlir::dyn_cast<RankedTensorType>(source.getType());
+        auto sourceLayout =
+            sourceTy ? mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+                           sourceTy.getEncoding())
+                     : nullptr;
+        auto inv = utils::getVirtualGridInverseMapping(source);
+        auto fwd = utils::getVirtualGridForwardMapping(source);
+        if (!(sourceLayout && inv && fwd &&
+              llvm::equal(typeLayout.getGridShape(type),
+                          sourceLayout.getGridShape(sourceTy)))) {
+          return Value();
+        }
+        return rewriter
+            .create<d2m::EmptyOp>(op.getLoc(), type, AffineMapAttr::get(*inv),
+                                  AffineMapAttr::get(*fwd))
+            .getResult();
+      };
+
+      if (Value emptyWithCurrentVgm = tryCreateWithVgm(currentValue)) {
+        return emptyWithCurrentVgm;
+      }
+      if (Value emptyWithOutputVgm = tryCreateWithVgm(op.getOutput())) {
+        return emptyWithOutputVgm;
+      }
+
+      auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          type.getEncoding());
+      return rewriter
+          .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
+                                type.getElementType(), layout, targetGridShape)
+          .getResult();
     };
 
     // SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
@@ -971,7 +1018,7 @@ public:
       auto maskedEmptyOp = rewriter.create<d2m::EmptyOp>(
           op.getLoc(), currentInfo.type.getShape(),
           currentInfo.type.getElementType(), layout, targetGridShape);
-      auto maskedEmpty = maskedEmptyOp.getResult();
+      Value maskedEmpty = maskedEmptyOp.getResult();
       currentValue =
           lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
                               currentInfo.layout->getLogicalShape(),
@@ -1169,9 +1216,10 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
 
-    // Use square grid to simplify virtual grid bounce calculations
-    llvm::SmallVector<int64_t> targetGridShape =
-        d2m::utils::getSquareTargetGrid(getTargetGridShape());
+    // Use the full device grid; squaring here would mismatch the target grid
+    // that d2m-grid-selection picked from and produce unplaceable virtual
+    // grids on non-square devices (e.g. Blackhole 10x13).
+    llvm::SmallVector<int64_t> targetGridShape = getTargetGridShape();
 
     patterns.add<D2MLowerToLayoutRewriter>(&getContext(), targetGridShape);
     GreedyRewriteConfig config;

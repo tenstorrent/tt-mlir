@@ -33,19 +33,8 @@ struct DMAThreadAssignment {
   int32_t nocIndex = -1;
 };
 
-// Get the CB port number from a remote_load or remote_store operation.
-static unsigned getCBPort(Operation *dmaOp) {
-  if (auto load = mlir::dyn_cast<RemoteLoadOp>(dmaOp)) {
-    return load.getCBPort();
-  }
-  if (auto store = mlir::dyn_cast<RemoteStoreOp>(dmaOp)) {
-    return store.getCBPort();
-  }
-  llvm_unreachable("getCBPort called on non-DMA op");
-}
-
-// Collect all remote_load and remote_store operations from a block,
-// recursively walking into nested scf.for loops.
+// Collect all DMA ops from a block, recursively walking into nested scf.for
+// loops.
 static void
 collectDMAOps(Block *block,
               SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
@@ -55,8 +44,8 @@ collectDMAOps(Block *block,
       continue;
     }
 
-    if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
-      dmaOps.push_back({&op, getCBPort(&op)});
+    if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(&op)) {
+      dmaOps.push_back({&op, dmaOp.getCBPort()});
     }
   }
 }
@@ -160,8 +149,8 @@ assignCBsToThreads(const DenseMap<unsigned, size_t> &cbWorkloads,
 // Returns true if the operation uses a CB assigned to this thread.
 static bool shouldKeepOpForThread(Operation *op,
                                   const DenseSet<unsigned> &assignedCBs) {
-  if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(op)) {
-    return assignedCBs.contains(getCBPort(op));
+  if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(op)) {
+    return assignedCBs.contains(dmaOp.getCBPort());
   }
   return false;
 }
@@ -187,7 +176,7 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
       }
 
       // Check if this is a DMA op.
-      if (mlir::isa<RemoteLoadOp, RemoteStoreOp>(&op)) {
+      if (mlir::isa<ShardDMAOpInterface>(&op)) {
         if (!shouldKeepOpForThread(&op, assignedCBs)) {
           if (op.use_empty()) {
             toErase.push_back(&op);
@@ -293,7 +282,7 @@ public:
         generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
         generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        generic.getScratchInputsAttr(), generic.getFabricConnectionConfigAttr(),
+        generic.getFabricConnectionConfigAttr(),
         /*numRegions*/ numThreadsToUse + 1);
 
     // Get the original DM block's argument types.

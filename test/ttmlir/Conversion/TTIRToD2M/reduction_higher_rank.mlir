@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-decompose-min-reduction --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-materialize-view-returns -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 module {
@@ -96,6 +96,16 @@ module {
     // CHECK: d2m.tile_reduce_mean{{.+}}d2m<reduce_dim R>
     %0 = "ttir.mean"(%arg0) <{dim_arg = [2 : i32], keep_dim = true}> : (tensor<32x1x8192xf32>) -> tensor<32x1x1xf32>
     return %0 : tensor<32x1x1xf32>
+  }
+
+  // 3D min reducing outer dim (0): ttir.min is preserved; D2M uses tile_minimum.
+  // CHECK-LABEL: func @min_3d_reduce_outer
+  func.func @min_3d_reduce_outer(%arg0: tensor<32x128x96xf32>) -> tensor<1x128x96xf32> {
+    // CHECK-NOT: d2m.tile_negative
+    // CHECK: d2m.tile_fill
+    // CHECK: d2m.tile_minimum
+    %0 = "ttir.min"(%arg0) <{dim_arg = [0 : i32], keep_dim = true}> : (tensor<32x128x96xf32>) -> tensor<1x128x96xf32>
+    return %0 : tensor<1x128x96xf32>
   }
 
   // 3D mean reducing second-to-last dim (C): tensor<32x8192x1xf32> -> tensor<32x1x1xf32>

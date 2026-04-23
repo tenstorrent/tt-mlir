@@ -457,8 +457,8 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     The metrics are serialized to JSON format for debugging, profiling, and external analysis.
 
     Usage:
-    Enable performance metrics collection in the TTIR to TTNN backend pipeline using:
-    --ttir-to-ttnn-backend-pipeline="ttnn-perf-metrics-enabled=true"
+    Enable performance metrics collection in the TTIR to TTNN runtime pipeline using:
+    --ttir-to-ttnn-runtime-pipeline="ttnn-perf-metrics-enabled=true"
 
     Output file naming:
     - If --ttnn-perf-metrics-output-file is not specified or is the default, files are automatically
@@ -653,9 +653,9 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"maxInputCandidatesPerOperand", "max-input-candidates-per-operand",
            "int64_t", "64",
            "Maximum number of input candidates per operand before truncation.">,
-    Option<"maxReshardCandidates", "max-reshard-candidates",
-           "int64_t", "8",
-           "Maximum number of reshard candidates per tensor type.">,
+    Option<"maxReshardCandidatesPerType", "max-reshard-candidates-per-type",
+           "int64_t", "4",
+           "Maximum reshard candidates per sharding type (block, height, width).">,
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",
            "Enable decision trace JSON output.">,
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",

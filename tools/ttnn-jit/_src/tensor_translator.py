@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from ttmlir.ir import *
-from ttmlir.dialects import ttnn, ttcore
+from ttnn_jit.ttmlir.ir import *
+from ttnn_jit.ttmlir.dialects import ttnn, ttcore
 from ttnn_jit._src.conversions import (
     ttcore_dtype_from_ttnn_dtype,
     ttcore_dtype_from_mlir_dtype,

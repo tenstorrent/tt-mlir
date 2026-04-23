@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_D2M_IR_D2MGENERICREGIONOPS_H
 
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 
 #include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.h"

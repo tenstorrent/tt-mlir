@@ -31,20 +31,52 @@ struct BoundsInterval {
   Value end;
 };
 
-static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
-  switch (oobVal) {
-  case ttcore::OOBVal::Undef:
-    return 0.0;
-  case ttcore::OOBVal::Zero:
-    return 0.0;
-  case ttcore::OOBVal::One:
-    return 1.0;
-  case ttcore::OOBVal::Inf:
-    return std::numeric_limits<double>::infinity();
-  case ttcore::OOBVal::NegInf:
-    return -std::numeric_limits<double>::infinity();
+// Build an element-typed OOB fill attribute. For integer types, Inf/NegInf
+// are saturated to the representable min/max of the type.
+static TypedAttr getFillValueAttr(Builder &builder, Type elemType,
+                                  ttcore::OOBVal oobVal) {
+  if (auto floatTy = dyn_cast<FloatType>(elemType)) {
+    double v = 0.0;
+    switch (oobVal) {
+    case ttcore::OOBVal::Undef:
+    case ttcore::OOBVal::Zero:
+      v = 0.0;
+      break;
+    case ttcore::OOBVal::One:
+      v = 1.0;
+      break;
+    case ttcore::OOBVal::Inf:
+      v = std::numeric_limits<double>::infinity();
+      break;
+    case ttcore::OOBVal::NegInf:
+      v = -std::numeric_limits<double>::infinity();
+      break;
+    }
+    return builder.getFloatAttr(floatTy, v);
   }
-  return 0.0;
+  if (auto intTy = dyn_cast<IntegerType>(elemType)) {
+    unsigned w = intTy.getWidth();
+    bool isUnsigned = intTy.isUnsigned();
+    APInt v(w, 0);
+    switch (oobVal) {
+    case ttcore::OOBVal::Undef:
+    case ttcore::OOBVal::Zero:
+      break;
+    case ttcore::OOBVal::One:
+      v = APInt(w, 1);
+      break;
+    case ttcore::OOBVal::Inf:
+      v = isUnsigned ? APInt::getMaxValue(w) : APInt::getSignedMaxValue(w);
+      break;
+    case ttcore::OOBVal::NegInf:
+      v = isUnsigned ? APInt(w, 0) : APInt::getSignedMinValue(w);
+      break;
+    }
+    // arith.constant requires signless int types; TileFillOp accepts any
+    // integer so this is safe for the downstream use.
+    return builder.getIntegerAttr(IntegerType::get(builder.getContext(), w), v);
+  }
+  llvm_unreachable("unsupported element type for OOB fill");
 }
 
 /// Decompose BlockMaskOp with multi-core support.
@@ -189,9 +221,9 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
 
-    double fillValueDouble = getFillValueAsDouble(fillOOBVal);
-    Value fillScalar = rewriter.create<arith::ConstantOp>(
-        loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
+    TypedAttr fillAttr = getFillValueAttr(rewriter, elemType, fillOOBVal);
+    Value fillScalar =
+        rewriter.create<arith::ConstantOp>(loc, fillAttr.getType(), fillAttr);
 
     // Get this core's coordinates.
     Value coreY = rewriter.create<CoreIndexOp>(

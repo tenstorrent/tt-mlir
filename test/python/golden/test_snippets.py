@@ -19,6 +19,9 @@ from builder.base.builder_apis import (
 from builder.base.builder_runtime import execute_fb
 from builder.base.builder_utils import get_artifact_dir
 from conftest import get_request_kwargs
+from test_utils import (
+    SkipIf,
+)
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -106,7 +109,7 @@ def get_snippet_ids() -> List[str]:
 
 
 @pytest.mark.parametrize("snippet_id", get_snippet_ids())
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
 def test_model_snippet_compile_execute(
     snippet_id: str,
     target: str,

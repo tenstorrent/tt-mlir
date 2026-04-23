@@ -86,9 +86,8 @@ void createTTIRToTTMetalFrontendPipeline(
   pm.addPass(ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
   pm.addPass(ttir::createPredicateTypeAlignment());
   pm.addPass(ttir::createElementTypeNormalization());
+  pm.addPass(ttir::createTTIRDecomposeComposites());
   pm.addPass(tt::createTTIRToTTIRDecompositionPass());
-  pm.addPass(ttir::createTTIRDecomposeMinReduction());
-  pm.addPass(ttir::createTTIRRMSNormDecomposition());
   pm.addPass(ttir::createTTIRExplicateTMs());
   pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
@@ -137,7 +136,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
-  pm.addPass(d2m::createD2MAddScratchInputs());
+  pm.addPass(d2m::createD2MInsertScratchBuffers());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -178,10 +177,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
   d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
-  {
-    linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
-    linalgToAffineOptions.markRootLoops = true;
-  }
+  { linalgToAffineOptions.markRootLoops = true; }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
 
   d2m::D2MOpSchedulerOptions opSchedulerOptions;
@@ -199,13 +195,15 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createCanonicalizerPass());
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
-    insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
     insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
         options.maxDstPhysicalSizeTiles;
     insertDstRegisterAccessOptions.enableL1Acc = options.enableL1Acc;
   }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+  d2m::D2MInsertTileMatmulBlockOptions insertTileMatmulBlockOptions;
+  { insertTileMatmulBlockOptions.useTileMatmul = options.useTileMatmul; }
+  pm.addPass(d2m::createD2MInsertTileMatmulBlock(insertTileMatmulBlockOptions));
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
@@ -220,13 +218,10 @@ void createTTIRToTTMetalMiddleendPipeline(
   // GenericLinearizeMemref generates affine apply ops that must be lowered here
   pm.addPass(mlir::createLowerAffinePass());
 
-  // Frontend of DMA lowering pipeline; lower abstract
-  // remote loads and stores to explicit CB form split the
-  // unified thread into separate compute and datamovement
-  // threads.
+  // Frontend of DMA lowering pipeline; insert compute-side CB
+  // sync ops and split the unified thread into separate compute
+  // and datamovement threads.
   pm.addPass(d2m::createD2MHoistCBAllocs());
-  pm.addPass(d2m::createD2MConvertLocalLoadStoreOpsToAliasedCBs());
-  pm.addPass(d2m::createD2MLowerLoadStoreOpsToExplicitCBForm());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
 
   // Backend of DMA lowering pipeline; generic ops are now
@@ -236,11 +231,19 @@ void createTTIRToTTMetalMiddleendPipeline(
   // pass.
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
+  pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
 
+  // Normalize thread argument access by inserting d2m.get_arg ops for any
+  // remaining additional arguments and setting resolution_stage on
+  // d2m.get_cb/d2m.get_arg so the D2MToTTKernel lowering pass can uniformly
+  // treat all arguments.
+  pm.addPass(d2m::createD2MNormalizeThreadArgs());
+
+  pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
@@ -295,9 +298,11 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 
-  // Run lowering to LLVM pass.
-  ttir::TTIRToLLVMCPUPipelineOptions ttirToCPUOptions;
-  ttir::createTTIRToLLVMCPUPipeline(pm, ttirToCPUOptions);
+  // Run pipeline for lowering the CPU module to LLVM.
+  OpPassManager &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+  ttir::SHLOAndTTIRToLLVMPipelineOptions cpuOptions;
+  ttir::createSHLOAndTTIRToLLVMPipeline(cpuPm, cpuOptions);
 }
 
 //===----------------------------------------------------------------------===//

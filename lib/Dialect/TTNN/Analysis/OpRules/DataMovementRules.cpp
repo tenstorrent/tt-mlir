@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 
 namespace mlir::tt::ttnn {
@@ -12,7 +13,8 @@ namespace mlir::tt::ttnn {
 // ConcatRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn ConcatRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn
+ConcatRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Concat sharded inputs: re-enabled after tt-metal hang fix landed.
   // https://github.com/tenstorrent/tt-metal/issues/39419
   // Fix: https://github.com/tenstorrent/tt-metal/pull/39882
@@ -135,7 +137,8 @@ OutputHints ConcatRuleBook::getOutputHints(
 // SliceRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn SliceRuleBook::getInputLayoutFilter() const {
+LayoutFilterFn
+SliceRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Slice: sharded inputs produce incorrect results in tt-metal.
   // https://github.com/tenstorrent/tt-metal/issues/39074
   return layout_filter_utils::rejectAllSharded;
@@ -156,7 +159,55 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 // ReshapeRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn ReshapeRuleBook::getInputLayoutFilter() const {
+/// Check if a reshape can be optimized to a view (no kernel launch) by
+/// tt-metal. Mirrors the `this_is_view` condition in tt-metal's
+/// reshape.cpp:378-384. Only applies to ReshapeOp — PermuteOp has its own
+/// NOP optimization (is_permute_nop) with different conditions.
+/// TODO(#7988): Split PermuteOp into its own PermuteRuleBook to avoid this
+/// op-kind check.
+static bool canReshapeBeView(Operation *op) {
+  if (!mlir::isa<ReshapeOp>(op)) {
+    return false;
+  }
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!inputType || !outputType) {
+    return false;
+  }
+
+  auto inputShape = inputType.getShape();
+  auto outputShape = outputType.getShape();
+  if (inputShape.empty() || outputShape.empty()) {
+    return false;
+  }
+
+  // Condition 1: last dimension must be unchanged.
+  if (inputShape.back() != outputShape.back()) {
+    return false;
+  }
+
+  // Condition 2: for tiled layout, second-to-last dim must be unchanged or
+  // both second-to-last dims must be tile-aligned (no padding change).
+  auto ttnnLayout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+  if (ttnnLayout && ttnnLayout.isTiled()) {
+    int64_t inputSecondLast =
+        inputShape.size() >= 2 ? inputShape[inputShape.size() - 2] : 1;
+    int64_t outputSecondLast =
+        outputShape.size() >= 2 ? outputShape[outputShape.size() - 2] : 1;
+    if (inputSecondLast != outputSecondLast &&
+        !(outputSecondLast % TILE_HEIGHT == 0 &&
+          inputSecondLast % TILE_HEIGHT == 0)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+LayoutFilterFn
+ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Reshape/Permute: width-sharded inputs round-trip through interleaved
   // internally in tt-metal; height/block sharding is handled natively.
   // https://github.com/tenstorrent/tt-mlir/issues/7681
@@ -166,9 +217,17 @@ LayoutFilterFn ReshapeRuleBook::getInputLayoutFilter() const {
 bool ReshapeRuleBook::shouldExploreReshards() const { return false; }
 
 OutputHints ReshapeRuleBook::getOutputHints(
-    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
-  // ReshapeOp, PermuteOp: width-sharded inputs round-trip through interleaved
-  // internally; sharded output not beneficial.
+    Operation *op, const std::vector<OpConfig> &legalConfigs) const {
+  if (canReshapeBeView(op)) {
+    // View-eligible reshape: use NULL hint only (no fallbacks).
+    // tt-metal's reshape inherits input memory config when output config is
+    // nullopt (reshape.cpp:337), which guarantees the memory-type and sharding
+    // conditions for the view optimization (reshape.cpp:378-384) are met.
+    // By not providing L1 fallback hints, we prevent the greedy optimizer from
+    // upgrading DRAM→L1 and breaking the zero-cost view path.
+    return layout_filter_utils::nullHintOnly();
+  }
+  // Non-view reshape: sharded output not beneficial, use non-sharded configs.
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 

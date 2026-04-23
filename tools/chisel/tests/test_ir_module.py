@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+"""
+Cross-validate IRModule against the flatbuffer binary: op walk order,
+tensor shapes, and element types.
+"""
+import pytest
+import ttrt.binary
+
+from chisel.ops import IRModule
+
+
+@pytest.fixture
+def binary(binary_path):
+    return ttrt.binary.load_binary_from_path(binary_path)
+
+
+@pytest.fixture
+def ir_module(binary):
+    mlir_json = ttrt.binary.mlir_as_dict(binary)
+    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
+    return IRModule(mlir_source=mlir_json["source"], functions=functions)
+
+
+def _iterate_programs(binary):
+    """Yield (index, name) for each program."""
+    for i in range(binary.get_num_programs()):
+        yield i, binary.get_program_name(i)
+
+
+def test_ops(ir_module, binary):
+    """Cross-validate walk order, debug info, and tensor shapes against the flatbuffer."""
+    for prog_idx, prog_name in _iterate_programs(binary):
+        mlir_ops = ir_module.get_function_ops(prog_name)
+        fb_ops = ttrt.binary.program_ops_as_dict(binary, prog_idx)
+
+        assert len(mlir_ops) == len(fb_ops), (
+            f"Program '{prog_name}': count mismatch "
+            f"(MLIR={len(mlir_ops)}, FB={len(fb_ops)})"
+        )
+
+        for i, (mlir_op, fb_op) in enumerate(zip(mlir_ops, fb_ops, strict=True)):
+            # Mirror OpPrintingFlags from funcOpToProgram (FuncOpToProgram.h)
+            # so elided dense attrs/resources match the flatbuffer debug_info.
+            mlir_debug = mlir_op.get_asm(
+                enable_debug_info=True,
+                large_elements_limit=16,
+                large_resource_limit=64,
+                skip_regions=True,
+                assume_verified=True,
+            )
+            fb_debug = fb_op.get("debug_info", "")
+            assert mlir_debug == fb_debug, (
+                f"Program '{prog_name}' op {i}: debug info mismatch\n"
+                f"  MLIR: {mlir_debug}\n"
+                f"  FB:   {fb_debug}"
+            )
