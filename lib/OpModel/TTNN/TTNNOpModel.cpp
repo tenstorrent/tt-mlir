@@ -8340,13 +8340,22 @@ llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  // ttnn::sampling kernel expects 4D [N, C, H, W] with N*C*H==32. Runtime
+  // reshapes 2D [batch, candidates] -> [1, 1, batch, candidates] before
+  // dispatch; mirror that here so constraint queries see the kernel-expected
+  // shape.
+  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
+                                            inputValuesShape[1]};
+  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
+                                             inputIndicesShape[1]};
+
   auto valuesSpecExp =
-      detail::convertToTensorSpec(device, inputValuesShape, inputValuesLayout);
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
   if (!valuesSpecExp) {
     return valuesSpecExp.takeError();
   }
-  auto indicesSpecExp = detail::convertToTensorSpec(device, inputIndicesShape,
-                                                    inputIndicesLayout);
+  auto indicesSpecExp =
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
   if (!indicesSpecExp) {
     return indicesSpecExp.takeError();
   }
@@ -8395,13 +8404,19 @@ llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  // See getOpConstraints: reshape 2D -> 4D to match runtime dispatch.
+  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
+                                            inputValuesShape[1]};
+  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
+                                             inputIndicesShape[1]};
+
   auto valuesSpecExp =
-      detail::convertToTensorSpec(device, inputValuesShape, inputValuesLayout);
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
   if (!valuesSpecExp) {
     return valuesSpecExp.takeError();
   }
-  auto indicesSpecExp = detail::convertToTensorSpec(device, inputIndicesShape,
-                                                    inputIndicesLayout);
+  auto indicesSpecExp =
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
   if (!indicesSpecExp) {
     return indicesSpecExp.takeError();
   }
