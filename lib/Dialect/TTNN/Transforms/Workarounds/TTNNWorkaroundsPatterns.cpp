@@ -35,6 +35,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SliceStaticOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
@@ -616,7 +617,9 @@ public:
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
           workarounds::decomposition::
-              AllToAllDispatchMetadataDrainCoreRewritePattern>(&getContext());
+              AllToAllDispatchMetadataDrainCoreRewritePattern,
+          workarounds::decomposition::SliceStaticOpRewritePattern>(
+          &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
       patterns
