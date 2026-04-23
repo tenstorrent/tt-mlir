@@ -298,12 +298,12 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
-  Option<bool> enableD2MFusing{*this, "enable-d2m-fusing-pass",
-                               llvm::cl::desc("Enable D2M fusing pass."),
+  Option<bool> enableD2MSubgraphs{*this, "enable-d2m-subgraphs",
+                               llvm::cl::desc("Enable creation of D2M subgraphs."),
                                llvm::cl::init(false)};
 
-  // Enable the d2m elementwise fusion pass when enable-d2m-fusing-pass is on.
-  // See resolveD2MFusingOptions for more details.
+  // Enable the d2m elementwise fusion pass when enable-d2m-subgraphs is on.
+  // See resolveD2MSubgraphsOptions for more details.
   mutable Option<bool> enableD2MElementwiseFusion{
       *this, "enable-d2m-elementwise-fusion",
       llvm::cl::desc("Enable elementwise fusion pass."), llvm::cl::init(false)};
@@ -484,15 +484,15 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
       llvm::cl::init(false)};
 
-  void resolveD2MFusingOptions() const {
-    // enable-d2m-elementwise-fusion is a sub-option of enable-d2m-fusing-pass
-    // and should only be enabled if enable-d2m-fusing-pass is also enabled.
-    if (enableD2MElementwiseFusion && !enableD2MFusing) {
+  void resolveD2MSubgraphsOptions() const {
+    // enable-d2m-elementwise-fusion is a sub-option of enable-d2m-subgraphs
+    // and should only be enabled if enable-d2m-subgraphs is also enabled.
+    if (enableD2MElementwiseFusion && !enableD2MSubgraphs) {
       llvm::reportFatalUsageError("enable-d2m-elementwise-fusion=true requires "
-                                  "enable-d2m-fusing-pass to be enabled.");
+                                  "enable-d2m-subgraphs to be enabled.");
     }
 
-    if (enableD2MFusing &&
+    if (enableD2MSubgraphs &&
         enableD2MElementwiseFusion.getNumOccurrences() == 0) {
       enableD2MElementwiseFusion = true;
     }

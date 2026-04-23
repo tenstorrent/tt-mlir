@@ -26,7 +26,7 @@ GPT_OSS_20B_SNIPPETS = ["gate_up", "rope_embedding"]
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("snippet", GPT_OSS_20B_SNIPPETS)
 def test_d2m_fusion_with_optimizer(request, target, snippet):
-    """E2E: TTIR with D2M fusing (optimization-level=1, enable-d2m-fusing-pass) -> flatbuffer -> run.
+    """E2E: TTIR with D2M fusion (optimization-level=1, enable-d2m-subgraphs) -> flatbuffer -> run.
 
     Compilation runs with no device open so the pipeline can use mock/simulator
     context for opmodel; device is opened only after compile for execute_fb.
@@ -62,7 +62,7 @@ def test_d2m_fusion_with_optimizer(request, target, snippet):
         save_artifacts=save_artifacts,
         pipeline_options=[
             "optimization-level=1",
-            "enable-d2m-fusing-pass=true",
+            "enable-d2m-subgraphs=true",
         ],
     )
     # Open device only after compile so the pipeline can use mock context for opmodel.
