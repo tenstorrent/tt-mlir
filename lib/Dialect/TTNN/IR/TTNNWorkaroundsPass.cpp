@@ -659,6 +659,25 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(operandWorkaround);
 }
 
+// tt-metal's `ttnn.erf` SFPU kernel (LUT-based rational approximation
+// introduced in tt-metal #41850) treats each input lane as a floating-point
+// value. When called with an integer dtype the integer bit pattern is
+// reinterpreted as a float, producing NaN/Inf/garbage that the new LUT is
+// unable to saturate to ±1 in all cases, so the result no longer matches the
+// mathematical erf. Force a bf16 typecast around the op for integer inputs.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createErfOpOperandsWorkarounds(
+    mlir::RankedTensorType inputType) {
+  TTNNOperandWorkarounds operandWorkaround;
+  if (inputType.getElementType().isInteger()) {
+    operandWorkaround.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::BFloat16;
+  }
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
 // Factory method to create a set of workarounds for GroupNorm op operands.
 // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/37551
 // TTNN group_norm requires:
