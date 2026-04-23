@@ -24,9 +24,25 @@ table ShardedBufferConfig {
   shard_spec_buffer: ShardSpecBuffer;
 }
 
+// Describes a DRAM buffer whose pages are distributed round-robin
+// (ShardDistributionStrategy::ROUND_ROBIN_1D in tt-metal) across
+// `num_dram_banks` DRAM banks, matching the D2M `dramMap` affine-map:
+//   bank_of_page(N)   = N mod num_dram_banks
+//   offset_in_bank(N) = (N floordiv num_dram_banks) * page_size
+// `num_pages` is the total page count across all banks; the runtime
+// builds a tt_metal::BufferDistributionSpec with
+// tensor_shape_in_pages=[num_pages] and shard_shape_in_pages=[1].
+table DramDistributedBufferConfig {
+  size: uint64;
+  page_size: uint64;
+  num_pages: uint32;
+  num_dram_banks: uint32;
+}
+
 union BufferConfig {
   ShardedBufferConfig,
-  InterleavedBufferConfig
+  InterleavedBufferConfig,
+  DramDistributedBufferConfig
 }
 
 table CircularBufferConfig {

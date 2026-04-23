@@ -198,56 +198,42 @@ static AffineMap extendMappingForHigherDimGrid(AffineMap originalMapping,
                         ctx);
 }
 
-static flatbuffers::Offset<target::metal::ShardedBufferConfig>
-createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
-                                       MemRefType memref,
-                                       ttcore::DeviceAttr device,
-                                       ttcore::SystemDescAttr systemDesc) {
-
-  // The code below configures the sharded buffer AS-IF it was a Nx1 sharded
-  // DRAM tensor large enough to hold all the shards distributed across all DRAM
-  // banks. However the shapes and size here are **dummy values**, such that
-  // the buffer spec occupies that exact size of the underlying D2M DRAM buffer.
-  // However the shapes in the spec DO NOT actually correspond to the D2M tensor
-  // or shard shape.
-  //
-  // This kludge is due to D2M DRAM shard->bank mapping being _cyclic_, which
-  // cannot be represented by the ShardedBufferConfig. Host<->Device transfers
-  // will have to be properly fixed using BufferDistributionSpec to describe how
-  // sharded D2M DRAM buffers are actually laid out.
-  //
-  // NOTE: For the special case of a single shard mapped to a single DRAM bank,
-  // the shapes and size here are incidentally correct. So host
-  // enqueue_write_buffer and enqeue_read_buffer commands will work correctly.
-
+// Build a DramDistributedBufferConfig that faithfully describes how a D2M
+// DRAM memref is laid out across DRAM banks.
+//
+// In D2M, each cell of the memref grid is a single DRAM "page" of size
+// `page_size = device.getMemrefSizeBytes(memref)`. The `dramMap` affine-map
+// (see createDramMap() in TTCoreOpsTypes.cpp) distributes these pages
+// cyclically across the chip's `num_dram_banks` banks:
+//   bank_of_page(N)   = N mod num_dram_banks
+//   offset_in_bank(N) = (N floordiv num_dram_banks) * page_size + base
+// with total page count `num_pages = gridVolume`.
+//
+// Encoding this as a DramDistributedBufferConfig lets the runtime construct
+// a tt_metal::BufferDistributionSpec with ShardDistributionStrategy::
+// ROUND_ROBIN_1D over exactly `num_dram_banks` DRAM bank cores, which
+// produces the same page->bank->offset mapping that the kernels expect.
+//
+// IMPORTANT: `num_dram_banks` must match the `numDramBanks` used when
+// constructing the device's dramMap (i.e. chip_desc.num_dram_channels),
+// not `std::min(num_dram_banks, gridVolume)`. The modulus in dramMap is the
+// chip's bank count regardless of how many banks are actually populated.
+static flatbuffers::Offset<target::metal::DramDistributedBufferConfig>
+createDramDistributedBufferConfigForMemref(FlatbufferObjectCache &cache,
+                                           MemRefType memref,
+                                           ttcore::DeviceAttr device,
+                                           ttcore::SystemDescAttr systemDesc) {
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(memref.getLayout());
-  auto memrefGridShape = shardLayout.getGridShape(memref);
-  uint64_t actualShardSize = device.getShardSizeInBytes(memref, 1, true);
-  uint64_t gridVolume = ttmlir::utils::volume(memrefGridShape);
 
-  // determine how many DRAM banks are actually used by D2M
-  uint64_t numDramBanks =
-      systemDesc.getChipDescs().front().getNumDramChannels();
-  uint64_t numDRAMBanksUsed = std::min(numDramBanks, gridVolume);
-  std::vector<target::Dim2dRange> coreRangeSet = {target::Dim2dRange(
-      target::Dim2d(0, 0), target::Dim2d(numDRAMBanksUsed, 1))};
+  uint64_t pageSize = device.getMemrefSizeBytes(memref);
+  uint64_t numPages = ttmlir::utils::volume(shardLayout.getGridShape(memref));
+  uint64_t size = ttmlir::utils::alignUp(numPages * pageSize, pageSize);
+  uint32_t numDramBanks = static_cast<uint32_t>(
+      systemDesc.getChipDescs().front().getNumDramChannels());
 
-  uint64_t actualShardsPerBank =
-      ttmlir::utils::alignUp(gridVolume, numDramBanks) / numDramBanks;
-
-  // Compute dummy shapes that occupy same space as actual D2M memref.
-  target::Dim2d dummyShardShape(actualShardsPerBank, actualShardSize);
-  target::Dim2d dummyPageShape(actualShardsPerBank, actualShardSize);
-  uint64_t dummyShardSize = dummyShardShape.x() * dummyShardShape.y();
-  target::Dim2d dummyTensorShapeInPages(numDRAMBanksUsed, 1);
-  uint64_t dummyTensorSize = numDRAMBanksUsed * dummyShardSize;
-
-  auto shardSpec = target::metal::CreateShardSpecDirect(
-      *cache.fbb, &coreRangeSet, &dummyShardShape);
-  auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
-      *cache.fbb, shardSpec, &dummyPageShape, &dummyTensorShapeInPages);
-  return target::metal::CreateShardedBufferConfig(
-      *cache.fbb, dummyTensorSize, dummyShardSize, shardSpecBuffer);
+  return target::metal::CreateDramDistributedBufferConfig(
+      *cache.fbb, size, pageSize, static_cast<uint32_t>(numPages),
+      numDramBanks);
 }
 
 // Returns the physical grid shape for a memref. If virtualGridInverseMapping is
@@ -336,24 +322,17 @@ createShardedBufferConfigForL1Memref(
                                                   shardSpecBuffer);
 }
 
+// Only used for L1-sharded memrefs now; DRAM-sharded memrefs are lowered to
+// a DramDistributedBufferConfig via createDramDistributedBufferConfigForMemref.
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 memrefTypeToShardedBufferConfigFlatbuffer(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
-    target::Dim2d elementShape, ttcore::SystemDescAttr systemDesc,
+    target::Dim2d elementShape,
     std::optional<AffineMap> virtualGridInverseMapping) {
-
-  flatbuffers::Offset<target::metal::ShardedBufferConfig> sharded_buffer_config;
-  if (isMemrefDeviceDRAMMemspace(memref)) {
-    sharded_buffer_config = createShardedBufferConfigForDRAMMemref(
-        cache, memref, device, systemDesc);
-  } else if (isMemrefDeviceL1Memspace(memref)) {
-    sharded_buffer_config = createShardedBufferConfigForL1Memref(
-        cache, memref, device, elementShape, virtualGridInverseMapping);
-  } else {
-    assert(false &&
-           "ShardedBufferConfig not supported for System memory space");
-  }
-  return sharded_buffer_config;
+  assert(isMemrefDeviceL1Memspace(memref) &&
+         "ShardedBufferConfig is only emitted for L1 memspace");
+  return createShardedBufferConfigForL1Memref(
+      cache, memref, device, elementShape, virtualGridInverseMapping);
 }
 
 static flatbuffers::Offset<target::metal::InterleavedBufferConfig>
@@ -486,13 +465,28 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     bufferDetailType = target::metal::BufferDetail::MetalBuffer;
     bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
 
-    if (isSharded) {
+    if (isSharded && isMemrefDeviceDRAMMemspace(memref)) {
+      // D2M DRAM buffers use cyclic page-interleaved distribution across
+      // DRAM banks (dramMap). Emit a DramDistributedBufferConfig so the
+      // runtime constructs a tt_metal::BufferDistributionSpec with
+      // ShardDistributionStrategy::ROUND_ROBIN_1D that matches the page
+      // layout baked into the kernel NOC addressing.
+      auto dramDistributedBufferConfig =
+          createDramDistributedBufferConfigForMemref(cache, memref, device,
+                                                     systemDesc);
+      bufferDetail =
+          target::metal::CreateMetalBuffer(
+              *cache.fbb, bufferType,
+              target::metal::BufferConfig::DramDistributedBufferConfig,
+              dramDistributedBufferConfig.Union(), 0)
+              .Union();
+    } else if (isSharded) {
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
-              cache, memref, device, elementShape, systemDesc,
-              virtualGridInverseMapping);
+              cache, memref, device, elementShape, virtualGridInverseMapping);
 
-      // only generate CircularBufferConfig for L1 memspace
+      // Only L1-sharded memrefs reach this path (DRAM-sharded is handled
+      // above). CBs are only allocated for L1.
       flatbuffers::Offset<target::metal::CircularBufferConfig>
           circularBufferConfig =
               isMemrefDeviceL1Memspace(memref)
