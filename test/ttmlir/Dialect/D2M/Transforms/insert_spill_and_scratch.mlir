@@ -238,7 +238,7 @@ func.func @single_nest_no_scratch(
 // CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
 // CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
 // Outer blocking loop attribute is preserved.
-// CHECK:       } {d2m.blocking_loop = 0}
+// CHECK:       } {d2m.blocking_loop = 0 : i64}
 // CHECK-NOT:   memref.alloc
 func.func @blocking_loop_inner_scf_fusion(
     %in0  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
