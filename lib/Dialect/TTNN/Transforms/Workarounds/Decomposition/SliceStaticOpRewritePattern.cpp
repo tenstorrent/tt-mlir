@@ -25,8 +25,7 @@ SliceStaticOpRewritePattern::matchAndRewrite(ttnn::SliceStaticOp srcOp,
                                              PatternRewriter &rewriter) const {
 
   RankedTensorType outputType = srcOp.getResult().getType();
-  RankedTensorType inputType =
-      mlir::cast<RankedTensorType>(srcOp.getInput().getType());
+  RankedTensorType inputType = srcOp.getInput().getType();
 
   int64_t rank = outputType.getRank();
   if (rank < 2) {
