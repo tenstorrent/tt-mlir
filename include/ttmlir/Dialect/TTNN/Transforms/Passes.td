@@ -293,7 +293,9 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 def TTNND2MSubgraphs: Pass<"ttnn-d2m-subgraphs", "::mlir::ModuleOp"> {
   let summary = "TTNN D2M subgraph creation pass.";
   let description = [{
-    This pass identifies potential subgraphs that can be compiled into D2M subgraphs.
+    This pass identifies potential subgraphs that can be fused through D2M compilation.
+
+    Right now, this is limited to eltwise chains.
   }];
 }
 
