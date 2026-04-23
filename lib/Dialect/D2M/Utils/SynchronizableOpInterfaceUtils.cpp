@@ -2,13 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/D2M/Utils/SyncrhonizableOpInterfaceUtils.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 
-namespace mlir::tt::d2m {
+namespace mlir::tt::d2m::utils {
 
 // Note: this function must be used before converting to explicit CB form
 llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
@@ -103,4 +104,4 @@ LogicalResult removeSynchronizedRegions(IRRewriter &rewriter,
   rewriter.eraseOp(synchronizedOp);
   return success();
 }
-} // namespace mlir::tt::d2m
+} // namespace mlir::tt::d2m::utils

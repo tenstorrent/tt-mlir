@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
+#include "ttmlir/Dialect/D2M/Utils/SyncrhonizableOpInterfaceUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/Linalg/Transforms/SynchronizableOpInterfaceImpl.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -37,6 +40,9 @@ protected:
     context.loadDialect<mlir::scf::SCFDialect>();
     context.loadDialect<mlir::tt::ttcore::TTCoreDialect>();
     context.loadDialect<mlir::tt::d2m::D2MDialect>();
+    mlir::DialectRegistry registry;
+    mlir::linalg::registerSynchronizableOpInterfaceExternalModels(registry);
+    context.appendDialectRegistry(registry);
 
     d0 = mlir::getAffineDimExpr(0, &context);
     d1 = mlir::getAffineDimExpr(1, &context);
@@ -886,6 +892,72 @@ func.func @test(
   EXPECT_EQ(it->second.numDstFlips, 2);
   EXPECT_EQ(regionInfo->numTilesPerResult, 16);
   EXPECT_EQ(regionInfo->numOuterLoopIters, 4);
+}
+
+TEST_F(GenericOpAnalysisTest, VerifyCBUsageInfo) {
+  std::string moduleText = wrapInModule(R"mlir(
+func.func @test(
+  %in0: memref<8x8x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>,
+  %in1: memref<8x8x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>,
+  %out: memref<8x8x2x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>) {
+  d2m.generic {block_factors = [1, 1, 8], grid = #ttcore.grid<8x8>, indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>, #ttcore.iterator_type<reduction>], threads = [#d2m.thread<unified>]}
+      ins(%in0, %in1 : memref<8x8x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>, memref<8x8x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>)
+      outs(%out : memref<8x8x2x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>)
+    {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    %block0 = d2m.block_index(0) : index
+    %block2 = d2m.block_index(2) : index
+    %block1 = d2m.block_index(1) : index
+    %block2_6 = d2m.block_index(2) : index
+    %alloc_7 = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>>
+    %0 = d2m.remote_load %alloc_7 %in0[%block0, %block2] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>>, memref<8x8x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    %alloc_8 = memref.alloc() {alignment = 64 : i64} : memref<4x8x!ttcore.tile<32x32, f32>>
+    %1 = d2m.remote_load %alloc_8 %in1[%block2_6, %block1] mcast[%c1] : memref<4x8x!ttcore.tile<32x32, f32>>, memref<8x8x4x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>> -> memref<4x8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    %alloc_9 = memref.alloc() {alignment = 64 : i64} : memref<2x8x!ttcore.tile<32x32, f32>>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%alloc_7, %alloc_8 : memref<2x4x!ttcore.tile<32x32, f32>>, memref<4x8x!ttcore.tile<32x32, f32>>) outs(%alloc_9 : memref<2x8x!ttcore.tile<32x32, f32>>) {
+    ^bb0(%in_tile: !ttcore.tile<32x32, f32>, %in_12: !ttcore.tile<32x32, f32>, %out_tile: !ttcore.tile<32x32, f32>):
+      %3 = "d2m.tile_matmul"(%in_tile, %in_12, %out_tile) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+      linalg.yield %3 : !ttcore.tile<32x32, f32>
+    }
+    %block0_10 = d2m.block_index(0) : index
+    %block1_11 = d2m.block_index(1) : index
+    %2 = d2m.remote_store %out[%block0_10, %block1_11] %alloc_9 : memref<8x8x2x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>, memref<2x8x!ttcore.tile<32x32, f32>> -> memref<8x8x2x8x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.memory_space<l1>>
+  }
+  return
+}
+)mlir");
+
+  auto module = parseModule(moduleText);
+  ASSERT_TRUE(module);
+  d2m::GenericOp generic = getSingleGenericOp(*module);
+  ASSERT_TRUE(generic);
+
+  auto cbUsageInfo = utils::getCBUsageInfo(generic.getRegion(0));
+
+  // check presence of CBs
+  ASSERT_EQ(cbUsageInfo.size(), 3u);
+  SmallVector<Value> cbs;
+  generic.walk([&](memref::AllocOp allocOp) {
+    cbs.push_back(allocOp.getResult());
+    ASSERT_TRUE(cbUsageInfo.contains(allocOp.getResult()));
+    EXPECT_EQ(cbUsageInfo.lookup(allocOp.getResult()).producers.size(), 1u);
+    EXPECT_EQ(cbUsageInfo.lookup(allocOp.getResult()).consumers.size(), 1u);
+  });
+
+  // check producers/consumers of CBs
+  ASSERT_TRUE(
+      mlir::isa<d2m::RemoteLoadOp>(cbUsageInfo[cbs[0]].producers.front()));
+  ASSERT_TRUE(
+      mlir::isa<linalg::GenericOp>(cbUsageInfo[cbs[0]].consumers.front()));
+  ASSERT_TRUE(
+      mlir::isa<d2m::RemoteLoadOp>(cbUsageInfo[cbs[1]].producers.front()));
+  ASSERT_TRUE(
+      mlir::isa<linalg::GenericOp>(cbUsageInfo[cbs[1]].consumers.front()));
+  ASSERT_TRUE(
+      mlir::isa<linalg::GenericOp>(cbUsageInfo[cbs[2]].producers.front()));
+  ASSERT_TRUE(
+      mlir::isa<d2m::RemoteStoreOp>(cbUsageInfo[cbs[2]].consumers.front()));
 }
 
 } // namespace mlir::tt::d2m
