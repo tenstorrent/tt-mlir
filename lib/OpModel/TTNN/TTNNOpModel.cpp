@@ -27,6 +27,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
@@ -211,6 +212,25 @@ convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
 
   return llvm::createStringError(
       "Unable to create TensorSpec out of given shape and layout");
+}
+
+// Multi-device CCL ops (all_gather/reduce_scatter/all_reduce/rms_allgather)
+// launch fabric across the mesh. Optimizer passes open a single-device (1x1)
+// mock op-model device via ScopedSingletonDeviceGuard, on which such a query
+// makes metal attempt to launch fabric on a device subset and abort with an
+// uncatchable TT_FATAL ("Device N is not active"). Refuse up front with a
+// graceful error so callers (e.g. TTNNRowMajorLayoutPropagation) fall back
+// instead of crashing. Multi-device contexts — the mock-device unit tests,
+// which reshape to the op's mesh, or an external mesh device — satisfy this and
+// proceed to a real query.
+llvm::Error
+requireMultiDeviceMesh(const ::tt::tt_metal::distributed::MeshDevice *device) {
+  if (device->shape().mesh_size() <= 1) {
+    return llvm::createStringError(
+        "CCL op-model constraints require a multi-device mesh; the op-model "
+        "device is single-device");
+  }
+  return llvm::Error::success();
 }
 
 std::optional<::ttnn::TensorSpec>
@@ -545,6 +565,38 @@ inline bool programCarriesFusedActivation(
         return false;
       },
       *pc);
+}
+
+std::optional<::tt::tt_metal::SubDeviceId>
+convertSubDeviceId(std::optional<uint32_t> subDeviceId) {
+  if (!subDeviceId) {
+    return std::nullopt;
+  }
+  // SubDeviceId is StrongType<uint8_t>; reject values that would silently
+  // wrap when narrowed.
+  assert(*subDeviceId <= std::numeric_limits<uint8_t>::max() &&
+         "sub_device_id exceeds uint8_t range");
+  return ::tt::tt_metal::SubDeviceId{static_cast<uint8_t>(*subDeviceId)};
+}
+
+std::optional<::ttnn::ccl::Topology>
+convertTopology(std::optional<ttcore::Topology> topology) {
+  if (!topology) {
+    return std::nullopt;
+  }
+  switch (*topology) {
+  case ttcore::Topology::Ring:
+    return ::ttnn::ccl::Topology::Ring;
+  case ttcore::Topology::Linear:
+    return ::ttnn::ccl::Topology::Linear;
+  case ttcore::Topology::Mesh:
+    return ::ttnn::ccl::Topology::Mesh;
+  case ttcore::Topology::Torus:
+    return ::ttnn::ccl::Topology::Torus;
+  case ttcore::Topology::Disabled:
+    return std::nullopt;
+  }
+  llvm_unreachable("Unknown ttcore::Topology");
 }
 
 } // namespace detail
@@ -8171,6 +8223,9 @@ llvm::Expected<OpConstraints> OpModel<MeshPartitionOp>::getOpConstraints(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
@@ -8197,6 +8252,9 @@ llvm::Expected<size_t> OpModel<MeshPartitionOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
@@ -8211,6 +8269,499 @@ llvm::Expected<size_t> OpModel<MeshPartitionOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(meshPartitionOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// AllGatherOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<AllGatherOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    int32_t allGatherDim, uint32_t clusterAxis,
+    std::optional<uint32_t> subDeviceId, std::optional<uint32_t> numLinks,
+    std::optional<ttcore::Topology> topology, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  ::tt::tt_metal::TensorTopology shardedTopology =
+      ::tt::tt_metal::TensorTopology::create_sharded_tensor_topology(
+          device->shape(), static_cast<int>(clusterAxis));
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 shardedTopology};
+
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto fabricTopology = detail::convertTopology(topology);
+
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::all_gather, device, distInput, allGatherDim,
+        std::optional<uint32_t>(clusterAxis), metalSubDeviceId,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*optional_output_tensor=*/std::optional<::ttnn::Tensor>{}, numLinks,
+        fabricTopology);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<AllGatherOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    int32_t allGatherDim, uint32_t clusterAxis,
+    std::optional<uint32_t> subDeviceId, std::optional<uint32_t> numLinks,
+    std::optional<ttcore::Topology> topology, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  ::tt::tt_metal::TensorTopology shardedTopology =
+      ::tt::tt_metal::TensorTopology::create_sharded_tensor_topology(
+          device->shape(), static_cast<int>(clusterAxis));
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 shardedTopology};
+
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto fabricTopology = detail::convertTopology(topology);
+
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::all_gather, device, distInput, allGatherDim,
+        std::optional<uint32_t>(clusterAxis), metalSubDeviceId,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*optional_output_tensor=*/std::optional<::ttnn::Tensor>{}, numLinks,
+        fabricTopology);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<ReduceScatterOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    int32_t scatterDim, uint32_t clusterAxis,
+    std::optional<uint32_t> subDeviceId, std::optional<uint32_t> numLinks,
+    std::optional<ttcore::Topology> topology,
+    std::optional<DeviceComputeKernelConfigAttr> computeConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  ::tt::tt_metal::TensorTopology shardedTopology =
+      ::tt::tt_metal::TensorTopology::create_sharded_tensor_topology(
+          device->shape(), static_cast<int>(clusterAxis));
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 shardedTopology};
+
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto fabricTopology = detail::convertTopology(topology);
+  auto metalComputeConfig =
+      conversion::getDeviceComputeKernelConfig(computeConfig);
+
+  // Param order matches runtime/lib/ttnn/operations/ccl/reduce_scatter.cpp.
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::reduce_scatter, device, distInput, scatterDim,
+        std::optional<uint32_t>(clusterAxis), metalSubDeviceId,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*intermediate_memory_config=*/std::optional<::ttnn::MemoryConfig>{},
+        /*optional_output_tensor=*/std::optional<::ttnn::Tensor>{}, numLinks,
+        fabricTopology,
+        /*chunks_per_sync=*/std::optional<uint32_t>{},
+        /*num_workers_per_link=*/std::optional<uint32_t>{},
+        /*num_buffers_per_channel=*/std::optional<uint32_t>{},
+        metalComputeConfig);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<ReduceScatterOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    int32_t scatterDim, uint32_t clusterAxis,
+    std::optional<uint32_t> subDeviceId, std::optional<uint32_t> numLinks,
+    std::optional<ttcore::Topology> topology,
+    std::optional<DeviceComputeKernelConfigAttr> computeConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  ::tt::tt_metal::TensorTopology shardedTopology =
+      ::tt::tt_metal::TensorTopology::create_sharded_tensor_topology(
+          device->shape(), static_cast<int>(clusterAxis));
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 shardedTopology};
+
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto fabricTopology = detail::convertTopology(topology);
+  auto metalComputeConfig =
+      conversion::getDeviceComputeKernelConfig(computeConfig);
+
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::reduce_scatter, device, distInput, scatterDim,
+        std::optional<uint32_t>(clusterAxis), metalSubDeviceId,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*intermediate_memory_config=*/std::optional<::ttnn::MemoryConfig>{},
+        /*optional_output_tensor=*/std::optional<::ttnn::Tensor>{}, numLinks,
+        fabricTopology,
+        /*chunks_per_sync=*/std::optional<uint32_t>{},
+        /*num_workers_per_link=*/std::optional<uint32_t>{},
+        /*num_buffers_per_channel=*/std::optional<uint32_t>{},
+        metalComputeConfig);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<AllReduceOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    uint32_t clusterAxis, std::optional<uint32_t> subDeviceId,
+    std::optional<uint32_t> numLinks, std::optional<ttcore::Topology> topology,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  ::tt::tt_metal::TensorTopology shardedTopology =
+      ::tt::tt_metal::TensorTopology::create_sharded_tensor_topology(
+          device->shape(), static_cast<int>(clusterAxis));
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 shardedTopology};
+
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto fabricTopology = detail::convertTopology(topology);
+
+  auto query = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::all_reduce, device, distInput,
+                                std::optional<uint32_t>(clusterAxis),
+                                metalSubDeviceId,
+                                detail::getNullableMemoryConfig(outputLayout),
+                                numLinks, fabricTopology);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<AllReduceOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    uint32_t clusterAxis, std::optional<uint32_t> subDeviceId,
+    std::optional<uint32_t> numLinks, std::optional<ttcore::Topology> topology,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+
+  ::tt::tt_metal::TensorTopology shardedTopology =
+      ::tt::tt_metal::TensorTopology::create_sharded_tensor_topology(
+          device->shape(), static_cast<int>(clusterAxis));
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 shardedTopology};
+
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto fabricTopology = detail::convertTopology(topology);
+
+  auto query = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::all_reduce, device, distInput,
+                            std::optional<uint32_t>(clusterAxis),
+                            metalSubDeviceId,
+                            detail::getNullableMemoryConfig(outputLayout),
+                            numLinks, fabricTopology);
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<DistributedRMSNormOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualShape,
+    std::optional<TTNNLayoutAttr> residualLayout,
+    std::optional<llvm::ArrayRef<int64_t>> statsShape,
+    std::optional<TTNNLayoutAttr> statsLayout, uint32_t clusterAxis,
+    llvm::APFloat epsilon, std::optional<uint32_t> subDeviceId,
+    std::optional<uint32_t> numLinks, std::optional<ttcore::Topology> topology,
+    std::optional<DeviceComputeKernelConfigAttr> computeConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  // Input: replicated topology — each device holds its own local copy of the
+  // tensor (whatever its layout) and runs the RMS computation locally; only
+  // statistics are communicated across devices via all-gather.
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  auto replicatedTopology =
+      ::tt::tt_metal::TensorTopology::create_fully_replicated_tensor_topology(
+          device->shape());
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 replicatedTopology};
+
+  // Optional tensors (weight, residual, stats) passed as TensorSpec.
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> residualSpec =
+      detail::convertToOptionalTensorSpec(device, residualShape,
+                                          residualLayout);
+  std::optional<::ttnn::TensorSpec> statsSpec =
+      detail::convertToOptionalTensorSpec(device, statsShape, statsLayout);
+
+  // Build LayerNormProgramConfig (variant).
+  ::ttnn::prim::LayerNormProgramConfig metalProgramConfig;
+  if (programConfig) {
+    auto gridCoord = programConfig->getComputeWithStorageGridSize();
+    metalProgramConfig = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig{
+        .compute_with_storage_grid_size =
+            ::tt::tt_metal::CoreCoord{static_cast<size_t>(gridCoord.getX()),
+                                      static_cast<size_t>(gridCoord.getY())},
+        .subblock_w = programConfig->getSubblockW(),
+        .block_h = programConfig->getBlockH(),
+        .block_w = programConfig->getBlockW(),
+        .inplace = programConfig->getInplace()};
+  }
+
+  // fused_rms_minimal requires a sharded input layout (carries the
+  // core_range_set used for the global semaphore). Reject gracefully if the
+  // input isn't sharded; the op verifier doesn't currently enforce this.
+  if (!inputLayout.getCoreRangeSet()) {
+    return llvm::createStringError(
+        "DistributedRMSNormOp requires a sharded input layout");
+  }
+  auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+  auto cclTopology =
+      detail::convertTopology(topology).value_or(::ttnn::ccl::Topology::Linear);
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto metalComputeConfig =
+      conversion::getDeviceComputeKernelConfig(computeConfig);
+  std::optional<size_t> metalNumLinks =
+      numLinks ? std::optional<size_t>(*numLinks) : std::nullopt;
+  auto outputMemCfg = detail::getNullableMemoryConfig(outputLayout);
+  float epsilonF = static_cast<float>(epsilon.convertToDouble());
+
+  // Inner-lambda form so the GlobalSemaphore is created INSIDE
+  // ScopedGraphCapture(NO_DISPATCH). In that scope, GraphTracker's
+  // hook_allocate and hook_write_to_device return true, so the semaphore's
+  // L1 allocation and initial-value EnqueueWriteMeshBuffer are both
+  // intercepted — no real device state is mutated. The trace records the
+  // would-be allocation, so peakL1MemorySize correctly includes the
+  // semaphore.
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        [device, coreRangeSet, metalProgramConfig, clusterAxis, cclTopology,
+         metalSubDeviceId, metalComputeConfig, metalNumLinks, outputMemCfg,
+         epsilonF](auto &&input, auto &&weight, auto &&residual, auto &&stats) {
+          auto semaphore = ::ttnn::global_semaphore::create_global_semaphore(
+              device, coreRangeSet, /*initial_value=*/0);
+          return ::ttnn::fused_rms_minimal(
+              input, metalProgramConfig, clusterAxis, *device, semaphore,
+              /*persistent_output_tensor=*/std::optional<::ttnn::Tensor>{},
+              metalNumLinks, cclTopology, metalSubDeviceId,
+              /*dtype=*/std::optional<::ttnn::DataType>{}, metalComputeConfig,
+              outputMemCfg, std::forward<decltype(residual)>(residual),
+              epsilonF, std::forward<decltype(weight)>(weight),
+              std::forward<decltype(stats)>(stats),
+              /*use_noc1_only=*/false);
+        },
+        device, distInput, weightSpec, residualSpec, statsSpec);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<DistributedRMSNormOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> residualShape,
+    std::optional<TTNNLayoutAttr> residualLayout,
+    std::optional<llvm::ArrayRef<int64_t>> statsShape,
+    std::optional<TTNNLayoutAttr> statsLayout, uint32_t clusterAxis,
+    llvm::APFloat epsilon, std::optional<uint32_t> subDeviceId,
+    std::optional<uint32_t> numLinks, std::optional<ttcore::Topology> topology,
+    std::optional<DeviceComputeKernelConfigAttr> computeConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+  if (llvm::Error err = detail::requireMultiDeviceMesh(device)) {
+    return std::move(err);
+  }
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  auto replicatedTopology =
+      ::tt::tt_metal::TensorTopology::create_fully_replicated_tensor_topology(
+          device->shape());
+  ::ttnn::graph::DistributedTensorSpec distInput{inputSpecExp.get(),
+                                                 replicatedTopology};
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> residualSpec =
+      detail::convertToOptionalTensorSpec(device, residualShape,
+                                          residualLayout);
+  std::optional<::ttnn::TensorSpec> statsSpec =
+      detail::convertToOptionalTensorSpec(device, statsShape, statsLayout);
+
+  ::ttnn::prim::LayerNormProgramConfig metalProgramConfig;
+  if (programConfig) {
+    auto gridCoord = programConfig->getComputeWithStorageGridSize();
+    metalProgramConfig = ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig{
+        .compute_with_storage_grid_size =
+            ::tt::tt_metal::CoreCoord{static_cast<size_t>(gridCoord.getX()),
+                                      static_cast<size_t>(gridCoord.getY())},
+        .subblock_w = programConfig->getSubblockW(),
+        .block_h = programConfig->getBlockH(),
+        .block_w = programConfig->getBlockW(),
+        .inplace = programConfig->getInplace()};
+  }
+
+  // fused_rms_minimal requires a sharded input layout (carries the
+  // core_range_set used for the global semaphore). Reject gracefully if the
+  // input isn't sharded; the op verifier doesn't currently enforce this.
+  if (!inputLayout.getCoreRangeSet()) {
+    return llvm::createStringError(
+        "DistributedRMSNormOp requires a sharded input layout");
+  }
+  auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+  auto cclTopology =
+      detail::convertTopology(topology).value_or(::ttnn::ccl::Topology::Linear);
+  auto metalSubDeviceId = detail::convertSubDeviceId(subDeviceId);
+  auto metalComputeConfig =
+      conversion::getDeviceComputeKernelConfig(computeConfig);
+  std::optional<size_t> metalNumLinks =
+      numLinks ? std::optional<size_t>(*numLinks) : std::nullopt;
+  auto outputMemCfg = detail::getNullableMemoryConfig(outputLayout);
+  float epsilonF = static_cast<float>(epsilon.convertToDouble());
+
+  // Runtime path uses ScopedGraphCapture(NORMAL) — create_global_semaphore
+  // cannot run inside trace capture (writes L1 via EnqueueWriteMeshBuffer
+  // which is not replayable). Semaphore is allocated for real here.
+  auto semaphore = ::ttnn::global_semaphore::create_global_semaphore(
+      device, coreRangeSet, /*initial_value=*/0);
+
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        [device, semaphore, metalProgramConfig, clusterAxis, cclTopology,
+         metalSubDeviceId, metalComputeConfig, metalNumLinks, outputMemCfg,
+         epsilonF](auto &&input, auto &&weight, auto &&residual, auto &&stats) {
+          return ::ttnn::fused_rms_minimal(
+              input, metalProgramConfig, clusterAxis, *device, semaphore,
+              /*persistent_output_tensor=*/std::optional<::ttnn::Tensor>{},
+              metalNumLinks, cclTopology, metalSubDeviceId,
+              /*dtype=*/std::optional<::ttnn::DataType>{}, metalComputeConfig,
+              outputMemCfg, std::forward<decltype(residual)>(residual),
+              epsilonF, std::forward<decltype(weight)>(weight),
+              std::forward<decltype(stats)>(stats),
+              /*use_noc1_only=*/false);
+        },
+        device, distInput, weightSpec, residualSpec, statsSpec);
+  };
+
+  return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

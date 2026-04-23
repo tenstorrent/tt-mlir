@@ -275,14 +275,23 @@ private:
           continue;
         }
 
+        bool requiresTiledFixup = false;
         llvm::Expected<TTNNLayoutAttr> rmOutputLayout =
-            opStopsRowMajorPropagation(user, use.getOperandNumber());
+            opStopsRowMajorPropagation(user, use.getOperandNumber(),
+                                       requiresTiledFixup);
 
         if (!rmOutputLayout) {
           llvm::consumeError(rmOutputLayout.takeError());
-          // TODO(rpavlovicTT): Remove when
-          // https://github.com/tenstorrent/tt-mlir/pull/8413 is merged.
-          if (user->hasTrait<OpModelExempt>()) {
+          // The op stops RowMajor propagation. If it rejects the RowMajor
+          // operand outright (op-model reports an error — e.g. it needs a Tiled
+          // input, or is a multi-device CCL op whose constraints can't be
+          // queried on this single-device op-model context), reconcile the
+          // already-RM operand by inserting a corrective to_layout back to
+          // Tiled on just this use. If instead the op accepts the RM operand
+          // and merely produces a Tiled result (requiresTiledFixup == false),
+          // leave the operand RowMajor (the integer-input fast path feeding,
+          // e.g., an eltwise op that consumes RowMajor directly).
+          if (requiresTiledFixup) {
             insertTiledFixup(rewriter, use, current);
           }
           continue;
@@ -316,7 +325,11 @@ private:
   // operation is not valid with RowMajor layout on given operand, returns an
   // error. Returns the RowMajor output layout if operation is valid.
   llvm::Expected<TTNNLayoutAttr>
-  opStopsRowMajorPropagation(Operation *op, unsigned operandIdx) {
+  opStopsRowMajorPropagation(Operation *op, unsigned operandIdx,
+                             bool &requiresTiledFixup) {
+    // Default: stopping does not require reconciling the operand back to Tiled.
+    // Only set when the op rejects the RowMajor operand (op-model error).
+    requiresTiledFixup = false;
     if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(op)) {
       TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                    "Stopping RM propagation at ToLayoutOp {}", toLayoutOp);
@@ -355,6 +368,10 @@ private:
     op_constraint_validation::ValidationResult result =
         op_constraint_validation::validateOperation(op, inputLayouts, config);
     if (result.isError()) {
+      // The op cannot accept a RowMajor operand (constraints failed, or could
+      // not be queried). The already-RM operand must be reconciled back to
+      // Tiled before this op — signal the caller to insert the fixup.
+      requiresTiledFixup = true;
       TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                    "Stopping RM propagation at op {} as it fails validation "
                    "with RM layout on operand {},\n\t input layout: {}",

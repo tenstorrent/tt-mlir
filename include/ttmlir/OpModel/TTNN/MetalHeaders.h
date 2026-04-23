@@ -32,10 +32,14 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 }
 } // namespace ttnn::graph::detail
 
+#include "ttnn/global_semaphore.hpp"
 #include "ttnn/graph/graph_query_op_constraints.hpp"
 #include "ttnn/graph/graph_query_op_runtime.hpp"
 #include "ttnn/graph/graph_trace_utils.hpp"
+#include "ttnn/operations/ccl/all_gather/all_gather.hpp"
+#include "ttnn/operations/ccl/all_reduce/all_reduce.hpp"
 #include "ttnn/operations/ccl/mesh_partition/mesh_partition.hpp"
+#include "ttnn/operations/ccl/reduce_scatter/reduce_scatter.hpp"
 #include "ttnn/operations/conv/conv1d/conv1d.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/conv/conv2d/prepare_conv2d_weights.hpp"
@@ -65,6 +69,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
 #include "ttnn/operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
+#include "ttnn/operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "ttnn/operations/experimental/dropout/dropout.hpp"
@@ -80,6 +85,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/matmul/matmul.hpp"
 #include "ttnn/operations/normalization/batch_norm/batch_norm.hpp"
 #include "ttnn/operations/normalization/groupnorm/groupnorm.hpp"
+#include "ttnn/operations/normalization/layernorm/device/layernorm_types.hpp"
 #include "ttnn/operations/normalization/layernorm/layernorm.hpp"
 #include "ttnn/operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
 #include "ttnn/operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
