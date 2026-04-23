@@ -5,7 +5,6 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
-#include "ttmlir/Dialect/Debug/IR/Debug.h"
 #include "ttmlir/Dialect/Debug/IR/DebugOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -2032,28 +2031,14 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Force channel blocking in lowered conv3d config while respecting HAL L1
-    // alignment requirements and conv3d C_out runtime constraints.
-    constexpr int64_t kRequestedChannelBlock = 16;
+    // Smallest c_in_block that satisfies HAL L1 alignment; c_out_block 0
+    // matches TTNN default (no custom output blocking in config).
+    // Try to guarantee a fit in L1 at the cost of perf.
     const int64_t l1Alignment =
         static_cast<int64_t>(
             ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes());
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    const int64_t cInBlock = std::max(kRequestedChannelBlock, l1Alignment);
-    const int64_t requestedCOutBlock =
-        llvm::divideCeil(std::max(kRequestedChannelBlock, l1Alignment),
-                         TILE_WIDTH) *
-        TILE_WIDTH;
-    const int64_t outChannels = outChannelsAttr.getInt();
-    const int64_t paddedOutChannels =
-        llvm::divideCeil(outChannels, TILE_WIDTH) * TILE_WIDTH;
-    const int64_t cOutBlock =
-        (paddedOutChannels % requestedCOutBlock == 0) ? requestedCOutBlock
-                                                      : TILE_WIDTH;
-    llvm::errs() << "[conv3d-lowering] channel blocks: requested="
-                 << kRequestedChannelBlock << ", l1_alignment=" << l1Alignment
-                 << ", c_in_selected=" << cInBlock
-                 << ", c_out_selected=" << cOutBlock << "\n";
+    const int64_t cInBlock = l1Alignment;
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
                                                   /*cInBlock=*/cInBlock);
@@ -2105,7 +2090,7 @@ public:
         /*t_out_block=*/std::nullopt,
         /*w_out_block=*/std::nullopt,
         /*h_out_block=*/std::nullopt,
-        /*c_out_block=*/static_cast<uint32_t>(cOutBlock),
+        /*c_out_block=*/std::optional<uint32_t>(0u),
         /*c_in_block=*/static_cast<uint32_t>(cInBlock),
         /*compute_with_storage_grid_size=*/std::nullopt);
 

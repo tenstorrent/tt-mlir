@@ -114,12 +114,6 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
       conv3dConfig->C_out_block = selectedCOutBlock;
     }
   }
-  LOG_INFO("[conv3d-runtime] channel blocks: c_in requested=", requestedCInBlock,
-           ", c_out requested=", requestedCOutBlock,
-           ", l1_alignment=", l1Alignment, ", tile_width=", kTileWidth,
-           ", selected_c_in=", selectedCInBlock,
-           ", selected_c_out=", selectedCOutBlock,
-           ", has_config=", static_cast<bool>(op->conv3d_config()));
 
   auto deviceComputeConfig = ::ttnn::init_device_compute_kernel_config(
       targetDevice.arch(), computeConfig, ::tt::tt_metal::MathFidelity::HiFi4,
