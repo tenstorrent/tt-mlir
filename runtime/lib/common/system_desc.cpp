@@ -197,6 +197,9 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
+    auto dramGridSizeCoord = device->dram_grid_size();
+    ::tt::target::Dim2d dramGridSize(dramGridSizeCoord.y, dramGridSizeCoord.x);
+
     constexpr std::uint32_t kDstPhysicalSizeTiles = 16;
     constexpr std::uint32_t kNumComputeThreads = 1;
     constexpr std::uint32_t kNumDatamovementThreads = 2;
@@ -208,7 +211,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         ::tt::tt_metal::hal::get_erisc_l1_unreserved_base(), dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
         kDstPhysicalSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
-        kNumDatamovementThreads));
+        kNumDatamovementThreads, &dramGridSize));
     chipDescIndices.push_back(chipDescIndices.size());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =
