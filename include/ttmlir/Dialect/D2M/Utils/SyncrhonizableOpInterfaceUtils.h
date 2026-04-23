@@ -7,7 +7,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
-namespace mlir::tt::d2m {
+namespace mlir::tt::d2m::utils {
 struct CBUsageInfo {
   SmallVector<Operation *> producers;
   SmallVector<Operation *> consumers;
@@ -24,6 +24,6 @@ LogicalResult
 removeSynchronizedRegions(IRRewriter &rewriter,
                           d2m::SynchronizedRegionOp synchronizedOp);
 
-} // namespace mlir::tt::d2m
+} // namespace mlir::tt::d2m::utils
 
 #endif // TTMLIR_DIALECT_D2M_UTILS_SYNCHRONIZABLEOPINTERFACEUTILS_H
