@@ -156,7 +156,12 @@ def _default_post_op(
 
     # --- Per-output validation loop ---
 
-    for i, (mlir_output, output_ref) in enumerate(zip(op_outputs, output_refs, strict=True)):
+    iso_outs = iso_result if iso_result is not None else [None] * len(op_outputs)
+    acc_outs = acc_result if acc_result is not None else [None] * len(op_outputs)
+
+    for mlir_output, output_ref, iso_out, acc_out in zip(
+        op_outputs, output_refs, iso_outs, acc_outs, strict=True
+    ):
         name = mlir_output.get_name(asm_state)
 
         checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
@@ -169,20 +174,15 @@ def _default_post_op(
 
         checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_output, device_tensor)
 
-        if ctx.isolation_check and iso_result is not None:
-            iso_out = iso_result[i]
+        if ctx.isolation_check and iso_out is not None:
             checker.check_shape_dtype(name, "mlir_vs_golden", mlir_output, iso_out)
             if skip_pcc:
                 checker.record(name, "golden_vs_runtime_tensor", "skipped_pcc")
             else:
                 checker.check_golden_vs_runtime_tensor(name, iso_out, device_tensor)
 
-        if acc_result is not None:
-            acc_out = acc_result[i]
-            if skip_accum_pcc:
-                checker.record(name, "accum_golden_vs_runtime_tensor", "skipped_pcc")
-            else:
-                checker.check_golden_vs_runtime_tensor(name, acc_out, device_tensor, accum=True)
+        if acc_out is not None and not skip_accum_pcc:
+            checker.check_golden_vs_runtime_tensor(name, acc_out, device_tensor, accum=True)
 
     if skip_this_op:
         _apply_skip(
