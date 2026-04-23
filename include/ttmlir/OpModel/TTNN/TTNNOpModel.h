@@ -1989,5 +1989,96 @@ struct OpModel<MeshPartitionOp> {
                TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// AllGatherOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<AllGatherOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t allGatherDim, uint32_t clusterAxis,
+      std::optional<uint32_t> subDeviceId, std::optional<uint32_t> numLinks,
+      std::optional<ttcore::Topology> topology, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t allGatherDim, uint32_t clusterAxis,
+               std::optional<uint32_t> subDeviceId,
+               std::optional<uint32_t> numLinks,
+               std::optional<ttcore::Topology> topology,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// ReduceScatterOp
+//===----------------------------------------------------------------------===//
+
+// Note: reduce_type and compute_config from the MLIR op are not forwarded.
+// ttnn::reduce_scatter always performs sum reduction and the C++ API has no
+// reduce_type or compute_kernel_config parameters.
+template <>
+struct OpModel<ReduceScatterOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, int32_t scatterDim, uint32_t clusterAxis,
+      std::optional<uint32_t> subDeviceId, std::optional<uint32_t> numLinks,
+      std::optional<ttcore::Topology> topology, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               int32_t scatterDim, uint32_t clusterAxis,
+               std::optional<uint32_t> subDeviceId,
+               std::optional<uint32_t> numLinks,
+               std::optional<ttcore::Topology> topology,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// AllReduceOp
+//===----------------------------------------------------------------------===//
+// Note: reduce_type is not forwarded — ttnn::all_reduce always performs sum
+// and the C++ API has no reduce_type parameter.
+template <>
+struct OpModel<AllReduceOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, uint32_t clusterAxis,
+                   std::optional<uint32_t> subDeviceId,
+                   std::optional<uint32_t> numLinks,
+                   std::optional<ttcore::Topology> topology,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               uint32_t clusterAxis, std::optional<uint32_t> subDeviceId,
+               std::optional<uint32_t> numLinks,
+               std::optional<ttcore::Topology> topology,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<DistributedRMSNormOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualShape,
+      std::optional<TTNNLayoutAttr> residualLayout,
+      std::optional<llvm::ArrayRef<int64_t>> statsShape,
+      std::optional<TTNNLayoutAttr> statsLayout, uint32_t clusterAxis,
+      llvm::APFloat epsilon, std::optional<uint32_t> numLinks,
+      std::optional<ttcore::Topology> topology,
+      std::optional<DeviceComputeKernelConfigAttr> computeConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

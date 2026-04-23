@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "90c914ef258b5cc92ad172f3604b784ec77253ca")
+set(TT_METAL_VERSION "e13134a1390cc2b7cd4abb01f25c3aedd8452e67")
 
 # Suppress install logs to avoid cluttering the build output
 set(CMAKE_INSTALL_MESSAGE NEVER)
@@ -35,6 +35,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api
+  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/api/tt-metalium
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/include
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/hostdevcommon/api
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/umd
@@ -134,6 +135,10 @@ ExternalProject_Add(
   GIT_REPOSITORY https://github.com/tenstorrent/tt-metal.git
   GIT_TAG ${TT_METAL_VERSION}
   GIT_PROGRESS OFF
+  # Prevents CMake from fetching TT_METAL_VERSION from GitHub during builds.
+  # Required when TT_METAL_VERSION is a local cherry-pick SHA not pushed to
+  # the remote. Remove this flag when bumping to a published SHA.
+  UPDATE_DISCONNECTED TRUE
   BUILD_BYPRODUCTS
     ${TTNN_LIBRARY_PATH}
     ${TTNN_PY_LIBRARY_PATH}

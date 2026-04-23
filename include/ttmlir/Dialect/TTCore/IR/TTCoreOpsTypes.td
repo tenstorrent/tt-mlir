@@ -223,6 +223,7 @@ def TTCore_SystemDescAttr : TTCore_Attr<"SystemDesc", "system_desc"> {
 
   let extraClassDeclaration = [{
     static SystemDescAttr getDefault(MLIRContext *context, Arch arch = Arch::WormholeB0, const llvm::SmallVector<int64_t> &meshShape = {1});
+    static SystemDescAttr getDefault(MLIRContext *context, Arch arch, const llvm::SmallVector<int64_t> &meshShape, const llvm::SmallVector<int64_t> &chipGrid);
     static FailureOr<SystemDescAttr> getFromPath(MLIRContext *context, StringRef path, llvm::function_ref<mlir::InFlightDiagnostic()> diagFn);
     static FailureOr<SystemDescAttr> getFromBuffer(MLIRContext *context, void *systemDesc, llvm::function_ref<mlir::InFlightDiagnostic()> diagFn);
     ChipDescAttr getChipDesc(unsigned chipIndex) const;

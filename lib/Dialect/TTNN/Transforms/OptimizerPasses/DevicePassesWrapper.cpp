@@ -5,6 +5,7 @@
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -55,7 +56,19 @@ public:
     } else {
       op_model::SingletonDeviceContext::setSystemDesc(
           ttcore::getCurrentScopeSystemDesc(getOperation()));
-      op_model::SingletonDeviceContext::getInstance().openMockDevice();
+      // Read mesh shape from the DeviceAttr registered by TTCoreRegisterDevicePass
+      // (which always runs before this wrapper). Multi-chip shapes (rows*cols > 1)
+      // trigger fabric initialization required for CCL op constraint queries.
+      std::optional<std::pair<size_t, size_t>> devMeshShape = std::nullopt;
+      if (auto deviceOp = ttcore::lookupDeviceOp(getOperation())) {
+        auto shape = deviceOp.getDeviceAttr().getMeshShape();
+        if (shape.size() >= 2) {
+          devMeshShape = {static_cast<size_t>(shape[0]),
+                          static_cast<size_t>(shape[1])};
+        }
+      }
+      op_model::SingletonDeviceContext::getInstance().openMockDevice(
+          ::tt::constants::opModelDefaultTraceRegionSize, devMeshShape);
     }
 
     // Set tensorL1UsageCap as a module attribute so it's accessible to nested

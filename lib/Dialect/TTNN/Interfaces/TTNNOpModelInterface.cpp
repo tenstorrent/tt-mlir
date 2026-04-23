@@ -4294,13 +4294,50 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // DistributedRMSNormOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
-// DistributedRMSNormOp is a fused CCL operation that requires multi-device
-// support and is not supported in the op model.
+// Note: sub_device_id and compute_config are intentionally not forwarded —
+// not relevant in the optimizer constraint context.
 
 llvm::Expected<op_model::OpConstraints> DistributedRMSNormOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
+  assert(inputs.size() >= 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  // Unpack optional tensor shapes/layouts from the inputs vector.
+  // Inputs follow operand order: input(0), weight(1?), residual(2?), stats(3?)
+  size_t idx = 1;
+  std::optional<llvm::ArrayRef<int64_t>> weightShape;
+  std::optional<TTNNLayoutAttr> weightLayout;
+  if (getWeight() && inputs.size() > idx) {
+    weightShape = getWeight().getType().getShape();
+    weightLayout = inputs[idx++];
+  }
+  std::optional<llvm::ArrayRef<int64_t>> residualShape;
+  std::optional<TTNNLayoutAttr> residualLayout;
+  if (getResidual() && inputs.size() > idx) {
+    residualShape = getResidual().getType().getShape();
+    residualLayout = inputs[idx++];
+  }
+  std::optional<llvm::ArrayRef<int64_t>> statsShape;
+  std::optional<TTNNLayoutAttr> statsLayout;
+  if (getStats() && inputs.size() > idx) {
+    statsShape = getStats().getType().getShape();
+    statsLayout = inputs[idx++];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<DistributedRMSNormOp>::getOpConstraints, *this,
+      deviceGrid, inputShape, inputs[0], weightShape, weightLayout,
+      residualShape, residualLayout, statsShape, statsLayout, getClusterAxis(),
+      getEpsilon(), getNumLinks(), getTopology(), getComputeConfig(),
+      getProgramConfig(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -5043,39 +5080,78 @@ FullOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // AllGatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
-// AllGatherOp and ReduceScatterOp are not supported, since they have been
-// removed from metal. See
-// https://github.com/tenstorrent/tt-metal/commit/1ccd1c6480
+// Note: sub_device_id is intentionally not forwarded — sub-device routing is
+// not relevant in the optimizer constraint context and ttnn::all_gather
+// defaults it to nullopt.
 llvm::Expected<op_model::OpConstraints>
 AllGatherOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<AllGatherOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getAllGatherDim(), getClusterAxis(),
+      getSubDeviceId(), getNumLinks(), getTopology(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 AllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<AllGatherOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getAllGatherDim(), getClusterAxis(), getSubDeviceId(),
+      getNumLinks(), getTopology(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
 // ReduceScatterOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
-
+// Note: reduce_type is always SUM in ttnn::reduce_scatter (no API parameter).
+// compute_config is intentionally not forwarded.
 llvm::Expected<op_model::OpConstraints>
 ReduceScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                   const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ReduceScatterOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getScatterDim(), getClusterAxis(), getSubDeviceId(),
+      getNumLinks(), getTopology(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 ReduceScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ReduceScatterOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getScatterDim(), getClusterAxis(), getSubDeviceId(),
+      getNumLinks(), getTopology(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -5136,19 +5212,40 @@ PointToPointOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 //===----------------------------------------------------------------------===//
 // AllReduceOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
+// Note: reduce_type is not forwarded — ttnn::all_reduce always performs sum.
+// sub_device_id is intentionally not forwarded.
 
 llvm::Expected<op_model::OpConstraints>
 AllReduceOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<AllReduceOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], getClusterAxis(), getSubDeviceId(), getNumLinks(),
+      getTopology(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 AllReduceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<AllReduceOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getClusterAxis(), getSubDeviceId(), getNumLinks(),
+      getTopology(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

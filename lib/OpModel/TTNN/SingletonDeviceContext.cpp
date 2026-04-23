@@ -6,6 +6,7 @@
 
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
+#include "impl/context/metal_context.hpp"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
@@ -41,6 +42,9 @@ void SingletonDeviceContext::closeInstance() {
   assert(instance.m_device != nullptr && "No device to close");
   bool wasExternalDevice = instance.m_isExternalDevice;
   bool wasMockDevice = instance.m_isMockDevice;
+  if (!wasExternalDevice) {
+    disableFabric();
+  }
   instance.m_device.reset();
   instance.m_isMockDevice = false;
   if (!wasExternalDevice && wasMockDevice) {
@@ -112,12 +116,27 @@ void SingletonDeviceContext::openDevice(
   ::tt::tt_metal::distributed::MeshShape shape{
       meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
       meshShape ? static_cast<unsigned int>(meshShape->second) : 1};
+
+  // For real multi-chip devices, set fabric config before MeshDevice::create()
+  // so device_manager initializes routing tables with the correct config.
+  if (!isMock && shape.mesh_size() > 1) {
+    ::tt::tt_fabric::SetFabricConfig(::tt::tt_fabric::FabricConfig::FABRIC_1D,
+                                     ::tt::tt_fabric::FabricReliabilityMode::
+                                         STRICT_SYSTEM_HEALTH_SETUP_MODE);
+  }
+
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
       ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
+
+  // For mock multi-chip devices, device_manager skips fabric init, so do it
+  // manually after device creation.
+  if (isMock && shape.mesh_size() > 1) {
+    initializeFabricForMockDevice();
+  }
 }
 
 void SingletonDeviceContext::reshapeMeshDevice(
@@ -125,6 +144,7 @@ void SingletonDeviceContext::reshapeMeshDevice(
   assert(m_device != nullptr && "Device must be initialized to reshape");
   assert(m_isMockDevice && "Can only reshape mock devices");
 
+  disableFabric();
   m_device.reset();
 
   size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
@@ -142,6 +162,29 @@ void SingletonDeviceContext::reshapeMeshDevice(
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
   m_device->disable_and_clear_program_cache();
+
+  if (shape.mesh_size() > 1) {
+    initializeFabricForMockDevice();
+  }
+}
+
+llvm::SmallVector<int64_t>
+SingletonDeviceContext::getComputeGridShape() const {
+  assert(m_device != nullptr && "Device is not initialized.");
+  auto grid = m_device->compute_with_storage_grid_size();
+  // CoreCoord holds {x=cols, y=rows}; return as {rows, cols} to match GridAttr
+  return {static_cast<int64_t>(grid.y), static_cast<int64_t>(grid.x)};
+}
+
+void SingletonDeviceContext::initializeFabricForMockDevice() {
+  ::tt::tt_fabric::SetFabricConfig(
+      ::tt::tt_fabric::FabricConfig::FABRIC_1D,
+      ::tt::tt_fabric::FabricReliabilityMode::RELAXED_SYSTEM_HEALTH_SETUP_MODE);
+  ::tt::tt_metal::MetalContext::instance().initialize_fabric_config();
+}
+
+void SingletonDeviceContext::disableFabric() {
+  ::tt::tt_fabric::SetFabricConfig(::tt::tt_fabric::FabricConfig::DISABLED);
 }
 
 } // namespace mlir::tt::ttnn::op_model
