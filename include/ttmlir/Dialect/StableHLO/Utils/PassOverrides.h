@@ -17,6 +17,9 @@ struct OptionNames {
       "automatic-arg-analysis";
   static constexpr llvm::StringRef enableAggressiveSimplification =
       "enable-aggressive-simplification";
+  static constexpr llvm::StringRef enableAutoSharding = "enable-auto-sharding";
+  static constexpr llvm::StringRef dumpVariants = "dump-variants";
+  static constexpr llvm::StringRef dumpDir = "dump-dir";
 };
 
 #endif // TTMLIR_ENABLE_STABLEHLO

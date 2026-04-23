@@ -24,4 +24,9 @@ def TTMetal_GlobalSemaphore : TTMetal_Type<"GlobalSemaphore", "global_semaphore"
   let description = "Global semaphore type in TTMetal dialect";
 }
 
+def TTMetal_LocalSemaphore : TTMetal_Type<"LocalSemaphore", "local_semaphore"> {
+  let summary = "TTMetal local semaphore";
+  let description = "Local semaphore type in TTMetal dialect";
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTMETAL_TTMETALOPSTYPES_TD

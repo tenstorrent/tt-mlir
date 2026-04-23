@@ -204,6 +204,8 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"rsqrt_tile_init",                                {"api/compute/eltwise_unary/rsqrt.h", ""}},
         {"selu_tile",                                      {"api/compute/eltwise_unary/selu.h", ""}},
         {"selu_tile_init",                                 {"api/compute/eltwise_unary/selu.h", ""}},
+        {"sfpu_reduce",                                    {"api/compute/compute_kernel_api.h", ""}},
+        {"sfpu_reduce_init",                               {"api/compute/compute_kernel_api.h", ""}},
         {"sigmoid_tile",                                   {"api/compute/compute_kernel_api.h", ""}},
         {"sigmoid_tile_init",                              {"api/compute/compute_kernel_api.h", ""}},
         {"sign_tile",                                      {"api/compute/compute_kernel_api.h", ""}},
