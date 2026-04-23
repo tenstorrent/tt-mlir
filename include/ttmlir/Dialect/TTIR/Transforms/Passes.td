@@ -525,17 +525,30 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
 def TTIRStripIntermediateTTNNLayouts : Pass<"ttir-strip-intermediate-ttnn-layouts", "::mlir::ModuleOp"> {
   let summary = "Strip TTNN layouts from intermediate tensors.";
   let description = [{
-    This pass removes TTNN layouts from tensors which are intermediates ops. In the TTIRToTTMetal pipeline, optimal
-    layouts are inferred and applied to all intermediates. If layouts already exist prior to this, the effect will be a reshard:
+    This pass removes TTNN layouts from tensors which are 'intermediate' ops. In the TTIRToTTMetal pipeline, optimal
+    layouts are inferred and applied to all intermediates. If layouts already exist prior to this, the effect will be a reshard from the original layout to the optimal layout and back which is not wanted.
+    This pass runs before TTIRToTTMetal pipeline and after TTNNToTTIR pass to ensure there are no existing layouts on intermediates.
 
-      original layout -> optimal layout -> original layout
-
-    This pass runs before TTIRToTTMetal pipeline and after
-    TTNNToTTIR pass to ensure there are no existing layouts on intermediates.
+    Layouts are preserved on:
+      - function arguments and returned values
+      - results of `ttir.to_layout` ops and its init (ttir.empty op)
+    Every other TTIR result with a `ttnn_layout` encoding is stripped.
 
     Example:
-
-    TODO: Add example
+    Before:
+      func.func @f(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
+        %0 = "ttir.abs"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+        %1 = ttir.empty() : tensor<32x32xbf16, #ttnn_layout>
+        %2 = ttir.to_layout %0, %1 : tensor<32x32xbf16, #ttnn_layout> into tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+        return %2 : tensor<32x32xbf16, #ttnn_layout>
+      }
+    After:
+      func.func @f(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
+        %0 = "ttir.abs"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16> // no ttnn_layout encoding
+        %1 = ttir.empty() : tensor<32x32xbf16, #ttnn_layout>
+        %2 = ttir.to_layout %0, %1 : tensor<32x32xbf16> into tensor<32x32xbf16, #ttnn_layout> -> tensor<32x32xbf16, #ttnn_layout>
+        return %2 : tensor<32x32xbf16, #ttnn_layout>
+      }
   }];
 }
 
