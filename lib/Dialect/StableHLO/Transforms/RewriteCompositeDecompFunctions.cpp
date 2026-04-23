@@ -24,8 +24,7 @@ namespace {
 // Signature of a per-composite rewriter. Receives:
 //   - the decomposition func::FuncOp whose body it must rewrite, and
 //   - the `composite_attributes` DictionaryAttr from the composite op that
-//     referenced this decomposition (never null; an empty dictionary is
-//     passed if the composite had no `composite_attributes`).
+//     referenced this decomposition
 // Must preserve the function's name, input types (entry-block arg types),
 // and result types.
 using DecompRewriter = void (*)(mlir::func::FuncOp, mlir::DictionaryAttr);
@@ -37,6 +36,7 @@ using DecompRewriter = void (*)(mlir::func::FuncOp, mlir::DictionaryAttr);
 // ---------------------------------------------------------------------------
 
 // Rewriter for stablehlo.composite "tenstorrent.gather_dim".
+//
 static void
 rewriteTenstorrentGatherDecomp(mlir::func::FuncOp func,
                                mlir::DictionaryAttr compositeAttrs) {
@@ -59,10 +59,7 @@ rewriteTenstorrentGatherDecomp(mlir::func::FuncOp func,
   llvm::SmallVector<mlir::Value> returnValues;
   returnValues.reserve(resultTypes.size());
 
-  // torch.gather semantics: result[i0,...,i_{dim-1}, k, i_{dim+1},..., i_{N-1}]
-  // = input[i0,..., i_{dim-1}, index[i0,...,k,...,i_{N-1}], i_{dim+1},...].
-  // Implemented as a stablehlo.gather where all non-`dim` axes are batching
-  // dims on both operand and (reshaped) start_indices.
+  // Collect inputs from the decomp function and composite_attributes
   mlir::Value input = args[0];
   mlir::Value index = args[1];
   auto inputTy = mlir::cast<mlir::RankedTensorType>(input.getType());
@@ -140,8 +137,8 @@ rewriteTenstorrentGatherDecomp(mlir::func::FuncOp func,
 }
 
 // ---------------------------------------------------------------------------
-// Registry: composite op name -> rewriter for its decomposition function.
-// To handle a new composite, write a rewriter above and add an entry here.
+// Registry: maps the composite op name to the rewriter for its decomposition
+// function.
 // ---------------------------------------------------------------------------
 static const llvm::StringMap<DecompRewriter> &getCompositeRewriters() {
   static const llvm::StringMap<DecompRewriter> map = [] {
