@@ -59,14 +59,15 @@ module {
     return %0 : tensor<1x96xf32>
   }
 
-  // Back-to-back ops: verify that redundant to_layout ops between generics
-  // are folded away by canonicalization (undef OOB-only differences are no-ops).
+  // Back-to-back ops: reduction identities now preserve the needed OOB-aware
+  // to_layouts between generics instead of folding them away.
 
   // CHECK-LABEL: func @add_then_sum
-  // Eltwise → reduction: add result feeds directly into sum (no undef→zero
-  // to_layout between them).
+  // Eltwise → reduction: the reduction input now keeps the explicit
+  // undef->identity fill transition.
   // CHECK: %[[ADD_RES:.+]] = d2m.generic
-  // CHECK: ins(%[[ADD_RES]],
+  // CHECK: %[[REDUCE_IN:.+]] = d2m.to_layout %[[ADD_RES]]
+  // CHECK: ins(%[[REDUCE_IN]],
   // CHECK: d2m.tile_reduce_sum
   func.func @add_then_sum(%a: tensor<128x96xf32>, %b: tensor<128x96xf32>) -> tensor<1x96xf32> {
     %add = "ttir.add"(%a, %b) : (tensor<128x96xf32>, tensor<128x96xf32>) -> tensor<128x96xf32>
@@ -75,14 +76,14 @@ module {
   }
 
   // CHECK-LABEL: func @sum_then_add
-  // Reduction → eltwise: sum result feeds directly into add (no undef→undef
-  // to_layout between them). Scaler fill closes before the sum generic (%5).
+  // Reduction → eltwise: the reduction result still feeds directly into the
+  // add, while the scalar/input side is materialized separately.
   // CHECK: d2m.tile_fill
   // CHECK: } : tensor<1x1x1x1x!ttcore.tile<32x32, f32>,{{.*}}
   // CHECK: %[[SUM_RES:[0-9]+]] = d2m.generic
-  // CHECK-NEXT: ins({{.*}}, %1 :
   // CHECK: d2m.tile_reduce_sum
-  // CHECK: ins(%[[SUM_RES]],
+  // CHECK: %[[ADD_RHS:[0-9]+]] = d2m.to_layout %arg1, %{{.*}}
+  // CHECK: ins(%[[SUM_RES]], %[[ADD_RHS]]
   // CHECK: d2m.tile_add
   func.func @sum_then_add(%arg: tensor<128x96xf32>, %b: tensor<1x96xf32>) -> tensor<1x96xf32> {
     %sum = "ttir.sum"(%arg) <{dim_arg = [-2: i32], keep_dim = true}> : (tensor<128x96xf32>) -> tensor<1x96xf32>

@@ -2,11 +2,50 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Transforms/LowerToLayoutPlan.h"
+#include "ttmlir/Dialect/D2M/Transforms/LowerToLayout/Plan.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
+#include "mlir/IR/MLIRContext.h"
 #include "gtest/gtest.h"
 
 namespace mlir::tt::d2m {
+
+namespace {
+
+DenseIntElementsAttr makeCollapsedIntervals(MLIRContext &context,
+                                            ArrayRef<int64_t> flattenedValues) {
+  assert(flattenedValues.size() % 2 == 0);
+  auto intervalType = RankedTensorType::get(
+      {static_cast<int64_t>(flattenedValues.size() / 2), 2},
+      IntegerType::get(&context, 64));
+  return DenseIntElementsAttr::get(intervalType, flattenedValues);
+}
+
+RankedTensorType
+makeTensorType(MLIRContext &context, ArrayRef<int64_t> logicalShape,
+               ArrayRef<int64_t> dimAlignments,
+               DenseIntElementsAttr collapsedIntervals,
+               ArrayRef<int64_t> gridShape, ttcore::OOBVal oobVal,
+               ttcore::MemorySpace memorySpace,
+               ttcore::TensorMemoryLayout memoryLayout, Type elementType) {
+  auto layout = ttcore::MetalLayoutAttr::get(&context, logicalShape,
+                                             dimAlignments, collapsedIntervals,
+                                             oobVal, memorySpace, memoryLayout);
+  ArrayRef<int64_t> tileShape;
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    tileShape = tileType.getShape();
+  }
+  return RankedTensorType::get(layout.getDeviceShape(gridShape, tileShape),
+                               elementType, layout);
+}
+
+struct CanonicalizeTest : public ::testing::Test {
+  MLIRContext context;
+
+  CanonicalizeTest() { context.loadDialect<ttcore::TTCoreDialect>(); }
+};
+
+} // namespace
 
 // Sanity tests for the Plan scaffolding.
 
@@ -227,6 +266,123 @@ TEST(MinimizerFixpointTest, CancelEnablesFusion) {
   ASSERT_TRUE(std::holds_alternative<ReshardStep>(result[0]));
   EXPECT_EQ(std::get<ReshardStep>(result[0]).gridShape,
             (llvm::SmallVector<int64_t>{4, 4}));
+}
+
+TEST_F(CanonicalizeTest, DetectsCollapsedIntervalOnlyMappingChange) {
+  auto collapsedA = makeCollapsedIntervals(context, {0, 2, 2, 4});
+  auto collapsedB = makeCollapsedIntervals(context, {0, 1, 1, 4});
+  Type elemType = Float32Type::get(&context);
+
+  RankedTensorType srcType = makeTensorType(
+      context, {1, 40, 32, 128}, {1, 1, 32, 32}, collapsedA, {1, 1},
+      ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+      ttcore::TensorMemoryLayout::Sharded, elemType);
+  RankedTensorType tgtType = makeTensorType(
+      context, {1, 40, 32, 128}, {1, 1, 32, 32}, collapsedB, {1, 1},
+      ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+      ttcore::TensorMemoryLayout::Sharded, elemType);
+
+  Plan plan =
+      canonicalize(PlanState{srcType}, PlanState{tgtType}, {8, 8}, &context);
+  ASSERT_EQ(plan.size(), 1u);
+  ASSERT_TRUE(std::holds_alternative<ReshardStep>(plan[0]));
+  EXPECT_EQ(std::get<ReshardStep>(plan[0]).collapsedIntervals, collapsedB);
+}
+
+TEST_F(CanonicalizeTest, HostToDeviceVirtualBounceUsesGridAwareAlignments) {
+  auto collapsed = ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+      &context, /*rank=*/2);
+  Type tiledElemType = ttcore::TileType::get(Float32Type::get(&context));
+  RankedTensorType systemType =
+      RankedTensorType::get({32, 5120}, tiledElemType);
+  RankedTensorType targetType =
+      makeTensorType(context, {32, 5120}, {32, 256}, collapsed, {1, 16},
+                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, tiledElemType);
+
+  Plan plan = canonicalize(PlanState{systemType}, PlanState{targetType}, {8, 8},
+                           &context);
+  ASSERT_FALSE(plan.empty());
+  auto *step = std::get_if<HostToBounceBufferStep>(&plan.front());
+  ASSERT_NE(step, nullptr);
+
+  auto bouncedLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(step->output.type.getEncoding());
+  auto expectedAlignments =
+      ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+          bouncedLayout.getLogicalShape(), {8, 8},
+          ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
+              collapsed, bouncedLayout.getLogicalShape().size()));
+
+  EXPECT_EQ(bouncedLayout.getMemorySpace(), ttcore::MemorySpace::DeviceDRAM);
+  EXPECT_EQ(bouncedLayout.getMemoryLayout(),
+            ttcore::TensorMemoryLayout::Interleaved);
+  EXPECT_EQ(bouncedLayout.getDimAlignments(),
+            ArrayRef<int64_t>(expectedAlignments));
+  EXPECT_FALSE(static_cast<bool>(step->output.vgmForward));
+  EXPECT_FALSE(static_cast<bool>(step->output.vgmInverse));
+}
+
+TEST_F(CanonicalizeTest, OobOnlyChangeProducesReinterpretThenMask) {
+  auto collapsed = ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+      &context, /*rank=*/2);
+  Type elemType = ttcore::TileType::get(Float32Type::get(&context));
+  RankedTensorType srcType =
+      makeTensorType(context, {32, 33}, {32, 32}, collapsed, {1, 1},
+                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
+  RankedTensorType tgtType =
+      makeTensorType(context, {32, 33}, {32, 32}, collapsed, {1, 1},
+                     ttcore::OOBVal::Zero, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
+
+  Plan plan =
+      canonicalize(PlanState{srcType}, PlanState{tgtType}, {8, 8}, &context);
+  ASSERT_EQ(plan.size(), 2u);
+  ASSERT_TRUE(std::holds_alternative<ReinterpretLayoutStep>(plan[0]));
+  ASSERT_TRUE(std::holds_alternative<MaskStep>(plan[1]));
+  EXPECT_EQ(std::get<MaskStep>(plan[1]).oobVal, ttcore::OOBVal::Zero);
+}
+
+TEST_F(CanonicalizeTest, RemapOnlyChangeProducesExplicitRemapStep) {
+  auto collapsed = ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+      &context, /*rank=*/2);
+  Type elemType = Float32Type::get(&context);
+  RankedTensorType type =
+      makeTensorType(context, {64, 64}, {32, 32}, collapsed, {2, 2},
+                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
+
+  AffineExpr d0 = getAffineDimExpr(0, &context);
+  AffineExpr d1 = getAffineDimExpr(1, &context);
+  AffineMap remap = AffineMap::get(2, 0, {d1, d0}, &context);
+
+  Plan plan =
+      canonicalize(PlanState{type}, PlanState{type, remap}, {8, 8}, &context);
+  ASSERT_EQ(plan.size(), 1u);
+  ASSERT_TRUE(std::holds_alternative<RemapStep>(plan[0]));
+  EXPECT_EQ(std::get<RemapStep>(plan[0]).remapping, remap);
+}
+
+TEST_F(CanonicalizeTest, VgmOnlyChangeProducesRebufferStep) {
+  auto collapsed = ttcore::MetalLayoutAttr::computeDefaultCollapsedIntervals(
+      &context, /*rank=*/2);
+  Type elemType = Float32Type::get(&context);
+  RankedTensorType type =
+      makeTensorType(context, {64, 64}, {32, 32}, collapsed, {2, 2},
+                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, elemType);
+
+  AffineExpr d0 = getAffineDimExpr(0, &context);
+  AffineExpr d1 = getAffineDimExpr(1, &context);
+  AffineMap vgm = AffineMap::get(2, 0, {d0, d1}, &context);
+
+  Plan plan = canonicalize(PlanState{type}, PlanState{type, {}, vgm, vgm},
+                           {8, 8}, &context);
+  ASSERT_EQ(plan.size(), 1u);
+  ASSERT_TRUE(std::holds_alternative<RebufferStep>(plan[0]));
+  EXPECT_EQ(std::get<RebufferStep>(plan[0]).output.vgmForward, vgm);
+  EXPECT_EQ(std::get<RebufferStep>(plan[0]).output.vgmInverse, vgm);
 }
 
 } // namespace mlir::tt::d2m
