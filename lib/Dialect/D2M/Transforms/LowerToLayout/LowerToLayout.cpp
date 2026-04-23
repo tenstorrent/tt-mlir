@@ -453,25 +453,6 @@ public:
         .getResult(0);
   }
 
-  ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
-                              Value input, RankedTensorType desiredType) const {
-    auto layout =
-        mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
-    auto output = rewriter.create<d2m::EmptyOp>(
-        loc, desiredType.getShape(), desiredType.getElementType(), layout);
-    return rewriter.create<d2m::ToLayoutOp>(loc, input, output);
-  }
-
-  Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
-               RankedTensorType bounceType) const {
-    auto bounced =
-        createToLayoutOp(rewriter, op.getLoc(), op.getInput(), bounceType);
-    return rewriter
-        .replaceOpWithNewOp<d2m::ToLayoutOp>(op, bounced->getResult(0),
-                                             op.getOutput())
-        ->getResult(0);
-  }
-
   static bool matchesOutputSpec(Value value, const OutputBufferSpec &spec) {
     if (!value || value.getType() != spec.type) {
       return false;
