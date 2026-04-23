@@ -161,18 +161,17 @@ jobs:
             fi
           }
 
-          run_sim_test "test/python/golden/ttir_ops/data_movement/test_data_movement.py" "ttmetal" "test_reports/ttsim_test_data_movement_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py" "ttmetal" "test_reports/ttsim_ttir_binary_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_ternary.py" "ttmetal" "test_reports/ttsim_ttir_ternary_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py" "ttmetal" "test_reports/ttsim_ttir_unary_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/normalization/test_normalization.py" "ttmetal" "test_reports/ttsim_normalization_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_bfp8_typecast.py" "ttmetal" "test_reports/ttsim_metal_bfp8_typecast_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_composite_ops.py" "ttmetal" "test_reports/ttsim_metal_composite_ops_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_tilize.py" "ttmetal" "test_reports/ttsim_metal_tilize_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_tms.py" "ttmetal" "test_reports/ttsim_metal_tms_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_ttir_eltwise_fusion.py" "ttmetal" "test_reports/ttsim_ttir_eltwise_fusion_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_ttir_models.py" "ttmetal" "test_reports/ttsim_ttir_models_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_ttir_ops.py" "ttmetal" "test_reports/ttsim_ttir_ops_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_binary.py" "ttmetal" "test_reports/ttsim_binary_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_ternary.py" "ttmetal" "test_reports/ttsim_ternary_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_unary.py" "ttmetal" "test_reports/ttsim_unary_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_unaligned.py" "ttmetal" "test_reports/ttsim_unaligned_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_normalization.py" "ttmetal" "test_reports/ttsim_normalization_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_ttir_ops.py" "ttmetal" "test_reports/ttsim_ttir_ops_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_bfp8_typecast.py" "ttmetal" "test_reports/ttsim_bfp8_typecast_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_composite_ops.py" "ttmetal" "test_reports/ttsim_composite_ops_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_tilize.py" "ttmetal" "test_reports/ttsim_tilize_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_tms.py" "ttmetal" "test_reports/ttsim_tms_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/d2m/test_eltwise_fusion.py" "ttmetal" "test_reports/ttsim_eltwise_fusion_${{ matrix.arch }}.xml"
 
       - name: Upload TTSim test report xml
         if: success() || failure()

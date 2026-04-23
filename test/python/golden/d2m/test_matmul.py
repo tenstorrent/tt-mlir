@@ -316,3 +316,138 @@ def test_matmul_1d_shapes(
         save_artifacts=True,
         skip_exec=getattr(request.node, "skip_exec", False),
     )
+
+
+# ---------------------------------------------------------------------------
+# Higher-rank matmul tests (3D / 4D batched matmul). These validate that the
+# fix for issue #6648 correctly handles batch dimensions without collapsing
+# them to 2D.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape",
+    [
+        # 3D batched matmul: [B, M, K] x [B, K, N] -> [B, M, N]
+        ((2, 128, 96), (2, 96, 64)),
+        ((4, 64, 128), (4, 128, 64)),
+        ((8, 128, 96), (8, 96, 64)),
+    ],
+    ids=["batch2_128x96x64", "batch4_64x128x64", "batch8_128x96x64"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_3d_batched(
+    lhs_shape: tuple[int, ...],
+    rhs_shape: tuple[int, ...],
+    target: str,
+    request,
+    device,
+):
+    options = [
+        "num-stream-buffers=1",
+    ]
+
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs_shape, rhs_shape),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape",
+    [
+        # 4D batched matmul: [B0, B1, M, K] x [B0, B1, K, N] -> [B0, B1, M, N]
+        ((32, 8, 32, 128), (32, 8, 128, 128)),
+        ((2, 4, 64, 96), (2, 4, 96, 64)),
+        ((4, 2, 128, 64), (4, 2, 64, 128)),
+    ],
+    ids=["batch32x8_32x128x128", "batch2x4_64x96x64", "batch4x2_128x64x128"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_4d_batched(
+    lhs_shape: tuple[int, ...],
+    rhs_shape: tuple[int, ...],
+    target: str,
+    request,
+    device,
+):
+    options = [
+        "num-stream-buffers=1",
+    ]
+
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs_shape, rhs_shape),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape",
+    [
+        # Small tile sizes for single core
+        ((2, 32, 64), (2, 64, 32)),
+        ((4, 64, 64), (4, 64, 64)),
+    ],
+    ids=["batch2_small", "batch4_small"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_3d_single_core(
+    lhs_shape: tuple[int, ...],
+    rhs_shape: tuple[int, ...],
+    target: str,
+    request,
+    device,
+):
+    options = [
+        "override-device-shape=1,1",
+        "num-stream-buffers=1",
+    ]
+
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs_shape, rhs_shape),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape",
+    [
+        ((4, 256, 256), (4, 256, 256)),
+        ((8, 128, 256), (8, 256, 128)),
+    ],
+    ids=["batch4_256x256x256", "batch8_128x256x128"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_3d_multi_core(
+    lhs_shape: tuple[int, ...],
+    rhs_shape: tuple[int, ...],
+    target: str,
+    request,
+    device,
+):
+    options = [
+        "num-stream-buffers=1",
+    ]
+
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs_shape, rhs_shape),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )

@@ -98,7 +98,7 @@ def test_max_pool2d(
         ([3, 3], [2, 2], [2, 2], [1, 1, 1, 1], True),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_max_pool2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -210,7 +210,7 @@ def test_avg_pool2d(
         ([8, 8], [1, 1], [1, 1], [7, 7, 7, 7], False, True),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_avg_pool2d(
     shape: Shape,
     dtype: torch.dtype,

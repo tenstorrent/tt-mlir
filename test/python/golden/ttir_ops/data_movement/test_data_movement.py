@@ -80,9 +80,7 @@ pytestmark = pytest.mark.frontend("ttir")
         ([(512, 512), (512, 512)], 0),
     ],
 )
-@pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
-)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
         # Generate dtypes list dynamically based on number of shapes
@@ -121,7 +119,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_cpu_hoistable_concat_op(
     shapes: List[Shape],
@@ -199,7 +197,7 @@ def test_pad(
 @pytest.mark.parametrize("value", [0])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_cpu_hoistable_pad_op(
     shape: Shape,
@@ -399,7 +397,7 @@ def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
 @pytest.mark.parametrize("shapes", [[(128, 128), (16384,)]], ids=shapes_list_str)
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_cpu_hoistable_reshape_op(
     shapes: List[Shape],
@@ -450,17 +448,7 @@ def test_cpu_hoistable_reshape_op(
         ((192, 64), [2, 0], [192, 64], [3, 1]),
         ((64, 192), [0, 2], [64, 192], [1, 3]),
         # Sample large 2D tensors
-        pytest.param(
-            (32, 131072),
-            [0, 3],
-            [32, 128 * 991],
-            [2, 991],
-            marks=pytest.mark.skip_config(
-                ["ttmetal", "p150"],
-                ["ttmetal", "p300"],
-                reason="L1 memory usage exceeds capacity #7559",
-            ),
-        ),
+        ((32, 131072), [0, 3], [32, 128 * 991], [2, 991]),
         ((131072, 32), [5, 1], [128 * 997, 32], [997, 2]),
         ((1024, 1024), [3, 2], [64 * 11, 64 * 13], [11, 13]),
         # Simple 3D
@@ -492,9 +480,7 @@ def test_cpu_hoistable_reshape_op(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-@pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
-)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_slice(
     shape: Shape,
     begins: List[int],
@@ -572,9 +558,7 @@ def test_sort(
 # Transpose tests
 @pytest.mark.parametrize("shape", [(64, 32)], ids=shape_str)
 @pytest.mark.parametrize("transpose_dims", [(0, 1)])
-@pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
-)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_transpose(
     shape: Shape, transpose_dims: List[int], target: str, request, device
 ):
@@ -603,7 +587,7 @@ def test_transpose(
 @pytest.mark.parametrize("transpose_dims", [(0, 1)])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_cpu_hoistable_transpose_op(
     shape: Shape,
@@ -649,9 +633,7 @@ def test_cpu_hoistable_transpose_op(
     ],
     ids=["i32-f32", "f32-i32", "bf16-f32", "f32-bf16"],
 )
-@pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
-)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_typecast(
     shape: Shape,
     from_type: torch.dtype,
@@ -660,9 +642,6 @@ def test_typecast(
     request,
     device,
 ):
-    if from_type == torch.float32 and to_type == torch.int32 and target == "ttmetal":
-        pytest.xfail("ttmetal does not support float32 to int32 typecast")
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [from_type])
         def typecast(

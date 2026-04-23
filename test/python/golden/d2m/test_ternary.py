@@ -1,26 +1,26 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+#
+# ttmetal-only mirrors of multi-backend tests in
+# `ttir_ops/eltwise/test_ttir_ternary.py`.
 
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
+
 from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import (
-    compile_and_execute_ttir,
-)
-from test_utils import (
-    Marks,
-    SkipIf,
-    shape_str,
-    shapes_list_str,
-)
-from ttmlir.dialects import ttir
+from builder.base.builder_apis import compile_and_execute_ttir
+from test_utils import shape_str, shapes_list_str, SkipIf
 
 pytestmark = pytest.mark.frontend("ttir")
 
+
+# NOTE: test_ternary_ops below covers int32/int64 dtypes (with the int64
+# golden-truncation logic baked into module_clamp_tensor), so the int64-only
+# variants previously living here have been folded into the full mirror.
 
 # Ternary ops
 def module_where(dtype: torch.dtype):
@@ -33,7 +33,6 @@ def module_where(dtype: torch.dtype):
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            # in0 is the condition tensor, should be filled with 0s or 1s
             condition_tensor = torch.randint(0, 2, (128, 128), dtype=dtype)
             builder.set_goldens(inputs={in0: condition_tensor})
             return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
@@ -53,6 +52,19 @@ def module_clamp_tensor(dtype: torch.dtype):
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            # int64 on ttmetal is normalized to int32; use int32-range values
+            # so truncation is a no-op and golden matches device output.
+            if dtype == torch.int64:
+                in0_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                in1_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                in2_golden = torch.randint(
+                    -(2**31), 2**31, shape, dtype=torch.int64
+                )
+                builder.set_goldens({in0: in0_golden, in1: in1_golden, in2: in2_golden})
             return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     return _module_clamp_tensor
@@ -76,20 +88,17 @@ ternary_ops = [
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    if dtype == torch.int64:
-        pytest.xfail("int64 not guaranteed to work on this backend")
-    pipeline_options = []
     compile_and_execute_ttir(
         test_fn(dtype),
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=pipeline_options,
+        pipeline_options=[],
     )
 
 
@@ -125,7 +134,7 @@ def test_ternary_ops(
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_ternary_eltwise_ops_implicit_broadcast(
     shapes: List[Shape],
     input_dtypes: Tuple[torch.dtype, torch.dtype, torch.dtype],
@@ -133,6 +142,16 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     request,
     device,
 ):
+    is_non_2d = any(len(shape) != 2 for shape in shapes)
+    if is_non_2d:
+        pytest.xfail(
+            "non-2D shapes bcast not yet supported on ttmetal backend, issue here: https://github.com/tenstorrent/tt-mlir/issues/3023"
+        )
+    if input_dtypes[0] != input_dtypes[1]:
+        pytest.xfail(
+            "different input dtypes not yet supported on ttmetal backend, issue here: https://github.com/tenstorrent/tt-mlir/issues/6289"
+        )
+
     dtype1, dtype2, dtype3 = input_dtypes
 
     def module_implicit_broadcast(builder: TTIRBuilder):
@@ -156,84 +175,6 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     )
 
 
-# Test where op with NaN/Inf in false_value to exercise the legacy fallback
-# path bug where pred*true + (1-pred)*false produces wrong results because
-# 0 * Inf = NaN.  See: https://github.com/tenstorrent/tt-metal/issues/39181
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # 2D: broadcast true_value col-dim
-        [(32, 64), (32, 1), (32, 64)],
-        # 2D: broadcast false_value col-dim
-        [(128, 128), (128, 128), (128, 1)],
-        # 3D: broadcast condition on all dims
-        [(1, 1, 1), (8, 16, 32), (8, 16, 32)],
-        # 3D: broadcast true_value and false_value (different dims)
-        [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
-        # 3D: GPT-2 attention mask pattern — scalar false_value
-        [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
-        # 4D: broadcast false_value on all dims
-        [(1, 1, 1, 4), (1, 1, 1, 4), (1, 1, 1, 1)],
-    ],
-    ids=shapes_list_str,
-)
-@pytest.mark.parametrize(
-    "dtype",
-    [torch.float32, torch.bfloat16],
-    ids=["f32", "bf16"],
-)
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
-@pytest.mark.parametrize(
-    "special_value",
-    [float("nan"), float("inf"), float("-inf")],
-    ids=["nan", "inf", "neg_inf"],
-)
-def test_where_nan_inf_implicit_broadcast(
-    shapes: List[Shape],
-    dtype: torch.dtype,
-    target: str,
-    special_value: float,
-    request,
-    device,
-):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype] * 3)
-        def where(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            # All-ones condition so golden is entirely true_value (normal
-            # numbers).  The legacy fallback computes
-            # pred*true + (1-pred)*false; with pred=1 and false=Inf/NaN
-            # this gives true + 0*Inf = true + NaN = NaN, which PCC
-            # will clearly catch against the all-normal golden.
-            condition_tensor = torch.ones(shapes[0], dtype=dtype)
-            true_tensor = torch.randn(shapes[1]).to(dtype)
-            false_tensor = torch.full(shapes[2], special_value, dtype=dtype)
-            output_shape = torch.broadcast_shapes(*shapes)
-            output_golden = true_tensor.broadcast_to(output_shape).clone()
-            result = builder.where(in0, in1, in2, unit_attrs=unit_attrs)
-            builder.set_goldens(
-                inputs={
-                    in0: condition_tensor,
-                    in1: true_tensor,
-                    in2: false_tensor,
-                },
-                outputs={result: output_golden},
-            )
-            return result
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "max_arg,min_arg,dtype",
@@ -245,13 +186,10 @@ def test_where_nan_inf_implicit_broadcast(
     ],
     ids=["f32", "bf16", "i32", "i64"],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_clamp_scalar(
     shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
 ):
-    if dtype == torch.int64:
-        pytest.xfail("int64 not guaranteed to work on this backend")
-
     def module_clamp_scalar(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def clamp_scalar(
@@ -277,10 +215,7 @@ def test_clamp_scalar(
 @x86_only
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
-@pytest.mark.parametrize(
-    "target",
-    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
-)
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_clamp_scalar(
     shape: Shape, max_arg: float, min_arg: float, target: str, request, device
 ):
@@ -289,7 +224,6 @@ def test_hoisted_clamp_scalar(
         def hoisted_clamp_scalar(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            # Set input values explicitly in range [-1, 1]
             input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
             builder.set_goldens(inputs={in0: input_tensor})
             return builder.clamp_scalar(
@@ -298,6 +232,57 @@ def test_hoisted_clamp_scalar(
                 min_arg=min_arg,
                 unit_attrs=["ttir.should_hoist"],
             )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# 1D tensor test for ttmetal
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def ternary_1d(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            condition_tensor = torch.randint(0, 2, shape, dtype=dtype)
+            builder.set_goldens(inputs={in0: condition_tensor})
+            return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# ============================================================
+# Tests moved from test_ttir_ops.py during TTMetal test
+# reorganization.
+# ============================================================
+
+
+@x86_only
+@pytest.mark.parametrize(
+    "shapes", [[(64, 64), (64, 64), (64, 64)]], ids=shapes_list_str
+)
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+def test_hoisted_where(shapes, request, target: str, device):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def where(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
+            return builder.where(condition, x, y, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
         module,
