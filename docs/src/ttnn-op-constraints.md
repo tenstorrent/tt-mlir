@@ -488,6 +488,38 @@ Migrating a blocked op later means adding the `initialState` parameter at the
 op-model layer first, then switching the body to `detail::constraintsDispatch`.
 That changes nothing for stateless callers.
 
+### Multi-device ops, and building resources inside the capture
+
+Multi-device ops are stateful like any other: `DistributedTensorSpec` arguments
+materialize identically under both flavours, and the with-state query's mock-device
+requirement is satisfied by construction, since the op-model device always uses the
+canned mock for a multi-chip mesh. `AllGatherOp`, `ReduceScatterOp`, `AllReduceOp`
+and `MeshPartitionOp` follow the plain recipe above.
+
+`DistributedRMSNormOp` is the one to copy when an op must **construct a device
+resource inside the graph capture**. It calls
+`::ttnn::graph::query_op_constraints_with_optional_state` directly (rather than via
+`QUERY_OP_CONSTRAINTS_WITH_STATE`) so it can keep an inner lambda that creates its
+`GlobalSemaphore` within the capture scope. Keep that inner-lambda shape when
+porting such an op — do not hoist the resource out:
+
+* stateless (`NO_DISPATCH`): `GraphTracker`'s `hook_allocate` /
+  `hook_write_to_device` intercept the semaphore's L1 allocation and its
+  initial-value write, so no real device state is mutated and the trace still
+  accounts for the allocation;
+* stateful (phase 2, `NORMAL`): the semaphore is allocated for real through the
+  mock allocator alongside the op's own buffers — which is what the live-record
+  accounting wants.
+
+Either way the resource must be created inside the capture, so the same lambda
+serves both flavours.
+
+Finally, remember what the stateful path is for: it reports **fit and output
+placement**, not peak CB/L1 bytes. It models buffer allocation against the live
+set; circular-buffer pressure is not part of that model for any op. Peak CB/L1
+numbers come from the stateless path, and the peak-byte check in validation is
+enforced only there (see above).
+
 ### How the L1 spill pass uses it
 
 `MockAllocatorL1Tracker::validate` (`lib/Dialect/TTNN/Analysis/L1SpillManagement.cpp`,
