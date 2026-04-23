@@ -20,7 +20,7 @@ namespace mlir::tt::ttir {
 namespace {
 
 // collect all values that should be preserved.  These include the function
-// arguments, return operands, and any DPS init operands of DPS ops.
+// arguments, return operands, and any ToLayout op results.
 static llvm::DenseSet<Value> collectPreservedValues(func::FuncOp funcOp) {
   llvm::DenseSet<Value> preserved;
   llvm::SmallVector<Value> frontier;
