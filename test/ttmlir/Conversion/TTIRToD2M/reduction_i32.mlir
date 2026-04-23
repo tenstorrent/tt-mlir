@@ -38,8 +38,8 @@ module {
 
   // i32 min decomposes to bitwise_not → max → bitwise_not inside --ttir-to-d2m
   // (D2MInnerMinDecompositionRewriter uses bitwise_not for integers since
-  // -INT_MIN == INT_MIN in two's complement), so we end up with an SFPU max
-  // reduce surrounded by tile_bitwise_not.
+  // ~INT_MIN == INT_MAX keeps it order-reversing at INT_MIN, unlike neg),
+  // so we end up with an SFPU max reduce surrounded by tile_bitwise_not.
   // CHECK-LABEL: func @min_i32_reduce_R
   // CHECK: d2m.tile_bitwise_not
   // CHECK: d2m.tile_sfpu_reduce_max{{.+}}d2m<reduce_dim R>

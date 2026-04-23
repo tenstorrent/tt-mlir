@@ -138,8 +138,9 @@ func.func @test_max_i32_RC(%in: !ttype_i32) -> (tensor<1x1xsi32>) {
 // -----
 
 // i32 min decomposes to bitwise_not → max → bitwise_not (using bitwise NOT
-// instead of negation since two's-complement -INT_MIN == INT_MIN), so we
-// still see the SFPU reduce_max sequence, surrounded by bitwise_not_tile.
+// instead of negation since ~INT_MIN == INT_MAX keeps it order-reversing at
+// INT_MIN, unlike neg), so we still see the SFPU reduce_max sequence,
+// surrounded by bitwise_not_tile.
 
 !ttype_i32 = tensor<128x96xsi32>
 // CHECK-LABEL: func.func @test_min_i32

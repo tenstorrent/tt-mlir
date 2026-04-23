@@ -39,6 +39,28 @@ namespace mlir::tt {
 
 namespace {
 
+/// True when the reduction touches a dim before the last two (tile C/R).
+/// Those go through the D2M outer-reduction path and must not be decomposed.
+template <typename TTIRReductionOp>
+bool isOuterReduction(TTIRReductionOp op) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+  int64_t rank = inputType.getRank();
+  std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+  if (rank < 2 || !maybeDimArg.has_value()) {
+    return false;
+  }
+  for (auto dimAttr : *maybeDimArg) {
+    int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
+    if (dim < 0) {
+      dim += rank;
+    }
+    if (dim < rank - 2) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class D2MNamedRewriterCommon {
 protected:
   using base = D2MNamedRewriterCommon;
@@ -1253,7 +1275,7 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    if (!ttir::utils::isOuterReduction(op)) {
+    if (!isOuterReduction(op)) {
       return failure();
     }
     checkTTIRReductionPreconditions(op);
@@ -1812,8 +1834,8 @@ private:
 // D2MInnerMinDecompositionRewriter: rewrites inner-dim `ttir.min` as
 // `f(max(f(x)))` where `f` is an order-reversing involution. No
 // tile_reduce_min kernel exists; outer min uses `tile_minimum` via the
-// accumulation path. Floats use `neg`; integers use `bitwise_not` because
-// `-INT_MIN == INT_MIN` in two's complement.
+// accumulation path. Floats use `neg`; integers use `bitwise_not` since
+// `~INT_MIN == INT_MAX` keeps it order-reversing at INT_MIN (unlike `neg`).
 namespace {
 class D2MInnerMinDecompositionRewriter final
     : public mlir::OpConversionPattern<ttir::MinOp> {
@@ -1823,7 +1845,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MinOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    if (ttir::utils::isOuterReduction(op)) {
+    if (isOuterReduction(op)) {
       return failure();
     }
     auto inputType =
