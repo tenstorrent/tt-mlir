@@ -153,18 +153,14 @@ struct PendingDSTPackingResult {
   int64_t numDstFlips = 0;
 };
 
-// Fallback chunking strategy for regions whose outputs have heterogeneous
-// shapes (e.g. elementwise fused with a reduction), where the standard
-// numDstFlips-GCD-based factorization collapses to a single outer iteration.
+// Fallback chunking for regions with heterogeneous output shapes (e.g. eltwise
+// fused with a reduction), where the GCD-of-numDstFlips factorization
+// collapses to a single outer iteration. Splits each op's shard along a shared
+// row factor of outputShape[0] so Phase 1 produces matching outer loops that
+// SpillAndScratch can fuse.
 //
-// Strategy: find a factor R of the "row" dimension (currently defined as
-// outputShape[0]) that is common to every op in the region. Each op's shard
-// is split into numOuterIters = rowDim / R chunks along that row, giving
-// matching Phase 1 scf.for loop counts across ops so that SpillAndScratch
-// can later fuse the outer loops.
-//
-// TODO(ckaravasilisTT): Derive the shared parallel dim from the affine indexing
-// maps.
+// TODO(ckaravasilisTT): derive the shared parallel dim from the affine
+// indexing maps instead of hardcoding outputShape[0].
 static std::optional<DSTPackingRegionInfo>
 trySharedParallelChunking(d2m::GenericOp /*generic*/,
                           ArrayRef<linalg::GenericOp> linalgOps,
@@ -255,8 +251,8 @@ trySharedParallelChunking(d2m::GenericOp /*generic*/,
 
     if (allValid) {
       results.numOuterLoopIters = numOuterIters;
-      // Use the first op's per-iteration shard as the region-level stat.
-      // Per-result numTilesPerResult is the authoritative per-op value.
+      // Region-level stat is the first op's per-iter shard; per-result
+      // numTilesPerResult is the authoritative per-op value.
       results.numTilesPerResult =
           opInfos.front().shardSizeTiles / numOuterIters;
       return results;
@@ -352,10 +348,9 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
              "expected a common num_outer_loop_iters when pending dst packing "
              "results are non-empty");
 
-  // When the standard factorization collapses to a single outer iteration and
-  // the region has ops with heterogeneous output shard sizes (e.g. eltwise
-  // fused with a reduction), fall back to chunking along a shared parallel
-  // dimension so that Phase 1 produces matching outer loops across ops.
+  // If the GCD-based factorization collapses to a single outer iteration and
+  // the region has heterogeneous output shards (e.g. eltwise + reduction),
+  // fall back to chunking along a shared parallel dim.
   if (*commonNumOuterLoopIters <= 1 && pendingResults.size() >= 2) {
     int64_t firstShard = pendingResults.front().numDstFlips *
                          pendingResults.front().numTilesPerFlip;
@@ -405,8 +400,7 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
   TT_assertv(regionNumTilesPerResult.has_value(),
              "expected num tiles per result when pending results are "
              "non-empty");
-  // Region-level numTilesPerResult is kept as the first op's value for
-  // back-compat with consumers that read it. Per-op phase-1 capacity is
+  // Region-level value is kept for back-compat; per-op phase-1 capacity is
   // driven by DSTPackingPerResultInfo::numTilesPerResult.
   results.numTilesPerResult = *regionNumTilesPerResult;
   results.numOuterLoopIters = *commonNumOuterLoopIters;

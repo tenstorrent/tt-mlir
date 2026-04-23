@@ -119,6 +119,51 @@ static bool isValidElementwiseFusionTarget(GenericOp gOp) {
   return true;
 }
 
+// Producer's result(s) must only be consumed by the consumer op (users inside
+// either op's regions are ignored, e.g. remote_load).
+static bool producerResultUsedOnlyByConsumer(GenericOp producer,
+                                             GenericOp consumer) {
+  for (auto result : producer->getResults()) {
+    for (auto *user : result.getUsers()) {
+      if (producer.getOperation()->isProperAncestor(user) ||
+          consumer.getOperation()->isProperAncestor(user)) {
+        continue;
+      }
+      if (user != consumer.getOperation()) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// Checks shared by all fusion variants: CB/DST budget, blocking compatibility,
+// and rank/permutation constraints on the indexing maps.
+static bool passesSharedFusionShapeChecks(OpOperand *fusionTargetOperand,
+                                          GenericOp producer,
+                                          GenericOp consumer) {
+  if (!producer.hasCompatibleBlocking(consumer)) {
+    return false;
+  }
+  if (!fitsInL1PostFusion(producer, consumer)) {
+    return false;
+  }
+  if (!fitsInDstPostFusion(producer, consumer)) {
+    return false;
+  }
+
+  AffineMap consMap =
+      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
+  if (consMap.getNumResults() != producer.getNumDims()) {
+    return false;
+  }
+  // Producer result map is that of first init (assume single init/result
+  // layout).
+  AffineMap prodResMap = producer.getIndexingMap(
+      producer.getDpsInitOperand(0)->getOperandNumber());
+  return prodResMap.isPermutation();
+}
+
 static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
                                  unsigned dstCapacity,
                                  bool checkConsumer = true,
@@ -134,42 +179,8 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  // Check that the producer's result is only used by the consumer
-  // Count external users (users outside producer's own regions and outside
-  // consumer's regions).
-  for (auto result : producer->getResults()) {
-    unsigned numExternalUsers = 0;
-    for (auto *user : result.getUsers()) {
-      // Skip users inside the producer's own regions.
-      if (producer.getOperation()->isProperAncestor(user)) {
-        continue;
-      }
-      // Skip users inside the consumer's regions (e.g., remote_load
-      // operations).
-      if (consumer.getOperation()->isProperAncestor(user)) {
-        continue;
-      }
-      numExternalUsers++;
-    }
-    // Producer result should only be used by the consumer.
-    if (numExternalUsers != 1) {
-      return false;
-    }
-    // Verify the single external user is indeed the consumer operation itself.
-    bool foundConsumerAsUser = false;
-    for (auto *user : result.getUsers()) {
-      if (!producer.getOperation()->isProperAncestor(user) &&
-          !consumer.getOperation()->isProperAncestor(user)) {
-        if (user == consumer.getOperation()) {
-          foundConsumerAsUser = true;
-        } else {
-          return false;
-        }
-      }
-    }
-    if (!foundConsumerAsUser) {
-      return false;
-    }
+  if (!producerResultUsedOnlyByConsumer(producer, consumer)) {
+    return false;
   }
 
   if (checkConsumer && !isValidElementwiseFusionTarget(consumer)) {
@@ -180,34 +191,7 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  if (!producer.hasCompatibleBlocking(consumer)) {
-    return false;
-  }
-
-  if (!fitsInL1PostFusion(producer, consumer)) {
-    return false;
-  }
-
-  if (!fitsInDstPostFusion(producer, consumer)) {
-    return false;
-  }
-
-  // Rank/perm checks
-  AffineMap consMap =
-      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
-  if (consMap.getNumResults() != producer.getNumDims()) {
-    return false;
-  }
-
-  // Producer result map is that of first init (assume single init/result
-  // layout)
-  AffineMap prodResMap = producer.getIndexingMap(
-      producer.getDpsInitOperand(0)->getOperandNumber());
-  if (!prodResMap.isPermutation()) {
-    return false;
-  }
-
-  return true;
+  return passesSharedFusionShapeChecks(fusionTargetOperand, producer, consumer);
 }
 
 // Compute producer operand map in fused coordinates:
@@ -372,13 +356,10 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
         sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
     Value consumerOutputEmpty = fusedTensorEmpties[consumerOutputFusedIdx];
 
-    // When the producer's output shape matches the consumer's output shape
-    // (e.g. eltwise -> eltwise), we can reuse the consumer's tensor.empty as
-    // the producer's intermediate buffer. When they differ (e.g. eltwise
-    // -> reduction where 4x4 -> 4x1), create a separate intermediate
-    // tensor.empty with the producer's shape so that downstream passes
-    // (in particular SpillAndScratch) can identify it as a real intermediate
-    // allocation.
+    // If producer and consumer outputs have the same shape (eltwise->eltwise)
+    // reuse the consumer's tensor.empty; otherwise (eltwise->reduction) create
+    // a separate intermediate empty matching the producer's shape so that
+    // SpillAndScratch can identify it as an intermediate.
     auto prodOutType = mlir::cast<ShapedType>(prodOutputEmpty.getType());
     auto consOutType = mlir::cast<ShapedType>(consumerOutputEmpty.getType());
     if (prodOutType.getShape() == consOutType.getShape()) {
@@ -407,14 +388,10 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   rewriter.setInsertionPointToEnd(&fusedBlock);
 
   // Clone producer body (skip d2m.yield and remote_store to output).
-  // Operand-associated tensor.empty ops have already been created in the
-  // fused block and mapped via mapProdRegionEmpties. However, if the producer
-  // is itself the result of a prior fusion, it may carry unmapped intermediate
-  // tensor.empty ops (e.g. the producer's own output empty created by an
-  // earlier eltwise->reduction fusion). Clone those into the new fused region
-  // so that any ops referencing them can be properly remapped; otherwise the
-  // old producer/consumer ops cannot be erased because their intermediate
-  // empties would still have live uses.
+  // Operand-associated tensor.empty ops are already created and mapped above.
+  // Unmapped tensor.empty ops are intermediates carried over from a prior
+  // fusion round and must be cloned so that ops referencing them can be
+  // remapped (otherwise the old ops cannot be erased due to live uses).
   for (Operation &op : pb) {
     if (isa<YieldOp>(op)) {
       continue;
@@ -499,19 +476,14 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
   }
   for (Operation &op : cb.without_terminator()) {
-    // Explicitly skip d2m.yield: it does not carry the IsTerminator trait, so
-    // Block::without_terminator() does not filter it out. Cloning it here
-    // would leave stale yields stacked up in the fused region across
-    // cascading fusion rounds.
+    // Skip d2m.yield explicitly: it lacks the IsTerminator trait, so
+    // Block::without_terminator() does not filter it out, and cloning would
+    // accumulate stale yields across cascading fusion rounds.
     if (isa<YieldOp>(op)) {
       continue;
     }
-    // Operand-associated tensor.empty ops have already been created in the
-    // fused block and mapped via mapConsRegionEmpties. Clone any unmapped
-    // tensor.empty ops — these are intermediates carried over from a prior
-    // fusion (e.g. the producer-output empty of an earlier
-    // eltwise->reduction fusion) that must live in the new fused region so
-    // that ops referencing them can be safely cloned/erased.
+    // Operand-associated tensor.empty ops are already mapped. Clone unmapped
+    // ones: they are intermediates from a prior fusion round.
     if (isa<mlir::tensor::EmptyOp>(op)) {
       if (irMap.lookupOrDefault(op.getResult(0)) != op.getResult(0)) {
         continue;
@@ -607,11 +579,10 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   return fusedOp;
 }
 
-// V1 eltwise-reduction fusion targets a single reduction
-// iterator on the consumer. This constraint keeps the downstream geometry
-// (phase-1 row chunking + phase-2 scratch layout) well-defined and matches
-// the cases handled by the DstRegisterAnalysis shared-parallel-chunking
-// fallback and the SpillAndScratch row cross-step path.
+// V1 eltwise->reduction fusion requires exactly one reduction iterator on the
+// consumer so the downstream phase-1/phase-2/scratch geometry stays
+// well-defined (matches the DstRegisterAnalysis shared-parallel-chunking
+// fallback and the SpillAndScratch row cross-step path).
 static bool hasSingleReductionDim(GenericOp gOp) {
   unsigned numReduction = 0;
   for (Attribute it : gOp.getIteratorTypes()) {
@@ -672,64 +643,34 @@ static bool isEltwiseReductionFusable(OpOperand *fusionTargetOperand) {
     return false;
   }
 
-  // Producer's result should only be used by the consumer.
-  for (auto result : producer->getResults()) {
-    unsigned numExternalUsers = 0;
-    for (auto *user : result.getUsers()) {
-      if (producer.getOperation()->isProperAncestor(user)) {
-        continue;
-      }
-      if (consumer.getOperation()->isProperAncestor(user)) {
-        continue;
-      }
-      numExternalUsers++;
-    }
-    if (numExternalUsers != 1) {
-      return false;
-    }
-    bool foundConsumerAsUser = false;
-    for (auto *user : result.getUsers()) {
-      if (!producer.getOperation()->isProperAncestor(user) &&
-          !consumer.getOperation()->isProperAncestor(user)) {
-        if (user == consumer.getOperation()) {
-          foundConsumerAsUser = true;
-        } else {
-          return false;
-        }
-      }
-    }
-    if (!foundConsumerAsUser) {
-      return false;
-    }
-  }
-
-  if (!producer.hasCompatibleBlocking(consumer)) {
+  if (!producerResultUsedOnlyByConsumer(producer, consumer)) {
     return false;
   }
 
-  if (!fitsInL1PostFusion(producer, consumer)) {
-    return false;
+  return passesSharedFusionShapeChecks(fusionTargetOperand, producer, consumer);
+}
+
+// Build the fused op, redirect uses, erase the originals. Shared between the
+// elementwise-only and eltwise->reduction patterns. The fused op adopts the
+// consumer's iteration space; producer operands are remapped into it via
+// argMap o inv(prodResMap) o consMap.
+static void fuseOverOperand(OpOperand *fusedOperand, GenericOp producer,
+                            GenericOp consumer, PatternRewriter &rewriter) {
+  auto [fusedInputs, fusedOutputs, fusedMaps] =
+      getFusedOperands(fusedOperand, producer, consumer);
+  auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
+      consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
+
+  GenericOp fusedOp =
+      createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
+                         fusedOutputs, mergedCaptures, fusedMaps, rewriter);
+
+  for (auto [i, r] : llvm::enumerate(consumer->getResults())) {
+    r.replaceAllUsesWith(fusedOp->getResult(i));
   }
 
-  if (!fitsInDstPostFusion(producer, consumer)) {
-    return false;
-  }
-
-  // Rank/perm checks: consumer's input map for the fused operand must map
-  // fused-loop dims onto producer-shape dims.
-  AffineMap consMap =
-      consumer.getIndexingMap(fusionTargetOperand->getOperandNumber());
-  if (consMap.getNumResults() != producer.getNumDims()) {
-    return false;
-  }
-
-  AffineMap prodResMap = producer.getIndexingMap(
-      producer.getDpsInitOperand(0)->getOperandNumber());
-  if (!prodResMap.isPermutation()) {
-    return false;
-  }
-
-  return true;
+  rewriter.eraseOp(consumer);
+  rewriter.eraseOp(producer);
 }
 
 namespace {
@@ -745,44 +686,20 @@ struct FuseD2MEltwiseReductionOpsPattern : public OpRewritePattern<GenericOp> {
 
     assert(consumer.getNumRegions() == 1u);
 
-    auto findFusableOperand = [&]() -> OpOperand * {
-      for (OpOperand *use : consumer.getDpsInputOperands()) {
-        if (isEltwiseReductionFusable(use)) {
-          return use;
-        }
+    OpOperand *fusedOperand = nullptr;
+    for (OpOperand *use : consumer.getDpsInputOperands()) {
+      if (isEltwiseReductionFusable(use)) {
+        fusedOperand = use;
+        break;
       }
-      return nullptr;
-    };
-
-    OpOperand *fusedOperand = findFusableOperand();
+    }
     if (!fusedOperand) {
       return failure();
     }
 
     auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
     assert(producer);
-
-    // Build fused op operands, maps, results. We reuse the consumer-centric
-    // builder used by the elementwise-only path: the fused op adopts the
-    // consumer's (reduction) iteration space, and the producer's operands
-    // are remapped into it via argMap o inv(prodResMap) o consMap.
-    auto [fusedInputs, fusedOutputs, fusedMaps] =
-        getFusedOperands(fusedOperand, producer, consumer);
-    auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
-        consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
-
-    auto fusedOp =
-        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
-                           fusedOutputs, mergedCaptures, fusedMaps, rewriter);
-
-    int resIdx = 0;
-    for (auto r : consumer->getResults()) {
-      r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
-    }
-
-    rewriter.eraseOp(consumer);
-    rewriter.eraseOp(producer);
-
+    fuseOverOperand(fusedOperand, producer, consumer, rewriter);
     return success();
   }
 };
@@ -809,48 +726,22 @@ struct FuseD2MElementwiseOpsPattern : public OpRewritePattern<GenericOp> {
         ttcore::getOpChipDescAttr(consumer).getDstLogicalSizeTiles(
             largestDstType, false, maxDstPhysicalSizeTiles);
 
-    auto findFusableOperand = [&]() -> OpOperand * {
-      for (OpOperand *use : consumer.getDpsInputOperands()) {
-        if (isElementwiseFusable(use, dstCapacity,
-                                 // already checked consumer outside
-                                 false, true)) {
-          return use;
-        }
+    // Consumer was already validated above; only re-check the producer.
+    OpOperand *fusedOperand = nullptr;
+    for (OpOperand *use : consumer.getDpsInputOperands()) {
+      if (isElementwiseFusable(use, dstCapacity, /*checkConsumer=*/false,
+                               /*checkProducer=*/true)) {
+        fusedOperand = use;
+        break;
       }
-      return nullptr;
-    };
-
-    OpOperand *fusedOperand = findFusableOperand();
-
+    }
     if (!fusedOperand) {
       return failure();
     }
 
     auto producer = fusedOperand->get().getDefiningOp<GenericOp>();
-    // we already check that producer is a valid GenericOp,
-    // use assert instead of if()
     assert(producer);
-
-    // Build fused op operands, maps, results
-    auto [fusedInputs, fusedOutputs, fusedMaps] =
-        getFusedOperands(fusedOperand, producer, consumer);
-    auto mergedCaptures = llvm::to_vector(llvm::concat<Value>(
-        consumer.getAdditionalArgs(), producer.getAdditionalArgs()));
-
-    auto fusedOp =
-        createFusedGeneric(fusedOperand, producer, consumer, fusedInputs,
-                           fusedOutputs, mergedCaptures, fusedMaps, rewriter);
-
-    // Replace uses: from producer and consumer results to fused results.
-    int resIdx = 0;
-    // Consumer results
-    for (auto r : consumer->getResults()) {
-      r.replaceAllUsesWith(fusedOp->getResult(resIdx++));
-    }
-
-    rewriter.eraseOp(consumer);
-    rewriter.eraseOp(producer);
-
+    fuseOverOperand(fusedOperand, producer, consumer, rewriter);
     return success();
   }
 

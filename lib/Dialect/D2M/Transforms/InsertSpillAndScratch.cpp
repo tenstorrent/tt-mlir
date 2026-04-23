@@ -227,15 +227,14 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
     return getScratchAccessMapAndOperands(consumer, ctx);
   }
 
-  // Row cross-step (without column cross-step): the consumer's scratchLoop
-  // covers multiple producer scratch rows per iteration. Combine scratchLoop_IV
-  // and inner-row loop IVs into an absolute row index, then decompose it using
-  // the producer's scratchLoop step to address the producer's scratch layout.
+  // Row cross-step (without column cross-step): consumer's scratchLoop spans
+  // multiple producer scratch rows per iteration. Combine scratchLoop_IV and
+  // inner-row IVs into an absolute row index, then decompose with the
+  // producer's scratchLoop step.
   //
-  // Example: producer scratchLoop step=1 shapes scratch as [4,1,1,4].
-  //   Consumer scratchLoop step=2 with inner row loop 0..2 must access as:
-  //     [scratchIV + innerRowIV, outerCol/step, 0, innerCol]
-  //   instead of the wrong: [scratchIV/2, outerCol/step, innerRowIV, innerCol].
+  // Example: producer step=1 shapes scratch as [4,1,1,4]. Consumer step=2 with
+  // an inner row loop 0..2 accesses
+  //   [scratchIV + innerRowIV, outerCol/step, 0, innerCol].
   if (needsRowCrossStep && !needsColCrossStep) {
     int64_t prodRowStep = producer.scratchLoop.getStepAsInt();
 
@@ -729,10 +728,10 @@ private:
         rewriter.eraseOp(storeOp);
       }
 
-      // Step 6: Update loads in all consumer loops. Loads within the
-      // producer's own loop (e.g. a reduction op reading its own intermediate
-      // on each accumulation step) use the producer's access map. Loads in
-      // external consumer loops use the cross-step-aware consumer map.
+      // Step 6: Rewrite loads in all consumer loops. Loads within the
+      // producer's own loop (e.g. a reduction reading its own accumulator) use
+      // the producer's map; loads in external loops use the cross-step-aware
+      // consumer map.
       for (auto &consumerEntry : allocInfo.consumers) {
         bool isProducerSelfRead = (consumerEntry.loop == allocInfo.producer);
 
