@@ -353,20 +353,26 @@ module {
         ins(%cast, %cast_0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram1>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.interleaved<8192x4096>, #dram1>)
         outs(%cast_1, %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>) {
       ^region_0:
+        %r0_sem0 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+        %r0_sem1 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
         d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r0_sem, noc = 0>, #d2m.thread<datamovement, @dm_r0_nosem, noc = 1>, #d2m.thread<compute, @cp_r0>]}
             ins(%view_tc5_r0 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
             outs(%cast_1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
+        additionalArgs(%r0_sem0, %r0_sem1 : !d2m.local_semaphore, !d2m.local_semaphore)
       }, {
       ^region_1:
+        %r1_sem0 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
+        %r1_sem1 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
         d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @dm_r1_sem, noc = 0>, #d2m.thread<datamovement, @dm_r1_nosem, noc = 1>, #d2m.thread<compute, @cp_r1>]}
             ins(%view_tc5_r1 : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram1>)
             outs(%cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1>)
+        additionalArgs(%r1_sem0, %r1_sem1 : !d2m.local_semaphore, !d2m.local_semaphore)
       }
     %cast_3 = ttir.ttnn_metal_layout_cast %cast_1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1> -> tensor<64x64xf32, #ttnn_layout2>
     %cast_4 = ttir.ttnn_metal_layout_cast %cast_2 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_1> -> tensor<64x64xf32, #ttnn_layout3>
     return %cast_3, %cast_4 : tensor<64x64xf32, #ttnn_layout2>, tensor<64x64xf32, #ttnn_layout3>
   }
-  func.func private @dm_r0_sem() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = semaphore, operand_index = 0>, <arg_type = semaphore, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_r0_sem() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = local_semaphore, operand_index = 0>, <arg_type = local_semaphore, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
   func.func private @dm_r0_nosem() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
@@ -375,7 +381,7 @@ module {
   func.func private @cp_r0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
-  func.func private @dm_r1_sem() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = semaphore, operand_index = 0>, <arg_type = semaphore, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @dm_r1_sem() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = local_semaphore, operand_index = 0>, <arg_type = local_semaphore, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
   func.func private @dm_r1_nosem() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {

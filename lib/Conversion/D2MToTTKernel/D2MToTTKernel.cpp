@@ -2411,6 +2411,17 @@ public:
       arg = rewriter.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
                                       op.getOperandIndex());
       argResultType = ttkernel::L1AddrType::get(rewriter.getContext());
+    } else if (mlir::isa<d2m::LocalSemaphoreType>(op.getResult().getType())) {
+      ArgAttr semArg = rewriter.getAttr<ArgAttr>(ArgType::LocalSemaphore,
+                                                 op.getOperandIndex());
+      size_t ctArgIdx;
+      rewriter.modifyOpInPlace(entry, [&]() {
+        ctArgIdx = ArgSpecAttr::appendCompileTimeArg(entry, semArg);
+      });
+      auto semaphoreIndex = rewriter.create<ttkernel::GetCompileArgValOp>(
+          op.getLoc(), rewriter.getI32Type(), static_cast<int32_t>(ctArgIdx));
+      rewriter.replaceOpWithNewOp<ttkernel::GetSemaphoreOp>(op, semaphoreIndex);
+      return success();
     } else {
       llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
     }
@@ -2559,39 +2570,6 @@ public:
       return success();
     }
 
-    Block *block = &op.getCallableRegion()->front();
-    auto blockArgs = block->getArguments();
-    assert(!blockArgs.empty());
-
-    size_t currentSemaphoreIndex = 0;
-    TypeConverter::SignatureConversion signatureConverter(op.getNumArguments());
-    OpBuilder::InsertionGuard funcInsertionGuard(rewriter);
-    rewriter.setInsertionPointToStart(block);
-    // Block arguments are semaphores only. CB args have been replaced by
-    // d2m.get_cb ops, which are lowered by D2MGetCBRewriter.
-    for (auto arg : blockArgs) {
-      Type argType = getTypeConverter()->convertType(arg.getType());
-      if (mlir::isa<LocalSemaphoreType>(argType)) {
-        if (getTTKernelThreadType(op) != ThreadType::Noc) {
-          continue;
-        }
-        size_t ctArgIndex = ctArgSpecVector.size();
-        auto semaphoreIndex = rewriter.create<GetCompileArgValOp>(
-            op.getLoc(), rewriter.getI32Type(),
-            rewriter.getI32IntegerAttr(ctArgIndex));
-        auto semaphore =
-            rewriter.create<GetSemaphoreOp>(op.getLoc(), semaphoreIndex);
-        signatureConverter.remapInput(arg.getArgNumber(),
-                                      semaphore.getResult());
-        ctArgSpecVector.push_back(rewriter.getAttr<ArgAttr>(
-            ArgType::Semaphore, currentSemaphoreIndex++));
-      } else {
-        llvm_unreachable("unexpected block argument type");
-      }
-    }
-
-    rewriter.applySignatureConversion(block, signatureConverter,
-                                      getTypeConverter());
     rewriter.modifyOpInPlace(op, [&]() {
       op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
       convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
