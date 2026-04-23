@@ -81,6 +81,39 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
+  const uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
+  constexpr uint32_t kTileWidth = tt::constants::TILE_WIDTH;
+  const uint32_t paddedOutChannels =
+      tt::round_up(op->out_channels(), kTileWidth);
+  const bool hasRequestedCInBlock =
+      op->conv3d_config() && op->conv3d_config()->c_in_block();
+  const bool hasRequestedCOutBlock =
+      op->conv3d_config() && op->conv3d_config()->c_out_block();
+  const uint32_t requestedCInBlock =
+      hasRequestedCInBlock ? *op->conv3d_config()->c_in_block() : 0;
+  const uint32_t requestedCOutBlock =
+      hasRequestedCOutBlock ? *op->conv3d_config()->c_out_block() : 0;
+  const uint32_t constrainedRequestedCOutBlock =
+      requestedCOutBlock == 0
+          ? 0
+          : tt::round_up(requestedCOutBlock, kTileWidth);
+  const bool cOutDividesPaddedOut =
+      constrainedRequestedCOutBlock > 0 &&
+      (paddedOutChannels % constrainedRequestedCOutBlock == 0);
+  const uint32_t selectedCInBlock =
+      requestedCInBlock > 0 ? requestedCInBlock : l1Alignment;
+  const uint32_t selectedCOutBlock =
+      cOutDividesPaddedOut
+          ? constrainedRequestedCOutBlock
+          : kTileWidth;
+  if (conv3dConfig) {
+    if (hasRequestedCInBlock) {
+      conv3dConfig->C_in_block = selectedCInBlock;
+    }
+    if (hasRequestedCOutBlock) {
+      conv3dConfig->C_out_block = selectedCOutBlock;
+    }
+  }
 
   auto deviceComputeConfig = ::ttnn::init_device_compute_kernel_config(
       targetDevice.arch(), computeConfig, ::tt::tt_metal::MathFidelity::HiFi4,
