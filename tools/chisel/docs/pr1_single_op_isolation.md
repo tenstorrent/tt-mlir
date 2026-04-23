@@ -113,7 +113,7 @@ class IRModule:
     def get_function(self, function_name: str) -> Operation: ...
     def get_function_inputs(self, function_name: str) -> List[BlockArgument]: ...
     def get_function_ops(self, function_name: str) -> List[Operation]: ...
-    def get_asm_state(self, function_name: str) -> AsmState: ...
+    def get_asm_state(self) -> AsmState: ...
 
 ```
 
@@ -344,9 +344,11 @@ from golden.metrics import compute_pcc, compute_atol, compute_rtol
 **`IRModule` changes:**
 - **Remove** `execution_type: ExecutionType` constructor parameter and attribute
 - **Remove** `self.execution_type` — used only in `__repr__` and passed to AsmState
-- **Remove** `current_function_name` state — all methods (`get_function()`,
-  `get_function_inputs()`, `get_function_ops()`, `get_asm_state()`) take
-  `function_name: str` as an explicit parameter instead
+- **Remove** `current_function_name` state — the per-function methods
+  (`get_function()`, `get_function_inputs()`, `get_function_ops()`) take
+  `function_name: str` as an explicit parameter instead. `get_asm_state()`
+  is binary-scoped (single `AsmState` over the whole module) and takes no
+  argument.
 
 ### `executor.py` — NEW (does not port from old `golden_executor.py`)
 

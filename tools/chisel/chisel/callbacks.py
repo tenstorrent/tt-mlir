@@ -71,7 +71,7 @@ def _default_pre_op(binary, program_context, op_context) -> None:
     program.stashed_inputs = {}
     op_inputs = get_op_inputs(op)
     input_refs = tt_runtime.get_op_input_refs(op_context, program_context)
-    asm_state = binary_state.ir_module.get_asm_state(program.program_name)
+    asm_state = binary_state.ir_module.get_asm_state()
 
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
         name = mlir_input.get_name(asm_state)
@@ -117,7 +117,6 @@ def _default_post_op(
     op_name = op.name
     checker = ChiselChecker(ctx, op_name)
     ir_module = binary_state.ir_module
-    program_name = program.program_name
 
     op_outputs = get_op_outputs(op)
     if not op_outputs:
@@ -125,7 +124,7 @@ def _default_post_op(
         return
 
     output_refs = tt_runtime.get_op_output_refs(op_context, program_context)
-    asm_state = ir_module.get_asm_state(program_name)
+    asm_state = ir_module.get_asm_state()
 
     # --- Execute golden functions ONCE per op, before the per-output loop ---
 
@@ -144,14 +143,14 @@ def _default_post_op(
             log_prefix=op_name, record=ctx.isolation_check,
         ):
             iso_result = execute_golden(
-                op.opview, ir_module, program_name, program.stashed_inputs
+                op.opview, ir_module, program.stashed_inputs
             )
 
     acc_result = None
     if ctx.accum_check:
         with record_check(slots, "accum_golden", checker, log_prefix=op_name):
             acc_result = execute_golden_from_pool(
-                op.opview, ir_module, program_name, program.golden_tensor_pool
+                op.opview, ir_module, program.golden_tensor_pool
             )
 
     # --- Per-output validation loop ---
