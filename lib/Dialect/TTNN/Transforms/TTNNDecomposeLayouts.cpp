@@ -11,6 +11,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/SymbolTable.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -51,6 +53,74 @@ public:
         return;
       }
       rewriter.eraseOp(op);
+    }
+
+    // When decomposing a ToLayoutOp into concrete ops (to_device, etc.),
+    // the new op's result type may have a different physical memref shape
+    // than the original ToLayoutOp's result — most commonly when moving
+    // to L1 interleaved produces a flattened page layout. If that result
+    // happens to be a terminator operand, the enclosing func.func's
+    // declared result type is now out of sync with its return op. This
+    // matters especially for const-eval subgraphs, whose signatures are
+    // set at hoist time and never otherwise touched. Re-sync them before
+    // the pass manager verifier runs.
+    syncFunctionSignatures(module);
+  }
+
+  // Walk every func.func in `module` and, if its declared result types
+  // disagree with its terminating return op's operand types, rewrite the
+  // signature to match. Callers (ttcore.load_cached, func.call) that
+  // reference the function through the module's symbol table have their
+  // result types updated in-place too.
+  static void syncFunctionSignatures(ModuleOp module) {
+    llvm::SmallVector<func::FuncOp> funcsToSync;
+    module.walk([&](func::FuncOp func) {
+      if (func.isDeclaration() || func.getBody().empty()) {
+        return;
+      }
+      auto returnOp = mlir::dyn_cast_if_present<func::ReturnOp>(
+          func.getBody().back().getTerminator());
+      if (!returnOp) {
+        return;
+      }
+      llvm::SmallVector<Type> actualReturnTypes(
+          returnOp.getOperandTypes().begin(),
+          returnOp.getOperandTypes().end());
+      llvm::SmallVector<Type> declaredReturnTypes(
+          func.getResultTypes().begin(), func.getResultTypes().end());
+      if (actualReturnTypes != declaredReturnTypes) {
+        funcsToSync.push_back(func);
+      }
+    });
+
+    for (func::FuncOp func : funcsToSync) {
+      auto returnOp =
+          mlir::cast<func::ReturnOp>(func.getBody().back().getTerminator());
+      llvm::SmallVector<Type> newResultTypes(
+          returnOp.getOperandTypes().begin(),
+          returnOp.getOperandTypes().end());
+      llvm::SmallVector<Type> argTypes(func.getArgumentTypes().begin(),
+                                       func.getArgumentTypes().end());
+      func.setType(
+          FunctionType::get(func.getContext(), argTypes, newResultTypes));
+
+      std::optional<SymbolTable::UseRange> uses =
+          SymbolTable::getSymbolUses(func, module.getOperation());
+      if (!uses) {
+        continue;
+      }
+      for (SymbolTable::SymbolUse use : *uses) {
+        Operation *caller = use.getUser();
+        if (caller->getNumResults() != newResultTypes.size()) {
+          continue;
+        }
+        for (size_t i = 0; i < newResultTypes.size(); ++i) {
+          Value result = caller->getResult(i);
+          if (result.getType() != newResultTypes[i]) {
+            result.setType(newResultTypes[i]);
+          }
+        }
+      }
     }
   }
 

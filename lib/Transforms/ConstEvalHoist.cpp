@@ -193,21 +193,15 @@ private:
       return;
     }
 
-    // Skip ops whose results are in L1. Const-eval functions persist their
-    // outputs across function boundaries, so L1 allocations from const-eval
-    // would consume L1 budget during @main execution without the
-    // L1SpillManagement pass being able to account for them.
-    for (auto result : op->getResults()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        if (auto layoutAttr = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
-                tensorType.getEncoding())) {
-          if (layoutAttr.hasL1BufferType()) {
-            return;
-          }
-        }
-      }
-    }
+    // Historically this function also skipped ops whose results are in L1
+    // (the rationale being that const-eval outputs persist across calls
+    // and would consume L1 budget during @main without L1SpillManagement
+    // accounting for them). We lift that restriction so L1-terminating
+    // prep chains — e.g. the MoE expert_mapping host->ui16->L1 chain —
+    // get hoisted into the cached subgraph. Downstream consistency of
+    // L1 physical shapes (layout decomposition may rebuild a to_device
+    // producing a different memref shape) is handled by the signature
+    // fixup at the end of TTNNDecomposeLayouts.
 
     auto operandConstEval = [&](mlir::Value operand) {
       if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
