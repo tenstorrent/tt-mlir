@@ -6498,36 +6498,37 @@ TEST_F(OpModelBase, SamplingOp) {
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  // Build TTNNLayoutAttrs matching the kernel's expected tensor contracts.
+  // Build TTNNLayoutAttrs matching the kernel's expected tensor contracts
+  // post-workaround: input_values is TILE, index/param/result tensors are
+  // ROW_MAJOR (the sampling kernel rejects TILE for indices/k/p/temp).
   auto bf16TileType = ttcore::TileType::get(builder.getBF16Type());
-  auto si32TileType = ttcore::TileType::get(builder.getIntegerType(32, true));
-  auto ui32TileType = ttcore::TileType::get(builder.getIntegerType(32, false));
+  auto bf16Type = builder.getBF16Type();
+  auto si32Type = builder.getIntegerType(32, true);
+  auto ui32Type = builder.getIntegerType(32, false);
 
   auto valuesLayout =
       TTNNLayoutAttr::get(&context, valuesShape, bf16TileType, BufferType::DRAM,
                           gridAttr, tensorMemoryLayoutAttr);
   auto indicesLayout =
-      TTNNLayoutAttr::get(&context, indicesShape, si32TileType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+      TTNNLayoutAttr::get(&context, indicesShape, si32Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
   auto kLayout =
-      TTNNLayoutAttr::get(&context, paramShape, ui32TileType, BufferType::DRAM,
+      TTNNLayoutAttr::get(&context, paramShape, ui32Type, BufferType::DRAM,
                           gridAttr, tensorMemoryLayoutAttr);
   auto paramLayout =
-      TTNNLayoutAttr::get(&context, paramShape, bf16TileType, BufferType::DRAM,
+      TTNNLayoutAttr::get(&context, paramShape, bf16Type, BufferType::DRAM,
                           gridAttr, tensorMemoryLayoutAttr);
   auto outputLayout =
-      TTNNLayoutAttr::get(&context, outputShape, si32TileType, BufferType::DRAM,
+      TTNNLayoutAttr::get(&context, outputShape, si32Type, BufferType::DRAM,
                           gridAttr, tensorMemoryLayoutAttr);
 
   auto inputValues = createEmptyTensor(valuesShape, bf16TileType, valuesLayout);
-  auto inputIndices =
-      createEmptyTensor(indicesShape, si32TileType, indicesLayout);
-  auto k = createEmptyTensor(paramShape, ui32TileType, kLayout);
-  auto p = createEmptyTensor(paramShape, bf16TileType, paramLayout);
-  auto temp = createEmptyTensor(paramShape, bf16TileType, paramLayout);
+  auto inputIndices = createEmptyTensor(indicesShape, si32Type, indicesLayout);
+  auto k = createEmptyTensor(paramShape, ui32Type, kLayout);
+  auto p = createEmptyTensor(paramShape, bf16Type, paramLayout);
+  auto temp = createEmptyTensor(paramShape, bf16Type, paramLayout);
 
-  auto outputType =
-      createRankedTensorType(outputShape, si32TileType, outputLayout);
+  auto outputType = createRankedTensorType(outputShape, si32Type, outputLayout);
 
   auto samplingOp =
       builder.create<SamplingOp>(builder.getUnknownLoc(), outputType,
@@ -6542,7 +6543,10 @@ TEST_F(OpModelBase, SamplingOp) {
         constraintsExp.get();
     EXPECT_GE(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
-    EXPECT_GT(outputSize, 0);
+    // outputSize is l1_output_buffer_per_core; ttnn::sampling's signature
+    // has no memory_config parameter, so we can't place output in L1 and
+    // this is expected to be 0.
+    EXPECT_GE(outputSize, 0);
   } else {
     FAIL() << "Missing L1 constraints for SamplingOp; Error="
            << llvm::toString(constraintsExp.takeError());
