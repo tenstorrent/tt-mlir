@@ -2032,13 +2032,16 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Force channel blocking in lowered conv3d config while respecting runtime
-    // minimum tile alignment requirements.
+    // Force channel blocking in lowered conv3d config while respecting HAL L1
+    // alignment requirements.
     constexpr int64_t kRequestedChannelBlock = 16;
+    const int64_t l1Alignment =
+        static_cast<int64_t>(
+            ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes());
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    const int64_t channelBlock = std::max(kRequestedChannelBlock, TILE_WIDTH);
+    const int64_t channelBlock = std::max(kRequestedChannelBlock, l1Alignment);
     llvm::errs() << "[conv3d-lowering] channel blocks: requested="
-                 << kRequestedChannelBlock << ", tile_width=" << TILE_WIDTH
+                 << kRequestedChannelBlock << ", l1_alignment=" << l1Alignment
                  << ", selected=" << channelBlock << "\n";
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),

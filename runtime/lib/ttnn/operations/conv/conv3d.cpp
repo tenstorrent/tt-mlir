@@ -81,7 +81,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
-  constexpr uint32_t kTileWidth = 32;
+  const uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
   const uint32_t requestedCInBlock =
       (op->conv3d_config() && op->conv3d_config()->c_in_block())
           ? *op->conv3d_config()->c_in_block()
@@ -91,12 +91,12 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
           ? *op->conv3d_config()->c_out_block()
           : 0;
   const uint32_t selectedCInBlock =
-      requestedCInBlock > 0 ? requestedCInBlock : kTileWidth;
+      requestedCInBlock > 0 ? requestedCInBlock : l1Alignment;
   const uint32_t selectedCOutBlock =
-      requestedCOutBlock > 0 ? requestedCOutBlock : kTileWidth;
+      requestedCOutBlock > 0 ? requestedCOutBlock : l1Alignment;
   LOG_INFO("[conv3d-runtime] channel blocks: c_in requested=", requestedCInBlock,
            ", c_out requested=", requestedCOutBlock,
-           ", tile_width=", kTileWidth, ", selected_c_in=", selectedCInBlock,
+           ", l1_alignment=", l1Alignment, ", selected_c_in=", selectedCInBlock,
            ", selected_c_out=", selectedCOutBlock,
            ", has_config=", static_cast<bool>(op->conv3d_config()));
 
