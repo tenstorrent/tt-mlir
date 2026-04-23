@@ -44,7 +44,8 @@ class ChiselChecker:
     @staticmethod
     def _get_op_asm(ctx: ChiselContext) -> str:
         try:
-            return ctx._current_op.get_asm(use_local_scope=True).strip()
+            op = ctx.current_program.current_op if ctx.current_program else None
+            return op.get_asm(use_local_scope=True).strip() if op else ""
         except Exception:
             return ""
 
@@ -249,4 +250,74 @@ class ChiselChecker:
                 f"{self.op_name} {slot} [golden_vs_runtime_tensor]: ERROR\n{tb}"
             )
             self._record(slot, "golden_vs_runtime_tensor", "error", traceback=tb)
+            return False
+
+    def check_accum_golden_vs_runtime_tensor(
+        self, slot: str, golden: torch.Tensor, device: torch.Tensor
+    ) -> bool:
+        """Full comparison using accumulation golden: shape, dtype, PCC, atol, rtol.
+
+        Same logic as check_golden_vs_runtime_tensor but records under
+        check="accum_golden_vs_runtime_tensor" so isolation and accumulation
+        results are distinguishable in the JSONL output.
+        """
+        check = "accum_golden_vs_runtime_tensor"
+        try:
+            if list(golden.shape) != list(device.shape):
+                msg = (
+                    f"{self.op_name} {slot} [{check}]: shape MISMATCH "
+                    f"expected={list(golden.shape)} actual={list(device.shape)}"
+                )
+                self._record(
+                    slot, check, "shape_mismatch",
+                    expected_shape=list(golden.shape), actual_shape=list(device.shape),
+                )
+                logger.warning(msg)
+                if self.ctx.strict:
+                    raise AssertionError(msg)
+                return False
+
+            if golden.dtype != device.dtype:
+                msg = (
+                    f"{self.op_name} {slot} [{check}]: dtype MISMATCH "
+                    f"expected={golden.dtype} actual={device.dtype}"
+                )
+                self._record(
+                    slot, check, "dtype_mismatch",
+                    expected_dtype=str(golden.dtype), actual_dtype=str(device.dtype),
+                )
+                logger.warning(msg)
+                if self.ctx.strict:
+                    raise AssertionError(msg)
+                return False
+
+            pcc = compute_pcc(golden, device)
+            atol = compute_atol(golden, device)
+            rtol = compute_rtol(golden, device)
+
+            if pcc >= _PCC_THRESHOLD:
+                self._record(slot, check, "ok", pcc=pcc, atol=atol, rtol=rtol)
+                logger.info(
+                    f"{self.op_name} {slot} [accum]: OK  "
+                    f"pcc={pcc:.6f} atol={atol:.6e} rtol={rtol:.6e}"
+                )
+                return True
+
+            msg = (
+                f"{self.op_name} {slot} [{check}]: PCC FAIL "
+                f"pcc={pcc:.6f} (threshold={_PCC_THRESHOLD}) "
+                f"atol={atol:.6e} rtol={rtol:.6e}"
+            )
+            self._record(slot, check, "pcc_fail", pcc=pcc, atol=atol, rtol=rtol)
+            logger.warning(msg)
+            if self.ctx.strict:
+                raise AssertionError(msg)
+            return False
+
+        except AssertionError:
+            raise
+        except Exception:
+            tb = traceback.format_exc()
+            logger.error(f"{self.op_name} {slot} [{check}]: ERROR\n{tb}")
+            self._record(slot, check, "error", traceback=tb)
             return False
