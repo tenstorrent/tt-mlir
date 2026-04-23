@@ -166,7 +166,7 @@ adapter from `TTNN_GOLDEN_MAPPINGS` and calls it:
 
 ctx = ChiselContext.get_instance()
 op = ctx._current_op
-asm_state = ctx.ir_module.get_asm_state(ctx._current_program_name)
+asm_state = ctx.ir_module.get_asm_state()
 
 adapter = TTNN_GOLDEN_MAPPINGS.get(type(op))
 if adapter is not None:

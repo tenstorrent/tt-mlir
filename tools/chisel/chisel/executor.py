@@ -30,7 +30,7 @@ from .tensors import TensorPool
 
 
 def execute_golden(
-    op: Operation, ir_module: IRModule, function_name: str, inputs: dict
+    op: Operation, ir_module: IRModule, inputs: dict
 ) -> Tuple[torch.Tensor, ...]:
     """
     Execute a TTNN op on CPU via CHISEL_GOLDEN_MAPPINGS.
@@ -38,7 +38,6 @@ def execute_golden(
     Args:
         op: The MLIR operation to execute.
         ir_module: The IRModule containing the operation (for SSA name resolution).
-        function_name: Name of the function containing the op (for AsmState lookup).
         inputs: Dict mapping SSA names to torch.Tensor (device inputs copied to host).
 
     Returns:
@@ -58,7 +57,7 @@ def execute_golden(
 
     # Wrap input tensors as GoldenMapTensor keyed by SSA name
     op_inputs = get_op_inputs(op)
-    asm_state = ir_module.get_asm_state(function_name)
+    asm_state = ir_module.get_asm_state()
     golden_inputs: Dict[str, GoldenMapTensor] = {}
     for inp in op_inputs:
         name = inp.get_name(asm_state)
@@ -92,7 +91,6 @@ def execute_golden(
 def execute_golden_from_pool(
     op: Operation,
     ir_module: IRModule,
-    function_name: str,
     tensor_pool: TensorPool,
 ) -> Tuple[torch.Tensor, ...]:
     """
@@ -109,7 +107,7 @@ def execute_golden_from_pool(
         GoldenInputMissing: If a required input is not present in tensor_pool.
         NoGoldenImplementation / GoldenExecutionError: Propagated from execute_golden.
     """
-    asm_state = ir_module.get_asm_state(function_name)
+    asm_state = ir_module.get_asm_state()
     op_inputs = get_op_inputs(op)
     try:
         inputs = {
@@ -119,7 +117,7 @@ def execute_golden_from_pool(
     except KeyError as e:
         raise GoldenInputMissing(f"missing input in pool: {e}") from e
 
-    result = execute_golden(op, ir_module, function_name, inputs)
+    result = execute_golden(op, ir_module, inputs)
 
     for out_val, res_tensor in zip(get_op_outputs(op), result, strict=True):
         tensor_pool[out_val.get_name(asm_state)] = res_tensor

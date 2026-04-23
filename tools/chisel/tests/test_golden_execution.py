@@ -50,7 +50,7 @@ def _iterate_programs(binary):
 def test_golden_execution(subtests, ir_module, binary, mlir_source_path):
     """Execute each TTNN op on the meta device; verify output shape and dtype."""
     for _prog_idx, prog_name in _iterate_programs(binary):
-        asm_state = ir_module.get_asm_state(prog_name)
+        asm_state = ir_module.get_asm_state()
 
         for op in ir_module.get_function_ops(prog_name):
             with subtests.test(prog=prog_name, op=op.name):
@@ -68,7 +68,7 @@ def test_golden_execution(subtests, ir_module, binary, mlir_source_path):
                     inputs[name] = torch.empty(shape, dtype=dtype, device="meta")
 
                 try:
-                    result = execute_golden(op.opview, ir_module, prog_name, inputs)
+                    result = execute_golden(op.opview, ir_module, inputs)
                 except NoGoldenImplementation:
                     pytest.skip(f"no golden implementation for {type(op.opview).__name__}")
 

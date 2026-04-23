@@ -59,13 +59,11 @@ class IRModule:
             ops, outputs = self._extract_function_ops(name)
             self._function_ops[name] = ops
             self._function_outputs[name] = outputs
-        self._asm_state: dict[str, AsmState] = {
-            name: AsmState(self._functions[name]) for name in functions
-        }
+        self._asm_state = AsmState(self.module.operation)
 
-    def get_asm_state(self, function_name: str) -> AsmState:
-        """AsmState for the given function (speeds up get_name calls)."""
-        return self._asm_state[function_name]
+    def get_asm_state(self) -> AsmState:
+        """AsmState for the whole binary (speeds up get_name calls)."""
+        return self._asm_state
 
     def get_function(self, function_name: str) -> func.FuncOp:
         """The func.FuncOp for the given function."""
