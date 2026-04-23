@@ -1067,10 +1067,12 @@ def D2MMarkSynchronizedOpBuffers : Pass<"d2m-mark-synchronized-op-buffers", "::m
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
-def D2MInsertCBOps : Pass<"d2m-insert-cb-ops", "::mlir::ModuleOp"> {
-  let summary = "Insert CB ops.";
+def D2MRemoveSynchronizedRegions : Pass<"d2m-remove-synchronized-regions", "::mlir::ModuleOp"> {
+  let summary = "Remove synchronized region ops.";
   let description = [{
-    fill in description
+    This pass removes d2m.synchronized_region ops by hoisting their contained
+    operations up to the parent level, replacing block arguments with the
+    synchronized region's operands.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }

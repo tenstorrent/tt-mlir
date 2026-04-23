@@ -191,7 +191,6 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
   pm.addPass(d2m::createD2MInsertSpillAndScratch());
-  // pm.addPass(d2m::createD2MMarkSynchronizedOpBuffers());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerScratchAllocate());
   pm.addPass(mlir::createCanonicalizerPass());
@@ -237,7 +236,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
   pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
-  pm.addPass(d2m::createD2MInsertCBOps());
+  pm.addPass(d2m::createD2MRemoveSynchronizedRegions());
 
   createOptimizationPasses(pm, options);
 
@@ -248,7 +247,6 @@ void createTTIRToTTMetalBackendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
   { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
-  pm.addPass(d2m::createD2MInsertCBOps());
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());

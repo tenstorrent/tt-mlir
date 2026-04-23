@@ -162,7 +162,7 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
-  llvm_unreachable("Expected load, subview, or d2m.wait/reserve op");
+  llvm_unreachable("Expected load or subview op");
 }
 
 // Get DST index from where a compute op result is stored.
@@ -860,10 +860,9 @@ public:
       Value aTileIndex = adaptor.getA();
       Value bTileIndex = adaptor.getB();
 
-      // If the input didn't come from a subview, we'll expect the CB directly.
-      // This can happen when the value comes from an unrealized conversion cast
-      // or from a get_compile_time_arg_val op. In either case, if the type is
-      // a CB, we're reading from offset 0.
+      // If the input didn't come from a subview, we'll expect the CB directly
+      // which implicitly comes from an unrealized conversion cast.  This is a
+      // special case where we're reading from offset 0.
       if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
               aTileIndex.getDefiningOp())) {
         aTileIndex = index(rewriter, op.getLoc(), 0);
