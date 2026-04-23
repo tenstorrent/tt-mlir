@@ -304,14 +304,8 @@ def RewriteCompositeDecompFunctionsPass : Pass<"rewrite-composite-decomp-functio
     registry (composite name -> rewriter function), resolves the composite's
     `decomposition` SymbolRefAttr to a `func::FuncOp` and invokes the
     registered rewriter on that function. The rewriter replaces the
-    function's body while preserving its name, input types, and output
+    decomposition function's body while preserving its name, input types, and output
     types.
-
-    The registry currently has one entry ("tenstorrent.gather_dim"). Adding a
-    new composite requires one new rewriter function and one new map entry.
-
-    Multiple composites may reference the same decomposition function; each
-    unique target is rewritten exactly once.
 
     Must run after `decompose-custom-call-tuples` and before
     `flatten-or-convert-composites`, so the new body is what gets inlined.
