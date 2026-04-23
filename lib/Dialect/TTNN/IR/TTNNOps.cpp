@@ -2085,7 +2085,31 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
     if (producerMemConfig && consumerMemConfig &&
         producerMemConfig.getBufferType().getValue() == BufferType::DRAM &&
         consumerMemConfig.getBufferType().getValue() == BufferType::L1) {
-      return nullptr;
+      // Allow fold when the net change (producer's input → consumer's output)
+      // preserves buffer type, memory layout, and layout enum — meaning only
+      // dtype differs. This happens when adjacent ops have matching workarounds
+      // (e.g. dispatch_metadata output and moe_gpt input both need
+      // HEIGHT_SHARDED L1). The intermediate DRAM step is a workaround
+      // artifact, not intentional staging.
+      auto producerInputLayout = mlir::dyn_cast<TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(producerOp.getInput().getType())
+              .getEncoding());
+      auto consumerOutputLayout = mlir::dyn_cast<TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(op.getResult().getType()).getEncoding());
+
+      bool canRelax = false;
+      if (producerInputLayout && consumerOutputLayout) {
+        canRelax =
+            producerInputLayout.getBufferType() ==
+                consumerOutputLayout.getBufferType() &&
+            producerInputLayout.getMemLayoutOpt() ==
+                consumerOutputLayout.getMemLayoutOpt() &&
+            producerInputLayout.getLayout() == consumerOutputLayout.getLayout();
+      }
+
+      if (!canRelax) {
+        return nullptr;
+      }
     }
   }
 
@@ -2827,6 +2851,44 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
   if (getReductionSize() <= 0) {
     return emitOpError("reduction_size must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeGptOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeGptOp::verify() {
+  ::mlir::RankedTensorType w0w1Type = getW0W1Tensor().getType();
+  ::mlir::RankedTensorType w2Type = getW2Tensor().getType();
+
+  if (w0w1Type.getRank() != 6) {
+    return emitOpError("w0_w1_tensor must be a rank 6 tensor");
+  }
+  if (w2Type.getRank() != 6) {
+    return emitOpError("w2_tensor must be a rank 6 tensor");
+  }
+  if (w0w1Type.getDimSize(5) != 128) {
+    return emitOpError("w0_w1_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w2Type.getDimSize(5) != 128) {
+    return emitOpError("w2_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w0w1Type.getDimSize(0) != w2Type.getDimSize(0)) {
+    return emitOpError(
+        "w0_w1_tensor and w2_tensor must have same dim[0] (num_cores)");
+  }
+  if (w0w1Type.getDimSize(2) != w2Type.getDimSize(2)) {
+    return emitOpError("w0_w1_tensor and w2_tensor must have same dim[2] "
+                       "(experts_per_device)");
+  }
+  if (getExpertIndices().getType().getRank() < 2) {
+    return emitOpError("expert_indices must have rank >= 2");
+  }
+  if (getExpertScores().getType().getRank() < 2) {
+    return emitOpError("expert_scores must have rank >= 2");
   }
 
   return success();

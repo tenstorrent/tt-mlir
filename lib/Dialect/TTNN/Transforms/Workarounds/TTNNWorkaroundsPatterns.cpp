@@ -22,6 +22,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LayerNormPreAllGatherZeroPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
@@ -616,7 +617,9 @@ public:
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
           workarounds::decomposition::
-              AllToAllDispatchMetadataDrainCoreRewritePattern>(&getContext());
+              AllToAllDispatchMetadataDrainCoreRewritePattern,
+          workarounds::decomposition::MoeGptLayoutRewritePattern>(
+          &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
       patterns

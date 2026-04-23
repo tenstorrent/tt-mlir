@@ -380,6 +380,12 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
   static TTNNOperandsWorkarounds createAllToAllCombineOpOperandsWorkarounds();
 
+  // Create workarounds for moe_gpt op operands.
+  // The metal kernel requires expert_indices and expert_scores to be
+  // HEIGHT_SHARDED L1 ROW_MAJOR (produced by all_to_all_dispatch_metadata).
+  static TTNNOperandsWorkarounds
+  createMoeGptOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for moe_expert_token_remap op operands.
   // expert_metadata requires uint16 dtype and ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128

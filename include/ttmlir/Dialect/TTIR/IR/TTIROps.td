@@ -6363,4 +6363,65 @@ def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
     let hasVerifier = 1;
 }
 
+def TTIR_MoeGptOp : TTIR_NamedOp<"moe_gpt"> {
+    let summary = "Fused MoE compute kernel for GPT-OSS models.";
+    let description = [{
+      Fused Mixture-of-Experts compute kernel for GPT-OSS-style models.
+      Performs the full MoE compute pipeline in a single kernel: selective
+      tilize, gate/up projection (w0_w1), SwiGLU activation, all-to-all ring
+      exchange, down projection (w2), and combine. Typically follows
+      all_to_all_dispatch_metadata in the MoE dispatch/compute/combine flow.
+
+      Dimensions:
+        T         = total_tokens across the dispatch ring
+        K         = hidden_size
+        N         = intermediate_size
+        K_sel     = selected experts per token (top-k)
+        E         = experts per device
+        D         = total devices
+        C_dram    = DRAM-bank-aligned compute cores used for weight sharding
+        C_worker  = worker cores in the compute grid
+        L         = layers per weight tensor (typically 1)
+        G         = weight groups per core (gate/up interleaved pairs)
+        TILE_SIZE = compute tile size
+        L1_ALIGN  = L1 alignment
+
+      Input shapes (per device, after mesh sharding):
+      - input_tensor:   [T, K]                              (bf16)
+      - expert_indices: [T, K_sel]                          (uint16)
+      - expert_scores:  [T, K_sel]                          (bf16)
+      - expert_mapping: [1, E*D]                            (uint16;
+          flattened mapping, entry [0, i] = device ID owning expert i)
+      - w0_w1_tensor:   [C_dram, L, E, G, K, 4*TILE_SIZE]   (interleaved gate+up)
+      - w2_tensor:      [C_dram, L, E, 2, N, 4*TILE_SIZE]   (down projection)
+
+      Output shapes:
+      - token_counts:       [1, align(E*sizeof(u32), L1_ALIGN) / sizeof(u32)]                      (uint32)
+      - activation_records: [1, (T+1) * align((2*E+1)*sizeof(u32), L1_ALIGN) / sizeof(u32)]        (uint32)
+      - token_indices:      [E, (T+1) * align(sizeof(u32), L1_ALIGN) / sizeof(u32)]                (uint32)
+      - tilize_out:         [C_worker, 2, TILE_SIZE, K]     (bf16, tiled)
+      - tilize_out_rm:      [C_worker, 2, TILE_SIZE, K]     (bf16, row-major)
+      where align(n, a) = ceil(n/a) * a.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$w0_w1_tensor,
+                         AnyRankedTensor:$w2_tensor,
+                         DefaultValuedAttr<UI32Attr, "4">:$output_height_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "3">:$output_width_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "2880">:$hidden_size,
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$token_counts,
+                        AnyRankedTensor:$activation_records,
+                        AnyRankedTensor:$token_indices,
+                        AnyRankedTensor:$tilize_out,
+                        AnyRankedTensor:$tilize_out_rm);
+
+    let hasVerifier = 1;
+}
+
 #endif

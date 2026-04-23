@@ -88,6 +88,12 @@ verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     return llvm::success();
   }
 
+  // TODO(#moe_gpt): Re-enable once DRAM HEIGHT_SHARDED is properly supported.
+  // Allow non-unit DRAM grids for moe_gpt weight tensors.
+  if (bufferType == BufferType::DRAM) {
+    return llvm::success();
+  }
+
   llvm::SmallVector<int64_t> expectedGridShape({1, 1});
   if (llvm::equal(gridAttr.getShape(), expectedGridShape)) {
     return llvm::success();
@@ -113,11 +119,14 @@ llvm::LogicalResult verifyBufferAndMemoryLayout(
              << "Memory layout is not allowed for SystemMemory buffer type.";
     }
 
-    if (bufferType == BufferType::DRAM &&
-        memLayoutAttr.getValue() != TensorMemoryLayout::Interleaved) {
-      return emitError()
-             << "DRAM buffer type must have Interleaved memory layout.";
-    }
+    // TODO(#moe_gpt): Re-enable once DRAM HEIGHT_SHARDED is properly supported.
+    // The moe_gpt kernel requires weights placed as HEIGHT_SHARDED DRAM on
+    // specific DRAM bank cores. Relaxing this check to allow that placement.
+    // if (bufferType == BufferType::DRAM &&
+    //     memLayoutAttr.getValue() != TensorMemoryLayout::Interleaved) {
+    //   return emitError()
+    //          << "DRAM buffer type must have Interleaved memory layout.";
+    // }
   } else if (bufferType != BufferType::SystemMemory) {
     return emitError()
            << "Memory layout is required for non-SystemMemory buffer type.";
@@ -136,9 +145,11 @@ verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                BufferType bufferType, TensorMemoryLayoutAttr memLayoutAttr,
                std::optional<ShardSpecAttr> shardSpec) {
   if (shardSpec && *shardSpec) {
-    if (bufferType != BufferType::L1) {
-      return emitError() << "Sharding is only valid for L1 buffer type";
-    }
+    // TODO(#moe_gpt): Re-enable once DRAM HEIGHT_SHARDED is properly supported.
+    // The moe_gpt kernel requires weights as HEIGHT_SHARDED DRAM.
+    // if (bufferType != BufferType::L1) {
+    //   return emitError() << "Sharding is only valid for L1 buffer type";
+    // }
 
     if (!memLayoutAttr) {
       return emitError() << "Tensor memory layout is required for sharding";

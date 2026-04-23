@@ -1874,6 +1874,39 @@ public:
 } // namespace
 
 namespace {
+class MoeGptOpConversionPattern : public OpConversionPattern<ttir::MoeGptOp> {
+public:
+  using OpConversionPattern<ttir::MoeGptOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeGptOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto tokenCountsType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTokenCounts().getType()));
+    auto activationRecordsType =
+        cast<RankedTensorType>(this->getTypeConverter()->convertType(
+            op.getActivationRecords().getType()));
+    auto tokenIndicesType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTokenIndices().getType()));
+    auto tilizeOutType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTilizeOut().getType()));
+    auto tilizeOutRmType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTilizeOutRm().getType()));
+
+    rewriter.replaceOpWithNewOp<ttnn::MoeGptOp>(
+        op, tokenCountsType, activationRecordsType, tokenIndicesType,
+        tilizeOutType, tilizeOutRmType, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertScores(),
+        adaptor.getExpertMapping(), adaptor.getW0W1Tensor(),
+        adaptor.getW2Tensor(), op.getOutputHeightShardDimAttr(),
+        op.getOutputWidthShardDimAttr(), op.getHiddenSizeAttr(),
+        op.getClusterAxisAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -3837,6 +3870,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllCombineOpConversionPattern,
            SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,
+           MoeGptOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
