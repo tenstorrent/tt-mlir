@@ -998,3 +998,60 @@ def test_prod_last_dim_padding_no_workaround(
         target=target,
         pipeline_options=["disable-workarounds=true"],
     )
+
+
+@pytest.mark.parametrize(
+    "input_shape,begins,ends,step,output_shape",
+    [
+        # output last dim 258112: row_bytes * 2 = 258112 * 4 * 2 = 2064896 > ~1498112 (WH usable L1)
+        # Without the workaround, the circular buffer allocation exceeds L1 and crashes.
+        (
+            (6, 3, 258112),
+            [0, 2, 0],
+            [6, 3, 258112],
+            [1, 1, 1],
+            (6, 1, 258112),
+        ),
+    ],
+    ids=["3d_last_dim_258112"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="SliceStaticOpL1CBRewritePattern: output last dim 258112 causes circular "
+    "buffer allocation to exceed L1. Metal issue: https://github.com/tenstorrent/tt-metal/issues/42882"
+)
+def test_slice_l1_cb_workaround_disabled(
+    input_shape: Shape,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    output_shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test slice with the L1 circular buffer workaround disabled.
+    Workaround: SliceStaticOpL1CBRewritePattern - decomposes into
+    permute -> slice_static -> permute when output last dim exceeds L1.
+    Trigger condition: output_last_dim * sizeof(dtype) * 2 > usable_l1.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [dtype])
+        def slice_l1_cb_no_workaround(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
+    )
