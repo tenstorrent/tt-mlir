@@ -28,6 +28,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
@@ -2036,6 +2037,9 @@ public:
     constexpr int64_t kRequestedChannelBlock = 16;
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
     const int64_t channelBlock = std::max(kRequestedChannelBlock, TILE_WIDTH);
+    llvm::errs() << "[conv3d-lowering] channel blocks: requested="
+                 << kRequestedChannelBlock << ", tile_width=" << TILE_WIDTH
+                 << ", selected=" << channelBlock << "\n";
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
                                                   /*cInBlock=*/channelBlock);

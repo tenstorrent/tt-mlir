@@ -81,6 +81,25 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
+  constexpr uint32_t kTileWidth = 32;
+  const uint32_t requestedCInBlock =
+      (op->conv3d_config() && op->conv3d_config()->c_in_block())
+          ? *op->conv3d_config()->c_in_block()
+          : 0;
+  const uint32_t requestedCOutBlock =
+      (op->conv3d_config() && op->conv3d_config()->c_out_block())
+          ? *op->conv3d_config()->c_out_block()
+          : 0;
+  const uint32_t selectedCInBlock =
+      requestedCInBlock > 0 ? requestedCInBlock : kTileWidth;
+  const uint32_t selectedCOutBlock =
+      requestedCOutBlock > 0 ? requestedCOutBlock : kTileWidth;
+  LOG_INFO("[conv3d-runtime] channel blocks: c_in requested=", requestedCInBlock,
+           ", c_out requested=", requestedCOutBlock,
+           ", tile_width=", kTileWidth, ", selected_c_in=", selectedCInBlock,
+           ", selected_c_out=", selectedCOutBlock,
+           ", has_config=", static_cast<bool>(op->conv3d_config()));
+
   auto deviceComputeConfig = ::ttnn::init_device_compute_kernel_config(
       targetDevice.arch(), computeConfig, ::tt::tt_metal::MathFidelity::HiFi4,
       true, true, false);
