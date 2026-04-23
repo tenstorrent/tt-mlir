@@ -17,9 +17,6 @@ struct CBUsageInfo {
 
 llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion);
 
-LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter,
-                                        d2m::GenericOp genericOp);
-
 std::pair<Operation *, Operation *>
 wrapInSynchronizedRegion(PatternRewriter &rewriter,
                          SynchronizableOpInterface synchronizedOp);

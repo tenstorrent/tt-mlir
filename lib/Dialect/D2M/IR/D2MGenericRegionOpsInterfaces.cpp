@@ -67,109 +67,6 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
   return cbUsageInfo;
 }
 
-LogicalResult insertCBLayoutAttr(RewriterBase &rewriter,
-                                 memref::AllocOp allocOp,
-                                 llvm::SmallVector<Operation *> &producers) {
-  auto buffer = allocOp->getResult(0);
-  auto bufferType = mlir::cast<MemRefType>(buffer.getType());
-  auto shardShape = bufferType.getShape();
-  // llvm::errs() << "\n";
-  // for (int64_t shape : shardShape) {
-  //   llvm::errs() << shape << " ";
-  // }
-  // llvm::errs() << "\n";
-  Type elementType = bufferType.getElementType();
-  // llvm::errs() << "element type: " << elementType << "\n";
-
-  auto cbLayout = ttcore::CBLayoutAttr::get(
-      bufferType.getContext(), shardShape,
-      ttcore::getElementSizeBytes(elementType),
-      2); // TODO: remove hardcoded value, actually change to just add
-          // d2m.double_buffered attribute to alloc op
-
-  auto newMemRefType = MemRefType::get(shardShape, elementType, cbLayout,
-                                       bufferType.getMemorySpace());
-  rewriter.setInsertionPoint(allocOp);
-  auto newAllocOp =
-      rewriter.replaceOpWithNewOp<memref::AllocOp>(allocOp, newMemRefType);
-  Value newBuffer = newAllocOp->getResult(0);
-
-  // check ops that have this buffer as a dps init, we need to change their
-  // output type to also have cb layout
-  for (auto &producer : producers) {
-    // Check if producer has no results, if so, skip
-    if (producer->getNumResults() == 0) {
-      continue;
-    }
-
-    if (auto destinationStyleOp =
-            dyn_cast<DestinationStyleOpInterface>(producer)) {
-      for (auto &operand : destinationStyleOp->getOpOperands()) {
-        if (destinationStyleOp.isDpsInit(&operand) &&
-            operand.get() == newBuffer) {
-          // update op result that matches dps init
-          OpResult tiedResult = destinationStyleOp.getTiedOpResult(&operand);
-          tiedResult.setType(newMemRefType);
-        }
-      }
-    }
-  }
-
-  // Transfer address and alignment from the old alloc (assigned
-  // by the planner in assignAllocAddresses).
-  if (auto addrAttr = allocOp->getAttr("address")) {
-    newAllocOp->setAttr("address", addrAttr);
-  }
-  if (auto alignAttr = allocOp.getAlignmentAttr()) {
-    newAllocOp.setAlignmentAttr(alignAttr);
-  }
-  // TODO: can remove this above addr and alignement set once reordering
-  // cb layout attr insertion to top of allocator methods
-  // marking and allocating is ideally done after reblocking but currently
-  // reblocking is before allocating
-
-  return success();
-}
-
-LogicalResult markSynchronizedOpBuffers(IRRewriter &rewriter,
-                                        d2m::GenericOp genericOp) {
-  // print IR at this point
-  // llvm::errs() << "IR at this point: " << "\n";
-  // genericOp->print(llvm::errs());
-  // llvm::errs() << "\n";
-
-  auto cbUsageInfo = getCBUsageInfo(genericOp.getRegion(0));
-
-  // print cb usage info
-  // for (auto &[cb, usageInfo] : cbUsageInfo) {
-  //  llvm::errs() << "cb: " << cb << "\n";
-  //  for (auto &producer : usageInfo.producers) {
-  //    llvm::errs() << "producer: " << producer << "\n";
-  //  }
-  //  for (auto &consumer : usageInfo.consumers) {
-  //    llvm::errs() << "consumer: " << consumer << "\n";
-  //  }
-  //}
-
-  // loop over memrefs in generic, separate out to separate pass or rewriter?
-  // go through ops with synchronizable interface being used as input and
-  // attach CB layout aatribute on their operands using interface to tell
-  // which are Synchronized inputs and which are Synchronized outputs separate
-  // out handling for allocs inside generic and outside
-  for (auto &[cb, usageInfo] : cbUsageInfo) {
-    // TODO: add check on num consumers and producers
-    // TODO: this is is an inconsistency, most remote load/store will have to
-    // correctly be bufferized to not return a result
-    if (failed(insertCBLayoutAttr(
-            rewriter, mlir::cast<memref::AllocOp>(cb.getDefiningOp()),
-            usageInfo.producers))) {
-      return failure();
-    }
-  }
-
-  return success();
-}
-
 // Wraps a SynchronizableOpInterface in a SynchronizedRegionOp and returns the
 // new ops. This is to be used if we want to lower a synchronized op to a non
 // synchronized op/region before cb op insertion (e.g. linalg to affine). NOTE:
@@ -255,6 +152,12 @@ Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
         }
         bbBuilder.create<d2m::YieldOp>(bbLoc, ValueRange());
       });
+
+  // print IR entire region at this point
+  llvm::errs() << "IR at this point: " << "\n";
+  newSynchronizedRegionOp->getParentOfType<d2m::GenericOp>()->print(
+      llvm::errs());
+  llvm::errs() << "\n";
 
   SmallVector<Operation *> opsToErase;
   for (Operation &op : llvm::make_range(start, end)) {
