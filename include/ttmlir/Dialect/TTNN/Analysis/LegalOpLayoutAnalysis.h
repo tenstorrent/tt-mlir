@@ -57,8 +57,6 @@ class LegalOpLayoutAnalysis
 public:
   LegalOpLayoutAnalysis(Operation *op) : TTNNAnalysis(op) {}
 
-  static bool isValidAnalysisTarget(mlir::Operation *op);
-
 private:
   void analysisImplementation() override;
   bool applyOverrides() override;

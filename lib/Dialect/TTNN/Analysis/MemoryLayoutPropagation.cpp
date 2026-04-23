@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
@@ -300,7 +301,7 @@ void MemoryLayoutPropagation::run() {
   size_t opIndex = 0;
   // Forward pass: propagate layouts in scheduled (IR) order.
   func->walk([&](Operation *op) {
-    if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
+    if (!optimizer_utils::isBeamSearchTarget(op)) {
       return;
     }
     // Skip ops that don't implement the OpModel interface (e.g.,
@@ -348,16 +349,24 @@ void MemoryLayoutPropagation::run() {
     beamState[op] = processOp(op);
 
     if (!beamState[op].empty()) {
-      TTMLIR_DEBUG(
-          ttmlir::LogComponent::GreedyOptimizer,
-          "[op {0}] -> chosen: bufType={1}, memLayout={2}, "
-          "coreCount={3}, isSharded={4}, isL1={5}, reshard={6} "
-          "outputLayout={7}",
-          opIndex, beamState[op][0].configHint.outputLayout.getBufferType(),
-          beamState[op][0].configHint.outputLayout.getMemLayout(),
-          beamState[op][0].score.coreCount, beamState[op][0].score.isSharded,
-          beamState[op][0].score.isL1, beamState[op][0].score.requiresReshard,
-          beamState[op][0].configHint.outputLayout);
+      const auto &chosen = beamState[op][0];
+      if (chosen.configHint.outputLayout) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "[op {0}] -> chosen: bufType={1}, memLayout={2}, "
+                     "coreCount={3}, isSharded={4}, isL1={5}, reshard={6} "
+                     "outputLayout={7}",
+                     opIndex, chosen.configHint.outputLayout.getBufferType(),
+                     chosen.configHint.outputLayout.getMemLayout(),
+                     chosen.score.coreCount, chosen.score.isSharded,
+                     chosen.score.isL1, chosen.score.requiresReshard,
+                     chosen.configHint.outputLayout);
+      } else {
+        TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                     "[op {0}] -> chosen (sink): <no output layout> "
+                     "coreCount={1}, reshard={2}",
+                     opIndex, chosen.score.coreCount,
+                     chosen.score.requiresReshard);
+      }
     }
     ++opIndex;
   });
@@ -542,15 +551,22 @@ MemoryLayoutPropagation::processOp(Operation *op) {
   // Log all kept beam candidates for this op.
   for (size_t ci = 0; ci < candidates.size(); ++ci) {
     [[maybe_unused]] const auto &c = candidates[ci];
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                 "  BEAM[{0}] {1}: outBuf={2} outMem={3} "
-                 "score(L1={4},sharded={5},dramIn={6},reshard={7},"
-                 "cores={8},l1use={9}) inputs=[{10}]",
-                 ci, op->getName(), c.configHint.outputLayout.getBufferType(),
-                 c.configHint.outputLayout.getMemLayout(), c.score.isL1,
-                 c.score.isSharded, c.score.inputDramBytes,
-                 c.score.requiresReshard, c.score.coreCount,
-                 c.score.outputL1Usage, formatInputLayouts(c.inputLayouts));
+    if (c.configHint.outputLayout) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "  BEAM[{0}] {1}: outBuf={2} outMem={3} "
+                   "score(L1={4},sharded={5},dramIn={6},reshard={7},"
+                   "cores={8},l1use={9}) inputs=[{10}]",
+                   ci, op->getName(), c.configHint.outputLayout.getBufferType(),
+                   c.configHint.outputLayout.getMemLayout(), c.score.isL1,
+                   c.score.isSharded, c.score.inputDramBytes,
+                   c.score.requiresReshard, c.score.coreCount,
+                   c.score.outputL1Usage, formatInputLayouts(c.inputLayouts));
+    } else {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "  BEAM[{0}] {1}: <no output> reshard={2} inputs=[{3}]", ci,
+                   op->getName(), c.score.requiresReshard,
+                   formatInputLayouts(c.inputLayouts));
+    }
   }
 
   bool usedDramFallback = false;
@@ -765,17 +781,19 @@ void MemoryLayoutPropagation::addReshardCandidates(
   // reshard grids larger than the output tile count are wasteful — the op can't
   // produce a sharded output on more cores than it has tiles.
   int64_t maxGridVolume = std::numeric_limits<int64_t>::max();
-  auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
-  auto outputLayout =
-      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
-  if (outputLayout &&
-      mlir::isa<ttcore::TileType>(outputLayout.getElementType())) {
-    auto shape = outputType.getShape();
-    int64_t cols = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
-    int64_t rows =
-        (outputType.getNumElements() / shape.back() + TILE_HEIGHT - 1) /
-        TILE_HEIGHT;
-    maxGridVolume = rows * cols;
+  if (op->getNumResults() > 0) {
+    auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    auto outputLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
+    if (outputLayout &&
+        mlir::isa<ttcore::TileType>(outputLayout.getElementType())) {
+      auto shape = outputType.getShape();
+      int64_t cols = (shape.back() + TILE_WIDTH - 1) / TILE_WIDTH;
+      int64_t rows =
+          (outputType.getNumElements() / shape.back() + TILE_HEIGHT - 1) /
+          TILE_HEIGHT;
+      maxGridVolume = rows * cols;
+    }
   }
 
   // Collect unique reshard layouts across all base layouts.

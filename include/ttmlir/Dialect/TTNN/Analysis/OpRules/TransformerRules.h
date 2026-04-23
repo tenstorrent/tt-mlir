@@ -10,7 +10,8 @@
 namespace mlir::tt::ttnn {
 
 //===----------------------------------------------------------------------===//
-// Transformer ops: SDPA, PagedSDPA, NLPConcatHeadsDecode, ConcatenateHeads
+// Transformer ops: SDPA, PagedSDPA, NLPConcatHeadsDecode, ConcatenateHeads,
+//                  (Paged)UpdateCache, (Paged)FillCache
 //
 // Output hints:
 //   SDPA/PagedSDPA/NLPConcatHeadsDecode: NULL hint only.
@@ -79,6 +80,12 @@ struct SplitQKVRuleBook : OpRuleBook {
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// PagedUpdateCache constraint: the fill-value (operand 1) must be L1
+/// height-sharded.
+struct PagedUpdateCacheRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
 } // namespace mlir::tt::ttnn

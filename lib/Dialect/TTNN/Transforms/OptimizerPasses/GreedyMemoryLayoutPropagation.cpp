@@ -21,6 +21,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -125,7 +126,14 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
+        if (!optimizer_utils::opHasTensorResult(op)) {
+          // Constraint sinks (FillCacheOp, PagedUpdateCacheOp) have no tensor
+          // result but still need input layout validation. Register a
+          // null-output OpConfig so processOp can validate their input
+          // combinations and drive upstream reshards.
+          if (mlir::dyn_cast<OpModel>(op) && optimizer_utils::isSinkOp(op)) {
+            legalConfigs[op] = {OpConfig{TTNNLayoutAttr()}};
+          }
           return;
         }
         // Skip ops that don't implement the OpModel interface (e.g.,

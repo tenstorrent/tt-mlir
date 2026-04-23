@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -157,7 +158,7 @@ TEST_P(LegalLayoutAnalysisTest, LegalLayoutAnalysisVariants) {
   // Step 2: Walk function ops and their sub-ops
   module->walk([&](mlir::func::FuncOp funcOp) {
     funcOp->walk([&](mlir::Operation *op) {
-      if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
+      if (!optimizer_utils::opHasTensorResult(op)) {
         return;
       }
 
