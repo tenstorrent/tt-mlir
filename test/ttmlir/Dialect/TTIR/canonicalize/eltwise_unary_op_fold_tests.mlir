@@ -194,6 +194,16 @@ module {
     return %1 : tensor<1x7xbf16>
   }
 
+  func.func @clamp_scalar_f32() -> tensor<1x7xf32> {
+    // CHECK-LABEL: func.func @clamp_scalar_f32
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<{{\[\[}}2.000000e+00, 2.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00, 5.000000e+00, 5.000000e+00]]>
+    // CHECK-NOT: "ttir.clamp_scalar"
+    %0 = "ttir.constant"() <{value = dense<[[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]> : tensor<1x7xf32>}> : () -> tensor<1x7xf32>
+    %1 = "ttir.clamp_scalar"(%0) <{min = 2 : i32, max = 5 : i32}> : (tensor<1x7xf32>) -> tensor<1x7xf32>
+    return %1 : tensor<1x7xf32>
+  }
+
   func.func @cos() -> tensor<2xf32> {
     // CHECK-LABEL: func.func @cos
     // CHECK: "ttir.constant"
@@ -255,14 +265,34 @@ module {
     return %1 : tensor<3xf32>
   }
 
-  func.func @logical_not_zero() -> tensor<4xf32> {
-    // CHECK-LABEL: func.func @logical_not_zero
+  func.func @logical_not_float() -> tensor<4xf32> {
+    // CHECK-LABEL: func.func @logical_not_float
     // CHECK: "ttir.constant"
     // CHECK-SAME: value = dense<[1.000000e+00, 0.000000e+00, 0.000000e+00, 1.000000e+00]>
     // CHECK-NOT: "ttir.logical_not"
     %0 = "ttir.constant"() <{value = dense<[0.0, 1.0, -2.0, 0.0]> : tensor<4xf32>}> : () -> tensor<4xf32>
     %1 = "ttir.logical_not"(%0) : (tensor<4xf32>) -> tensor<4xf32>
     return %1 : tensor<4xf32>
+  }
+
+  func.func @logical_not_sint() -> tensor<4xsi32> {
+    // CHECK-LABEL: func.func @logical_not_sint
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<[1, 0, 0, 1]>
+    // CHECK-NOT: "ttir.logical_not"
+    %0 = "ttir.constant"() <{value = dense<[0, 1, -2, 0]> : tensor<4xsi32>}> : () -> tensor<4xsi32>
+    %1 = "ttir.logical_not"(%0) : (tensor<4xsi32>) -> tensor<4xsi32>
+    return %1 : tensor<4xsi32>
+  }
+
+  func.func @logical_not_uint() -> tensor<4xui8> {
+    // CHECK-LABEL: func.func @logical_not_uint
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<[1, 0, 0, 1]>
+    // CHECK-NOT: "ttir.logical_not"
+    %0 = "ttir.constant"() <{value = dense<[0, 1, 255, 0]> : tensor<4xui8>}> : () -> tensor<4xui8>
+    %1 = "ttir.logical_not"(%0) : (tensor<4xui8>) -> tensor<4xui8>
+    return %1 : tensor<4xui8>
   }
 
   func.func @reciprocal() -> tensor<4xf32> {
