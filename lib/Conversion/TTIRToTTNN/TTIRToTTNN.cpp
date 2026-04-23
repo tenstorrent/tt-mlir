@@ -31,6 +31,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -2030,14 +2031,14 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
+    // Force channel blocking in lowered conv3d config while respecting runtime
+    // minimum tile alignment requirements.
+    constexpr int64_t kRequestedChannelBlock = 16;
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
+    const int64_t channelBlock = std::max(kRequestedChannelBlock, TILE_WIDTH);
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
-                                                  /*cInBlock=*/TILE_WIDTH);
+                                                  /*cInBlock=*/channelBlock);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2080,11 +2081,22 @@ public:
           outputType, permutedOutputShape);
     }
 
+    auto conv3dConfigAttr = ttnn::Conv3dConfigAttr::get(
+        rewriter.getContext(),
+        /*weights_dtype=*/std::nullopt,
+        /*t_out_block=*/std::nullopt,
+        /*w_out_block=*/std::nullopt,
+        /*h_out_block=*/std::nullopt,
+        /*c_out_block=*/static_cast<uint32_t>(channelBlock),
+        /*c_in_block=*/static_cast<uint32_t>(channelBlock),
+        /*compute_with_storage_grid_size=*/std::nullopt);
+
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
         op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
+        conv3dConfigAttr,
         nullptr);
 
     if (needsPermute) {
