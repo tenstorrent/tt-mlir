@@ -693,6 +693,19 @@ private:
     return {};
   }
 
+  // Helper function to check if exponent is negative.
+  // Negative constant exponents are handled by the pow_tensor op, as
+  // pow_scalar does not support negative exponents.
+  static bool isNegativeConstant(mlir::Attribute attr) {
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+      return floatAttr.getValueAsDouble() < 0.0;
+    }
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      return intAttr.getValue().isNegative();
+    }
+    return false;
+  }
+
 public:
   using OpConversionPattern<ttir::PowOp>::OpConversionPattern;
 
@@ -700,7 +713,7 @@ public:
   matchAndRewrite(ttir::PowOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     mlir::Attribute exponent = getConstantAttr(adaptor.getRhs());
-    if (exponent) {
+    if (exponent && !isNegativeConstant(exponent)) {
       rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
           adaptor.getLhs(), exponent);
