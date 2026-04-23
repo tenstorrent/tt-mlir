@@ -39,6 +39,28 @@ namespace mlir::tt {
 
 namespace {
 
+/// True when the reduction touches a dim before the last two (tile C/R).
+/// Those go through the D2M outer-reduction path and must not be decomposed.
+template <typename TTIRReductionOp>
+bool isOuterReduction(TTIRReductionOp op) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+  int64_t rank = inputType.getRank();
+  std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+  if (rank < 2 || !maybeDimArg.has_value()) {
+    return false;
+  }
+  for (auto dimAttr : *maybeDimArg) {
+    int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
+    if (dim < 0) {
+      dim += rank;
+    }
+    if (dim < rank - 2) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class D2MNamedRewriterCommon {
 protected:
   using base = D2MNamedRewriterCommon;
@@ -1253,7 +1275,7 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    if (!ttir::utils::isOuterReduction(op)) {
+    if (!isOuterReduction(op)) {
       return failure();
     }
     checkTTIRReductionPreconditions(op);
@@ -1803,6 +1825,56 @@ private:
     for (std::size_t d = 0; d < rank; ++d) {
       std::forward<F>(fn)(d, dims[d]);
     }
+  }
+};
+} // namespace
+
+// ----------------------------------------------------------------------------
+//
+// D2MInnerMinDecompositionRewriter: rewrites inner-dim `ttir.min` as
+// `f(max(f(x)))` where `f` is an order-reversing involution. No
+// tile_reduce_min kernel exists; outer min uses `tile_minimum` via the
+// accumulation path. Floats use `neg`; integers use `bitwise_not` since
+// `~INT_MIN == INT_MAX` keeps it order-reversing at INT_MIN (unlike `neg`).
+namespace {
+class D2MInnerMinDecompositionRewriter final
+    : public mlir::OpConversionPattern<ttir::MinOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MinOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    if (isOuterReduction(op)) {
+      return failure();
+    }
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    mlir::Location loc = op.getLoc();
+    const bool isInt = mlir::isa<mlir::IntegerType>(inputType.getElementType());
+
+    auto invert = [&](mlir::Type type, mlir::Value value) -> mlir::Value {
+      if (isInt) {
+        return rewriter.create<ttir::BitwiseNotOp>(loc, type, value)
+            .getResult();
+      }
+      return rewriter.create<ttir::NegOp>(loc, type, value).getResult();
+    };
+
+    mlir::Value invertedInput = invert(inputType, op.getInput());
+    auto maxOp =
+        rewriter.create<ttir::MaxOp>(loc, resultType, invertedInput,
+                                     op.getKeepDimAttr(), op.getDimArgAttr());
+    if (isInt) {
+      rewriter.replaceOpWithNewOp<ttir::BitwiseNotOp>(op, resultType,
+                                                      maxOp.getResult());
+    } else {
+      rewriter.replaceOpWithNewOp<ttir::NegOp>(op, resultType,
+                                               maxOp.getResult());
+    }
+    return mlir::success();
   }
 };
 } // namespace
@@ -3803,6 +3875,10 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // High-priority rewriter for SliceStatic ops that violate NoC constraints.
   patterns.add<D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
+
+  // Decompose inner-dim min reductions to neg(max(neg)); runs during
+  // TTIRToD2M instead of as a separate pre-pass.
+  patterns.add<D2MInnerMinDecompositionRewriter>(typeConverter, ctx);
 
   // ToLayout 1:1 conversion.
   patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, ttnnMode);

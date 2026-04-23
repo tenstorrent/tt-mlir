@@ -20,10 +20,11 @@ namespace mlir::tt::d2m {
 constexpr StringRef kPreallocatedSemaphoresAttr = "preallocated_semaphores";
 
 // Helper to get pre-allocated semaphores for a multicast RemoteLoadOp.
-// Returns a pair of (receiversReady, senderFinished) semaphore values created
-// via d2m.get_global_operand, matching the pattern used for global semaphores.
-static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op,
-                                                         OpBuilder &builder) {
+// Returns the captured semaphore Values from the enclosing generic's
+// additionalArgs, using the absolute arg indices stored by
+// D2MPreallocateMcastSemaphores. NormalizeThreadArgs will later replace
+// these direct references with d2m.get_arg ops.
+static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op) {
   auto arrayAttr = op->getAttrOfType<ArrayAttr>(kPreallocatedSemaphoresAttr);
   TT_assertv(arrayAttr,
              "Multicast RemoteLoadOp must have preallocated_semaphores "
@@ -32,16 +33,31 @@ static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op,
   TT_assertv(arrayAttr.size() == 2u,
              "preallocated_semaphores attribute must have exactly 2 elements");
 
-  int64_t receiversReadyIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
-  int64_t senderFinishedIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
+  int64_t sem0AbsIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
+  int64_t sem1AbsIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
 
-  LocalSemaphoreType semType = LocalSemaphoreType::get(builder.getContext());
-  Value receiversReady = builder.create<GetGlobalOperandOp>(
-      op->getLoc(), semType, receiversReadyIdx);
-  Value senderFinished = builder.create<GetGlobalOperandOp>(
-      op->getLoc(), semType, senderFinishedIdx);
+  auto genericOp = op->getParentOfType<GenericOp>();
+  TT_assertv(genericOp, "RemoteLoadOp must be inside a GenericOp");
 
-  return {receiversReady, senderFinished};
+  unsigned ioSize = genericOp.getInputsAndOutputs().size();
+  int64_t nonMemrefCount = 0;
+  Value sem0, sem1;
+  for (Value arg : genericOp.getAdditionalArgs()) {
+    if (!mlir::isa<MemRefType>(arg.getType())) {
+      int64_t absIdx = static_cast<int64_t>(ioSize) + nonMemrefCount;
+      if (absIdx == sem0AbsIdx) {
+        sem0 = arg;
+      }
+      if (absIdx == sem1AbsIdx) {
+        sem1 = arg;
+      }
+      nonMemrefCount++;
+    }
+  }
+  TT_assertv(sem0, "Could not find receiversReady semaphore in additionalArgs");
+  TT_assertv(sem1, "Could not find senderFinished semaphore in additionalArgs");
+
+  return {sem0, sem1};
 }
 
 namespace {
@@ -83,7 +99,7 @@ public:
 
     // Get pre-allocated semaphores for synchronization.
     // These must have been set by D2MPreallocateMcastSemaphores pass.
-    auto preallocatedSems = getPreallocatedSemaphores(remoteLoad, rewriter);
+    auto preallocatedSems = getPreallocatedSemaphores(remoteLoad);
     Value receiversReadySemaphore = preallocatedSems.first;
     Value senderFinishedSemaphore = preallocatedSems.second;
 

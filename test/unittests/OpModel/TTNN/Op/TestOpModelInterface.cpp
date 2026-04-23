@@ -89,8 +89,9 @@ public:
     auto workerGrid = ttcore::GridAttr::get(
         &context, gridShapeHwN300, virtToPhysicalMap, physicalToVirtMap);
 
-    return ttcore::DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0},
-                                   {});
+    auto dramGrid = ttcore::GridAttr::get(&context, {1, 1});
+    return ttcore::DeviceAttr::get(&context, workerGrid, dramGrid, map4, map4,
+                                   {1}, {0}, {});
   }
 
   mlir::RankedTensorType

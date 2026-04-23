@@ -203,7 +203,8 @@ void populateTTModule(nb::module_ &m) {
                 mlir::cast<tt::ttcore::TileSizeAttr>(
                     unwrap(supportedTileSizes)),
                 dstPhysicalSizeTiles, numCBs, numComputeThreads,
-                numDatamovementThreads));
+                numDatamovementThreads,
+                {1, static_cast<int64_t>(numDramChannels)}));
           })
       .def_prop_ro("usable_l1_size", &tt::ttcore::ChipDescAttr::getUsableL1Size)
       .def_prop_ro("usable_dram_channel_size",
@@ -430,21 +431,21 @@ void populateTTModule(nb::module_ &m) {
                 mlir::cast<tt::ttcore::SystemDescAttr>(unwrap(systemDesc)),
                 meshShape));
           })
-      .def_static("get",
-                  [](MlirContext ctx, std::vector<int64_t> gridShape,
-                     MlirAffineMap virtToPhysicalMap,
-                     MlirAffineMap physicalToVirtMap, MlirAffineMap l1Map,
-                     MlirAffineMap dramMap, std::vector<int64_t> meshShape,
-                     std::vector<unsigned> chipIds,
-                     std::vector<tt::ttcore::Topology> meshTopology) {
-                    return wrap(tt::ttcore::DeviceAttr::get(
-                        unwrap(ctx),
-                        tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
-                                                  unwrap(virtToPhysicalMap),
-                                                  unwrap(physicalToVirtMap)),
-                        unwrap(l1Map), unwrap(dramMap), meshShape, chipIds,
-                        meshTopology));
-                  })
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> gridShape,
+             MlirAffineMap virtToPhysicalMap, MlirAffineMap physicalToVirtMap,
+             MlirAffineMap l1Map, MlirAffineMap dramMap,
+             std::vector<int64_t> meshShape, std::vector<unsigned> chipIds,
+             std::vector<tt::ttcore::Topology> meshTopology) {
+            return wrap(tt::ttcore::DeviceAttr::get(
+                unwrap(ctx),
+                tt::ttcore::GridAttr::get(unwrap(ctx), gridShape,
+                                          unwrap(virtToPhysicalMap),
+                                          unwrap(physicalToVirtMap)),
+                tt::ttcore::GridAttr::get(unwrap(ctx), {1, 1}), unwrap(l1Map),
+                unwrap(dramMap), meshShape, chipIds, meshTopology));
+          })
       .def("unwrap",
            [](const MlirAttribute &self) {
              return mlir::cast<tt::ttcore::DeviceAttr>(unwrap(self));
