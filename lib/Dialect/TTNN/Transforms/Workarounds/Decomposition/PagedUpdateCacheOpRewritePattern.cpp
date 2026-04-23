@@ -14,17 +14,16 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// This rewrite pattern is used to apply a specific memory config to the input
-// tensor (fill value) of the ttnn.paged_update_cache op. The input tensor must
-// be height sharded, but in addition to that, must fit onto an exact number of
-// rows in the physical grid.
+// This rewrite pattern applies a specific memory config to the input tensor
+// (fill value) of the ttnn.paged_update_cache op. The input must be height
+// sharded, and must fit onto an exact number of rows in the physical grid.
 LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
     ttnn::PagedUpdateCacheOp op, PatternRewriter &rewriter) const {
 
   RankedTensorType inputType =
       mlir::cast<RankedTensorType>(op.getInput().getType());
 
-  // The height sharded virtual grid must me [num_users, 1]
+  // The height sharded virtual grid must be [num_users, 1]
   int64_t numUsers = inputType.getShape()[1];
   SmallVector<int64_t> virtualGridSize = {numUsers, 1};
 
@@ -34,7 +33,7 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
     inputElementType = inputTileType.getElementType();
   }
 
-  // Retrieve the phyisical grid shape for the device.
+  // Retrieve the physical grid shape for the device.
   auto physicalGrid =
       ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
   // Create an affine map that translates the virtual grid layout to the
@@ -61,13 +60,12 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
   ttnn::TTNNLayoutAttr currentInputLayout =
       mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
           op.getInput().getType().getEncoding());
-  // Check that the current input layout is not identical to our desired one as
-  // we do not need to insert a ToMemoryConfigOp in this case.
+  // No-op if input already has the desired layout (e.g. optimizer set it).
   if (currentInputLayout == desiredInputLayout) {
     return failure();
   }
 
-  // Apply ToMemoryConfigOp to convert the input tensor to the desired layout.
+  // Apply ToLayoutOp to convert the input tensor to the desired layout.
   ttnn::MemoryConfigAttr inputMemoryConfig =
       ttnn::MemoryConfigAttr::get(desiredInputLayout, grid);
   RankedTensorType memoryConfigedInputType =
