@@ -13,6 +13,98 @@
 #l1 = #ttcore.memory_space<l1>
 
 // ---------------------------------------------------------------------------
+// Test: two producer nests feed a consumer nest that updates one of the
+//       producer intermediates in place. Verifies that the earlier writer is
+//       still treated as the producer for scratch insertion, even though the
+//       consumer also writes the same alloc.
+// ---------------------------------------------------------------------------
+
+// CHECK-LABEL: func.func @two_intermediates_inplace_consumer
+// CHECK-DAG:   %[[SCRATCH_A:.*]] = d2m.scratch_allocate {slot = 0 : i64} : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+// CHECK-DAG:   %[[SCRATCH_B:.*]] = d2m.scratch_allocate {slot = 1 : i64} : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+//
+// Nest A – tile_exp result stored to slot-0 scratch.
+// CHECK:       "d2m.tile_exp"
+// CHECK:       affine.store {{.*}}, %[[SCRATCH_A]]
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
+//
+// Nest B – tile_sin result stored to slot-1 scratch, even though tmp_b is also
+// written later by the consumer.
+// CHECK:       "d2m.tile_sin"
+// CHECK:       affine.store {{.*}}, %[[SCRATCH_B]]
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
+//
+// Nest C – loads BOTH scratch slots before updating tmp_b in place.
+// CHECK:       affine.load %[[SCRATCH_A]]
+// CHECK:       affine.load %[[SCRATCH_B]]
+// CHECK:       "d2m.tile_add"
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
+func.func @two_intermediates_inplace_consumer(
+    %in0  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
+    %in1  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
+    %out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>,
+               indexing_maps = [], iterator_types = [],
+               threads = [#d2m.thread<unified>]}
+      ins(%in0, %in1 :
+          memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
+          memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
+      outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb2_raw = d2m.get_cb(2) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %cb1 = d2m.wait %cb1_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %cb2 = d2m.reserve %cb2_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %tmp_a = memref.alloc() {alignment = 64 : i64}
+        : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %tmp_b = memref.alloc() {alignment = 64 : i64}
+        : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    // Nest A: cb0 -> tmp_a (tile_exp).
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 1 {
+        %v = affine.load %cb0[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        %r = "d2m.tile_exp"(%v) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+        affine.store %r, %tmp_a[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+      } {d2m.linalg_root}
+    } {d2m.scratch_space_loop}
+    // Nest B: cb1 -> tmp_b (tile_sin).
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 1 {
+        %v = affine.load %cb1[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        %r = "d2m.tile_sin"(%v) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+        affine.store %r, %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+      } {d2m.linalg_root}
+    } {d2m.scratch_space_loop}
+    // Nest C: reads BOTH tmp_a and tmp_b, updates tmp_b in place.
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 1 {
+        %va = affine.load %tmp_a[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        %vb = affine.load %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        %r  = "d2m.tile_add"(%va, %vb)
+            : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+        affine.store %r, %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+      } {d2m.linalg_root}
+    } {d2m.scratch_space_loop}
+    // Final copy to output so tmp_b remains observable after the in-place update.
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 1 {
+        %v = affine.load %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        affine.store %v, %cb2[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+      } {d2m.linalg_root}
+    } {d2m.scratch_space_loop}
+  }
+  return
+}
+
+// ---------------------------------------------------------------------------
 // Test: three scratch_space_loop nests in a linear A→B→C chain with two
 //       intermediate allocs.  Verifies that:
 //         - two scratch_allocate ops are created with slot 0 and slot 1
