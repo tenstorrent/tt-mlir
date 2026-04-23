@@ -508,6 +508,29 @@ def TTIRFoldFullToScalar: Pass<"ttir-fold-full-to-scalar", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRConsolidateStaticCacheUpdates
+    : Pass<"ttir-consolidate-static-cache-updates", "::mlir::ModuleOp"> {
+  let summary = "Consolidate redundant write-backs to mark_static_address tensors.";
+  let description = [{
+    Detects the pattern where the same static-address tensor (e.g.,
+    StaticCache.cumulative_length from Transformers 5.5+) is incremented N
+    times per forward pass with all N results feeding only function outputs
+    (write-backs to DRAM). Reduces N write-backs to 1, eliminating N-1
+    scalar ops and their associated DRAM round-trips.
+
+    Applies when:
+    - Multiple ttir.add ops each have one BlockArgument operand (the static
+      tensor) and one ttir.full constant delta operand.
+    - The add result has exactly one use: a function return operand.
+    - All adds share the same BlockArgument and the same delta fill value.
+    - The BlockArgument type matches the add result type.
+
+    Since all N write-backs target the same static DRAM address at function
+    exit, keeping one is semantically equivalent to keeping all.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::ModuleOp"> {
   let summary = "Narrow boolean-producing ops to i1 in the CPU module.";
   let description = [{
