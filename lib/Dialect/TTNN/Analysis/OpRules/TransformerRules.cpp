@@ -79,4 +79,24 @@ OutputHints SplitQKVRuleBook::getOutputHints(
   return layout_filter_utils::nullHintOnly();
 }
 
+//===----------------------------------------------------------------------===//
+// PagedUpdateCacheRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  // Operand 1 (fill value) must be L1 height-sharded.
+  // Reject interleaved and all other sharding types so the beam search
+  // is forced to explore HeightSharded reshard candidates. OpModel then
+  // picks the specific grid (numUsers cores) that satisfies the kernel.
+  if (operandIdx == 1) {
+    return [](TTNNLayoutAttr layout) -> bool {
+      auto ml = layout.getMemLayout();
+      return layout.hasL1BufferType() && ml &&
+             ml.getValue() == TensorMemoryLayout::HeightSharded;
+    };
+  }
+  return nullptr;
+}
+
 } // namespace mlir::tt::ttnn

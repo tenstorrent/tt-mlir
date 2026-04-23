@@ -137,18 +137,6 @@ bool incompatibleWithOverride(
 }
 
 // Skip operations that don't have nontrivial output tensors.
-bool LegalOpLayoutAnalysis::isValidAnalysisTarget(Operation *op) {
-  if (op->getNumResults() == 0) {
-    return false;
-  }
-  if (!llvm::isa<mlir::RankedTensorType>(op->getResult(0).getType())) {
-    return false;
-  }
-  if (llvm::isa<mlir::tt::ttnn::EmptyOp>(op)) {
-    return false;
-  }
-  return true;
-}
 
 void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
   Type scalarElementType = baseLayout.getScalarElementType();
