@@ -349,6 +349,14 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
 
 def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
     let summary = "Eltwise erf op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createErfOpOperandsWorkarounds(getInput().getType());
+      }
+    }];
+
     let description = [{
         Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
       }];
