@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -9,6 +10,7 @@
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
@@ -65,14 +67,14 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
 LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
                                               PatternRewriter &rewriter) {
   // Look for a D2M_GenericRegionComputeOp, and collect the outermost ops that
-  // contain them in the generic op Skip ops that have the
-  // SynchronizableOpInterface::Trait, such asTileTilizeBlockOp and
-  // TileUntilizeBlockOp ops since they haven't been lowered yet into
-  // non-synchronized ops
+  // contain them in the generic op
+  // Skip ops that have the SynchronizableOpInterface::Trait,
+  // such as TileTilizeBlockOp and TileUntilizeBlockOp ops since
+  // they haven't been lowered yet into non-synchronized ops
+  OpBuilder::InsertionGuard guard(rewriter);
   DenseSet<Operation *> outermostOps;
   genericOp.getRegion(0).walk([&](Operation *op) {
-    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>() ||
-        op->hasTrait<SynchronizableOpInterface::Trait>()) {
+    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
       return WalkResult::advance();
     }
 
@@ -85,13 +87,17 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     while (outermostOp->getParentOp() != genericOp.getOperation() &&
            !isBlockingLoop(outermostOp->getParentOp())) {
       outermostOp = outermostOp->getParentOp();
-      if (!mlir::isa<scf::ForOp>(outermostOp)) {
+      if (!mlir::isa<scf::ForOp>(outermostOp) &&
+          !mlir::isa<linalg::GenericOp>(outermostOp)) {
         llvm::errs() << "op " << *outermostOp << "\n";
         assert(false && "outermost loop op is not a scf.for op");
       }
     }
 
-    outermostOps.insert(outermostOp);
+    if (!dyn_cast<SynchronizableOpInterface>(outermostOp)) {
+      outermostOps.insert(outermostOp);
+    }
+
     return WalkResult::advance();
   });
 
@@ -197,6 +203,9 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       llvm::errs() << storedCBOperand << " ";
     }
     llvm::errs() << "\n";
+    llvm::errs() << "wrapping in synchronized region\n";
+    llvm::errs() << "start: " << *start << "\n";
+    llvm::errs() << "end: " << *end << "\n";
     wrapInSynchronizedRegion(
         rewriter, start, end,
         SmallVector<Value>(loadedCBOperands.begin(), loadedCBOperands.end()),
@@ -220,173 +229,145 @@ Value getCBGenericOperand(GenericOp genericOp, Value cbGenericOperand) {
   return cbGenericOperand;
 }
 
+// from cb usage info, check for load-store pairs and insert aliased cb ops for
+// alias side
 static LogicalResult
-processComputeLoads(Block *computeBlock, PatternRewriter &rewriter,
-                    DenseSet<Operation *> &toErase,
-                    llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
-  SmallVector<RemoteLoadOp> loads;
+processSharedBufferPairs(Block *computeBlock, PatternRewriter &rewriter,
+                         llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
+  for (auto [localBuffer, usageInfo] : cbUsageInfo) {
+    auto producer = usageInfo.producers.front();
+    auto consumer = usageInfo.consumers.front();
 
-  computeBlock->walk([&](AliasedLoadOp loadOp) {
-    if (toErase.contains(loadOp)) {
-      return WalkResult::advance();
+    // Insert compute-side CB ops for the aliased half of the pair.
+    // The streaming half stays as a remote_load/store for DMA.
+    if (mlir::isa<RemoteLoadOp>(producer) &&
+        mlir::isa<AliasedStoreOp>(consumer)) {
+      Location loc = producer->getLoc();
+      unsigned cbOperandIdx =
+          getCBOperandIdx(producer->getParentOfType<GenericOp>(), localBuffer);
+      // Set insertion point before consumer so GetCBOp dominates WaitOp/PopOp
+      rewriter.setInsertionPoint(consumer);
+      auto cb =
+          rewriter
+              .create<GetCBOp>(
+                  producer->getLoc(),
+                  CBType::get(producer->getContext(),
+                              mlir::cast<ShapedType>(localBuffer.getType())),
+                  cbOperandIdx)
+              .getResult();
+      rewriter.create<WaitOp>(loc, cb);
+      rewriter.create<PopOp>(loc, cb);
+    } else if (mlir::isa<AliasedLoadOp>(producer) &&
+               mlir::isa<RemoteStoreOp>(consumer)) {
+      Location loc = consumer->getLoc();
+      unsigned cbOperandIdx =
+          getCBOperandIdx(consumer->getParentOfType<GenericOp>(), localBuffer);
+      // Set insertion point before producer so GetCBOp dominates
+      // ReserveOp/PushOp
+      rewriter.setInsertionPoint(producer);
+      auto cb =
+          rewriter
+              .create<GetCBOp>(
+                  consumer->getLoc(),
+                  CBType::get(consumer->getContext(),
+                              mlir::cast<ShapedType>(localBuffer.getType())),
+                  cbOperandIdx)
+              .getResult();
+      rewriter.create<ReserveOp>(loc, cb);
+      rewriter.create<PushOp>(loc, cb);
     }
-
-    // llvm::errs() << "aliased load op: " << loadOp.getAliasedBuffer() << "\n";
-
-    Location loc = loadOp.getLoc();
-    Value localBuffer = getCBGenericOperand(
-        loadOp->getParentOfType<GenericOp>(), loadOp.getAliasedBuffer());
-    unsigned cbOperandIdx =
-        getCBOperandIdx(loadOp->getParentOfType<GenericOp>(), localBuffer);
-
-    // Assumes only one consumer for this local buffer
-    auto consumer = cbUsageInfo[localBuffer].consumers.front();
-
-    // llvm::errs() << "consumer with aliased load op: " << *consumer << "\n";
-
-    rewriter.setInsertionPoint(consumer);
-    auto cb =
-        rewriter
-            .create<GetCBOp>(
-                loadOp.getLoc(),
-                CBType::get(loadOp.getContext(),
-                            mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx)
-            .getResult();
-    rewriter.create<ReserveOp>(loc, cb);
-    rewriter.create<PushOp>(loc, cb);
-    auto waitOp = rewriter.create<WaitOp>(loc, cb);
-    rewriter.setInsertionPointAfter(consumer);
-    rewriter.create<PopOp>(loc, cb);
-
-    // Replace uses of the local buffer in compute consumer
-    localBuffer.replaceUsesWithIf(waitOp.getResult(), [&](OpOperand &use) {
-      return use.getOwner() == consumer;
-    });
-
-    // llvm::errs() << "inserting reserve/push/wait/pop before consumer: "
-    //              << consumer->getResults().front() << "\n";
-
-    toErase.insert(loadOp);
-    return WalkResult::advance();
-  });
-
-  // Handle remote load
-  computeBlock->walk([&](RemoteLoadOp loadOp) {
-    if (loadOp.isExplicitCBForm() || toErase.contains(loadOp)) {
-      return WalkResult::advance();
-    }
-
-    // Needs datamovement: wait before load, pop before terminator.
-    Location loc = loadOp.getLoc();
-    Value localBuffer = getCBGenericOperand(
-        loadOp->getParentOfType<GenericOp>(), loadOp.getLocalBuffer());
-    llvm::errs() << "local buffer: " << localBuffer << "\n";
-    unsigned cbOperandIdx =
-        getCBOperandIdx(loadOp->getParentOfType<GenericOp>(), localBuffer);
-
-    auto consumer = cbUsageInfo[localBuffer].consumers.front();
-    rewriter.setInsertionPoint(consumer);
-    auto cb =
-        rewriter
-            .create<GetCBOp>(
-                loadOp.getLoc(),
-                CBType::get(loadOp.getContext(),
-                            mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx)
-            .getResult();
-    auto waitOp = rewriter.create<WaitOp>(loadOp.getLoc(), cb);
-    rewriter.setInsertionPointAfter(consumer);
-    rewriter.create<PopOp>(loc, cb);
-
-    rewriter.replaceUsesWithIf(
-        localBuffer, waitOp.getResult(),
-        [&](OpOperand &use) { return consumer == use.getOwner(); });
-
-    toErase.insert(loadOp);
-    return WalkResult::advance();
-  });
-
+    // Else if both sides are streaming/need DMA, let the DM thread handle
+    // everything.
+  }
   return success();
 }
 
 static LogicalResult
-processComputeStores(Block *computeBlock, PatternRewriter &rewriter,
-                     DenseSet<Operation *> &toErase,
-                     llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
+insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
+                      llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
   SmallVector<RemoteLoadOp> loads;
 
-  computeBlock->walk([&](AliasedStoreOp storeOp) {
-    if (toErase.contains(storeOp)) {
-      WalkResult::advance();
+  computeBlock->walk([&](Operation *op) {
+    // TODO: see if removed check for explicit CB form
+    // (loadOp.isExplicitCBForm() || toErase.contains(loadOp)) causes any issues
+    if (op->hasTrait<SynchronizableOpInterface::Trait>() &&
+        !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
+      auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
+      // get consumers and insert wait+pop
+      for (auto &operand : synchronizedOp->getOpOperands()) {
+        if (synchronizedOp.isConsumer(operand)) {
+          Location loc = synchronizedOp.getLoc();
+          Value localBuffer = getCBGenericOperand(
+              synchronizedOp->getParentOfType<GenericOp>(), operand.get());
+          unsigned cbOperandIdx = getCBOperandIdx(
+              synchronizedOp->getParentOfType<GenericOp>(), localBuffer);
+
+          // get the associated producer for this operand
+          // Assumes only one producer for this local buffer
+          auto associatedProducer = cbUsageInfo[localBuffer].producers.front();
+          rewriter.setInsertionPoint(synchronizedOp);
+          auto cb =
+              rewriter
+                  .create<GetCBOp>(loc,
+                                   CBType::get(synchronizedOp.getContext(),
+                                               mlir::cast<ShapedType>(
+                                                   localBuffer.getType())),
+                                   cbOperandIdx)
+                  .getResult();
+
+          if (mlir::isa<AliasedLoadOp>(associatedProducer)) {
+            rewriter.create<ReserveOp>(loc, cb);
+            rewriter.create<PushOp>(loc, cb);
+          }
+          WaitOp waitOp = rewriter.create<WaitOp>(loc, cb);
+          rewriter.setInsertionPointAfter(synchronizedOp);
+          rewriter.create<PopOp>(loc, cb);
+
+          // Replace uses of the local buffer in compute consumer
+          localBuffer.replaceUsesWithIf(
+              waitOp.getResult(),
+              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
+        }
+      }
+
+      // get producers and insert reserve+push
+      for (auto &operand : synchronizedOp->getOpOperands()) {
+        if (synchronizedOp.isProducer(operand)) {
+          Location loc = synchronizedOp.getLoc();
+          Value localBuffer = getCBGenericOperand(
+              synchronizedOp->getParentOfType<GenericOp>(), operand.get());
+          unsigned cbOperandIdx = getCBOperandIdx(
+              synchronizedOp->getParentOfType<GenericOp>(), localBuffer);
+
+          // get the associated consumer for this operand
+          // Assumes only one consumer for this local buffer
+          auto associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
+          rewriter.setInsertionPoint(synchronizedOp);
+          auto cb =
+              rewriter
+                  .create<GetCBOp>(loc,
+                                   CBType::get(synchronizedOp.getContext(),
+                                               mlir::cast<ShapedType>(
+                                                   localBuffer.getType())),
+                                   cbOperandIdx)
+                  .getResult();
+
+          auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+          rewriter.setInsertionPointAfter(synchronizedOp);
+          rewriter.create<PushOp>(loc, cb);
+          if (mlir::isa<AliasedStoreOp>(associatedConsumer)) {
+            rewriter.create<WaitOp>(loc, cb);
+            rewriter.create<PopOp>(loc, cb);
+          }
+
+          // Replace uses of the local buffer in compute consumer
+          localBuffer.replaceUsesWithIf(
+              reserveOp.getResult(),
+              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
+        }
+      }
     }
 
-    Location loc = storeOp.getLoc();
-    Value localBuffer = getCBGenericOperand(
-        storeOp->getParentOfType<GenericOp>(), storeOp.getAliasedBuffer());
-    unsigned cbOperandIdx =
-        getCBOperandIdx(storeOp->getParentOfType<GenericOp>(), localBuffer);
-
-    // Assumes only one consumer for this local buffer
-    auto producer = cbUsageInfo[localBuffer].producers.front();
-    rewriter.setInsertionPoint(producer);
-    auto cb =
-        rewriter
-            .create<GetCBOp>(
-                storeOp.getLoc(),
-                CBType::get(storeOp.getContext(),
-                            mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx)
-            .getResult();
-    auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-    rewriter.setInsertionPointAfter(producer);
-    rewriter.create<PushOp>(loc, cb);
-    rewriter.create<WaitOp>(loc, cb);
-    rewriter.create<PopOp>(loc, cb);
-
-    // Replace uses of the local buffer in compute consumer
-    localBuffer.replaceUsesWithIf(reserveOp.getResult(), [&](OpOperand &use) {
-      return use.getOwner() == producer;
-    });
-
-    toErase.insert(storeOp);
-    return WalkResult::advance();
-  });
-
-  // Handle remote store
-  computeBlock->walk([&](RemoteStoreOp storeOp) {
-    if (storeOp.isExplicitCBForm() || toErase.contains(storeOp)) {
-      WalkResult::advance();
-    }
-
-    // Needs datamovement: wait before store, pop before terminator.
-    Location loc = storeOp.getLoc();
-
-    Value localBuffer = getCBGenericOperand(
-        storeOp->getParentOfType<GenericOp>(), storeOp.getLocalBuffer());
-    // llvm::errs() << "local buffer: " << localBuffer << "\n";
-    unsigned cbOperandIdx =
-        getCBOperandIdx(storeOp->getParentOfType<GenericOp>(), localBuffer);
-
-    auto producer = cbUsageInfo[localBuffer].producers.front();
-    rewriter.setInsertionPoint(producer);
-    auto cb =
-        rewriter
-            .create<GetCBOp>(
-                storeOp.getLoc(),
-                CBType::get(storeOp.getContext(),
-                            mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx)
-            .getResult();
-    auto reserveOp = rewriter.create<ReserveOp>(storeOp.getLoc(), cb);
-    rewriter.setInsertionPointAfter(producer);
-    rewriter.create<PushOp>(loc, cb);
-
-    rewriter.replaceUsesWithIf(
-        localBuffer, reserveOp.getResult(),
-        [&](OpOperand &use) { return producer == use.getOwner(); });
-
-    toErase.insert(storeOp);
     return WalkResult::advance();
   });
 
@@ -526,8 +507,15 @@ static void eraseDeadOps(PatternRewriter &rewriter, Block *block,
 
 // Erase collected ops. All legitimate uses must have been replaced or dropped
 // before adding ops to this set, so we just drop any stale uses and erase.
-static void eraseCollectedOps(PatternRewriter &rewriter,
-                              DenseSet<Operation *> &ops) {
+static void eraseDMAOpsInComputeBlock(PatternRewriter &rewriter,
+                                      Block *computeBlock) {
+  DenseSet<Operation *> ops;
+  computeBlock->walk([&](Operation *op) {
+    if (isa<RemoteLoadOp, RemoteStoreOp, AliasedLoadOp, AliasedStoreOp>(op)) {
+      ops.insert(op);
+    }
+    return WalkResult::advance();
+  });
   for (Operation *op : ops) {
     op->dropAllUses();
   }
@@ -571,7 +559,6 @@ public:
     }
 
     // Create new 2-region GenericOp: datamovement + compute.
-    rewriter.setInsertionPoint(generic);
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
@@ -614,28 +601,33 @@ public:
       rewriter.clone(*term, computeMapping);
     }
 
-    // Collect ops for deferred erasure instead of erasing inline.
-    DenseSet<Operation *> toErase;
-
     // Compute thread: insert CB sync ops for implicit-form remote ops.
     auto cbUsageInfoCompute = getCBUsageInfo(newGeneric.getRegion(1));
     // processSharedBufferPairs no longer needed since we have explicit alias
     // ops
     // TODO: remove processSharedBufferPairs
-    llvm::errs() << "compute block: " << computeBlock << "\n";
-    if (failed(processComputeLoads(computeBlock, rewriter, toErase,
-                                   cbUsageInfoCompute)) ||
-        failed(processComputeStores(computeBlock, rewriter, toErase,
-                                    cbUsageInfoCompute))) {
+    llvm::errs() << "compute block: " << *computeBlock << "\n";
+    if (failed(processSharedBufferPairs(computeBlock, rewriter,
+                                        cbUsageInfoCompute)) ||
+        failed(insertCBOpsForCompute(computeBlock, rewriter,
+                                     cbUsageInfoCompute))) {
       return failure();
     }
 
     // DMA thread: convert datamovement ops to explicit CB form.
+    DenseSet<Operation *> toErase;
     if (failed(convertDMAToExplicitCBForm(dmBlock, rewriter, toErase))) {
       return failure();
     }
+    // Erase the original implicit-form ops that were converted to explicit CB
+    // form.
+    for (Operation *op : toErase) {
+      op->dropAllUses();
+      rewriter.eraseOp(op);
+    }
+    toErase.clear();
 
-    eraseCollectedOps(rewriter, toErase);
+    eraseDMAOpsInComputeBlock(rewriter, computeBlock);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
     eraseDeadOps(rewriter, computeBlock, /*isDatamovementThread=*/false);
 
