@@ -620,47 +620,49 @@ void mlir::tt::ttir::LogicalOrOp::getCanonicalizationPatterns(
 
 // ClampScalarOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::ClampScalarOp::fold(FoldAdaptor adaptor) {
-  // We use double here since `min` and `max` attributes are f32 or i32 and
-  // every f32 and i32 value can be exactly represented as a double.
-  double min{}, max{};
-  if (auto floatMin = mlir::dyn_cast<mlir::FloatAttr>(getMin())) {
-    min = floatMin.getValueAsDouble();
-  } else if (auto intMin = mlir::dyn_cast<mlir::IntegerAttr>(getMin())) {
-    min = static_cast<double>(intMin.getInt());
-  } else {
-    return nullptr;
-  }
-  if (auto floatMax = mlir::dyn_cast<mlir::FloatAttr>(getMax())) {
-    max = floatMax.getValueAsDouble();
-  } else if (auto intMax = mlir::dyn_cast<mlir::IntegerAttr>(getMax())) {
-    max = static_cast<double>(intMax.getInt());
-  } else {
+  auto input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getInput());
+  if (!input) {
     return nullptr;
   }
 
-  auto clampFloat = ApplyToAPFloat([min = static_cast<float>(min),
-                                    max = static_cast<float>(max)](float val) {
-    return std::clamp(val, min, max);
-  });
+  if (auto floatType =
+          mlir::dyn_cast<mlir::FloatType>(input.getElementType())) {
+    auto min = ttmlir::utils::attributeToAPFloat(getMin());
+    auto max = ttmlir::utils::attributeToAPFloat(getMax());
+    if (&floatType.getFloatSemantics() != &llvm::APFloat::IEEEsingle()) {
+      bool losesInfo{};
+      min.convert(floatType.getFloatSemantics(),
+                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+      max.convert(floatType.getFloatSemantics(),
+                  llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+    }
+    return constantFoldEltwiseUnary(
+        *this, adaptor,
+        [min, max](const llvm::APFloat &val) {
+          return std::clamp(val, min, max);
+        },
+        nullptr);
+  }
 
-  auto intType = mlir::dyn_cast<mlir::IntegerType>(getType().getElementType());
-  bool isUnsigned = intType && intType.isUnsignedInteger();
-  // If not int, just create the width large enough to create lambda closure
-  // parameters without error.
-  auto width = intType ? intType.getWidth() : 64;
+  if (auto intType =
+          mlir::dyn_cast<mlir::IntegerType>(input.getElementType())) {
+    double minDouble = ttmlir::utils::attributeToDouble(getMin());
+    double maxDouble = ttmlir::utils::attributeToDouble(getMax());
+    auto min = llvm::APInt(intType.getWidth(), static_cast<int64_t>(minDouble));
+    auto max = llvm::APInt(intType.getWidth(), static_cast<int64_t>(maxDouble));
+    bool isUnsigned = intType.isUnsigned();
+    return constantFoldEltwiseUnary(
+        *this, adaptor, nullptr,
+        [min, max, isUnsigned](const llvm::APInt &val) {
+          if (isUnsigned) {
+            return llvm::APIntOps::umax(min, llvm::APIntOps::umin(val, max));
+          }
+          return llvm::APIntOps::smax(min, llvm::APIntOps::smin(val, max));
+        });
+  }
 
-  auto clampInt =
-      [isUnsigned,
-       min = llvm::APInt(width, static_cast<uint64_t>(min), !isUnsigned),
-       max = llvm::APInt(width, static_cast<uint64_t>(max), !isUnsigned)](
-          llvm::APInt val) {
-        if (isUnsigned) {
-          return llvm::APIntOps::umax(llvm::APIntOps::umin(val, max), min);
-        }
-        return llvm::APIntOps::smax(llvm::APIntOps::smin(val, max), min);
-      };
-
-  return constantFoldEltwiseUnary(*this, adaptor, clampFloat, clampInt);
+  return nullptr;
 }
 
 // ClampScalarOp canonicalization
