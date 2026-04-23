@@ -16,12 +16,12 @@ on:
         description: "TTSim release tag"
         required: false
         type: string
-        default: "v1.4.4"
+        default: "v1.5.4"
       timeout:
         description: "Timeout in minutes for the TTSim test job"
         required: false
         type: number
-        default: 30
+        default: 120
 
 permissions:
   checks: write
@@ -147,6 +147,7 @@ jobs:
           export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
           export TT_METAL_INSPECTOR="0"
           export TT_METAL_INSPECTOR_RPC="0"
+          export TT_METAL_DISABLE_SFPLOADMACRO="1"
           mkdir -p test_reports
 
           run_sim_test() {
@@ -160,18 +161,18 @@ jobs:
             fi
           }
 
-          if [[ "$ARCH_NAME" == "wormhole_b0" ]]; then
-            # Wormhole list: broadest simulator smoke coverage.
-            run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py::test_unary_ops" "ttmetal" "test_reports/ttsim_unary_wh.xml"
-            run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py::test_binary_ops" "ttmetal" "test_reports/ttsim_binary_wh.xml"
-            run_sim_test "test/python/golden/test_metal_matmul.py::test_matmul_ttnn_shapes_double_buffered" "" "test_reports/ttsim_matmul_wh.xml"
-          elif [[ "$ARCH_NAME" == "blackhole" ]]; then
-            # Blackhole list: start smaller and expand as BH simulator support improves.
-            run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py::test_unary_ops" "ttmetal" "test_reports/ttsim_unary_bh.xml"
-          else
-            echo "Unsupported ARCH_NAME: $ARCH_NAME"
-            exit 1
-          fi
+          run_sim_test "test/python/golden/ttir_ops/data_movement/test_data_movement.py" "ttmetal" "test_reports/ttsim_test_data_movement_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py" "ttmetal" "test_reports/ttsim_ttir_binary_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_ternary.py" "ttmetal" "test_reports/ttsim_ttir_ternary_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py" "ttmetal" "test_reports/ttsim_ttir_unary_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/ttir_ops/normalization/test_normalization.py" "ttmetal" "test_reports/ttsim_normalization_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_bfp8_typecast.py" "ttmetal" "test_reports/ttsim_metal_bfp8_typecast_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_composite_ops.py" "ttmetal" "test_reports/ttsim_metal_composite_ops_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_tilize.py" "ttmetal" "test_reports/ttsim_metal_tilize_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_tms.py" "ttmetal" "test_reports/ttsim_metal_tms_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_ttir_eltwise_fusion.py" "ttmetal" "test_reports/ttsim_ttir_eltwise_fusion_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_ttir_models.py" "ttmetal" "test_reports/ttsim_ttir_models_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_ttir_ops.py" "ttmetal" "test_reports/ttsim_ttir_ops_${{ matrix.arch }}.xml"
 
       - name: Upload TTSim test report xml
         if: success() || failure()

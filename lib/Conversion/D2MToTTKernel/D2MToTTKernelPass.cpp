@@ -79,6 +79,7 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::MeshShardOp>();
     target.addLegalOp<d2m::CreateGlobalSemaphoreOp>();
     target.addLegalOp<d2m::ResetGlobalSemaphoreOp>();
+    target.addLegalOp<d2m::CreateLocalSemaphoreOp>();
     target.addLegalOp<d2m::SpatialOp>();
 
     if (ttnnMode) {

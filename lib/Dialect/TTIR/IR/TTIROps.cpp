@@ -5020,16 +5020,21 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// GatherDimOp
+// GatherOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::GatherDimOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::GatherOp::verify() {
   const ::mlir::RankedTensorType inputType = getInput().getType();
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType resultType = getResult().getType();
 
   const int64_t inputRank = inputType.getRank();
   const int64_t indexRank = indexType.getRank();
+
+  if (!indexType.getElementType().isInteger()) {
+    return emitOpError() << "Index tensor must have an integer type, got "
+                         << indexType.getElementType();
+  }
 
   if (inputRank != indexRank) {
     return emitOpError()
@@ -6599,13 +6604,13 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != 1 &&
-        attentionMaskType.getShape()[0] != batchSize) {
+    if (attentionMaskType.getShape()[0] != 1) {
+      return emitOpError("Attention mask dim 0 must be 1");
+    }
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
-    }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {

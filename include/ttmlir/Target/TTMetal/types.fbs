@@ -72,9 +72,15 @@ table GlobalSemaphoreRef {
   address: uint64;
 }
 
+table LocalSemaphoreRef {
+  global_id: uint32;
+  initial_value: uint32;
+}
+
 union ArgRef {
   BufferRef,
-  GlobalSemaphoreRef
+  GlobalSemaphoreRef,
+  LocalSemaphoreRef,
 }
 
 table CBRef {

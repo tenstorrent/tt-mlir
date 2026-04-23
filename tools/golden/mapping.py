@@ -1752,6 +1752,7 @@ def sdpa_decode_golden(
         Query:  [1, batch, num_heads, head_dim]
         Key:    [batch, num_kv_heads, seq_len, head_dim]
         Value:  [batch, num_kv_heads, seq_len, head_dim]
+        Mask:   [1, batch_or_1, num_heads_or_1, seq_len]
         Output: [1, batch, num_heads, head_dim]
     """
     # Query: [1, B, H, D] -> [B, H, 1, D]
@@ -1774,9 +1775,9 @@ def sdpa_decode_golden(
     qk = torch.matmul(q, k.transpose(-2, -1))
 
     # Add attention mask (before scaling, matching tt-metal)
-    # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
+    # Mask is in decode layout [1, B, H, S], permute to [B, H, 1, S] to match qk
     if attention_mask is not None:
-        qk = torch.add(qk, attention_mask.float().transpose(1, 2))
+        qk = torch.add(qk, attention_mask.float().permute(1, 2, 0, 3))
 
     # Scale AFTER masking (tt-metal fuses scale into exp)
     if scale is not None:
@@ -3470,6 +3471,64 @@ def ttir_sqrt_golden(
     return torch.sqrt(input_tensor).to(output_dtype)
 
 
+def ttir_square_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.square(input_tensor).to(output_dtype)
+
+
+def ttir_exp2_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.exp2(input_tensor).to(output_dtype)
+
+
+def ttir_softsign_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.softsign(input_tensor).to(output_dtype)
+
+
+def ttir_signbit_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """Match TTKernel signbit_tile: 0.0 or 1.0 in the output element type."""
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.signbit(input_tensor).to(output_dtype)
+
+
+def ttir_frac_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.frac(input_tensor).to(output_dtype)
+
+
+def ttir_trunc_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.trunc(input_tensor).to(output_dtype)
+
+
+def ttir_selu_golden(
+    input_tensor: GoldenMapTensor,
+    scale_attr: FloatAttr,
+    alpha_attr: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    scale = unpack_mlir_attr(scale_attr)
+    alpha = unpack_mlir_attr(alpha_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    pos = torch.clamp(input_tensor, min=0)
+    exp_m1 = torch.sub(torch.exp(input_tensor), 1.0)
+    neg = torch.clamp(torch.mul(exp_m1, alpha), max=0)
+    return torch.mul(torch.add(pos, neg), scale).to(output_dtype)
+
+
 def ttir_pow_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4328,7 +4387,7 @@ def ttir_scatter_golden(
     return out_tensor.to(output_dtype)
 
 
-def ttir_gather_dim_golden(
+def ttir_gather_golden(
     input_tensor: GoldenMapTensor,
     index: GoldenMapTensor,
     dim: IntegerAttr,
@@ -7148,10 +7207,17 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AsinOp: ttir_asin_golden,
     ttir.AsinhOp: ttir_asinh_golden,
     ttir.SqrtOp: ttir_sqrt_golden,
+    ttir.SquareOp: ttir_square_golden,
     ttir.LogOp: ttir_log_golden,
     ttir.Log1pOp: ttir_log1p_golden,
     ttir.Expm1Op: torch.expm1,
     ttir.ExpOp: ttir_exp_golden,
+    ttir.Exp2Op: ttir_exp2_golden,
+    ttir.SoftsignOp: ttir_softsign_golden,
+    ttir.SignbitOp: ttir_signbit_golden,
+    ttir.SeluOp: ttir_selu_golden,
+    ttir.FracOp: ttir_frac_golden,
+    ttir.TruncOp: ttir_trunc_golden,
     # Elementwise binary operations
     ttir.AddOp: ttir_add_golden,
     ttir.Atan2Op: torch.atan2,
@@ -7257,7 +7323,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
-    ttir.GatherDimOp: ttir_gather_dim_golden,
+    ttir.GatherOp: ttir_gather_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
@@ -7452,7 +7518,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
-    ttnn.GatherOp: ttir_gather_dim_golden,
+    ttnn.GatherOp: ttir_gather_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----

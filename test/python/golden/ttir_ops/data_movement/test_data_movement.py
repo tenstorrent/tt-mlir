@@ -9,6 +9,7 @@ from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
+    SkipIf,
     shapes_list_str,
     shape_str,
 )
@@ -79,7 +80,9 @@ pytestmark = pytest.mark.frontend("ttir")
         ([(512, 512), (512, 512)], 0),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
         # Generate dtypes list dynamically based on number of shapes
@@ -116,7 +119,10 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_concat_op(
     shapes: List[Shape],
     dim: int,
@@ -159,7 +165,7 @@ def test_cpu_hoistable_concat_op(
     ],
 )
 @pytest.mark.parametrize("value", [0])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_pad(
     shape: Shape, padding: List[int], value: int, target: str, request, device
 ):
@@ -191,7 +197,10 @@ def test_pad(
     ],
 )
 @pytest.mark.parametrize("value", [0])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_pad_op(
     shape: Shape,
     padding: List[int],
@@ -223,7 +232,7 @@ def test_cpu_hoistable_pad_op(
 # Permute tests
 @pytest.mark.parametrize("shapes", [[(2, 3, 4)]], ids=shapes_list_str)
 @pytest.mark.parametrize("permutation", [[1, 2, 0]])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_permute(
     shapes: List[Shape], permutation: List[int], target: str, request, device
 ):
@@ -255,7 +264,7 @@ def test_permute(
 )
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("repeats", [1])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_repeat_interleave(
     shapes: List[Shape], repeats: int, dim: int, target: str, request, device
 ):
@@ -282,7 +291,7 @@ def test_repeat_interleave(
 @pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
 @pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -322,7 +331,7 @@ def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, devi
     [torch.float32, torch.int64, torch.int32, torch.uint8],
     ids=["f32", "i64", "i32", "ui8"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_reshape(shapes, dtype: torch.dtype, target: str, request, device):
     input_shape, output_shape = shapes
 
@@ -350,7 +359,7 @@ def test_reshape(shapes, dtype: torch.dtype, target: str, request, device):
 
 @pytest.mark.parametrize("shape", [(1, 128, 128, 1)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_squeeze(shape: Shape, dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
@@ -369,7 +378,7 @@ def test_squeeze(shape: Shape, dim: int, target: str, request, device):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
@@ -388,7 +397,10 @@ def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
 
 @x86_only
 @pytest.mark.parametrize("shapes", [[(128, 128), (16384,)]], ids=shapes_list_str)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_reshape_op(
     shapes: List[Shape],
     request,
@@ -480,7 +492,9 @@ def test_cpu_hoistable_reshape_op(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 def test_slice(
     shape: Shape,
     begins: List[int],
@@ -516,7 +530,7 @@ def test_slice(
 @pytest.mark.parametrize("dim", [0, 1, 2])
 @pytest.mark.parametrize("descending", [True, False])
 @pytest.mark.parametrize("stable", [True, False])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 def test_sort(
     shape: Shape,
     dtype: torch.dtype,
@@ -558,7 +572,9 @@ def test_sort(
 # Transpose tests
 @pytest.mark.parametrize("shape", [(64, 32)], ids=shape_str)
 @pytest.mark.parametrize("transpose_dims", [(0, 1)])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 def test_transpose(
     shape: Shape, transpose_dims: List[int], target: str, request, device
 ):
@@ -585,7 +601,10 @@ def test_transpose(
 @x86_only
 @pytest.mark.parametrize("shape", [(32, 64, 128)], ids=shape_str)
 @pytest.mark.parametrize("transpose_dims", [(0, 1)])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_transpose_op(
     shape: Shape,
     transpose_dims: List[int],
@@ -619,14 +638,20 @@ def test_cpu_hoistable_transpose_op(
 @pytest.mark.parametrize(
     "from_type,to_type",
     [
-        (torch.int32, torch.float32),
+        pytest.param(
+            torch.int32, torch.float32, marks=pytest.mark.skip_config(["sim"])
+        ),
         (torch.float32, torch.int32),
         (torch.bfloat16, torch.float32),
-        (torch.float32, torch.bfloat16),
+        pytest.param(
+            torch.float32, torch.bfloat16, marks=pytest.mark.skip_config(["sim"])
+        ),
     ],
     ids=["i32-f32", "f32-i32", "bf16-f32", "f32-bf16"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 def test_typecast(
     shape: Shape,
     from_type: torch.dtype,
