@@ -31,6 +31,29 @@ def retrieve_torch_tensor(program_context, tensor_ref) -> torch.Tensor:
     return get_torch_tensor(device_tensor)
 
 
+def write_torch_tensor_to_pool(
+    program_context, tensor_ref, torch_tensor: torch.Tensor
+) -> None:
+    """Overwrite a tensor in the runtime pool with a host-side torch tensor.
+
+    Shape/stride/dtype are taken from the existing pool tensor so the substitute
+    matches the layout downstream ops expect. The source tensor is made
+    contiguous first so its data_ptr points at a valid linear buffer.
+    """
+    from ttrt import runtime as tt_runtime
+
+    dst = tt_runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
+    src = torch_tensor.contiguous()
+    rt = tt_runtime.create_owned_host_tensor(
+        src.data_ptr(),
+        dst.get_shape(),
+        dst.get_stride(),
+        src.numel(),
+        dst.get_dtype(),
+    )
+    tt_runtime.update_tensor_in_pool(program_context, tensor_ref, rt)
+
+
 def debug_wrap(*, debug: bool = False):
     """Decorator factory for runtime callbacks — drops into pdb on exception if debug=True."""
 

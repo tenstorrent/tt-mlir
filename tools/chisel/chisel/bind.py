@@ -3,6 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Chisel bind/unbind — one-call setup and teardown for builder integration."""
 
+from typing import Callable, Optional
+
+from ttmlir.ir import Operation
+
 from .context import ChiselContext
 from .callbacks import (
     chisel_pre_program_callback,
@@ -12,11 +16,19 @@ from .callbacks import (
 )
 
 
-def bind():
-    """Initialize ChiselContext and register all 4 callbacks with DebugHooks."""
+def bind(skip_criterion: Optional[Callable[[Operation], bool]] = None):
+    """Initialize ChiselContext and register all 4 callbacks with DebugHooks.
+
+    Args:
+        skip_criterion: Optional predicate (Operation) -> bool. When it returns
+            True for an op, chisel overwrites that op's device output tensor(s)
+            with the isolation golden result after the device executes the op.
+            When None (default), skip mode is disabled.
+    """
     from ttrt import runtime as tt_runtime
 
-    ChiselContext()
+    ctx = ChiselContext()
+    ctx.skip_criterion = skip_criterion
     tt_runtime.DebugHooks.get(
         pre_op=chisel_pre_op_callback,
         post_op=chisel_post_op_callback,

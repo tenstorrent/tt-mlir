@@ -85,6 +85,9 @@ def _load_cached_post_op(binary, program_context, op_context) -> None:
     Golden comparison is skipped: the cached value is opaque to chisel.
     The output is NOT added to the golden pool — downstream ops that need it
     will fall back to device-value seeding in preop.
+
+    Skip mode has no effect on load_cached — there is no host-side golden to
+    substitute, and this custom post_op bypasses the default skip path.
     """
     from ttrt import runtime as tt_runtime
 

@@ -12,7 +12,7 @@ the golden_tensor_pool and op_iter.
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Iterator, Optional
+from typing import Callable, Dict, Iterator, Optional
 
 from ttmlir.ir import Operation
 
@@ -38,6 +38,9 @@ class ChiselContext:
         self.strict: bool = False
         self.isolation_check: bool = True
         self.accum_check: bool = True
+        # Skip-mode: caller-supplied predicate (Operation) -> bool.
+        # None disables skip mode entirely.
+        self.skip_criterion: Optional[Callable[[Operation], bool]] = None
         _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_path: Optional[str] = f"chisel_results/{_ts}.jsonl"
 
@@ -50,6 +53,12 @@ class ChiselContext:
     @classmethod
     def reset_instance(cls) -> None:
         cls._instance = None
+
+    def should_skip(self, op: Operation) -> bool:
+        """True if the caller's criterion says this op's device output should be replaced."""
+        if self.skip_criterion is None:
+            return False
+        return self.skip_criterion(op)
 
     def preprogram(self, binary, program_context) -> None:
         from ttrt import runtime as tt_runtime

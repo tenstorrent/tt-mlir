@@ -22,7 +22,7 @@ from .context import ChiselContext
 from .executor import execute_golden, execute_golden_from_pool
 from .op_configs import get_op_config
 from .ops import get_op_inputs, get_op_outputs
-from .utils import debug_wrap, retrieve_torch_tensor
+from .utils import debug_wrap, retrieve_torch_tensor, write_torch_tensor_to_pool
 
 logger = logging.getLogger("chisel")
 
@@ -159,20 +159,28 @@ def _default_post_op(
     # --- Execute golden functions ONCE per op, before the per-output loop ---
 
     iso_result = None
-    if ctx.isolation_check:
+    # Compute isolation golden if either the isolation check is on OR the op is
+    # marked for skipping — skip mode writes the isolation golden back into the
+    # device pool, so it needs the tensor even when isolation_check is off.
+    # Error/skip records are still gated on isolation_check so disabling the
+    # check means a clean report.
+    skip_this_op = ctx.should_skip(op)
+    if ctx.isolation_check or skip_this_op:
         try:
             iso_result = execute_golden(
                 op.opview, ir_module, program_name, ctx._stashed_inputs
             )
         except RuntimeError:
             logger.debug(f"{op_name}: no golden implementation, skipping isolation check")
-            for out in op_outputs:
-                checker._record(out.get_name(asm_state), "golden", "skipped")
+            if ctx.isolation_check:
+                for out in op_outputs:
+                    checker._record(out.get_name(asm_state), "golden", "skipped")
         except Exception:
             tb = traceback.format_exc()
             logger.error(f"{op_name}: isolation golden execution failed\n{tb}")
-            for out in op_outputs:
-                checker._record(out.get_name(asm_state), "golden", "error", traceback=tb)
+            if ctx.isolation_check:
+                for out in op_outputs:
+                    checker._record(out.get_name(asm_state), "golden", "error", traceback=tb)
 
     acc_result = None
     if ctx.accum_check:
@@ -207,7 +215,7 @@ def _default_post_op(
 
         checker.check_mlir_vs_runtime_tensor(name, mlir_output, device_tensor)
 
-        if iso_result is not None:
+        if ctx.isolation_check and iso_result is not None:
             iso_out = iso_result[i] if isinstance(iso_result, (list, tuple)) else iso_result
             checker.check_mlir_vs_golden(name, mlir_output, iso_out)
             if skip_pcc:
@@ -222,7 +230,43 @@ def _default_post_op(
             else:
                 checker.check_accum_golden_vs_runtime_tensor(name, acc_out, device_tensor)
 
+    if skip_this_op:
+        _apply_skip(
+            program_context, op, op_outputs, output_refs, asm_state, iso_result, checker
+        )
+
     ctx._stashed_inputs = None
+
+
+def _apply_skip(
+    program_context, op, op_outputs, output_refs, asm_state, iso_result, checker
+) -> None:
+    """Overwrite device output(s) with the isolation golden.
+
+    Isolation (not accumulation) is the correct source: it represents this
+    single op's kernel being replaced while preserving any upstream PCC drift
+    that was already present in the device inputs. Accumulation would retro-
+    actively erase upstream error, which is not what skip mode means.
+    """
+    if iso_result is None:
+        for mlir_output in op_outputs:
+            checker._record(
+                mlir_output.get_name(asm_state), "skip_on_device", "skipped_no_golden"
+            )
+        return
+
+    for i, (mlir_output, output_ref) in enumerate(
+        zip(op_outputs, output_refs, strict=True)
+    ):
+        name = mlir_output.get_name(asm_state)
+        tensor = iso_result[i] if isinstance(iso_result, (list, tuple)) else iso_result
+        try:
+            write_torch_tensor_to_pool(program_context, output_ref, tensor)
+            checker._record(name, "skip_on_device", "applied")
+        except Exception:
+            tb = traceback.format_exc()
+            logger.error(f"{op.name} {name}: skip_on_device write failed\n{tb}")
+            checker._record(name, "skip_on_device", "error", traceback=tb)
 
 
 # ---------------------------------------------------------------------------
