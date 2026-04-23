@@ -2361,17 +2361,15 @@ public:
 } // namespace
 
 namespace {
-class D2MGetGlobalOperandRewriter
-    : public OpConversionPattern<d2m::GetGlobalOperandOp> {
+class D2MGetArgRewriter : public OpConversionPattern<d2m::GetArgOp> {
 public:
-  D2MGetGlobalOperandRewriter(TypeConverter &typeConverter,
-                              MLIRContext *context, bool ttnnMode)
-      : OpConversionPattern<d2m::GetGlobalOperandOp>(typeConverter, context),
+  D2MGetArgRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                    bool ttnnMode)
+      : OpConversionPattern<d2m::GetArgOp>(typeConverter, context),
         ttnnMode(ttnnMode) {}
 
   LogicalResult
-  matchAndRewrite(d2m::GetGlobalOperandOp op,
-                  d2m::GetGlobalOperandOpAdaptor adaptor,
+  matchAndRewrite(d2m::GetArgOp op, d2m::GetArgOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr arg;
@@ -2414,7 +2412,7 @@ public:
       rewriter.replaceOpWithNewOp<ttkernel::GetSemaphoreOp>(op, semaphoreIndex);
       return success();
     } else {
-      llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
+      llvm_unreachable("unexpected arg type to GetArgOp");
     }
 
     if (ttnnMode) {
@@ -2912,7 +2910,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreWaitRewriter,
                ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
+  patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
                                                       ttnnMode);
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);

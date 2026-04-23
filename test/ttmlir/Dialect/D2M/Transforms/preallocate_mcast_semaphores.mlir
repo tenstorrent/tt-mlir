@@ -18,7 +18,7 @@ module {
     // CHECK: d2m.generic
     // CHECK: additionalArgs(%[[S0]], %[[S1]] : !d2m.local_semaphore, !d2m.local_semaphore)
     // Semaphores stored as absolute operand indices (ins+outs=2, so sem0=2, sem1=3).
-    // No block args: semaphores are accessed via d2m.get_global_operand.
+    // No block args: semaphores are accessed via d2m.get_arg.
     // CHECK: d2m.remote_load {{.*}} {preallocated_semaphores = [2, 3]}
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<4x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%arg0 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
@@ -110,7 +110,7 @@ module {
     // CHECK: d2m.generic
     // CHECK: additionalArgs(%[[S0]], %[[S1]], %[[S2]], %[[S3]] : !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore, !d2m.local_semaphore)
     // 2 multicast loads = 4 semaphores (2 per load).
-    // No block args: semaphores accessed via d2m.get_global_operand.
+    // No block args: semaphores accessed via d2m.get_arg.
     // ins+outs=3, so first load gets absolute indices [3, 4], second gets [5, 6].
     // CHECK: d2m.remote_load{{.*}}into %{{.*}} {preallocated_semaphores = [3, 4]}
     // CHECK: d2m.remote_load{{.*}}into %{{.*}} {preallocated_semaphores = [5, 6]}
@@ -165,7 +165,7 @@ module {
     // CHECK: d2m.generic
     // CHECK: additionalArgs(%[[S0]], %[[S1]] : !d2m.local_semaphore, !d2m.local_semaphore)
     // Only 1 multicast load = 2 semaphores.
-    // No block args: semaphores accessed via d2m.get_global_operand.
+    // No block args: semaphores accessed via d2m.get_arg.
     // ins+outs=3, so absolute indices are [3, 4].
     // Only the multicast load gets the attribute
     // CHECK: d2m.remote_load{{.*}}into %{{.*}} {preallocated_semaphores = [3, 4]}
