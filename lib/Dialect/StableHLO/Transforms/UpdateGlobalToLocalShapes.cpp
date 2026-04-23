@@ -234,7 +234,6 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             // 4. For each dimension, update slice size if not in
             // start_index_map.
             for (auto [index, sliceSize] : llvm::enumerate(newSliceSizes)) {
-              // Batching dims are parallel factors — slice_size stays 1.
               if (llvm::is_contained(operandBatchingDims, index)) {
                 continue;
               }

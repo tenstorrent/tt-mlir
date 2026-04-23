@@ -856,11 +856,7 @@ public:
     // but ttir.gather (and the downstream ttnn.gather kernel) require equal
     // sizes on those axes. Trim the input to the index shape on any non-`dim`
     // axis where it is larger; those trailing positions are never read by
-    // torch.gather, so this is a semantic no-op. This mirrors the slice
-    // inserted by rewriteTenstorrentGatherDecomp in
-    // RewriteCompositeDecompFunctions.cpp, which is not consulted on this
-    // lowering path (the composite is converted before its decomposition body
-    // is flattened).
+    // torch.gather, so this is a semantic no-op.
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     auto indexTypeForSlice = mlir::cast<RankedTensorType>(index.getType());
     int64_t rank = inputType.getRank();
