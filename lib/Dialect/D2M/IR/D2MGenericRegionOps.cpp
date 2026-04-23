@@ -1747,6 +1747,61 @@ void TileUntilizeBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
+// Verifier helpers for tile reduction ops.
+//
+// FPU (`tile_reduce_*`) ops require all float operands because they lower to
+// the `reduce_tile` kernel, which is float-only. Integer reductions must use
+// the matching `tile_sfpu_reduce_*` op instead.
+namespace {
+template <typename OpT>
+static mlir::LogicalResult verifyFPUTileReduce(OpT op) {
+  auto isFloatTile = [](mlir::Value v) {
+    return mlir::isa<mlir::FloatType>(
+        mlir::cast<mlir::tt::ttcore::TileType>(v.getType()).getElementType());
+  };
+  if (!isFloatTile(op.getA()) || !isFloatTile(op.getB()) ||
+      !isFloatTile(op.getC())) {
+    return op.emitOpError("requires float tile element types; use the matching "
+                          "tile_sfpu_reduce_* op for integer reductions");
+  }
+  return mlir::success();
+}
+
+template <typename OpT>
+static mlir::LogicalResult verifySFPUTileReduce(OpT op) {
+  // The SFPU reduce lowering uses signed i32-only TTKernel ops
+  // (fill_tile_int, binary_max_int32_tile, add_int_tile), so restrict this
+  // op to signed i32 tiles.
+  auto isSI32Tile = [](mlir::Value v) {
+    return mlir::cast<mlir::tt::ttcore::TileType>(v.getType())
+        .getElementType()
+        .isSignedInteger(32);
+  };
+  if (!isSI32Tile(op.getA()) || !isSI32Tile(op.getC())) {
+    return op.emitOpError("requires signed 32-bit integer tile element types; "
+                          "use the matching tile_reduce_* op for float "
+                          "reductions");
+  }
+  return mlir::success();
+}
+} // namespace
+
+mlir::LogicalResult TileReduceSumOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileReduceMaxOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileReduceMeanOp::verify() {
+  return verifyFPUTileReduce(*this);
+}
+mlir::LogicalResult TileSFPUReduceSumOp::verify() {
+  return verifySFPUTileReduce(*this);
+}
+mlir::LogicalResult TileSFPUReduceMaxOp::verify() {
+  return verifySFPUTileReduce(*this);
+}
+
 template <typename Pred>
 static mlir::OpFoldResult foldScalarIdentity(mlir::Operation *op,
                                              mlir::Attribute rhsAttr,

@@ -1012,6 +1012,116 @@ public:
   }
 };
 
+// Lowers integer tile reductions via SFPU `sfpu_reduce` (intra-tile only):
+// seed DST[cIdx] with the pool identity once, then per iter stage the input
+// into DST[scratchIdx], sfpu_reduce it, and combine into DST[cIdx] with an
+// int binary op. scratchIdx comes from `dst_scratch_index` reserved by
+// `d2m-insert-dst-register-access`. RC decomposes into Col + Row.
+template <typename ConcreteOp>
+class D2MSFPUReduceRewriter : public OpConversionPattern<ConcreteOp> {
+public:
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    static_assert(std::is_same_v<ConcreteOp, d2m::TileSFPUReduceSumOp> ||
+                      std::is_same_v<ConcreteOp, d2m::TileSFPUReduceMaxOp>,
+                  "D2MSFPUReduceRewriter supports only int tile_sfpu_reduce_*");
+
+    ttkernel::ReduceType reduceType =
+        std::is_same_v<ConcreteOp, d2m::TileSFPUReduceSumOp>
+            ? ttkernel::ReduceType::Sum
+            : ttkernel::ReduceType::Max;
+
+    ttkernel::ReduceDim kernelReduceDim;
+    switch (op.getReduceDim()) {
+    case d2m::ReduceDim::C:
+      kernelReduceDim = ttkernel::ReduceDim::Col;
+      break;
+    case d2m::ReduceDim::R:
+      kernelReduceDim = ttkernel::ReduceDim::Row;
+      break;
+    case d2m::ReduceDim::RC:
+      kernelReduceDim = ttkernel::ReduceDim::Scalar;
+      break;
+    }
+
+    // i32 element type is enforced by the op verifier; fill_tile_int and
+    // binary_max_int32_tile below rely on that invariant.
+    const auto inTileType = mlir::cast<ttcore::TileType>(op.getA().getType());
+    ttcore::DataType dataFormat = inTileType.getDataType();
+
+    Value cbA = getCB(rewriter, op.getA());
+    Value outCB = getOutCB(rewriter, op);
+    Value cIdx = adaptor.getC();
+
+    // cIdx is defined inside the scf loops, so re-materialize a constant
+    // copy for use at the hoisted init point.
+    std::optional<int64_t> cIdxVal = getConstantIntValue(cIdx);
+    if (!cIdxVal) {
+      return op->emitOpError(
+          "tile_sfpu_reduce_* expects C operand's DST index to be a "
+          "compile-time constant; got a non-constant value");
+    }
+
+    int32_t identityInt = (reduceType == ttkernel::ReduceType::Max)
+                              ? std::numeric_limits<int32_t>::min()
+                              : 0;
+
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      setInsertionPointAfterOperands(rewriter, {cbA, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), cbA, outCB);
+      Value hoistedCIdx =
+          rewriter.create<arith::ConstantIndexOp>(op->getLoc(), *cIdxVal);
+      Value identityVal = rewriter.create<arith::ConstantOp>(
+          op->getLoc(), rewriter.getI32Type(),
+          rewriter.getI32IntegerAttr(identityInt));
+      rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
+      rewriter.create<ttkernel::FillTileIntOp>(op->getLoc(), hoistedCIdx,
+                                               identityVal);
+    }
+
+    int64_t scratchIdxVal = op.getDstScratchIndex();
+    if (scratchIdxVal < 0) {
+      return op->emitOpError("dst_scratch_index must be set by "
+                             "d2m-insert-dst-register-access before lowering");
+    }
+    Value tempIdx =
+        rewriter.create<arith::ConstantIndexOp>(op->getLoc(), scratchIdxVal);
+
+    rewriter.create<ttkernel::CopyTileInitOp>(op->getLoc(), cbA);
+    rewriter.create<ttkernel::CopyTileOp>(op->getLoc(), cbA, adaptor.getA(),
+                                          tempIdx);
+    rewriter.create<ttkernel::SFPUReduceInitOp>(op->getLoc(), reduceType,
+                                                dataFormat);
+    SmallVector<ttkernel::ReduceDim> sfpuDims =
+        (kernelReduceDim == ttkernel::ReduceDim::Scalar)
+            ? SmallVector<ttkernel::ReduceDim>{ttkernel::ReduceDim::Col,
+                                               ttkernel::ReduceDim::Row}
+            : SmallVector<ttkernel::ReduceDim>{kernelReduceDim};
+    for (ttkernel::ReduceDim dim : sfpuDims) {
+      rewriter.create<ttkernel::SFPUReduceTileOp>(op->getLoc(), tempIdx,
+                                                  reduceType, dataFormat, dim);
+    }
+
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileSFPUReduceSumOp>) {
+      rewriter.create<ttkernel::AddIntTileInitOp>(op->getLoc());
+      rewriter.create<ttkernel::AddIntTileOp>(op->getLoc(), tempIdx, cIdx, cIdx,
+                                              dataFormat);
+    } else {
+      rewriter.create<ttkernel::BinaryMaxInt32TileInitOp>(op->getLoc());
+      rewriter.create<ttkernel::BinaryMaxInt32TileOp>(op->getLoc(), tempIdx,
+                                                      cIdx, cIdx);
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 } // namespace
 
 namespace {
@@ -2724,10 +2834,14 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulBlockOp>,
 
-               // Reductions FPU.
+               // Reductions FPU (float).
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceSumOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMaxOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileReduceMeanOp>,
+
+               // Reductions SFPU (integer).
+               ttkernel::D2MSFPUReduceRewriter<d2m::TileSFPUReduceSumOp>,
+               ttkernel::D2MSFPUReduceRewriter<d2m::TileSFPUReduceMaxOp>,
 
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,

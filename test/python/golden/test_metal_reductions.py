@@ -19,51 +19,68 @@ pytestmark = pytest.mark.frontend("ttir")
 torch.manual_seed(0)
 
 
-def _sum_atol(shape, dtype):
-    per_elem_tol = 0.01 if dtype == torch.bfloat16 else 0.0005
-    return math.prod(shape) * per_elem_tol
-
-
-def _max_atol(dtype):
-    return 0.01 if dtype == torch.bfloat16 else 0.0
-
-
-def _mean_atol(shape, dim_arg, dtype):
-    per_elem_tol = 0.01 if dtype == torch.bfloat16 else 0.0005
-    reduction_size = math.prod(shape[d] for d in dim_arg)
-    return math.prod(shape) * per_elem_tol / reduction_size
+_INTEGER_DTYPES = (torch.int32,)
+_REDUCE_TYPES = ["sum", "max", "min", "mean"]
+_INT_REDUCE_TYPES = ["sum", "max", "min"]
+_FLOAT_DTYPES = [torch.float32, torch.bfloat16]
+_INT_DTYPES = [torch.int32]
+_DTYPE_IDS = {torch.float32: "f32", torch.bfloat16: "bf16", torch.int32: "i32"}
+_KEEP_DIMS = [True, False]
 
 
 def _reduction_atol(reduce_type: str, shape, dim_arg, dtype):
+    if dtype in _INTEGER_DTYPES:
+        return 0.0
+    per_elem_tol = 0.01 if dtype == torch.bfloat16 else 0.0005
     if reduce_type == "sum":
-        return _sum_atol(shape, dtype)
+        return math.prod(shape) * per_elem_tol
     if reduce_type == "mean":
-        return _mean_atol(shape, dim_arg, dtype)
+        reduction_size = math.prod(shape[d] for d in dim_arg)
+        return math.prod(shape) * per_elem_tol / reduction_size
     if reduce_type in ("max", "min"):
-        return _max_atol(dtype)
+        return 0.01 if dtype == torch.bfloat16 else 0.0
     raise ValueError(f"Unsupported reduce_type: {reduce_type}")
 
 
-_REDUCE_TYPES = ["sum", "max", "min", "mean"]
+# Int range small enough that reductions won't overflow int32.
+def _int_input_range(reduce_type: str, shape, dim_arg):
+    if reduce_type != "sum":
+        return -10_000, 10_000
+    reduction_size = max(1, math.prod(shape[d] for d in dim_arg))
+    bound = min(10_000, max(1, (2**31 - 1) // (8 * reduction_size)))
+    return -bound, bound
 
-_3D_OUTER_REDUCE = {
-    combo: _REDUCE_TYPES[i % len(_REDUCE_TYPES)]
-    for i, combo in enumerate(
-        (b, m, n) for b in [2, 3, 8, 16, 64] for m in [1, 2, 4, 8] for n in [1, 2, 8]
-    )
-}
 
-_4D_OUTER_REDUCE = {
-    combo: _REDUCE_TYPES[i % len(_REDUCE_TYPES)]
-    for i, combo in enumerate(
-        (a, b, m, n, d)
-        for a in [2, 3, 4, 8, 16, 32, 64]
-        for b in [2, 4, 8]
-        for m in [2]
-        for n in [4]
-        for d in [0, 1]
-    )
-}
+# Cycle reduce_type/dtype/keep_dim independently across shape/dim combos so
+# each combo gets exactly one variant (vs. full cross product).
+def _cycled_reduction_params(
+    combos,
+    *,
+    reduce_types=_REDUCE_TYPES,
+    dtypes=_FLOAT_DTYPES,
+    keep_dims=_KEEP_DIMS,
+):
+    def pick(options, i):
+        return options[i % len(options)]
+
+    params = []
+    for i, combo in enumerate(combos):
+        reduce_type = pick(reduce_types, i)
+        dtype = pick(dtypes, i)
+        keep_dim = pick(keep_dims, i)
+        ids = "-".join(
+            "_".join(map(str, x)) if isinstance(x, list) else str(x) for x in combo
+        )
+        params.append(
+            pytest.param(
+                *combo,
+                reduce_type,
+                dtype,
+                keep_dim,
+                id=f"{ids}-{reduce_type}-{_DTYPE_IDS[dtype]}-keep{int(keep_dim)}",
+            )
+        )
+    return params
 
 
 def create_reductions_constrained_inputs(
@@ -74,75 +91,122 @@ def create_reductions_constrained_inputs(
         def reductions_constrained_inputs(
             in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
         ):
-            in_tensor = torch.randn(input_shape, dtype=dtype)
-            if dtype == torch.float32:
-                # Simulate TF32 truncation in the golden computation
-                # TF32 has 10 bits mantissa vs FP32's 23 bits = ~3 decimal digits precision
-                scale = 2**13  # Roughly equivalent to TF32 precision
-                in_tensor = (in_tensor * scale).round() / scale
+            if dtype in _INTEGER_DTYPES:
+                lo, hi = _int_input_range(reduce_type, input_shape, dim_arg)
+                # torch.randint's high is exclusive.
+                in_tensor = torch.randint(lo, hi + 1, input_shape, dtype=dtype)
+            else:
+                in_tensor = torch.randn(input_shape, dtype=dtype)
+                if dtype == torch.float32:
+                    # Round golden to ~TF32 precision (10 mantissa bits).
+                    scale = 2**13
+                    in_tensor = (in_tensor * scale).round() / scale
             builder.set_goldens(inputs={in0: in_tensor})
-            if reduce_type == "sum":
-                return builder.sum(in0, dim_arg=dim_arg, keep_dim=keep_dim)
-            elif reduce_type == "max":
-                return builder.max(
-                    in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
-                )
-            elif reduce_type == "mean":
-                return builder.mean(in0, dim_arg=dim_arg, keep_dim=keep_dim)
-            elif reduce_type == "min":
-                return builder.min(
-                    in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
-                )
+
+            kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
+            if reduce_type in ("max", "min"):
+                kwargs["unit_attrs"] = unit_attrs
+            return getattr(builder, reduce_type)(in0, **kwargs)
 
     return module
 
 
-@pytest.mark.parametrize("m", [4, 8, 16])
-@pytest.mark.parametrize("n", [2, 4, 8])
-@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
+_2D_SHAPE_DIM_COMBOS = [
+    (m, n, dim_arg)
+    for m in [4, 8, 16]
+    for n in [2, 4, 8]
+    for dim_arg in [[0], [1], [0, 1]]
+]
+
+
+@pytest.mark.parametrize(
+    "m,n,dim_arg,reduce_type,dtype,keep_dim",
+    _cycled_reduction_params(_2D_SHAPE_DIM_COMBOS),
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_sum(
+def test_reduce_2d(
     m: int,
     n: int,
     dim_arg: List[int],
+    reduce_type: str,
+    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
-    dtype: torch.dtype,
     request,
     device,
 ):
     tile_size = 32
-    shape = (
-        m * tile_size,
-        n * tile_size,
-    )
+    shape = (m * tile_size, n * tile_size)
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=_sum_atol(shape, dtype),
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )
 
 
-@pytest.mark.parametrize("b", [1, 2])
-@pytest.mark.parametrize("m", [4, 8])
-@pytest.mark.parametrize("n", [2, 4])
-@pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
-@pytest.mark.parametrize("keep_dim", [True, False])
+# Non-tile-aligned shapes exercise OOB padding (0 for sum, +/- inf for
+# max/min) so padded elements don't corrupt the reduction.
+_2D_UNALIGNED_COMBOS = [
+    (shape, dim_arg)
+    for shape in [(100, 50), (37, 61), (50, 100), (129, 65), (1, 501)]
+    for dim_arg in [[0], [1], [0, 1]]
+]
+
+
+@pytest.mark.parametrize(
+    "shape,dim_arg,reduce_type,dtype,keep_dim",
+    _cycled_reduction_params(_2D_UNALIGNED_COMBOS),
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_sum_3d(
+def test_reduce_2d_unaligned(
+    shape: tuple,
+    dim_arg: List[int],
+    reduce_type: str,
+    dtype: torch.dtype,
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
+    )
+
+
+_3D_INNER_COMBOS = [
+    (b, m, n, dim_arg)
+    for b in [1, 2]
+    for m in [4, 8]
+    for n in [2, 4]
+    for dim_arg in [[1], [2], [1, 2]]
+]
+
+
+@pytest.mark.parametrize(
+    "b,m,n,dim_arg,reduce_type,dtype,keep_dim",
+    _cycled_reduction_params(_3D_INNER_COMBOS),
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_reduce_3d_inner(
     b: int,
     m: int,
     n: int,
     dim_arg: List[int],
+    reduce_type: str,
+    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
-    dtype: torch.dtype,
     request,
     device,
 ):
@@ -152,36 +216,39 @@ def test_sum_3d(
         )
 
     tile_size = 32
-    shape = (
-        b,
-        m * tile_size,
-        n * tile_size,
-    )
+    shape = (b, m * tile_size, n * tile_size)
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=_sum_atol(shape, dtype),
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )
 
 
-@pytest.mark.parametrize("b", [2, 3, 8, 16, 64])
-@pytest.mark.parametrize("m", [1, 2, 4, 8])
-@pytest.mark.parametrize("n", [1, 2, 8])
-@pytest.mark.parametrize("dim_arg", [[0]])
-@pytest.mark.parametrize("keep_dim", [True])
+# Outer (batch dim) reductions go through the D2M accumulation rewriter
+# instead of per-tile tile_reduce.
+_3D_OUTER_COMBOS = [
+    (b, m, n) for b in [2, 3, 8, 16, 64] for m in [1, 2, 4, 8] for n in [1, 2, 8]
+]
+
+
+@pytest.mark.parametrize(
+    "b,m,n,reduce_type,dtype,keep_dim",
+    _cycled_reduction_params(_3D_OUTER_COMBOS, keep_dims=[True]),
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_reduce_outer_3d(
     b: int,
     m: int,
     n: int,
-    dim_arg: List[int],
+    reduce_type: str,
+    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
-    dtype: torch.dtype,
     request,
     device,
 ):
@@ -193,13 +260,53 @@ def test_reduce_outer_3d(
             "all-reduce is missing, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
         )
 
-    reduce_type = _3D_OUTER_REDUCE[(b, m, n)]
     tile_size = 32
-    shape = (
-        b,
-        m * tile_size,
-        n * tile_size,
+    shape = (b, m * tile_size, n * tile_size)
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(shape, reduce_type, [0], keep_dim, dtype),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_reduction_atol(reduce_type, shape, [0], dtype),
     )
+
+
+_4D_INNER_COMBOS = [
+    (a, b, m, n, dim_arg)
+    for a in [1, 2]
+    for b in [1, 2]
+    for m in [4, 8]
+    for n in [2, 4]
+    for dim_arg in [[2], [3], [2, 3]]
+]
+
+
+@pytest.mark.parametrize(
+    "a,b,m,n,dim_arg,reduce_type,dtype,keep_dim",
+    _cycled_reduction_params(_4D_INNER_COMBOS),
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_reduce_4d_inner(
+    a: int,
+    b: int,
+    m: int,
+    n: int,
+    dim_arg: List[int],
+    reduce_type: str,
+    dtype: torch.dtype,
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    if len(dim_arg) >= 2 and not keep_dim:
+        pytest.skip(
+            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
+        )
+
+    tile_size = 32
+    shape = (a, b, m * tile_size, n * tile_size)
 
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(
@@ -212,46 +319,76 @@ def test_reduce_outer_3d(
     )
 
 
-@pytest.mark.parametrize("a", [2, 3, 4, 8, 16, 32, 64])
-@pytest.mark.parametrize("b", [2, 4, 8])
-@pytest.mark.parametrize("m", [2])
-@pytest.mark.parametrize("n", [4])
-@pytest.mark.parametrize("dim_arg", [[0], [1]])
-@pytest.mark.parametrize("keep_dim", [True])
+_4D_OUTER_COMBOS = [
+    (a, b, dim_arg)
+    for a in [2, 3, 4, 8, 16, 32, 64]
+    for b in [2, 4, 8]
+    for dim_arg in [0, 1]
+]
+
+
+@pytest.mark.parametrize(
+    "a,b,reduce_dim,reduce_type,dtype,keep_dim",
+    _cycled_reduction_params(_4D_OUTER_COMBOS, keep_dims=[True]),
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_reduce_outer_4d(
     a: int,
     b: int,
-    m: int,
-    n: int,
-    dim_arg: List[int],
+    reduce_dim: int,
+    reduce_type: str,
+    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
-    dtype: torch.dtype,
     request,
     device,
 ):
+    m, n = 2, 4
     total_tiles = a * b * m * n
-    if dim_arg == [0] and total_tiles >= 128:
+    if reduce_dim == 0 and total_tiles >= 128:
         pytest.xfail(
             f"Outer dim 0 reduction incorrect when total input tiles ({total_tiles}) >= 128: "
             "block factor analysis splits the reduction dim, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
         )
-    if dim_arg == [1] and a == 3 and b == 4:
+    if reduce_dim == 1 and a == 3 and b == 4:
         pytest.xfail(
             "Outer dim 1 reduction incorrect for a=3, b=4: block factor "
             "analysis splits the reduction dim due to odd batch size, issue here: https://github.com/tenstorrent/tt-mlir/issues/7895"
         )
 
-    reduce_type = _4D_OUTER_REDUCE[(a, b, m, n, dim_arg[0])]
     tile_size = 32
-    shape = (
-        a,
-        b,
-        m * tile_size,
-        n * tile_size,
+    shape = (a, b, m * tile_size, n * tile_size)
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(
+            shape, reduce_type, [reduce_dim], keep_dim, dtype
+        ),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_reduction_atol(reduce_type, shape, [reduce_dim], dtype),
     )
+
+
+# Int32 reductions: inner via SFPU reduce (tile_reduce_* is float-only),
+# outer via the D2M accumulation rewriter. Mean is float-only.
+
+
+@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+def test_reduce_i32_2d(
+    dim_arg: List[int],
+    keep_dim: bool,
+    reduce_type: str,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    shape = (4 * 32, 2 * 32)
 
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(
@@ -264,326 +401,115 @@ def test_reduce_outer_4d(
     )
 
 
-@pytest.mark.parametrize("a", [1, 2])
-@pytest.mark.parametrize("b", [1, 2])
-@pytest.mark.parametrize("m", [4, 8])
-@pytest.mark.parametrize("n", [2, 4])
-@pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_sum_4d(
-    a: int,
-    b: int,
-    m: int,
-    n: int,
-    dim_arg: List[int],
-    keep_dim: bool,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    if len(dim_arg) >= 2 and not keep_dim:
-        pytest.skip(
-            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
-        )
-
-    tile_size = 32
-    shape = (
-        a,
-        b,
-        m * tile_size,
-        n * tile_size,
-    )
-
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_sum_atol(shape, dtype),
-    )
-
-
-@pytest.mark.parametrize("m", [4, 8, 16])
-@pytest.mark.parametrize("n", [2, 4, 8])
-@pytest.mark.parametrize("dim_arg", [[0], [1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_max(
-    m: int,
-    n: int,
-    dim_arg: List[int],
-    keep_dim: bool,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    tile_size = 32
-    shape = (
-        m * tile_size,
-        n * tile_size,
-    )
-
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_max_atol(dtype),
-    )
-
-
-# Unaligned shapes: dimensions that are NOT multiples of the tile size (32).
-# These exercise the OOB padding fill values — sum needs zero-fill and max
-# needs neg-inf fill so that padded elements don't corrupt the reduction.
+_2D_UNALIGNED_INT_COMBOS = [
+    (shape, dim_arg)
+    for shape in [(100, 50), (37, 61), (50, 100), (129, 65), (1, 501)]
+    for dim_arg in [[0], [1], [0, 1]]
+]
 
 
 @pytest.mark.parametrize(
-    "shape",
-    [(100, 50), (37, 61), (50, 100), (129, 65)],
+    "shape,dim_arg,reduce_type,dtype,keep_dim",
+    _cycled_reduction_params(
+        _2D_UNALIGNED_INT_COMBOS,
+        reduce_types=_INT_REDUCE_TYPES,
+        dtypes=_INT_DTYPES,
+    ),
 )
-@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_sum_unaligned(
+def test_reduce_i32_2d_unaligned(
     shape: tuple,
     dim_arg: List[int],
+    reduce_type: str,
+    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
-    dtype: torch.dtype,
     request,
     device,
 ):
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim, dtype),
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim, dtype
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=_sum_atol(shape, dtype),
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [(100, 50), (37, 61), (50, 100), (129, 65)],
-)
-@pytest.mark.parametrize("dim_arg", [[0], [1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_max_unaligned(
-    shape: tuple,
-    dim_arg: List[int],
-    keep_dim: bool,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_max_atol(dtype),
-    )
-
-
-@pytest.mark.parametrize("m", [4, 8, 16])
-@pytest.mark.parametrize("n", [2, 4, 8])
-@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_mean(
-    m: int,
-    n: int,
-    dim_arg: List[int],
-    keep_dim: bool,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    tile_size = 32
-    shape = (
-        m * tile_size,
-        n * tile_size,
-    )
-
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "mean", dim_arg, keep_dim, dtype),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_mean_atol(shape, dim_arg, dtype),
-    )
-
-
-@pytest.mark.parametrize("b", [1, 2])
-@pytest.mark.parametrize("m", [4, 8])
-@pytest.mark.parametrize("n", [2, 4])
 @pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
-@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_mean_3d(
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+def test_reduce_i32_3d_inner(
+    dim_arg: List[int],
+    reduce_type: str,
+    target: str,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    # keep_dim is pinned to True to avoid the reshape-after-reduce issue
+    # (#6377) that affects multi-dim inner reductions.
+    shape = (2, 4 * 32, 2 * 32)
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim=True, dtype=dtype
+        ),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
+    )
+
+
+@pytest.mark.parametrize("b", [2, 8])
+@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+def test_reduce_i32_outer_3d(
     b: int,
-    m: int,
-    n: int,
-    dim_arg: List[int],
-    keep_dim: bool,
+    reduce_type: str,
     target: str,
     dtype: torch.dtype,
     request,
     device,
 ):
-    if len(dim_arg) >= 2 and not keep_dim:
-        pytest.skip(
-            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
-        )
-
-    tile_size = 32
-    shape = (
-        b,
-        m * tile_size,
-        n * tile_size,
-    )
+    shape = (b, 2 * 32, 2 * 32)
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "mean", dim_arg, keep_dim, dtype),
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg=[0], keep_dim=True, dtype=dtype
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=_mean_atol(shape, dim_arg, dtype),
+        atol=_reduction_atol(reduce_type, shape, [0], dtype),
     )
 
 
-@pytest.mark.parametrize("a", [1, 2])
-@pytest.mark.parametrize("b", [1, 2])
-@pytest.mark.parametrize("m", [4, 8])
-@pytest.mark.parametrize("n", [2, 4])
-@pytest.mark.parametrize("dim_arg", [[2], [3], [2, 3]])
-@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("dim_arg", [[2], [3]])
+@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_mean_4d(
-    a: int,
-    b: int,
-    m: int,
-    n: int,
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+def test_reduce_i32_4d_inner(
     dim_arg: List[int],
-    keep_dim: bool,
+    reduce_type: str,
     target: str,
     dtype: torch.dtype,
     request,
     device,
 ):
-    if len(dim_arg) >= 2 and not keep_dim:
-        pytest.skip(
-            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
-        )
-
-    tile_size = 32
-    shape = (
-        a,
-        b,
-        m * tile_size,
-        n * tile_size,
-    )
+    shape = (2, 2, 4 * 32, 2 * 32)
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "mean", dim_arg, keep_dim, dtype),
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim=True, dtype=dtype
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
-        atol=_mean_atol(shape, dim_arg, dtype),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [(100, 50), (37, 61), (50, 100), (129, 65)],
-)
-@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_mean_unaligned(
-    shape: tuple,
-    dim_arg: List[int],
-    keep_dim: bool,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "mean", dim_arg, keep_dim, dtype),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_mean_atol(shape, dim_arg, dtype),
-    )
-
-
-@pytest.mark.parametrize("m", [4, 8, 16])
-@pytest.mark.parametrize("n", [2, 4, 8])
-@pytest.mark.parametrize("dim_arg", [[0], [1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_min(
-    m: int,
-    n: int,
-    dim_arg: List[int],
-    keep_dim: bool,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    tile_size = 32
-    shape = (
-        m * tile_size,
-        n * tile_size,
-    )
-
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "min", dim_arg, keep_dim, dtype),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_max_atol(dtype),
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [(100, 50), (37, 61), (50, 100), (129, 65)],
-)
-@pytest.mark.parametrize("dim_arg", [[0], [1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-def test_min_unaligned(
-    shape: tuple,
-    dim_arg: List[int],
-    keep_dim: bool,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(shape, "min", dim_arg, keep_dim, dtype),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_max_atol(dtype),
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )

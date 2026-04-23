@@ -34,6 +34,26 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+// True iff `op` is any tile-level reduction op (FPU or SFPU variant).
+static bool isTileReductionOp(Operation *op) {
+  return mlir::isa<d2m::TileReduceMaxOp, d2m::TileReduceSumOp,
+                   d2m::TileReduceMeanOp, d2m::TileSFPUReduceMaxOp,
+                   d2m::TileSFPUReduceSumOp>(op);
+}
+
+// Stamp a pass-allocated scratch slice onto the op's `dst_scratch_index`
+// attribute for the TTKernel lowering to consume. Only supports ops that
+// need exactly one scratch slice today.
+static void setDstScratchIndex(OperandLoadStoreRegisterOpInterface computeOp,
+                               int scratchSlice) {
+  assert(computeOp.getNumDstScratchSlices() == 1 &&
+         "setDstScratchIndex supports exactly one scratch slice");
+  Operation *op = computeOp.getOperation();
+  op->setAttr("dst_scratch_index",
+              mlir::IntegerAttr::get(
+                  mlir::IntegerType::get(op->getContext(), 64), scratchSlice));
+}
+
 struct OperationTypes {
   bool hasComputeOps = false;
   bool hasLinalgGeneric = false;
@@ -871,16 +891,10 @@ public:
           if (dstRegInPlace || rhsIsScalar) {
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
-            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceMeanOp>(computeOp);
-            assert(
-                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
-                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-                "supported for destination register in place, multi-operand "
-                "ops "
-                "would reference wrong tile, but those ops should be setting "
-                "output tile.");
+            bool isReduction = isTileReductionOp(computeOp);
+            assert((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                   "in-place DST only supported for unary, tile matmul, "
+                   "reductions, and tile+scalar ops");
             dstSlice = getInPlaceDstSlice(computeOp);
           } else if (numLoads >= 2) {
             // SFPU binary/ternary ops: output overwrites first operand's slot
@@ -906,12 +920,10 @@ public:
           if (dstRegInPlace || rhsIsScalar) {
             bool isUnaryOp = computeOp->getNumOperands() == 1;
             bool isTileMatmul = mlir::isa<d2m::TileMatmulOp>(computeOp);
-            bool isReduction = mlir::isa<d2m::TileReduceMaxOp>(computeOp) ||
-                               mlir::isa<d2m::TileReduceSumOp>(computeOp);
-            assert(
-                (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
-                "Only unary ops, tile matmul, reductions, and tile+scalar ops "
-                "supported for destination register in place.");
+            bool isReduction = isTileReductionOp(computeOp);
+            assert((isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
+                   "in-place DST only supported for unary, tile matmul, "
+                   "reductions, and tile+scalar ops");
             dstSlice = getInPlaceDstSlice(computeOp);
           } else if (numLoads >= 2) {
             // SFPU binary/ternary ops: output overwrites first operand's slot.
@@ -960,6 +972,15 @@ public:
             dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
           }
         }
+      }
+
+      // Reserve any extra DST scratch slices the op declares via the
+      // interface so they don't collide with operand/output slots.
+      // TODO(https://github.com/tenstorrent/tt-mlir/issues/8081): scratch
+      // becomes the new `getCurrSliceIndex()`; safe today but a future
+      // in-region fusion would trip it.
+      for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
+        setDstScratchIndex(computeOp, dstSliceAllocationState.allocate());
       }
     });
     return {copyInfos, dstIntermediates};
@@ -2005,6 +2026,16 @@ public:
           dstIntermediates[computeOp] = {allocatedIndex,
                                          outermostInnerComputeLoop};
         }
+      }
+
+      // Reserve any extra DST scratch slices the op declares via the
+      // interface so they don't collide with operand/output slots. No
+      // deallocate: the slot is logically owned by the op for its lifetime.
+      // TODO(https://github.com/tenstorrent/tt-mlir/issues/8081): scratch
+      // lands on `inputStack`; safe today but a future in-region fusion
+      // would trip `deallocateAllButFirstInput()`.
+      for (int64_t i = 0, n = computeOp.getNumDstScratchSlices(); i < n; ++i) {
+        setDstScratchIndex(computeOp, dstStackAllocator.allocate());
       }
     });
 
