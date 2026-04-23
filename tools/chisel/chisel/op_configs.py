@@ -108,7 +108,7 @@ def _load_cached_post_op(binary, program_context, op_context) -> None:
 
     for mlir_output, output_ref in zip(op_outputs, output_refs, strict=True):
         name = mlir_output.get_name(asm_state)
-        checker.check_mlir_vs_tensor_ref(name, mlir_output, output_ref)
+        checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
         try:
             device_tensor = retrieve_torch_tensor(program_context, output_ref)
         except Exception:
@@ -116,11 +116,11 @@ def _load_cached_post_op(binary, program_context, op_context) -> None:
             logger.error(
                 f"{op_name} {name}: failed to retrieve device output tensor\n{tb}"
             )
-            checker._record(name, "retrieve_output", "error", traceback=tb)
+            checker.record(name, "retrieve_output", "error", traceback=tb)
             continue
-        checker.check_mlir_vs_runtime_tensor(name, mlir_output, device_tensor)
-        checker._record(name, "golden", "skipped")
-        checker._record(name, "accum_golden", "skipped")
+        checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_output, device_tensor)
+        checker.record(name, "golden", "skipped")
+        checker.record(name, "accum_golden", "skipped")
 
     ctx._stashed_inputs = None
 

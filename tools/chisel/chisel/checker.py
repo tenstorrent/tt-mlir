@@ -1,13 +1,12 @@
-# tools/chisel/chisel/checker.py
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
 """
 ChiselChecker: per-op validator that reports every mismatch precisely and never raises.
 """
-import json
 import logging
 import traceback
+from typing import Optional
 
 import torch
 
@@ -19,6 +18,43 @@ from .context import ChiselContext
 logger = logging.getLogger("chisel")
 
 _PCC_THRESHOLD = 0.99
+
+
+def _extract_shape_dtype(source) -> tuple[list, torch.dtype]:
+    """Type-dispatched (shape, torch dtype) extractor.
+
+    Accepts an MLIR IR Value, a flatbuffer TensorRef, or a torch.Tensor.
+    """
+    if isinstance(source, torch.Tensor):
+        return list(source.shape), source.dtype
+    if hasattr(source, "type") and hasattr(source.type, "shape"):
+        return (
+            list(source.type.shape),
+            mlir_type_to_torch_dtype(source.type.element_type),
+        )
+    if hasattr(source, "get_shape") and hasattr(source, "get_dtype"):
+        return (
+            list(source.get_shape()),
+            mlir_datatype_to_torch_dtype(source.get_dtype()),
+        )
+    raise TypeError(f"cannot extract shape/dtype from {type(source).__name__}")
+
+
+def _compare_shape_dtype(expected, actual) -> Optional[tuple[str, dict]]:
+    """Pure comparator. Returns None on match, else (status, extras) for recording."""
+    exp_shape, exp_dtype = expected
+    act_shape, act_dtype = actual
+    if exp_shape != act_shape:
+        return "shape_mismatch", {
+            "expected_shape": exp_shape,
+            "actual_shape": act_shape,
+        }
+    if exp_dtype != act_dtype:
+        return "dtype_mismatch", {
+            "expected_dtype": str(exp_dtype),
+            "actual_dtype": str(act_dtype),
+        }
+    return None
 
 
 class ChiselChecker:
@@ -37,10 +73,6 @@ class ChiselChecker:
         self.op_name = op_name
         self._op_asm = self._get_op_asm(ctx)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _get_op_asm(ctx: ChiselContext) -> str:
         try:
@@ -49,131 +81,40 @@ class ChiselChecker:
         except Exception:
             return ""
 
-    def _record(self, slot: str, check: str, status: str, **extra) -> None:
-        """Append one JSON record to ctx.results_path (no-op if path is None)."""
-        if self.ctx.results_path is None:
-            return
-        record = {
+    def record(self, slot: str, check: str, status: str, **extra) -> None:
+        """Append one JSON record via the context's shared writer."""
+        self.ctx.write_record({
             "op": self.op_name,
             "slot": slot,
             "check": check,
             "status": status,
             **extra,
             "op_asm": self._op_asm,
-        }
-        with open(self.ctx.results_path, "a") as f:
-            f.write(json.dumps(record) + "\n")
+        })
 
-    def _check_shape_dtype(
-        self,
-        slot: str,
-        check: str,
-        expected_shape: list,
-        actual_shape: list,
-        expected_dtype: torch.dtype,
-        actual_dtype: torch.dtype,
-    ) -> bool:
-        ok = True
-        if expected_shape != actual_shape:
-            msg = (
-                f"{self.op_name} {slot} [{check}]: shape MISMATCH "
-                f"expected={expected_shape} actual={actual_shape}"
-            )
-            self._record(
-                slot, check, "shape_mismatch",
-                expected_shape=expected_shape, actual_shape=actual_shape,
-            )
-            logger.warning(msg)
-            ok = False
-        if expected_dtype != actual_dtype:
-            msg = (
-                f"{self.op_name} {slot} [{check}]: dtype MISMATCH "
-                f"expected={expected_dtype} actual={actual_dtype}"
-            )
-            self._record(
-                slot, check, "dtype_mismatch",
-                expected_dtype=str(expected_dtype), actual_dtype=str(actual_dtype),
-            )
-            logger.warning(msg)
-            ok = False
-        if ok:
-            self._record(slot, check, "ok")
-        return ok
-
-    # ------------------------------------------------------------------
-    # 5 public check methods
-    # ------------------------------------------------------------------
-
-    def check_mlir_vs_tensor_ref(self, slot: str, mlir_value, tensor_ref) -> bool:
-        """Shape/dtype: MLIR IR type vs TensorRef metadata from flatbuffer."""
+    def check_shape_dtype(self, slot: str, check: str, expected, actual) -> bool:
+        """Shape/dtype comparison between any two of: MLIR Value, TensorRef, torch.Tensor."""
         try:
-            mlir_shape = list(mlir_value.type.shape)
-            mlir_dtype = mlir_type_to_torch_dtype(mlir_value.type.element_type)
-            ref_shape = list(tensor_ref.get_shape())
-            ref_dtype = mlir_datatype_to_torch_dtype(tensor_ref.get_dtype())
-            return self._check_shape_dtype(
-                slot, "mlir_vs_tensor_ref",
-                mlir_shape, ref_shape,
-                mlir_dtype, ref_dtype,
+            exp = _extract_shape_dtype(expected)
+            act = _extract_shape_dtype(actual)
+            fail = _compare_shape_dtype(exp, act)
+            if fail is None:
+                self.record(slot, check, "ok")
+                return True
+            status, extras = fail
+            if status == "shape_mismatch":
+                detail = f"expected={exp[0]} actual={act[0]}"
+            else:
+                detail = f"expected={exp[1]} actual={act[1]}"
+            logger.warning(
+                f"{self.op_name} {slot} [{check}]: {status.upper()} {detail}"
             )
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"{self.op_name} {slot} [mlir_vs_tensor_ref]: ERROR\n{tb}")
-            self._record(slot, "mlir_vs_tensor_ref", "error", traceback=tb)
+            self.record(slot, check, status, **extras)
             return False
-
-    def check_mlir_vs_runtime_tensor(
-        self, slot: str, mlir_value, tensor: torch.Tensor
-    ) -> bool:
-        """Shape/dtype: MLIR IR type vs retrieved torch tensor."""
-        try:
-            mlir_shape = list(mlir_value.type.shape)
-            mlir_dtype = mlir_type_to_torch_dtype(mlir_value.type.element_type)
-            return self._check_shape_dtype(
-                slot, "mlir_vs_runtime_tensor",
-                mlir_shape, list(tensor.shape),
-                mlir_dtype, tensor.dtype,
-            )
         except Exception:
             tb = traceback.format_exc()
-            logger.error(f"{self.op_name} {slot} [mlir_vs_runtime_tensor]: ERROR\n{tb}")
-            self._record(slot, "mlir_vs_runtime_tensor", "error", traceback=tb)
-            return False
-
-    def check_golden_vs_tensor_ref(
-        self, slot: str, golden: torch.Tensor, tensor_ref
-    ) -> bool:
-        """Shape/dtype: golden output vs TensorRef metadata."""
-        try:
-            ref_shape = list(tensor_ref.get_shape())
-            ref_dtype = mlir_datatype_to_torch_dtype(tensor_ref.get_dtype())
-            return self._check_shape_dtype(
-                slot, "golden_vs_tensor_ref",
-                ref_shape, list(golden.shape),
-                ref_dtype, golden.dtype,
-            )
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"{self.op_name} {slot} [golden_vs_tensor_ref]: ERROR\n{tb}")
-            self._record(slot, "golden_vs_tensor_ref", "error", traceback=tb)
-            return False
-
-    def check_mlir_vs_golden(
-        self, slot: str, mlir_value, golden: torch.Tensor
-    ) -> bool:
-        """Shape/dtype: MLIR IR type vs golden tensor."""
-        try:
-            mlir_shape = list(mlir_value.type.shape)
-            mlir_dtype = mlir_type_to_torch_dtype(mlir_value.type.element_type)
-            return self._check_shape_dtype(
-                slot, "mlir_vs_golden",
-                mlir_shape, list(golden.shape),
-                mlir_dtype, golden.dtype,
-            )
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(f"{self.op_name} {slot} [mlir_vs_golden]: ERROR\n{tb}")
-            self._record(slot, "mlir_vs_golden", "error", traceback=tb)
+            logger.error(f"{self.op_name} {slot} [{check}]: ERROR\n{tb}")
+            self.record(slot, check, "error", traceback=tb)
             return False
 
     def check_golden_vs_runtime_tensor(
@@ -192,29 +133,17 @@ class ChiselChecker:
         check = "accum_golden_vs_runtime_tensor" if accum else "golden_vs_runtime_tensor"
         log_tag = " [accum]" if accum else ""
         try:
-            if list(golden.shape) != list(device.shape):
+            fail = _compare_shape_dtype(
+                _extract_shape_dtype(golden), _extract_shape_dtype(device)
+            )
+            if fail is not None:
+                status, extras = fail
                 msg = (
-                    f"{self.op_name} {slot} [{check}]: shape MISMATCH "
-                    f"expected={list(golden.shape)} actual={list(device.shape)}"
+                    f"{self.op_name} {slot} [{check}]: {status.upper()} "
+                    f"expected={extras.get('expected_shape', extras.get('expected_dtype'))} "
+                    f"actual={extras.get('actual_shape', extras.get('actual_dtype'))}"
                 )
-                self._record(
-                    slot, check, "shape_mismatch",
-                    expected_shape=list(golden.shape), actual_shape=list(device.shape),
-                )
-                logger.warning(msg)
-                if self.ctx.strict:
-                    raise AssertionError(msg)
-                return False
-
-            if golden.dtype != device.dtype:
-                msg = (
-                    f"{self.op_name} {slot} [{check}]: dtype MISMATCH "
-                    f"expected={golden.dtype} actual={device.dtype}"
-                )
-                self._record(
-                    slot, check, "dtype_mismatch",
-                    expected_dtype=str(golden.dtype), actual_dtype=str(device.dtype),
-                )
+                self.record(slot, check, status, **extras)
                 logger.warning(msg)
                 if self.ctx.strict:
                     raise AssertionError(msg)
@@ -225,7 +154,7 @@ class ChiselChecker:
             rtol = compute_rtol(golden, device)
 
             if pcc >= _PCC_THRESHOLD:
-                self._record(slot, check, "ok", pcc=pcc, atol=atol, rtol=rtol)
+                self.record(slot, check, "ok", pcc=pcc, atol=atol, rtol=rtol)
                 logger.info(
                     f"{self.op_name} {slot}{log_tag}: OK  "
                     f"pcc={pcc:.6f} atol={atol:.6e} rtol={rtol:.6e}"
@@ -237,7 +166,7 @@ class ChiselChecker:
                 f"pcc={pcc:.6f} (threshold={_PCC_THRESHOLD}) "
                 f"atol={atol:.6e} rtol={rtol:.6e}"
             )
-            self._record(slot, check, "pcc_fail", pcc=pcc, atol=atol, rtol=rtol)
+            self.record(slot, check, "pcc_fail", pcc=pcc, atol=atol, rtol=rtol)
             logger.warning(msg)
             if self.ctx.strict:
                 raise AssertionError(msg)
@@ -248,5 +177,5 @@ class ChiselChecker:
         except Exception:
             tb = traceback.format_exc()
             logger.error(f"{self.op_name} {slot} [{check}]: ERROR\n{tb}")
-            self._record(slot, check, "error", traceback=tb)
+            self.record(slot, check, "error", traceback=tb)
             return False

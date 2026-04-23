@@ -12,7 +12,7 @@ the golden_tensor_pool and op_iter.
 import json
 import logging
 from datetime import datetime
-from typing import Callable, Dict, Iterator, Optional
+from typing import Callable, Dict, Iterator, Optional, TextIO
 
 from ttmlir.ir import Operation
 
@@ -43,6 +43,25 @@ class ChiselContext:
         self.skip_criterion: Optional[Callable[[Operation], bool]] = None
         _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_path: Optional[str] = f"chisel_results/{_ts}.jsonl"
+        self._results_file: Optional[TextIO] = None
+
+    def write_record(self, record: dict) -> None:
+        """Append one JSON record to results_path (no-op if path is None).
+
+        The file is opened lazily on first write and reused across records so
+        we do not pay open/close per op.
+        """
+        if self.results_path is None:
+            return
+        if self._results_file is None:
+            self._results_file = open(self.results_path, "a")
+        self._results_file.write(json.dumps(record) + "\n")
+        self._results_file.flush()
+
+    def close_results(self) -> None:
+        if self._results_file is not None:
+            self._results_file.close()
+            self._results_file = None
 
     @classmethod
     def get_instance(cls) -> "ChiselContext":

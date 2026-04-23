@@ -101,10 +101,10 @@ def _default_pre_op(binary, program_context, op_context) -> None:
 
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
         name = mlir_input.get_name(asm_state)
-        checker.check_mlir_vs_tensor_ref(name, mlir_input, tensor_ref)
+        checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_input, tensor_ref)
         try:
             tensor = retrieve_torch_tensor(program_context, tensor_ref)
-            checker.check_mlir_vs_runtime_tensor(name, mlir_input, tensor)
+            checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_input, tensor)
             ctx._stashed_inputs[name] = tensor
             # Seed pool for program inputs (never produced by a prior golden op)
             if name not in program.golden_tensor_pool:
@@ -114,7 +114,7 @@ def _default_pre_op(binary, program_context, op_context) -> None:
             logger.error(
                 f"{op.name} {name}: failed to retrieve input tensor\n{tb}"
             )
-            checker._record(name, "retrieve_input", "error", traceback=tb)
+            checker.record(name, "retrieve_input", "error", traceback=tb)
 
 
 def _default_post_op(
@@ -123,15 +123,15 @@ def _default_post_op(
     """Default postOp body: dual-check validation against isolation and accumulation golden.
 
     For each op output:
-    1. check_mlir_vs_tensor_ref       — MLIR IR shape/dtype vs flatbuffer TensorRef
+    1. check_shape_dtype(mlir_vs_tensor_ref)     — MLIR IR shape/dtype vs flatbuffer TensorRef
     2. Retrieve device tensor
-    3. check_mlir_vs_runtime_tensor   — MLIR IR shape/dtype vs actual tensor
+    3. check_shape_dtype(mlir_vs_runtime_tensor) — MLIR IR shape/dtype vs actual tensor
 
     Then two golden checks (each gated by ctx.isolation_check / ctx.accum_check):
     Isolation golden (device-stashed inputs):
     4. execute_golden with ctx._stashed_inputs
-    5. check_mlir_vs_golden           — MLIR IR shape/dtype vs isolation golden
-    6. check_golden_vs_runtime_tensor — PCC/atol/rtol (skip if skip_pcc)
+    5. check_shape_dtype(mlir_vs_golden)         — MLIR IR shape/dtype vs isolation golden
+    6. check_golden_vs_runtime_tensor            — PCC/atol/rtol (skip if skip_pcc)
 
     Accumulation golden (pool inputs):
     7. execute_golden_from_pool with program.golden_tensor_pool
@@ -174,13 +174,13 @@ def _default_post_op(
             logger.debug(f"{op_name}: no golden implementation, skipping isolation check")
             if ctx.isolation_check:
                 for out in op_outputs:
-                    checker._record(out.get_name(asm_state), "golden", "skipped")
+                    checker.record(out.get_name(asm_state), "golden", "skipped")
         except Exception:
             tb = traceback.format_exc()
             logger.error(f"{op_name}: isolation golden execution failed\n{tb}")
             if ctx.isolation_check:
                 for out in op_outputs:
-                    checker._record(out.get_name(asm_state), "golden", "error", traceback=tb)
+                    checker.record(out.get_name(asm_state), "golden", "error", traceback=tb)
 
     acc_result = None
     if ctx.accum_check:
@@ -191,42 +191,42 @@ def _default_post_op(
         except (RuntimeError, KeyError) as e:
             logger.debug(f"{op_name}: accumulation golden skipped ({type(e).__name__}: {e})")
             for out in op_outputs:
-                checker._record(out.get_name(asm_state), "accum_golden", "skipped")
+                checker.record(out.get_name(asm_state), "accum_golden", "skipped")
         except Exception:
             tb = traceback.format_exc()
             logger.error(f"{op_name}: accumulation golden execution failed\n{tb}")
             for out in op_outputs:
-                checker._record(out.get_name(asm_state), "accum_golden", "error", traceback=tb)
+                checker.record(out.get_name(asm_state), "accum_golden", "error", traceback=tb)
 
     # --- Per-output validation loop ---
 
     for i, (mlir_output, output_ref) in enumerate(zip(op_outputs, output_refs, strict=True)):
         name = mlir_output.get_name(asm_state)
 
-        checker.check_mlir_vs_tensor_ref(name, mlir_output, output_ref)
+        checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
 
         try:
             device_tensor = retrieve_torch_tensor(program_context, output_ref)
         except Exception:
             tb = traceback.format_exc()
             logger.error(f"{op_name} {name}: failed to retrieve device output tensor\n{tb}")
-            checker._record(name, "retrieve_output", "error", traceback=tb)
+            checker.record(name, "retrieve_output", "error", traceback=tb)
             continue
 
-        checker.check_mlir_vs_runtime_tensor(name, mlir_output, device_tensor)
+        checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_output, device_tensor)
 
         if ctx.isolation_check and iso_result is not None:
             iso_out = iso_result[i] if isinstance(iso_result, (list, tuple)) else iso_result
-            checker.check_mlir_vs_golden(name, mlir_output, iso_out)
+            checker.check_shape_dtype(name, "mlir_vs_golden", mlir_output, iso_out)
             if skip_pcc:
-                checker._record(name, "golden_vs_runtime_tensor", "skipped_pcc")
+                checker.record(name, "golden_vs_runtime_tensor", "skipped_pcc")
             else:
                 checker.check_golden_vs_runtime_tensor(name, iso_out, device_tensor)
 
         if acc_result is not None:
             acc_out = acc_result[i] if isinstance(acc_result, (list, tuple)) else acc_result
             if skip_accum_pcc:
-                checker._record(name, "accum_golden_vs_runtime_tensor", "skipped_pcc")
+                checker.record(name, "accum_golden_vs_runtime_tensor", "skipped_pcc")
             else:
                 checker.check_golden_vs_runtime_tensor(name, acc_out, device_tensor, accum=True)
 
@@ -250,7 +250,7 @@ def _apply_skip(
     """
     if iso_result is None:
         for mlir_output in op_outputs:
-            checker._record(
+            checker.record(
                 mlir_output.get_name(asm_state), "skip_on_device", "skipped_no_golden"
             )
         return
@@ -262,11 +262,11 @@ def _apply_skip(
         tensor = iso_result[i] if isinstance(iso_result, (list, tuple)) else iso_result
         try:
             write_torch_tensor_to_pool(program_context, output_ref, tensor)
-            checker._record(name, "skip_on_device", "applied")
+            checker.record(name, "skip_on_device", "applied")
         except Exception:
             tb = traceback.format_exc()
             logger.error(f"{op.name} {name}: skip_on_device write failed\n{tb}")
-            checker._record(name, "skip_on_device", "error", traceback=tb)
+            checker.record(name, "skip_on_device", "error", traceback=tb)
 
 
 # ---------------------------------------------------------------------------
