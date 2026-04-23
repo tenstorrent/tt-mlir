@@ -3,8 +3,7 @@
 module {
   func.func @bitwise_xor_integer(%arg0: tensor<64x128xui16>) -> tensor<64x128xui16> {
     // CHECK-NOT: "ttir.bitwise_xor"
-    // CHECK: "ttir.full"
-    // CHECK-SAME: fill_value = 0 : i32
+    // CHECK: "ttir.zeros"
     // CHECK-SAME: tensor<64x128xui16>
     // CHECK-NOT: "ttir.bitwise_xor"
     %1 = "ttir.bitwise_xor"(%arg0, %arg0) : (tensor<64x128xui16>, tensor<64x128xui16>) -> tensor<64x128xui16>
@@ -13,8 +12,7 @@ module {
 
   func.func @bitwise_xor_float(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
     // CHECK-NOT: "ttir.bitwise_xor"
-    // CHECK:  "ttir.full"
-    // CHECK-SAME: fill_value = 0.000000e+00 : f32
+    // CHECK:  "ttir.zeros"
     // CHECK-SAME: tensor<64x128xbf16>
     // CHECK-NOT: "ttir.bitwise_xor"
     %1 = "ttir.bitwise_xor"(%arg0, %arg0) : (tensor<64x128xbf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
