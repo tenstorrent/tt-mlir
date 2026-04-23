@@ -21,6 +21,8 @@ import pytest
 import torch
 import d2m_jit as d2m
 
+from utils import assert_pcc
+
 
 @d2m.kernel
 def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks):
@@ -32,6 +34,14 @@ def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks):
             b = remote_load(rhs, [m_off + m, n_off + n])
             c = a @ b
             remote_store(out, [m_off + m, n_off + n], c)
+
+
+@d2m.kernel
+def matmul_transpose_b_kernel(lhs, rhs, out):
+    a = remote_load(lhs, [0, 0])
+    b = remote_load(rhs, [0, 0])
+    c = matmul(a, b, transpose_b=True)
+    remote_store(out, [0, 0], c)
 
 
 def _make_layout():
@@ -76,6 +86,33 @@ def test_matmul_correctness_via_zeros():
 
     diff = (expected - result).abs().max().item()
     assert diff < 0.05, f"per-shard matmul: max diff {diff} too large"
+
+
+def test_matmul_transpose_b_correctness():
+    lhs = torch.rand(32, 32, dtype=torch.float32) * 0.999 + 0.001
+    rhs = torch.rand(64, 32, dtype=torch.float32) * 0.999 + 0.001
+    lhs_layout = d2m.Layout(
+        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    rhs_layout = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[2, 1], grid_shape=[1, 1]
+    )
+    out_layout = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 2], grid_shape=[1, 1]
+    )
+
+    out_d = d2m.empty(out_layout)
+    matmul_transpose_b_kernel(
+        d2m.to_layout(lhs, lhs_layout),
+        d2m.to_layout(rhs, rhs_layout),
+        out_d,
+        grid=(1, 1),
+    )
+    result = out_d.to_host()
+    expected = lhs @ rhs.T
+
+    assert tuple(result.shape) == (32, 64)
+    assert_pcc(expected, result, threshold=0.99)
 
 
 # ---------------------------------------------------------------------------

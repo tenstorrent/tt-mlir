@@ -230,10 +230,13 @@ private:
     }
 
     // Insert tile_matmul_block right after the compute loop, then erase it.
+    // Forward the transpose_b attribute from the source tile_matmul onto the
+    // lowered tile_matmul_block so the ttkernel matmul_block sees it.
     OpBuilder builder(computeLoop->getContext());
     builder.setInsertionPointAfter(computeLoop);
-    builder.create<d2m::TileMatmulBlockOp>(computeLoop->getLoc(), inputA,
-                                           inputB, outputC);
+    builder.create<d2m::TileMatmulBlockOp>(
+        computeLoop->getLoc(), inputA, inputB, outputC,
+        /*transpose_b=*/matmulOp.getTransposeB());
     computeLoop->erase();
 
     return success();
