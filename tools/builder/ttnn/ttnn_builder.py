@@ -9772,28 +9772,31 @@ class TTNNBuilder(Builder):
         """
         ttnn_op = self.get_opview_from_method(TTNNBuilder.sampling)
 
-        vals_t = self._get_golden_tensor(input_values).float()
-        idx_t = self._get_golden_tensor(input_indices)
-        temp_t = self._get_golden_tensor(temp).float()
-
-        batch = vals_t.shape[0]
-        temperature = temp_t.clamp(min=1e-6).unsqueeze(-1)
-        scaled = torch.div(vals_t, temperature)
-        probs = torch.softmax(scaled, dim=-1)
-        sampled_local = torch.multinomial(probs, num_samples=1).squeeze(-1)
-        golden_output = (
-            torch.gather(idx_t, 1, sampled_local.unsqueeze(-1))
-            .squeeze(-1)
-            .to(torch.int32)
-        )
-
-        result_shape = [batch]
         mlir_output_type = self._get_type_from_torch_dtype(torch.int32)
-        result = self.create_ttnn_tensor(result_shape, mlir_output_type)
+
+        vals_golden = self._get_golden_tensor(input_values)
+        idx_golden = self._get_golden_tensor(input_indices)
+        k_golden = self._get_golden_tensor(k)
+        p_golden = self._get_golden_tensor(p)
+        temp_golden = self._get_golden_tensor(temp)
 
         seed_attr = None
         if seed is not None:
             seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
+
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            vals_golden,
+            idx_golden,
+            k_golden,
+            p_golden,
+            temp_golden,
+            seed_attr,
+            mlir_output_type,
+        )
+
+        batch = vals_golden.shape[0]
+        result = self.create_ttnn_tensor([batch], mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
