@@ -935,7 +935,7 @@ func.func @test(
 
   auto cbUsageInfo = utils::getCBUsageInfo(generic.getRegion(0));
 
-  // check presence of CBs
+  // Check presence of CBs.
   ASSERT_EQ(cbUsageInfo.size(), 3u);
   SmallVector<Value> cbs;
   generic.walk([&](memref::AllocOp allocOp) {
@@ -945,7 +945,7 @@ func.func @test(
     EXPECT_EQ(cbUsageInfo.lookup(allocOp.getResult()).consumers.size(), 1u);
   });
 
-  // check producers/consumers of CBs
+  // Check producers/consumers of CBs.
   ASSERT_TRUE(
       mlir::isa<d2m::RemoteLoadOp>(cbUsageInfo[cbs[0]].producers.front()));
   ASSERT_TRUE(
