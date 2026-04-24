@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Type
 
-from ttmlir.dialects import ttcore, ttnn
+from ttmlir.dialects import func, ttcore, ttnn
 
 logger = logging.getLogger("chisel")
 
@@ -84,6 +84,14 @@ register_op_config(ttcore.LoadCachedOp, ChiselOpConfig(skip=True))
 
 # ttnn.generic: IR output count = 0 but FB output count = 1.
 register_op_config(ttnn.GenericOp, ChiselOpConfig(skip=True))
+
+# func.call: not a device op — runtime does not fire callbacks for it.
+register_op_config(func.CallOp, ChiselOpConfig(skip=True))
+
+# ttnn.paged_update_cache / ttnn.fill_cache: in-place cache writes with no
+# retrievable output tensors.
+register_op_config(ttnn.PagedUpdateCacheOp, ChiselOpConfig(skip=True))
+register_op_config(ttnn.FillCacheOp, ChiselOpConfig(skip=True))
 
 # scale/zero_point operands are stored as FB attribute structs, not TensorRefs,
 # so IR and FB input counts disagree.
