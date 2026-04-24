@@ -10,6 +10,7 @@ declare_mlir_python_sources(ChiselSources
     checker.py
     ops.py
     executor.py
+    exceptions.py
     tensors.py
     op_configs.py
     utils.py

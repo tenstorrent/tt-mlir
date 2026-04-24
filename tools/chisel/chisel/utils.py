@@ -12,6 +12,8 @@ from typing import Optional
 
 import torch
 
+from _ttmlir_runtime import runtime as tt_runtime
+
 from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtype
 
 logger = logging.getLogger("chisel")
@@ -34,8 +36,6 @@ def retrieve_torch_tensor(
 
     On failure records an "error" entry via `checker` (if provided) and returns None.
     """
-    from ttrt import runtime as tt_runtime
-
     try:
         device_tensor = tt_runtime.retrieve_tensor_from_pool(
             program_context, tensor_ref
@@ -62,8 +62,6 @@ def write_torch_tensor_to_pool(
     Records "applied" on success and "error" on failure via `checker` (if provided).
     Returns True on success, False on failure.
     """
-    from ttrt import runtime as tt_runtime
-
     try:
         dst = tt_runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
         src = torch_tensor.contiguous()

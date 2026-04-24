@@ -6,6 +6,7 @@
 from typing import Callable, Optional
 
 from ttmlir.ir import Operation
+from _ttmlir_runtime import runtime as tt_runtime
 
 from .context import ChiselContext
 from .callbacks import (
@@ -25,8 +26,6 @@ def bind(skip_criterion: Optional[Callable[[Operation], bool]] = None):
             with the isolation golden result after the device executes the op.
             When None (default), skip mode is disabled.
     """
-    from ttrt import runtime as tt_runtime
-
     ctx = ChiselContext()
     ctx.skip_criterion = skip_criterion
     tt_runtime.DebugHooks.get(
@@ -39,8 +38,6 @@ def bind(skip_criterion: Optional[Callable[[Operation], bool]] = None):
 
 def unbind():
     """Tear down ChiselContext singleton. Safe to call even if bind() was not called."""
-    from ttrt import runtime as tt_runtime
-
     tt_runtime.DebugHooks.get()
     if ChiselContext._instance is not None:
         ChiselContext._instance.close_results()
