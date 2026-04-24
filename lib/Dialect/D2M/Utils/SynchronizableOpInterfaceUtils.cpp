@@ -46,10 +46,34 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
 // linalg.generic after it has been lowered into loops so we can use analysis
 // relying on SynchronizableOpInterface, such as in SplitUnifiedThread pass to
 // identify CBs and insert correct CB ops on producer/consumer side).
+//
+// PRECONDITION: No op in [start, end) may produce SSA results that are used
+// outside of [start, end).
 Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
                                     Block::iterator start, Block::iterator end,
                                     const SmallVector<Value> &consumers,
                                     const SmallVector<Value> &producers) {
+  // Verify no results are used outside the wrapped range.
+  llvm::DenseSet<Operation *> opsInRange;
+  for (Operation &op : llvm::make_range(start, end)) {
+    opsInRange.insert(&op);
+  }
+
+  for (Operation &op : llvm::make_range(start, end)) {
+    for (Value result : op.getResults()) {
+      for (Operation *user : result.getUsers()) {
+        if (!opsInRange.contains(user)) {
+          llvm::errs() << "Found use of op result outside the range of ops "
+                          "being wrapped: \n"
+                       << *user;
+          llvm_unreachable(
+              "Results of ops being wrapped in SynchronizedRegionOp cannot be "
+              "used outside the range.");
+        }
+      }
+    }
+  }
+
   rewriter.setInsertionPoint(&*start);
   auto newSynchronizedRegionOp = rewriter.create<d2m::SynchronizedRegionOp>(
       start->getLoc(), TypeRange(), consumers, producers,
