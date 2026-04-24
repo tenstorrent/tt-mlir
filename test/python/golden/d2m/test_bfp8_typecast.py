@@ -15,7 +15,7 @@ from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
 
-from test_metal_matmul import create_matmul_constrained_inputs
+from d2m.test_matmul import create_matmul_constrained_inputs
 
 from test_utils import (
     shape_str,

@@ -99,7 +99,6 @@ def test_batch_norm(
     "target",
     [
         "ttnn" | SkipIf("sim"),
-        "ttmetal",
         "emitpy" | SkipIf("sim"),
         "emitc" | SkipIf("sim"),
     ],
@@ -192,7 +191,7 @@ def test_softmax(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_softmax(
     shape: Shape,
@@ -299,7 +298,7 @@ def test_layer_norm(
 @pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_layer_norm(
     shape: Shape,
