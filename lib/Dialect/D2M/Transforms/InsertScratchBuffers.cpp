@@ -59,13 +59,13 @@ static unsigned countLinalgGenerics(GenericOp genericOp) {
   return linalgCount;
 }
 
-// Compute the number of scratch tiles needed for a d2m.generic. Returns
-// min(linalgCount * numTilesPerResult, kFallbackScratchSizeBytes /
-// tileSizeBytes) when the DST packing analysis produces results for this
-// generic, otherwise falls back to kFallbackScratchSizeBytes / tileSizeBytes.
+// Compute the number of scratch tiles needed for a d2m.generic. Sums the
+// per-result numTilesPerResult reported by the DST packing analysis for each
+// top-level linalg.generic in the region, skipping ops the analysis did not
+// size. Returns kFallbackScratchSizeBytes / tileSizeBytes when the analysis
+// produces no usable information. The result is capped at that fallback.
 static size_t
-computeScratchNumTiles(GenericOp genericOp, unsigned linalgCount,
-                       ttcore::TileType tileType,
+computeScratchNumTiles(GenericOp genericOp, ttcore::TileType tileType,
                        const utils::DstRegisterAnalysis &dstAnalysis) {
   const size_t tileSizeBytes = tileType.getSizeBytes();
   const size_t fallbackNumTiles =
@@ -81,9 +81,18 @@ computeScratchNumTiles(GenericOp genericOp, unsigned linalgCount,
     return fallbackNumTiles;
   }
 
-  const size_t analysisNumTiles =
-      static_cast<size_t>(linalgCount) *
-      static_cast<size_t>(regionInfo->numTilesPerResult);
+  // Sum each top-level linalg.generic's own numTilesPerResult. Per-op entries
+  // are looked up by the linalg's single output value; ops not covered by the
+  // analysis are skipped and contribute 0 tiles.
+  size_t analysisNumTiles = 0;
+  for (linalg::GenericOp linalgOp :
+       genericOp.getRegion(0).front().getOps<linalg::GenericOp>()) {
+    auto it = regionInfo->perResult.find(linalgOp.getOutputs().front());
+    if (it == regionInfo->perResult.end()) {
+      continue;
+    }
+    analysisNumTiles += static_cast<size_t>(it->second.numTilesPerResult);
+  }
   if (analysisNumTiles == 0) {
     return fallbackNumTiles;
   }
@@ -142,8 +151,7 @@ static void addScratchToGeneric(GenericOp genericOp,
   ttcore::TileType tileType = getTileType(refMemRefType);
 
   // Calculate number of scratch tiles using the DST packing analysis.
-  size_t numTiles =
-      computeScratchNumTiles(genericOp, linalgCount, tileType, dstAnalysis);
+  size_t numTiles = computeScratchNumTiles(genericOp, tileType, dstAnalysis);
 
   // Build scratch shard shape: [1, numTiles].
   SmallVector<int64_t> scratchShardShape = {1, static_cast<int64_t>(numTiles)};

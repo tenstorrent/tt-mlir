@@ -153,6 +153,115 @@ struct PendingDSTPackingResult {
   int64_t numDstFlips = 0;
 };
 
+// Fallback chunking for regions with heterogeneous output shapes (e.g. eltwise
+// fused with a reduction), where the GCD-of-numDstFlips factorization
+// collapses to a single outer iteration. Splits each op's shard along a shared
+// row factor of outputShape[0] so Phase 1 produces matching outer loops that
+// SpillAndScratch can fuse.
+//
+// TODO(ckaravasilisTT): derive the shared parallel dim from the affine
+// indexing maps instead of hardcoding outputShape[0].
+static std::optional<DSTPackingRegionInfo>
+trySharedParallelChunking(d2m::GenericOp /*generic*/,
+                          ArrayRef<linalg::GenericOp> linalgOps,
+                          unsigned maxDstPhysicalSizeTiles) {
+  struct OpInfo {
+    Value outputValue;
+    int64_t rowDim = 0;
+    int64_t colProduct = 0;
+    int64_t shardSizeTiles = 0;
+    int64_t maxDstTiles = 0;
+  };
+  SmallVector<OpInfo> opInfos;
+  int64_t commonRowDim = -1;
+
+  for (linalg::GenericOp linalgOp : linalgOps) {
+    Value outputValue = linalgOp.getOutputs().front();
+    auto outputType = mlir::dyn_cast<ShapedType>(outputValue.getType());
+    if (!outputType || !outputType.hasStaticShape() ||
+        outputType.getRank() < 2) {
+      return std::nullopt;
+    }
+    ArrayRef<int64_t> shape = outputType.getShape();
+    int64_t rowDim = shape[0];
+    int64_t colProduct = 1;
+    for (size_t i = 1; i < shape.size(); i++) {
+      colProduct *= shape[i];
+    }
+    int64_t shardSizeTiles = rowDim * colProduct;
+    if (shardSizeTiles <= 1) {
+      return std::nullopt;
+    }
+
+    std::optional<int64_t> maxDst =
+        getMaxDstTilesForLinalgOp(linalgOp, maxDstPhysicalSizeTiles);
+    if (!maxDst) {
+      return std::nullopt;
+    }
+
+    if (commonRowDim == -1) {
+      commonRowDim = rowDim;
+    }
+    if (rowDim != commonRowDim) {
+      return std::nullopt;
+    }
+
+    opInfos.push_back(
+        {outputValue, rowDim, colProduct, shardSizeTiles, *maxDst});
+  }
+
+  if (opInfos.size() < 2 || commonRowDim < 2) {
+    return std::nullopt;
+  }
+
+  // Try R values from largest valid factor down. R must be a proper factor
+  // (< commonRowDim) and >= 2 so that per-iteration shards remain multi-tile.
+  for (int64_t R : llvm::reverse(ttmlir::utils::getFactors(commonRowDim))) {
+    if (R >= commonRowDim || R < 2) {
+      continue;
+    }
+
+    int64_t numOuterIters = commonRowDim / R;
+    DSTPackingRegionInfo results;
+    bool allValid = true;
+
+    for (const OpInfo &info : opInfos) {
+      int64_t perIterShard = info.shardSizeTiles / numOuterIters;
+      if (perIterShard < 2) {
+        allValid = false;
+        break;
+      }
+
+      // Clamp numTilesPerFlip to colProduct so Phase 2 produces row tile
+      // size = 1, ensuring all ops share the same scratch_space_loop step.
+      int64_t maxFlip =
+          getLargestLegalChunkSize(perIterShard, info.maxDstTiles);
+      int64_t numTilesPerFlip = std::min(maxFlip, info.colProduct);
+      int64_t numDstFlips = perIterShard / numTilesPerFlip;
+
+      if (numDstFlips < 2) {
+        allValid = false;
+        break;
+      }
+
+      results.perResult.try_emplace(
+          info.outputValue,
+          DSTPackingPerResultInfo{numDstFlips, numTilesPerFlip, perIterShard});
+    }
+
+    if (allValid) {
+      results.numOuterLoopIters = numOuterIters;
+      // Region-level stat is the first op's per-iter shard; per-result
+      // numTilesPerResult is the authoritative per-op value.
+      results.numTilesPerResult =
+          opInfos.front().shardSizeTiles / numOuterIters;
+      return results;
+    }
+  }
+
+  return std::nullopt;
+}
+
 static std::optional<DSTPackingRegionInfo>
 computeDSTPackingForRegion(d2m::GenericOp generic,
                            ArrayRef<linalg::GenericOp> linalgOps,
@@ -217,7 +326,8 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
       // duplicates since the packing info is identical for the same Value.
       results.perResult.try_emplace(
           outputValue, DSTPackingPerResultInfo{/*numDstFlips=*/1,
-                                               /*numTilesPerFlip=*/1});
+                                               /*numTilesPerFlip=*/1,
+                                               /*numTilesPerResult=*/1});
     }
     return results;
   }
@@ -238,7 +348,24 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
              "expected a common num_outer_loop_iters when pending dst packing "
              "results are non-empty");
 
-  std::optional<int64_t> commonNumTilesPerResult;
+  // If the GCD-based factorization collapses to a single outer iteration and
+  // the region has heterogeneous output shards (e.g. eltwise + reduction),
+  // fall back to chunking along a shared parallel dim.
+  if (*commonNumOuterLoopIters <= 1 && pendingResults.size() >= 2) {
+    int64_t firstShard = pendingResults.front().numDstFlips *
+                         pendingResults.front().numTilesPerFlip;
+    bool heterogeneous = llvm::any_of(pendingResults, [&](const auto &pr) {
+      return (pr.numDstFlips * pr.numTilesPerFlip) != firstShard;
+    });
+    if (heterogeneous) {
+      if (auto sharedResult = trySharedParallelChunking(
+              generic, linalgOps, maxDstPhysicalSizeTiles)) {
+        return *sharedResult;
+      }
+    }
+  }
+
+  std::optional<int64_t> regionNumTilesPerResult;
   for (const PendingDSTPackingResult &pending : pendingResults) {
     int64_t numDstFlips = pending.numDstFlips / *commonNumOuterLoopIters;
     TT_assertv((pending.numDstFlips % *commonNumOuterLoopIters) == 0,
@@ -250,14 +377,8 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
                "common num_outer_loop_iters");
 
     int64_t numTilesPerResult = numDstFlips * pending.numTilesPerFlip;
-    if (!commonNumTilesPerResult) {
-      commonNumTilesPerResult = numTilesPerResult;
-    }
-    if (*commonNumTilesPerResult != numTilesPerResult) {
-      generic.emitOpError(
-          "expected identical num tiles per result for all linalg.generic "
-          "outputs");
-      return std::nullopt;
+    if (!regionNumTilesPerResult) {
+      regionNumTilesPerResult = numTilesPerResult;
     }
 
     // Fused generics may have multiple linalg ops writing to the same output
@@ -267,18 +388,21 @@ computeDSTPackingForRegion(d2m::GenericOp generic,
     // binary_min, consuming 2 DST slots per tile vs 1 for a plain SFPU op).
     auto [perResultIt, inserted] = results.perResult.try_emplace(
         pending.outputValue,
-        DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip});
+        DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip,
+                                numTilesPerResult});
     if (!inserted &&
         pending.numTilesPerFlip < perResultIt->second.numTilesPerFlip) {
-      perResultIt->second =
-          DSTPackingPerResultInfo{numDstFlips, pending.numTilesPerFlip};
+      perResultIt->second = DSTPackingPerResultInfo{
+          numDstFlips, pending.numTilesPerFlip, numTilesPerResult};
     }
   }
 
-  TT_assertv(commonNumTilesPerResult.has_value(),
+  TT_assertv(regionNumTilesPerResult.has_value(),
              "expected num tiles per result when pending results are "
              "non-empty");
-  results.numTilesPerResult = *commonNumTilesPerResult;
+  // Region-level value is kept for back-compat; per-op phase-1 capacity is
+  // driven by DSTPackingPerResultInfo::numTilesPerResult.
+  results.numTilesPerResult = *regionNumTilesPerResult;
   results.numOuterLoopIters = *commonNumOuterLoopIters;
 
   return results;

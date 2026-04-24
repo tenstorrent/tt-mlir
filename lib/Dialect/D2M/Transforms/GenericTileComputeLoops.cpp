@@ -235,7 +235,7 @@ private:
     SmallVector<int64_t> phase1TileSizes = calculateOptimalSubblockSizes(
         linalgOp.getIndexingMapsArray(), linalgOp.getInputs(),
         outputType.getShape(),
-        static_cast<unsigned>(regionInfo.numTilesPerResult));
+        static_cast<unsigned>(perResult.numTilesPerResult));
 
     LLVM_DEBUG({
       llvm::dbgs() << "  phase1 tile sizes: [";
