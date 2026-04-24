@@ -1401,6 +1401,7 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       "getBufferType",
       "hasTensorSemantics"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "Local DMA copy with affine map indexing";
     let description = [{
@@ -1522,6 +1523,14 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
 
       /// Returns the CB port number. Op must be in explicit CB form.
       unsigned getCBPort();
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return operand.get() == getDst();
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return operand.get() == getSrc();
+      }
     }];
 
   let extraClassDefinition = [{
