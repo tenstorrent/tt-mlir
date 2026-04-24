@@ -37,8 +37,7 @@ from test_utils import SystemDesc
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 ALL_ENVIRONMENTS = set(["silicon", "sim"])
-ALL_IMAGES = set(["tracy", "speedy"])
-ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS | ALL_IMAGES
+ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS
 
 
 _current_device = None
@@ -197,22 +196,6 @@ def _get_current_environment():
         return "sim"
 
     return "silicon"
-
-
-def _get_current_image():
-    """Identify the docker/build image flavor the tests are running under.
-
-    The image is exported as the ``IMAGE_NAME`` environment variable by CI
-    (see ``.github/workflows/call-test.yml``); when running locally the value
-    defaults to ``"speedy"`` so the dev experience matches the non-tracy
-    image. Only entries declared in ``ALL_IMAGES`` are recognized; anything
-    else is treated as the default ``"speedy"`` to avoid bogus ``skip_config``
-    matches against unknown values.
-    """
-    image = os.environ.get("IMAGE_NAME", "speedy")
-    if image not in ALL_IMAGES:
-        return "speedy"
-    return image
 
 
 def is_x86_machine():
@@ -772,7 +755,6 @@ def _mark_item_for_skip(
     current_target,
     board_id,
     current_environment,
-    current_image,
     marker_name,
     skip_handler_fn,
     negate_check=False,
@@ -792,7 +774,7 @@ def _mark_item_for_skip(
                 )
 
             match = platform_config <= set(
-                [current_target, board_id, current_environment, current_image]
+                [current_target, board_id, current_environment]
             )
             matches.append(match)
 
@@ -845,7 +827,6 @@ def pytest_collection_modifyitems(config, items):
                 break
 
         current_environment = _get_current_environment()
-        current_image = _get_current_image()
         board_id = get_board_id(system_desc)
 
         def skip_config_handler(item):
@@ -875,7 +856,6 @@ def pytest_collection_modifyitems(config, items):
             current_target,
             board_id,
             current_environment,
-            current_image,
             "skip_config",
             skip_config_handler,
         )
@@ -884,7 +864,6 @@ def pytest_collection_modifyitems(config, items):
             current_target,
             board_id,
             current_environment,
-            current_image,
             "only_config",
             only_config_handler,
             negate_check=True,
@@ -894,7 +873,6 @@ def pytest_collection_modifyitems(config, items):
             current_target,
             board_id,
             current_environment,
-            current_image,
             "skip_exec",
             skip_exec_handler,
         )

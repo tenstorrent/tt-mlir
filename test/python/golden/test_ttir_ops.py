@@ -2007,10 +2007,7 @@ def test_reduce_scatter(
         (1, 1, 32, 64),
         (1, 32, 64),
         (32, 64),
-        # Non tile-aligned (30, 60) shape currently fails on tracy builds for
-        # multi-device collective_permute.
-        # See https://github.com/tenstorrent/tt-mlir/issues/8097
-        pytest.param((30, 60), marks=pytest.mark.skip_config(["tracy"])),
+        (30, 60),
     ],
     ids=shape_str,
 )
@@ -2150,11 +2147,6 @@ def test_collective_permute(
         ),
     ],
 )
-# Many all_to_all configurations are currently flaky/failing on tracy builds
-# (n300-tracy and llmbox-tracy CI jobs), so disable the whole test on tracy
-# until the underlying CCL issue is fixed.
-# See https://github.com/tenstorrent/tt-mlir/issues/8097
-@pytest.mark.skip_config(["tracy"])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_to_all(
     test_shape: Shape,
@@ -2232,10 +2224,7 @@ def test_all_to_all(
         (64, 32),
         (32, 128, 64),
         (8, 8, 32, 64),
-        # Non tile-aligned (10, 10, 30, 60) shape currently fails on tracy
-        # builds for multi-device collective_broadcast.
-        # See https://github.com/tenstorrent/tt-mlir/issues/8097
-        pytest.param((10, 10, 30, 60), marks=pytest.mark.skip_config(["tracy"])),
+        (10, 10, 30, 60),
     ],
     ids=shape_str,
 )
