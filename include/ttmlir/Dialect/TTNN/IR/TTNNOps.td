@@ -3014,6 +3014,14 @@ def TTNN_FullOp : TTNN_CreationOp<"full", [CanExecuteOnHostTrait]> {
 
     Given a `shape` and a `fill_value`, produces a tensor with the shape, filled with the specified value.
 
+    The optional `non_cse_id` attribute is a marker that forces MLIR CSE to
+    treat two otherwise-identical `ttnn.full` ops as distinct. It is required
+    when the produced tensor is later consumed as an in-place writable output
+    buffer (e.g. the `optional_output_tensor` of `ttnn.selective_reduce_combine`),
+    since merging such buffers across call sites causes state from one use to
+    leak into the next. The attribute is ignored by serialization and runtime;
+    it exists purely to influence compile-time equivalence.
+
     Example:
       %0 = "ttnn.full"() <{
         dtype = #ttcore.supportedDataTypes<u32>,
@@ -3029,13 +3037,15 @@ def TTNN_FullOp : TTNN_CreationOp<"full", [CanExecuteOnHostTrait]> {
                        AnyAttrOf<[F32Attr, I32Attr]>:$fill_value,
                        OptionalAttr<TTCore_DataTypeAttr>:$dtype,
                        OptionalAttr<TTNN_LayoutAttr>:$layout,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<I64Attr>:$non_cse_id);
 
   let results = (outs AnyRankedTensor:$result);
 
   let builders =
   [
-    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue, "Value": $device)>
+    OpBuilder<(ins "Type": $resultType, "Attribute": $fillValue, "Value": $device,
+                   CArg<"::mlir::IntegerAttr", "::mlir::IntegerAttr()">: $nonCseId)>
   ];
 
 }

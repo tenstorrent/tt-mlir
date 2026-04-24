@@ -1285,7 +1285,8 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
                                    mlir::OperationState &state,
                                    mlir::Type resultType,
                                    mlir::Attribute fillValue,
-                                   mlir::Value device) {
+                                   mlir::Value device,
+                                   mlir::IntegerAttr nonCseId) {
   mlir::MLIRContext *ctx = builder.getContext();
   mlir::RankedTensorType tensorType = mlir::cast<RankedTensorType>(resultType);
   ttnn::TTNNLayoutAttr layoutAttr =
@@ -1298,7 +1299,7 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
       ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
   build(builder, state, resultType, device, shapeAttr, fillValue, dtypeAttr,
-        tensorLayoutAttr, /*memory_config=*/nullptr);
+        tensorLayoutAttr, /*memory_config=*/nullptr, /*non_cse_id=*/nonCseId);
 }
 
 //===----------------------------------------------------------------------===//

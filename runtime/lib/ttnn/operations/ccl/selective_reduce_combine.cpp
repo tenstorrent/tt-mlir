@@ -5,6 +5,7 @@
 #include "operations/ccl/selective_reduce_combine.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttnn/global_semaphore.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
 
@@ -53,6 +54,25 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
         tensorPool.getTTNNTensorAndValidate(op->optional_output_tensor());
   }
 
+  // Match tt-metal GPT-OSS reference (experts_throughput/weights.py):
+  //   combine_semaphore =
+  //       ttnn.create_global_semaphore(mesh_device, all_worker_cores, 0)
+  // Providing both `optional_output_tensor` and
+  // `optional_cross_device_semaphore` enables the optimized "semaphore-free"
+  // path where the fabric EDM performs the cross-device combine writes
+  // directly. Without the semaphore, the program factory falls back to the
+  // init-semaphore path which may leave destination slots on remote devices
+  // untouched, manifesting as identical (residual-only) outputs on
+  // non-source devices of the cluster row.
+  ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
+  auto computeGrid = meshDevicePtr->compute_with_storage_grid_size();
+  ::tt::tt_metal::CoreRangeSet semaphoreCores(::tt::tt_metal::CoreRange(
+      ::tt::tt_metal::CoreCoord(0, 0),
+      ::tt::tt_metal::CoreCoord(computeGrid.x - 1, computeGrid.y - 1)));
+  ::ttnn::GlobalSemaphore crossDeviceSemaphore =
+      ::ttnn::global_semaphore::create_global_semaphore(
+          meshDevicePtr, semaphoreCores, /*initial_value=*/0);
+
   ::ttnn::Tensor output = ::ttnn::prim::selective_reduce_combine(
       denseInputTensor, denseActivationsTensor, denseTokenMapsTensor,
       denseTokenCountsTensor, op->hidden_size(), op->batch_size(),
@@ -66,7 +86,8 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       /*mux_core_range_set=*/muxCores,
       /*output_memory_config=*/std::nullopt,
       /*optional_output_tensor=*/optionalOutputTensor,
-      /*optional_cross_device_semaphore=*/std::nullopt);
+      /*optional_cross_device_semaphore=*/
+      std::make_optional(crossDeviceSemaphore));
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }

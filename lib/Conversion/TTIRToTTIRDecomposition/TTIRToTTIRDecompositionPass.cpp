@@ -38,8 +38,6 @@ struct TTIRToTTIRDecompositionPass
   using TTIRToTTIRDecompositionBase::TTIRToTTIRDecompositionBase;
 
   void runOnOperation() override {
-    llvm::errs() << "[TTIRToTTIRDecompositionPass] START decompConfig="
-                 << static_cast<int>(decompConfig.getValue()) << "\n";
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<ttir::TTIRDialect>();
     target.addLegalDialect<mlir::func::FuncDialect>();
@@ -160,11 +158,9 @@ struct TTIRToTTIRDecompositionPass
     //
     if (failed(applyPartialConversion(getOperation(), target,
                                       std::move(patterns)))) {
-      llvm::errs() << "[TTIRToTTIRDecompositionPass] FAIL\n";
       signalPassFailure();
       return;
     }
-    llvm::errs() << "[TTIRToTTIRDecompositionPass] END\n";
   }
 };
 

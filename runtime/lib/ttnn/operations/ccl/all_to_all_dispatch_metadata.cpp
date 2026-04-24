@@ -5,10 +5,103 @@
 #include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
+#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
 
+#include <tt-metalium/experimental/tensor/topology/tensor_topology.hpp>
+#include <tt-metalium/mesh_coord.hpp>
+
+#include <cstdlib>
+#include <string>
+
 namespace tt::runtime::ttnn::operations::ccl {
+namespace {
+// Allocate a zero-initialized device tensor matching the shape/dtype/layout/
+// memory_config of `tensorRef`. Required so that SPARSE_UNICAST dispatch
+// leaves unrouted destination slots as zero instead of stale/garbage data.
+//
+// IMPORTANT: the tt-metal GPT-OSS reference
+// (models/demos/gpt_oss/tt/experts_throughput/weights.py) builds these
+// pre-allocated output buffers with
+//   ShardTensor2dMesh(dims=(0, None), mesh_shape=(ring_devices, mesh_cols))
+// so the kernel sees the dispatched outputs as axis-0 sharded over the ring
+// (global dim 0 == ring_devices, per-device dim 0 == 1), replicated along
+// the orthogonal mesh axis. ttnn::zeros (mesh overload) produces a fully
+// replicated tensor instead, and the resulting replicated-tensor metadata
+// makes the SPARSE_UNICAST fabric writes mis-target the output slot:
+// every device ends up writing to slot 0..local_batch-1, which collapses the
+// cross-device dispatch (all devices downstream of the source produce
+// identical wrong outputs).
+//
+// To match the reference we call ttnn::zeros to obtain the per-device
+// zero storage, and then override the tensor's mesh topology so the kernel
+// interprets it as axis-0 sharded, orthogonal-axis replicated. This is
+// metadata-only: the underlying storage stays the same, but the mesh view
+// now matches what the kernel expects.
+::ttnn::Tensor createZeroOutput(const ::tt::target::ttnn::TensorRef *tensorRef,
+                                ProgramContext &context) {
+  ::ttnn::Shape shape = ::tt::runtime::ttnn::operations::utils::toTTNNShape(
+      *tensorRef->desc()->shape());
+  ::ttnn::DataType dtype =
+      ::tt::runtime::ttnn::operations::utils::getDataType(tensorRef);
+  ::ttnn::Layout layout =
+      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(tensorRef);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
+
+  ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
+  ::tt::runtime::ttnn::OptionalMeshDeviceRef meshDevice =
+      std::ref(*meshDevicePtr);
+  ::ttnn::Tensor tensor =
+      ::ttnn::zeros(shape, dtype, layout, meshDevice, memoryConfig);
+
+  // Overwrite tensor topology to axis-0 sharded / axis-1 replicated so the
+  // A2A kernel reads the same distributed-tensor metadata the Python
+  // reference produces. Controlled by env var so we can A/B test the fix
+  // without another rebuild: default ON because the replicated topology is
+  // the observed cause of the cross-device batch collapse.
+  static const bool kOverrideTopology = []() {
+    const char *env = std::getenv("TT_A2A_DISPATCH_METADATA_SHARDED_TOPO");
+    // Enabled by default; set the env var to "0" to disable and fall back
+    // to the plain replicated topology produced by ttnn::zeros.
+    return env == nullptr || std::string(env) != "0";
+  }();
+
+  if (kOverrideTopology) {
+    const auto &meshShape = meshDevicePtr->shape();
+    if (meshShape.dims() >= 1) {
+      ttsl::SmallVector<tt::tt_metal::distributed::MeshMapperConfig::Placement>
+          placements;
+      placements.reserve(meshShape.dims());
+      // Axis 0: shard along tensor dim 0 (the ring dimension).
+      placements.push_back(
+          tt::tt_metal::distributed::MeshMapperConfig::Shard{0});
+      // Remaining axes (e.g. data-parallel mesh_cols on a 2D mesh):
+      // replicated.
+      for (size_t i = 1; i < meshShape.dims(); ++i) {
+        placements.push_back(
+            tt::tt_metal::distributed::MeshMapperConfig::Replicate{});
+      }
+
+      std::vector<tt::tt_metal::distributed::MeshCoordinate> coords;
+      coords.reserve(meshShape.mesh_size());
+      for (const auto &coord :
+           tt::tt_metal::distributed::MeshCoordinateRange(meshShape)) {
+        coords.push_back(coord);
+      }
+
+      tt::tt_metal::TensorTopology topology(meshShape, std::move(placements),
+                                            std::move(coords));
+      tensor.update_tensor_topology(std::move(topology));
+    }
+  }
+
+  return tensor;
+}
+} // namespace
+
 void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -25,22 +118,106 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
   std::optional<uint32_t> axis =
       std::make_optional<uint32_t>(op->cluster_axis());
 
-  // The metal kernel requires drain_sync_tilizer_core to be provided explicitly
-  // when persistent output tensors are not supplied. Read from flatbuffer.
-  std::optional<tt::tt_metal::CoreCoord> drainCore;
+  // We always pass persistent pre-allocated output tensors below, so the
+  // kernel does not need an explicit drain_sync_tilizer_core. Matches the
+  // tt-metal GPT-OSS reference
+  // (models/demos/gpt_oss/tt/experts_throughput/fused_decode.py) which does
+  // not pass drain_sync_tilizer_core at all. Forcing (0,0) here was observed
+  // to collapse the cross-device dispatch: only the source device wrote its
+  // portion of the dispatched tensor, leaving devices 1..N-1 with the zero-
+  // initialized output and producing identical wrong outputs on them.
+  //
+  // Kept the flatbuffer field readable for backwards compat but intentionally
+  // pass std::nullopt to the kernel.
+  std::optional<tt::tt_metal::CoreCoord> drainCore = std::nullopt;
   if (op->drain_core()) {
-    drainCore =
-        tt::tt_metal::CoreCoord(op->drain_core()->x(), op->drain_core()->y());
+    // Log only; do not actually forward to the kernel.
+    (void)op->drain_core()->x();
+    (void)op->drain_core()->y();
   }
+
+  // Match tt-metal GPT-OSS reference
+  // (models/demos/gpt_oss/tt/experts_throughput/fused_decode.py): use
+  // SPARSE_UNICAST point-to-point routing with num_links=4. The library
+  // default (SPARSE_MCAST_SHORTEST_PATH) causes multi-path writes into the
+  // same destination slot, leaking tokens across the local batch on a (4,8)
+  // mesh.
+  static constexpr uint32_t kDefaultNumLinks = 4;
+
+  // Pre-allocate zero-initialized output tensors for SPARSE_UNICAST.
+  // Without this, unrouted slots on non-source devices retain uninitialized
+  // DRAM contents, which manifests as all-zero or garbage MoE outputs on
+  // devices 1..N-1 of each row in a multi-device mesh.
+  std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
+      std::array<::ttnn::Tensor, 3>{
+          createZeroOutput(op->dispatched(), context),
+          createZeroOutput(op->indices(), context),
+          createZeroOutput(op->scores(), context),
+      };
+
+  // Create cross-device semaphore spanning all worker cores of the mesh
+  // device. SPARSE_UNICAST requires this for cross-device fabric writes; when
+  // a semaphore is provided together with persistent outputs, the op runs in
+  // the optimized "semaphore-free" mode and the fabric EDM actually performs
+  // the point-to-point writes to the remote devices. Matches tt-metal
+  // GPT-OSS reference (experts_throughput/weights.py):
+  //   compute_grid = mesh_device.compute_with_storage_grid_size()
+  //   all_worker_cores =
+  //       CoreRangeSet({CoreRange((0,0), (grid.x-1, grid.y-1))})
+  //   dispatch_semaphore =
+  //       ttnn.create_global_semaphore(mesh_device, all_worker_cores, 0)
+  ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
+  auto computeGrid = meshDevicePtr->compute_with_storage_grid_size();
+  ::tt::tt_metal::CoreRangeSet semaphoreCores(::tt::tt_metal::CoreRange(
+      ::tt::tt_metal::CoreCoord(0, 0),
+      ::tt::tt_metal::CoreCoord(computeGrid.x - 1, computeGrid.y - 1)));
+  ::ttnn::GlobalSemaphore crossDeviceSemaphore =
+      ::ttnn::global_semaphore::create_global_semaphore(
+          meshDevicePtr, semaphoreCores, /*initial_value=*/0);
+
+  // Dispatch algorithm can be overridden via env var for A/B debugging:
+  //   TT_A2A_DISPATCH_ALGO=sparse_unicast          (default, matches tt-metal
+  //   reference) TT_A2A_DISPATCH_ALGO=broadcast               (send all tokens
+  //   to all devices) TT_A2A_DISPATCH_ALGO=sparse_mcast_linear
+  //   TT_A2A_DISPATCH_ALGO=sparse_mcast_shortest_path
+  //   TT_A2A_DISPATCH_ALGO=sparse_mcast_split_bw
+  using ::ttnn::operations::experimental::ccl::DispatchAlgorithm;
+  static const DispatchAlgorithm kDispatchAlgorithm = []() {
+    const char *env = std::getenv("TT_A2A_DISPATCH_ALGO");
+    if (env == nullptr) {
+      return DispatchAlgorithm::SPARSE_UNICAST;
+    }
+    std::string s(env);
+    if (s == "broadcast") {
+      return DispatchAlgorithm::BROADCAST;
+    }
+    if (s == "sparse_mcast_linear") {
+      return DispatchAlgorithm::SPARSE_MCAST_LINEAR;
+    }
+    if (s == "sparse_mcast_shortest_path") {
+      return DispatchAlgorithm::SPARSE_MCAST_SHORTEST_PATH;
+    }
+    if (s == "sparse_mcast_split_bw") {
+      return DispatchAlgorithm::SPARSE_MCAST_SPLIT_BW;
+    }
+    return DispatchAlgorithm::SPARSE_UNICAST;
+  }();
 
   auto [dispatched, indices, scores] =
       ::ttnn::experimental::all_to_all_dispatch_metadata(
           input, expertIndices, expertScores, expertMapping,
           /*shared_expert_ids=*/std::nullopt,
           /*axis=*/axis,
-          /*optional_output_tensors=*/std::nullopt,
-          /*num_links=*/std::nullopt,
-          /*drain_sync_tilizer_core=*/drainCore);
+          /*optional_output_tensors=*/optionalOutputTensors,
+          /*num_links=*/std::make_optional<uint32_t>(kDefaultNumLinks),
+          /*drain_sync_tilizer_core=*/drainCore,
+          /*worker_mode=*/
+          ::ttnn::operations::experimental::ccl::WorkerMode::DIRECT,
+          /*dispatch_algorithm=*/kDispatchAlgorithm,
+          /*worker_core_range_set=*/std::nullopt,
+          /*mux_core_range_set=*/std::nullopt,
+          /*cross_device_semaphore=*/
+          std::make_optional(crossDeviceSemaphore));
 
   tensorPool.insertTTNNTensorAndValidate(op->dispatched(), dispatched);
   tensorPool.insertTTNNTensorAndValidate(op->indices(), indices);

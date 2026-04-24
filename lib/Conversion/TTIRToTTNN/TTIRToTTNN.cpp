@@ -31,6 +31,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+#include <atomic>
 #include <cstdint>
 #include <optional>
 
@@ -1838,9 +1839,20 @@ public:
     // tensor to `ttnn.selective_reduce_combine`. The workaround pass forces
     // the tensor to ROW_MAJOR / BF16 / DRAM-INTERLEAVED to match the
     // kernel's expected output layout.
+    //
+    // Attach a unique `non_cse_id` to the FullOp so MLIR CSE does not merge
+    // zero buffers across call sites. Because the combine kernel writes into
+    // this buffer in place, merging would cause state from one layer's sparse
+    // writes to leak into the next layer's buffer (observed as catastrophic
+    // PCC loss once the model has more than one MoE layer).
     mlir::Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    static std::atomic<int64_t> nonCseCounter{0};
+    int64_t nonCseIdValue =
+        nonCseCounter.fetch_add(1, std::memory_order_relaxed);
+    mlir::IntegerAttr nonCseIdAttr = rewriter.getI64IntegerAttr(nonCseIdValue);
     auto zeroOutput = rewriter.create<ttnn::FullOp>(
-        op.getLoc(), resultType, rewriter.getF32FloatAttr(0.0f), device);
+        op.getLoc(), resultType, rewriter.getF32FloatAttr(0.0f), device,
+        nonCseIdAttr);
 
     rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
         op, resultType, adaptor.getDenseInputTensor(),

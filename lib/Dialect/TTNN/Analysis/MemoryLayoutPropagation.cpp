@@ -552,19 +552,45 @@ MemoryLayoutPropagation::processOp(Operation *op) {
 
   bool usedDramFallback = false;
 
-  // Fallback: if no valid candidate found, use DRAM interleaved.
+  // Fallback: if no valid candidate found.
+  //
+  // Ops that lack OpModel support (e.g. custom MoE ops such as
+  // ttnn.all_to_all_dispatch_metadata / ttnn.moe_gpt / ...) always fail the
+  // hint validation above because their getOpConstraints returns
+  // MissingMetalDefinition. For those ops we cannot trust that forcing DRAM
+  // interleaved is safe: TTNNWorkaroundsPass (which runs before us) has
+  // already rewritten their output types to the layouts that the underlying
+  // tt-metal kernel actually requires (e.g. L1 height-sharded ui16 for the
+  // `indices` output of all_to_all_dispatch_metadata). Overwriting those
+  // with DRAM interleaved causes the runtime to allocate optional output
+  // tensors with the wrong layout/dtype and hangs the device.
+  //
+  // So the fallback here PRESERVES each result's current layout per-result.
+  // For multi-output ops this guarantees e.g. ui16 indices stays ui16 with
+  // its own shard spec, while bf16 dispatched stays bf16 in DRAM.
   if (candidates.empty()) {
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                 "No valid candidate for op {0} @{1}, falling back to DRAM "
-                 "interleaved.",
+                 "No valid candidate for op {0} @{1}, falling back to "
+                 "current (workaround-applied) output layouts.",
                  op->getName(), op->getLoc());
 
-    TTNNLayoutAttr dramLayout = getDRAMInterleavedFallback(op);
-    if (dramLayout) {
+    llvm::SmallVector<TTNNLayoutAttr> perResultLayouts =
+        getCurrentLayoutsPerResult(op);
+
+    // Use result[0]'s current layout as the configHint so op-level attribute
+    // updates (dtype / layout interfaces driven off configHint.outputLayout)
+    // continue to use the primary result's layout as before.
+    TTNNLayoutAttr primaryLayout;
+    if (!perResultLayouts.empty()) {
+      primaryLayout = perResultLayouts.front();
+    }
+
+    if (primaryLayout) {
       BeamCandidate fallback;
-      fallback.configHint = OpConfig(dramLayout);
+      fallback.configHint = OpConfig(primaryLayout);
       fallback.score = LayoutScore(); // Lowest possible score.
-      fallback.outputLayouts.assign(op->getNumResults(), dramLayout);
+      fallback.outputLayouts.assign(perResultLayouts.begin(),
+                                    perResultLayouts.end());
       candidates.push_back(std::move(fallback));
     }
 
@@ -1199,6 +1225,54 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   }
   return currentLayout.withBufferType(BufferType::DRAM)
       .withMemoryLayout(TensorMemoryLayout::Interleaved);
+}
+
+llvm::SmallVector<TTNNLayoutAttr>
+MemoryLayoutPropagation::getDRAMInterleavedFallbackPerResult(Operation *op) {
+  llvm::SmallVector<TTNNLayoutAttr> perResultLayouts;
+  perResultLayouts.reserve(op->getNumResults());
+  for (Value result : op->getResults()) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(result.getType());
+    if (!tensorType) {
+      perResultLayouts.push_back(nullptr);
+      continue;
+    }
+    auto currentLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+    if (!currentLayout) {
+      perResultLayouts.push_back(nullptr);
+      continue;
+    }
+    // Preserve this specific result's shape and element type by going through
+    // withElementType; then shift memory space to DRAM interleaved. Avoids
+    // using result[0]'s layout for every result which unifies dtype/shard
+    // shape across mismatched outputs.
+    TTNNLayoutAttr layout =
+        currentLayout
+            .withElementType(currentLayout.getElementType(),
+                             tensorType.getShape())
+            .withBufferType(BufferType::DRAM)
+            .withMemoryLayout(TensorMemoryLayout::Interleaved);
+    perResultLayouts.push_back(layout);
+  }
+  return perResultLayouts;
+}
+
+llvm::SmallVector<TTNNLayoutAttr>
+MemoryLayoutPropagation::getCurrentLayoutsPerResult(Operation *op) {
+  llvm::SmallVector<TTNNLayoutAttr> perResultLayouts;
+  perResultLayouts.reserve(op->getNumResults());
+  for (Value result : op->getResults()) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(result.getType());
+    if (!tensorType) {
+      perResultLayouts.push_back(nullptr);
+      continue;
+    }
+    auto currentLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+    perResultLayouts.push_back(currentLayout);
+  }
+  return perResultLayouts;
 }
 
 //===----------------------------------------------------------------------===//

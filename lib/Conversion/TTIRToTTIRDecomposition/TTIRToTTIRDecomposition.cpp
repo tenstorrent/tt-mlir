@@ -18,6 +18,8 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
@@ -1953,6 +1955,7 @@ struct MoeGPTDecodeDecompositionPattern
     auto indicesType =
         cast<RankedTensorType>(adaptor.getTopkIndices().getType());
     auto scoresType = cast<RankedTensorType>(adaptor.getTopkScores().getType());
+
     auto dispatchMappingType =
         cast<RankedTensorType>(adaptor.getDispatchMapping().getType());
     auto moeGptMappingType =
@@ -1962,6 +1965,7 @@ struct MoeGPTDecodeDecompositionPattern
     auto resultType = cast<RankedTensorType>(op.getResult().getType());
 
     Type bf16 = rewriter.getBF16Type();
+    Type ui16 = rewriter.getIntegerType(16, /*isSigned=*/false);
     Type ui32 = rewriter.getIntegerType(32, /*isSigned=*/false);
 
     // Extract logical dimensions from operand shapes.
@@ -2007,11 +2011,26 @@ struct MoeGPTDecodeDecompositionPattern
         loc, dispHiddenType, adaptor.getHiddenStates(),
         i32Arr({1, 1, B * S, H}));
 
-    auto dispIndicesType = RankedTensorType::get({1, 1, B * S, KSel},
-                                                 indicesType.getElementType());
+    // The tt-metal `all_to_all_dispatch_metadata` kernel requires ui16 indices
+    // on both input and output sides. Emitting ui16 here (and on the dispatch
+    // op results below) keeps the element type stable through TTIR→TTNN
+    // lowering and avoids a chain of si32↔ui16 typecasts + host round-trips
+    // that appear otherwise because later TTNN passes may override the
+    // workaround-inserted layouts. Insert a typecast up front so downstream
+    // reshape operates on a ui16 tensor; the typecast is a no-op when the
+    // upstream op (ttir.topk_router_gpt + normalization) already emits ui16,
+    // because Canonicalizer folds typecasts to the same type.
+    Value topkIndicesUi16 = adaptor.getTopkIndices();
+    if (indicesType.getElementType() != ui16) {
+      auto topkIndicesUi16Type =
+          RankedTensorType::get(indicesType.getShape(), ui16);
+      topkIndicesUi16 = rewriter.create<ttir::TypecastOp>(
+          loc, topkIndicesUi16Type, topkIndicesUi16);
+    }
+
+    auto dispIndicesType = RankedTensorType::get({1, 1, B * S, KSel}, ui16);
     Value dispIndices = rewriter.create<ttir::ReshapeOp>(
-        loc, dispIndicesType, adaptor.getTopkIndices(),
-        i32Arr({1, 1, B * S, KSel}));
+        loc, dispIndicesType, topkIndicesUi16, i32Arr({1, 1, B * S, KSel}));
 
     auto dispScoresType =
         RankedTensorType::get({1, 1, B * S, KSel}, scoresType.getElementType());
@@ -2026,10 +2045,12 @@ struct MoeGPTDecodeDecompositionPattern
     // tt-metal kernel requires).
     Value dispMapping = adaptor.getDispatchMapping();
 
-    // Step 3: Emit `ttir.all_to_all_dispatch_metadata`.
+    // Step 3: Emit `ttir.all_to_all_dispatch_metadata`. The kernel emits ui16
+    // indices / bf16 scores / bf16 dispatched tokens — mirror those element
+    // types in TTIR to match the physical output and keep the TTIR→TTNN
+    // conversion a no-op with respect to element type.
     auto dispatchedType = RankedTensorType::get({1, Ttokens, H}, bf16);
-    auto dispatchedIdxType =
-        RankedTensorType::get({1, Ttokens, KSel}, indicesType.getElementType());
+    auto dispatchedIdxType = RankedTensorType::get({1, Ttokens, KSel}, ui16);
     auto dispatchedScoresType = RankedTensorType::get({1, Ttokens, KSel}, bf16);
 
     auto dispatchOp = rewriter.create<ttir::AllToAllDispatchMetadataOp>(
@@ -2044,13 +2065,13 @@ struct MoeGPTDecodeDecompositionPattern
     Value moeInput = rewriter.create<ttir::ReshapeOp>(
         loc, moeInputType, dispatchOp.getDispatched(), i32Arr({Ttokens, H}));
 
-    // `ttir.moe_gpt` verifier only checks rank (>=2 for indices, no constraint
-    // on mapping element type), and test_moe_ccls.py passes through si32/bf16
-    // indices without explicit ui16 casts. Emitting `ttir.typecast` to ui16 is
-    // unnecessary and breaks later constraint queries on targets where ui16
-    // device buffers are unsupported; keep native element types.
-    auto dispatchedIdx2DType =
-        RankedTensorType::get({Ttokens, KSel}, indicesType.getElementType());
+    // `ttir.moe_gpt` expects ui16 expert_indices (see moe_gpt kernel contract);
+    // reshape the dispatch output to 2D preserving the ui16 element type. The
+    // TTNN workaround for `moe_gpt` sets the input to l1ShardedUint16, and
+    // the TTNN workaround for `all_to_all_dispatch_metadata` sets the output
+    // indices to l1ShardedUint16, so matching ui16 here keeps the compiler
+    // from inserting an unnecessary ui16↔si32↔ui16 host round-trip.
+    auto dispatchedIdx2DType = RankedTensorType::get({Ttokens, KSel}, ui16);
     Value moeIndices = rewriter.create<ttir::ReshapeOp>(
         loc, dispatchedIdx2DType, dispatchOp.getIndices(),
         i32Arr({Ttokens, KSel}));
@@ -2129,17 +2150,90 @@ struct MoeGPTDecodeDecompositionPattern
         /*select_experts_k=*/rewriter.getUI32IntegerAttr(numExpertsPerTok),
         /*experts=*/rewriter.getUI32IntegerAttr(numExperts));
 
-    // Step 8: Emit TP-axis `ttir.all_reduce` to finish the MoE reduction.
-    // Mirrors tt-metal's fused_decode.py which wraps combine with
-    // `ttnn.all_reduce(cluster_axis=1, topology=Ring, num_links=4)` after the
-    // score-weighted sum. Since expert weights are sharded along the
-    // non-dispatch cluster axis, each rank's combine output is only a partial
-    // sum over its local experts; without this reduction every TP rank would
-    // retain only its partial contribution and final logits would be wrong.
-    // Placing the all_reduce here (on the raw combine output, with the K
-    // dimension still present) is equivalent to placing it after the external
-    // score-weighted sum because addition commutes with the sum over K.
+    // Step 8: Emit the TP-axis `ttir.all_reduce` that finishes the MoE
+    // reduction. Since expert weights are sharded along the non-dispatch
+    // cluster axis, each rank's combine output is only a partial sum over its
+    // local experts; without this reduction every TP rank would retain only
+    // its partial contribution and final logits would be wrong.
+    //
+    // Although `all_reduce(combine) -> mul(scores) -> sum_K` and
+    // `mul(scores) -> sum_K -> all_reduce(...)` are mathematically equivalent
+    // (addition commutes with the K-sum), bf16 numerics diverge between the
+    // two orderings because:
+    //   1. Doing K-reduce on-device first collapses [K, 1, M, H] -> [1, M, H],
+    //      cancelling K-axis accumulation noise within a single device before
+    //      any cross-device reduction runs.
+    //   2. The cross-device reduction then operates on a tensor that is K
+    //      times smaller, so fewer cross-device accumulation steps happen in
+    //      bf16 and the ring/gather bandwidth footprint also drops.
+    // This matches tt-metal's `fused_decode.py`, which invokes
+    // `ttnn.all_reduce(cluster_axis=TP)` only after the score-weighted
+    // K-reduce, not on the raw combine output.
+    //
+    // We locate the K-reduce by walking the (still-live) consumers of this
+    // `moe_gpt_decode` op until we hit the first `ttir.sum`. The frontend
+    // composite always emits a single score-weighted `sum(dim=K)` on the
+    // combine output (see `SparseMOEGPT.forward`), so the first `sum` in the
+    // use chain is the K-reduce. If the walk doesn't find one (e.g. a
+    // non-composite caller consumes the raw combine output directly), we
+    // fall back to the old placement on the raw combine so correctness is
+    // preserved.
     uint32_t tpClusterAxis = (clusterAxis == 0) ? 1 : 0;
+
+    ttir::SumOp kReduceSum = nullptr;
+    {
+      llvm::SmallVector<mlir::Value, 4> worklist = {op.getResult()};
+      llvm::DenseSet<mlir::Value> visited = {op.getResult()};
+      while (!worklist.empty() && !kReduceSum) {
+        mlir::Value v = worklist.pop_back_val();
+        for (mlir::Operation *user : v.getUsers()) {
+          if (auto s = llvm::dyn_cast<ttir::SumOp>(user)) {
+            kReduceSum = s;
+            break;
+          }
+          // Only traverse through layout-/elementwise ops that keep the
+          // K-axis structure visible. Anything else (e.g. rms_norm, matmul)
+          // means the K-reduce has already happened or is hidden inside a
+          // fused op, so we stop traversing along that branch.
+          if (llvm::isa<ttir::ReshapeOp, ttir::PermuteOp, ttir::MultiplyOp,
+                        ttir::BroadcastOp, ttir::TypecastOp>(user)) {
+            for (mlir::Value r : user->getResults()) {
+              if (visited.insert(r).second) {
+                worklist.push_back(r);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (kReduceSum) {
+      // Hook the K-reduce chain up to the combine output *before* we mutate
+      // the external IR: after this point `op` is dead and the chain reads
+      // directly from `combineOp.getResult()`.
+      rewriter.replaceOp(op, combineOp.getResult());
+
+      rewriter.setInsertionPointAfter(kReduceSum);
+      auto sumTy =
+          llvm::cast<mlir::RankedTensorType>(kReduceSum.getResult().getType());
+      auto allReduceOp = rewriter.create<ttir::AllReduceOp>(
+          kReduceSum.getLoc(), sumTy, kReduceSum.getResult(),
+          ttcore::ReduceType::Sum, tpClusterAxis);
+
+      for (mlir::OpOperand &use :
+           llvm::make_early_inc_range(kReduceSum.getResult().getUses())) {
+        if (use.getOwner() == allReduceOp.getOperation()) {
+          continue;
+        }
+        rewriter.modifyOpInPlace(use.getOwner(),
+                                 [&]() { use.set(allReduceOp.getResult()); });
+      }
+      return success();
+    }
+
+    // Fallback: no downstream K-reduce was found. Keep the legacy placement
+    // on the raw combine output so callers that consume the [K, 1, M, H]
+    // result directly still get a correct cross-device sum.
     auto allReduceOp = rewriter.create<ttir::AllReduceOp>(
         loc, resultType, combineOp.getResult(), ttcore::ReduceType::Sum,
         tpClusterAxis);

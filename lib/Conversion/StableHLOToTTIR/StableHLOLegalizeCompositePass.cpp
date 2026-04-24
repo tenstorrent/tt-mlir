@@ -489,11 +489,17 @@ public:
     auto compositeScoresType =
         mlir::cast<RankedTensorType>(srcOp.getResult(1).getType());
 
-    // 5. Typecast indices to the composite's integer type (usually i64).
+    // 5. Typecast indices to the composite's integer type (usually ui16 with
+    //    the new frontend contract; legacy frontends may still request i64 —
+    //    skip the typecast when the element type already matches so no
+    //    ui16→ui16 dead cast is emitted).
     auto castIndicesType = RankedTensorType::get(
         {B, kAttr}, compositeIndicesType.getElementType());
-    Value castedIndices = rewriter.create<ttir::TypecastOp>(
-        loc, castIndicesType, topkOp.getExpertIndices());
+    Value castedIndices = topkOp.getExpertIndices();
+    if (compositeIndicesType.getElementType() != ui16) {
+      castedIndices = rewriter.create<ttir::TypecastOp>(loc, castIndicesType,
+                                                        castedIndices);
+    }
 
     // 6. Reshape both outputs back to the composite's expected shapes
     //    (typically [..., k] matching the hidden_states leading dims).

@@ -108,8 +108,23 @@ private:
       bool exploreInterleavedToSharded = false,
       int64_t maxGridVolume = std::numeric_limits<int64_t>::max());
 
-  /// Create a DRAM interleaved fallback layout for an op.
+  /// Create a DRAM interleaved fallback layout for an op (result[0] only).
+  /// Intended for use as configHint.outputLayout on the fallback candidate.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
+
+  /// Create DRAM interleaved fallback layouts for every tensor result of an
+  /// op. Each entry preserves its result's shape and element type so multi-
+  /// output ops (e.g. ttnn.all_to_all_dispatch_metadata) do not end up with
+  /// every result sharing result[0]'s layout, which corrupts dtype and
+  /// shard shape for non-matching results.
+  llvm::SmallVector<TTNNLayoutAttr>
+  getDRAMInterleavedFallbackPerResult(Operation *op);
+
+  /// Read the current output layouts of an op's tensor results. Intended as
+  /// a no-op fallback for ops without OpModel support: we leave whatever
+  /// TTNNWorkaroundsPass / earlier passes set for each result, rather than
+  /// forcing DRAM interleaved and breaking kernel-required layouts.
+  llvm::SmallVector<TTNNLayoutAttr> getCurrentLayoutsPerResult(Operation *op);
 
   /// Apply all resolved configs to IR.
   void applyToIR();
