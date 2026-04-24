@@ -12,7 +12,7 @@ import re
 from contextvars import ContextVar
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, quant, stablehlo, tensor, ttcore, ttir
+from ttmlir.dialects import ttir, ttcore, tensor, quant, func
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
@@ -20,8 +20,6 @@ from builder.base.builder_utils import *
 from builder.base.builder_enums import *
 
 from golden import *
-
-from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 
 
 class TTIRBuilder(Builder):
@@ -18641,38 +18639,6 @@ class TTIRBuilder(Builder):
                     sub_module.operation.attributes[named_attr.name] = named_attr.attr
 
         return sub_modules_and_builders
-
-    ################ stablehlo ops in TTIR modules (CPU-hoisted bodies, etc.) ###############
-
-    @parse(stablehlo.ConvertOp)
-    def stablehlo_convert_parser(
-        self,
-        old_op: stablehlo.ConvertOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        return StableHLOBuilder.convert_parser(self, old_op, global_dict)
-
-    @split(stablehlo.ConvertOp)
-    def stablehlo_convert_split(
-        self,
-        old_op: stablehlo.ConvertOp,
-    ) -> Tuple[Module, StableHLOBuilder]:
-        return StableHLOBuilder.convert_split(self, old_op)
-
-    @parse(stablehlo.CompositeOp)
-    def stablehlo_composite_parser(
-        self,
-        old_op: stablehlo.CompositeOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        return StableHLOBuilder.composite_parser(self, old_op, global_dict)
-
-    @split(stablehlo.CompositeOp)
-    def stablehlo_composite_split(
-        self,
-        old_op: stablehlo.CompositeOp,
-    ) -> Tuple[Module, StableHLOBuilder]:
-        return StableHLOBuilder.composite_split(self, old_op)
 
     ############### ttir.GroupNormOp ###############
 
