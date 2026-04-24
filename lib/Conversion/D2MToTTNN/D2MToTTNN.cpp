@@ -312,38 +312,52 @@ struct GenericOperandInfo {
   unsigned operandIdx;
 };
 
-static SmallVector<ttnn::KernelCBAttr>
-createCBDescriptors(Builder &builder,
-                    const SmallVector<GenericOperandInfo> &infos,
-                    const ttcore::DeviceAttr &device,
-                    const ttnn::CoreRangeSetAttr &coreRangeSet) {
-  if (infos.empty()) {
+static ttnn::KernelCBAttr
+createCBDescriptor(Builder &builder, Value cbMemrefValue, size_t cbIndex,
+                   const ttcore::DeviceAttr &device,
+                   const ttnn::CoreRangeSetAttr &coreRangeSet,
+                   std::optional<OperandLocality> locality = std::nullopt) {
+  MLIRContext *ctx = builder.getContext();
+  auto cbMemref = mlir::cast<MemRefType>(cbMemrefValue.getType());
+  TT_assertv(mlir::isa<ttcore::TileType>(cbMemref.getElementType()),
+             "Only TileType supported.");
+  ttcore::DataType dtype =
+      ttcore::elementTypeToDataType(cbMemref.getElementType());
+  size_t pageSize = device.getMemrefCBPageSizeBytes(cbMemref);
+  size_t totalSize = device.getMemrefSizeBytes(cbMemref, pageSize, true);
+
+  ttnn::KernelCBFormatAttr cbFormat =
+      ttnn::KernelCBFormatAttr::get(ctx, cbIndex, dtype, pageSize);
+
+  ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
+  if (locality && *locality == OperandLocality::L1Local) {
+    globalCBIndexOfTensor =
+        ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, cbIndex);
+  }
+
+  return ttnn::KernelCBAttr::get(ctx, totalSize, coreRangeSet, {cbFormat},
+                                 globalCBIndexOfTensor);
+}
+
+static SmallVector<ttnn::KernelCBAttr> createCBDescriptors(
+    Builder &builder, const SmallVector<GenericOperandInfo> &infos,
+    ArrayRef<Value> extraCBMemrefs, const ttcore::DeviceAttr &device,
+    const ttnn::CoreRangeSetAttr &coreRangeSet) {
+  if (infos.empty() && extraCBMemrefs.empty()) {
     llvm_unreachable("Expected circular buffers.");
   }
 
-  MLIRContext *ctx = builder.getContext();
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors(infos.size());
+  SmallVector<ttnn::KernelCBAttr> cbDescriptors;
+  cbDescriptors.reserve(infos.size() + extraCBMemrefs.size());
 
   for (auto [i, info] : llvm::enumerate(infos)) {
-    auto cbMemref = mlir::cast<MemRefType>(info.cbMemref.getType());
-    TT_assertv(mlir::isa<ttcore::TileType>(cbMemref.getElementType()),
-               "Only TileType supported.");
-    ttcore::DataType dtype =
-        ttcore::elementTypeToDataType(cbMemref.getElementType());
-    size_t pageSize = device.getMemrefCBPageSizeBytes(cbMemref);
-    size_t totalSize = device.getMemrefSizeBytes(cbMemref, pageSize, true);
+    cbDescriptors.push_back(createCBDescriptor(
+        builder, info.cbMemref, i, device, coreRangeSet, info.locality));
+  }
 
-    ttnn::KernelCBFormatAttr cbFormat =
-        ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
-
-    ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-    if (info.locality == OperandLocality::L1Local) {
-      globalCBIndexOfTensor =
-          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
-    }
-
-    cbDescriptors[i] = ttnn::KernelCBAttr::get(
-        ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor);
+  for (Value extraCBMemref : extraCBMemrefs) {
+    cbDescriptors.push_back(createCBDescriptor(
+        builder, extraCBMemref, cbDescriptors.size(), device, coreRangeSet));
   }
 
   return cbDescriptors;
@@ -693,6 +707,7 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       analyzeGenericOperands(op, valueMapping);
 
   SmallVector<Value> additionalArgs;
+  SmallVector<Value> extraCBMemrefs;
   for (Value arg : op.getAdditionalArgs()) {
     if (auto cbForOp = arg.getDefiningOp()
                            ? arg.getDefiningOp()->getAttrOfType<IntegerAttr>(
@@ -703,6 +718,10 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       infos[targetIdx].cbMemref = arg;
       // The CB has its own L1 allocation (not backed by the input tensor).
       infos[targetIdx].locality = OperandLocality::L1Remote;
+    } else if (isa<MemRefType>(arg.getType())) {
+      // Standalone hoisted CBs (for example scratch backing storage) occupy CB
+      // slots but are not TTNN generic additional arguments.
+      extraCBMemrefs.push_back(arg);
     } else if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
                isa<RankedTensorType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
@@ -719,8 +738,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     }
   }
 
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors =
-      createCBDescriptors(rewriter, infos, device, coreRangeSet);
+  SmallVector<ttnn::KernelCBAttr> cbDescriptors = createCBDescriptors(
+      rewriter, infos, extraCBMemrefs, device, coreRangeSet);
 
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
   // Build the semaphore mapping first so createKernelDescriptors can use it.
