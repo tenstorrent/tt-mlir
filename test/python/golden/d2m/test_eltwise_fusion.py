@@ -613,7 +613,7 @@ def test_diamond_unary_op_fanout(
 
             return builder.div(neg_0, neg_1)
 
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     compile_and_execute_ttir(
         module,

@@ -113,9 +113,16 @@ private:
              << " elements)";
     }
 
-    // Replace each scratch_allocate with a rank-reducing subview.
+    // The scratch buffer may have been reshaped by D2MAllocate (e.g. from
+    // [1, N] to a multi-row shape when aliased with an existing shard CB).
+    // Collapse it to a 1-D view so that we can always carve out sub-allocations
+    // as simple 1-D subviews regardless of the source shape.
+    Value flatScratch = flattenScratch(scratchMemRef, scratchInit);
+
+    // Replace each scratch_allocate with a 1-D subview of the flattened
+    // scratch buffer.
     for (auto &info : allocations) {
-      replaceScratchAllocate(info, scratchMemRef);
+      replaceScratchAllocate(info, flatScratch);
     }
 
     // Erase the scratch_init anchor op now that all allocates are lowered.
@@ -124,14 +131,39 @@ private:
     return success();
   }
 
-  /// Replace a scratch_allocate with a rank-reducing subview of the scratch
-  /// memref, followed by an expand_shape if the requested type is
+  /// Flatten the scratch memref to a 1-D memref via memref.collapse_shape if
+  /// needed. Returns the original value if it is already 1-D. The collapse
+  /// op is inserted right before the scratch_init anchor so that it dominates
+  /// all scratch_allocate users.
+  Value flattenScratch(Value scratchMemRef, ScratchInitOp scratchInit) {
+    auto sourceType = mlir::cast<MemRefType>(scratchMemRef.getType());
+    if (sourceType.getRank() <= 1) {
+      return scratchMemRef;
+    }
+
+    SmallVector<ReassociationIndices> reassociation;
+    ReassociationIndices allDims =
+        llvm::to_vector(llvm::seq<int64_t>(0, sourceType.getRank()));
+    reassociation.push_back(std::move(allDims));
+
+    assert(memref::CollapseShapeOp::isGuaranteedCollapsible(sourceType,
+                                                            reassociation) &&
+           "scratch buffer must be contiguous to be collapsible");
+
+    OpBuilder builder(scratchInit);
+    return builder
+        .create<memref::CollapseShapeOp>(scratchInit.getLoc(), scratchMemRef,
+                                         reassociation)
+        .getResult();
+  }
+
+  /// Replace a scratch_allocate with a 1-D subview of the (already flattened)
+  /// scratch memref, followed by an expand_shape if the requested type is
   /// multi-dimensional.
   ///
-  /// The scratch buffer has shape [1, N] from InsertScratchBuffers.
   /// Each scratch_allocate requests a memref with numElements total tiles.
   /// We emit:
-  ///   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)
+  ///   1. subview [offset][M][1] : memref<Kx...> -> memref<M>  (1D slice)
   ///   2. expand_shape memref<M> [[0,1,...,rank-1]] -> memref<requested shape>
   ///      (only if the requested type has rank > 1)
   void replaceScratchAllocate(ScratchAllocationInfo &info,
@@ -142,24 +174,25 @@ private:
     OpBuilder builder(allocOp);
     Location loc = allocOp.getLoc();
 
-    // Always extract a flat 1D slice from the 2D scratch buffer.
-    SmallVector<int64_t> flatShape = {info.numElements};
-    SmallVector<int64_t> staticOffsets = {0, info.elementOffset};
-    SmallVector<int64_t> staticSizes = {1, info.numElements};
-    SmallVector<int64_t> staticStrides = {1, 1};
-
-    // Infer the correct rank-reduced result type. For non-zero offsets, the
-    // inferred type includes a strided layout (e.g. strided<[1], offset: N>).
     auto sourceType = mlir::cast<MemRefType>(scratchMemRef.getType());
-    auto inferredType = memref::SubViewOp::inferRankReducedResultType(
-        flatShape, sourceType, staticOffsets, staticSizes, staticStrides);
+    assert(sourceType.getRank() == 1 &&
+           "scratch memref must be flattened to 1-D before subview");
+
+    // Extract a 1-D slice of the flattened scratch buffer.
+    SmallVector<int64_t> flatShape = {info.numElements};
+    SmallVector<int64_t> staticOffsets = {info.elementOffset};
+    SmallVector<int64_t> staticSizes = {info.numElements};
+    SmallVector<int64_t> staticStrides = {1};
+
+    // Infer the correct result type. For non-zero offsets, the inferred type
+    // includes a strided layout (e.g. strided<[1], offset: N>).
+    auto inferredType = memref::SubViewOp::inferResultType(
+        sourceType, staticOffsets, staticSizes, staticStrides);
 
     SmallVector<OpFoldResult> offsets = {
-        builder.getIndexAttr(0), builder.getIndexAttr(info.elementOffset)};
-    SmallVector<OpFoldResult> sizes = {builder.getIndexAttr(1),
-                                       builder.getIndexAttr(info.numElements)};
-    SmallVector<OpFoldResult> strides = {builder.getIndexAttr(1),
-                                         builder.getIndexAttr(1)};
+        builder.getIndexAttr(info.elementOffset)};
+    SmallVector<OpFoldResult> sizes = {builder.getIndexAttr(info.numElements)};
+    SmallVector<OpFoldResult> strides = {builder.getIndexAttr(1)};
 
     auto subviewOp = builder.create<memref::SubViewOp>(
         loc, mlir::cast<MemRefType>(inferredType), scratchMemRef, offsets,
