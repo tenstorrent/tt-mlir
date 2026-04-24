@@ -45,8 +45,6 @@ getShardSpec(const TTNNLayoutAttr &layout);
 
 ::tt::tt_metal::BufferType getBufferType(const BufferType &bufferType);
 
-::tt::target::BufferType getBufferTypeT(const BufferType &bufferType);
-
 ::tt::tt_metal::BufferType getBufferType(const TTNNLayoutAttr &layout);
 
 BufferType getBufferType(const ::tt::tt_metal::BufferType bufferType);
@@ -61,9 +59,6 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 
 ::tt::target::ttnn::MemoryConfigT
 getMemoryConfigT(const TTNNLayoutAttr &layout);
-
-::tt::target::ttnn::MemoryConfigT
-getMemoryConfigT(const MemoryConfigAttr &memConfigAttr);
 
 ::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr);
 

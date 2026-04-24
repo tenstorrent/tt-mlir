@@ -4,6 +4,7 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
+#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
@@ -343,21 +344,6 @@ getShardOrientation(const ShardOrientationAttr &shardOrientationAttr) {
   }
 }
 
-::tt::target::BufferType getBufferTypeT(const BufferType &bufferType) {
-  switch (bufferType) {
-  case BufferType::DRAM:
-    return ::tt::target::BufferType::DRAM;
-  case BufferType::L1:
-    return ::tt::target::BufferType::L1;
-  case BufferType::SystemMemory:
-    return ::tt::target::BufferType::SystemMemory;
-  case BufferType::L1Small:
-    return ::tt::target::BufferType::L1Small;
-  case BufferType::Trace:
-    return ::tt::target::BufferType::Trace;
-  }
-}
-
 ::tt::tt_metal::BufferType getBufferType(const TTNNLayoutAttr &layout) {
   auto bufferType = layout.getBufferType();
   return getBufferType(bufferType);
@@ -365,7 +351,7 @@ getShardOrientation(const ShardOrientationAttr &shardOrientationAttr) {
 
 ::tt::target::BufferType getBufferTypeT(const TTNNLayoutAttr &layout) {
   auto bufferType = layout.getBufferType();
-  return getBufferTypeT(bufferType);
+  return toNative(bufferType);
 }
 
 BufferType getBufferType(const ::tt::tt_metal::BufferType bufferType) {
@@ -398,21 +384,7 @@ getTensorMemoryLayout(const TensorMemoryLayout tensorMemoryLayout) {
     return ::tt::tt_metal::TensorMemoryLayout::ND_SHARDED;
   }
 }
-::tt::target::ttnn::TensorMemoryLayout
-getTensorMemoryLayoutT(const TensorMemoryLayout tensorMemoryLayout) {
-  switch (tensorMemoryLayout) {
-  case TensorMemoryLayout::Interleaved:
-    return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
-  case TensorMemoryLayout::HeightSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::HeightSharded;
-  case TensorMemoryLayout::WidthSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::WidthSharded;
-  case TensorMemoryLayout::BlockSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
-  case TensorMemoryLayout::NDSharded:
-    return ::tt::target::ttnn::TensorMemoryLayout::NDSharded;
-  }
-}
+
 TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout) {
   switch (memLayout) {
@@ -449,14 +421,7 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
 getMemoryConfigT(const TTNNLayoutAttr &layout) {
   ::tt::target::ttnn::MemoryConfigT memoryConfigT;
 
-  // auto memLayout =
-  //     layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved);
-
-  // if (isShardedMemoryLayout(memLayout) && !shardSpec.has_value()) {
-  //   memLayout = TensorMemoryLayout::Interleaved;
-  // }
-
-  memoryConfigT.tensor_memory_layout = getTensorMemoryLayoutT(
+  memoryConfigT.tensor_memory_layout = toNative(
       layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
   memoryConfigT.buffer_type = getBufferTypeT(layout);
 
@@ -467,28 +432,6 @@ getMemoryConfigT(const TTNNLayoutAttr &layout) {
   } else {
     memoryConfigT.shard_spec = nullptr;
   }
-
-  return memoryConfigT;
-}
-
-::tt::target::ttnn::MemoryConfigT
-getMemoryConfigT(const MemoryConfigAttr &memConfigAttr) {
-  ::tt::target::ttnn::MemoryConfigT memoryConfigT;
-
-  TensorMemoryLayout memLayout = TensorMemoryLayout::Interleaved;
-  if (memConfigAttr.getTensorMemoryLayout()) {
-    memLayout = memConfigAttr.getTensorMemoryLayout().getValue();
-  }
-  memoryConfigT.tensor_memory_layout = getTensorMemoryLayoutT(memLayout);
-
-  BufferType bufferType = BufferType::DRAM;
-  if (memConfigAttr.getBufferType()) {
-    bufferType = memConfigAttr.getBufferType().getValue();
-  }
-  memoryConfigT.buffer_type = getBufferTypeT(bufferType);
-
-  // Shard spec conversion from MemoryConfigAttr is not yet supported.
-  memoryConfigT.shard_spec = nullptr;
 
   return memoryConfigT;
 }

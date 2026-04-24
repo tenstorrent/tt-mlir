@@ -243,13 +243,17 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
 }
 
 inline ::tt::target::ttnn::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &cache,
-             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
-  return toFlatbuffer(cache, memLayoutAttr.getValue());
+toNative(ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  return toNative(memLayoutAttr.getValue());
 }
 
-inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
-                                             ttnn::BufferType bufferType) {
+inline ::tt::target::ttnn::TensorMemoryLayout
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  return toNative(memLayoutAttr);
+}
+
+inline ::tt::target::BufferType toNative(ttnn::BufferType bufferType) {
   switch (bufferType) {
   case ttnn::BufferType::SystemMemory:
     return ::tt::target::BufferType::SystemMemory;
@@ -263,6 +267,11 @@ inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
     return ::tt::target::BufferType::Trace;
   }
   llvm_unreachable("Unknown ttnn::BufferType");
+}
+
+inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
+                                             ttnn::BufferType bufferType) {
+  return toNative(bufferType);
 }
 
 inline ::tt::target::TensorLayout toNative(ttnn::Layout layout) {
@@ -296,7 +305,7 @@ inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
 }
 
 inline ::tt::target::ttnn::ShardOrientation
-toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
+toNative(ttnn::ShardOrientation orientation) {
   switch (orientation) {
   case ttnn::ShardOrientation::RowMajor:
     return ::tt::target::ttnn::ShardOrientation::RowMajor;
@@ -305,15 +314,25 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
   }
 }
 
+inline ::tt::target::ttnn::ShardOrientation
+toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
+  return toNative(orientation);
+}
+
 inline ::tt::target::ttnn::ShardDistributionStrategy
-toFlatbuffer(FlatbufferObjectCache &,
-             ttnn::ShardDistributionStrategy shardDistributionStrategy) {
+toNative(ttnn::ShardDistributionStrategy shardDistributionStrategy) {
   switch (shardDistributionStrategy) {
   case ttnn::ShardDistributionStrategy::RoundRobin1D:
     return ::tt::target::ttnn::ShardDistributionStrategy::RoundRobin1D;
   case ttnn::ShardDistributionStrategy::Grid2D:
     return ::tt::target::ttnn::ShardDistributionStrategy::Grid2D;
   }
+}
+
+inline ::tt::target::ttnn::ShardDistributionStrategy
+toFlatbuffer(FlatbufferObjectCache &,
+             ttnn::ShardDistributionStrategy shardDistributionStrategy) {
+  return toNative(shardDistributionStrategy);
 }
 
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
@@ -1056,44 +1075,80 @@ toFlatbufferByteVector(FlatbufferObjectCache &cache,
   return cache.fbb->EndVector(sizeBytes);
 }
 
+inline ::tt::target::ttnn::ShardSpecT
+toNative(::mlir::tt::ttnn::ShardSpecAttr shardSpec) {
+  ::tt::target::ttnn::ShardSpecT shardSpecT;
+  shardSpecT.core_range_set =
+      std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+          toNative(shardSpec.getCoreRangeSet()));
+  llvm::ArrayRef<int64_t> shardShapeArr = shardSpec.getShape().getShape();
+  shardSpecT.shape.reserve(shardShapeArr.size());
+  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
+                 std::back_inserter(shardSpecT.shape),
+                 [](int64_t val) { return static_cast<int32_t>(val); });
+  shardSpecT.orientation = toNative(shardSpec.getShardOrientation().getValue());
+  return shardSpecT;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ::mlir::tt::ttnn::ShardSpecAttr shardSpec) {
-  auto coreRangeSet = toFlatbuffer(cache, shardSpec.getCoreRangeSet());
-  llvm::ArrayRef<int64_t> shardShapeArr = shardSpec.getShape().getShape();
-  assert(shardShapeArr.size() == 2);
-  std::vector<int32_t> shardShape;
-  shardShape.reserve(shardShapeArr.size());
-  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
-                 std::back_inserter(shardShape), [](int64_t val) -> int32_t {
-                   return static_cast<int32_t>(val);
-                 });
-  auto shardOrientation =
-      toFlatbuffer(cache, shardSpec.getShardOrientation().getValue());
+  auto t = toNative(shardSpec);
+  return ::tt::target::ttnn::ShardSpec::Pack(*cache.fbb, &t);
+}
 
-  return ::tt::target::ttnn::CreateShardSpecDirect(
-      *cache.fbb, coreRangeSet, &shardShape, shardOrientation);
+inline ::tt::target::ttnn::NDShardSpecT
+toNative(::mlir::tt::ttnn::NDShardSpecAttr ndShardSpec) {
+  ::tt::target::ttnn::NDShardSpecT ndShardSpecT;
+  ndShardSpecT.core_range_set =
+      std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+          toNative(ndShardSpec.getCoreRangeSet()));
+  llvm::ArrayRef<int64_t> shardShapeArr = ndShardSpec.getShape().getShape();
+  ndShardSpecT.shape.reserve(shardShapeArr.size());
+  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
+                 std::back_inserter(ndShardSpecT.shape),
+                 [](int64_t val) { return static_cast<int32_t>(val); });
+  ndShardSpecT.orientation =
+      toNative(ndShardSpec.getShardOrientation().getValue());
+  ndShardSpecT.distribution_strategy =
+      toNative(ndShardSpec.getShardDistributionStrategy().getValue());
+  return ndShardSpecT;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::NDShardSpec>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ::mlir::tt::ttnn::NDShardSpecAttr ndShardSpec) {
-  auto coreRangeSet = toFlatbuffer(cache, ndShardSpec.getCoreRangeSet());
-  llvm::ArrayRef<int64_t> shardShapeArr = ndShardSpec.getShape().getShape();
-  std::vector<int32_t> shardShape;
-  shardShape.reserve(shardShapeArr.size());
-  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
-                 std::back_inserter(shardShape), [](int64_t val) -> int32_t {
-                   return static_cast<int32_t>(val);
-                 });
-  auto shardOrientation =
-      toFlatbuffer(cache, ndShardSpec.getShardOrientation().getValue());
-  auto shardDistributionStrategy = toFlatbuffer(
-      cache, ndShardSpec.getShardDistributionStrategy().getValue());
+  auto t = toNative(ndShardSpec);
+  return ::tt::target::ttnn::NDShardSpec::Pack(*cache.fbb, &t);
+}
 
-  return ::tt::target::ttnn::CreateNDShardSpecDirect(
-      *cache.fbb, coreRangeSet, &shardShape, shardOrientation,
-      shardDistributionStrategy);
+inline ::tt::target::ttnn::MemoryConfigT
+toNative(::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
+  if(!isDeviceBufferType(memoryConfigAttr.getBufferType().getValue())) {
+    return {};
+  }
+  ::tt::target::ttnn::MemoryConfigT memoryConfigT;
+
+  memoryConfigT.buffer_type =
+      toNative(memoryConfigAttr.getBufferType().getValue());
+  ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+      memoryConfigAttr.getTensorMemoryLayout();
+  assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");
+  memoryConfigT.tensor_memory_layout = toNative(tensorMemoryLayoutAttr);
+
+  if (memoryConfigAttr.getShardSpec()) {
+    assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
+                                         tensorMemoryLayoutAttr.getValue()));
+    memoryConfigT.shard_spec = std::make_unique<::tt::target::ttnn::ShardSpecT>(
+        toNative(*memoryConfigAttr.getShardSpec()));
+  }
+  if (memoryConfigAttr.getNdShardSpec()) {
+    memoryConfigT.nd_shard_spec =
+        std::make_unique<::tt::target::ttnn::NDShardSpecT>(
+            toNative(*memoryConfigAttr.getNdShardSpec()));
+  }
+
+  return memoryConfigT;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
@@ -1103,26 +1158,8 @@ toFlatbuffer(FlatbufferObjectCache &cache,
     return 0;
   }
 
-  ::tt::target::BufferType bufferType =
-      toFlatbuffer(cache, memoryConfigAttr.getBufferType().getValue());
-  ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
-      memoryConfigAttr.getTensorMemoryLayout();
-  assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");
-  ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
-      toFlatbuffer(cache, tensorMemoryLayoutAttr);
-  ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
-  if (memoryConfigAttr.getShardSpec()) {
-    assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
-                                         tensorMemoryLayoutAttr.getValue()));
-    shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
-  }
-  ::flatbuffers::Offset<::tt::target::ttnn::NDShardSpec> ndShardSpec = 0;
-  if (memoryConfigAttr.getNdShardSpec()) {
-    ndShardSpec = toFlatbuffer(cache, *memoryConfigAttr.getNdShardSpec());
-  }
-
-  return ::tt::target::ttnn::CreateMemoryConfig(
-      *cache.fbb, tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
+  auto t = toNative(memoryConfigAttr);
+  return ::tt::target::ttnn::MemoryConfig::Pack(*cache.fbb, &t);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
