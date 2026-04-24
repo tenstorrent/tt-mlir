@@ -280,23 +280,40 @@ static LogicalResult processComputeLoads(Block *computeBlock,
         return loadOp.emitError(
             "remote_load with local operand has multicast parameters");
       }
-      // For aliased loads, insert reserve->push->wait at the alloc site and
-      // pop after the last use of the buffer.
+      // For aliased loads, insert reserve->push->wait at the alloc site when
+      // the CB alloc is local to the compute region. Hoisted CB allocs arrive
+      // as GenericOp operands/additionalArgs; in that case, anchor the sync at
+      // the load site instead.
       memref::AllocOp allocOp = findAllocOp(localBuffer);
-      if (!allocOp || !isLocalAlloc(allocOp, computeBlock)) {
-        return loadOp.emitError("could not find local memref.alloc for buffer");
+      Block *block = loadOp->getBlock();
+      WaitOp waitOp;
+      if (allocOp && isLocalAlloc(allocOp, computeBlock)) {
+        block = allocOp->getBlock();
+        rewriter.setInsertionPoint(allocOp);
+        rewriter.create<ReserveOp>(loc, cb);
+        rewriter.create<PushOp>(loc, cb);
+        waitOp = rewriter.create<WaitOp>(loc, cb);
+
+        // Replace all uses of the alloc, not just the load's operand as
+        // downstream compute ops reference the alloc result directly and
+        // must read from the CB. Assumes 1:1 alloc-to-load relationship.
+        rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
+      } else if (allocOp) {
+        rewriter.setInsertionPoint(loadOp);
+        rewriter.create<ReserveOp>(loc, cb);
+        rewriter.create<PushOp>(loc, cb);
+        waitOp = rewriter.create<WaitOp>(loc, cb);
+
+        Region *computeRegion = loadOp->getParentRegion();
+        rewriter.replaceUsesWithIf(localBuffer, waitOp.getResult(),
+                                   [&](OpOperand &use) {
+                                     return computeRegion->isAncestor(
+                                         use.getOwner()->getParentRegion());
+                                   });
+      } else {
+        return loadOp.emitError("could not find memref.alloc for local buffer");
       }
 
-      Block *block = allocOp->getBlock();
-      rewriter.setInsertionPoint(allocOp);
-      rewriter.create<ReserveOp>(loc, cb);
-      rewriter.create<PushOp>(loc, cb);
-      auto waitOp = rewriter.create<WaitOp>(loc, cb);
-
-      // Replace all uses of the alloc, not just the load's operand as
-      // downstream compute ops reference the alloc result directly and
-      // must read from the CB. Assumes 1:1 alloc-to-load relationship.
-      rewriter.replaceAllUsesWith(allocOp.getResult(), waitOp.getResult());
       if (loadOp.getResult()) {
         rewriter.replaceAllUsesWith(loadOp.getResult(), waitOp.getResult());
       }
