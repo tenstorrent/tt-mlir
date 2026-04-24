@@ -209,6 +209,19 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(rowMajorLayoutBF16Workaround);
 }
 
+// Factory method to create a set of workarounds for GatherOp. The GatherOp
+// requires the input and index tensors to be in TILED layout.
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createGatherOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds tiledLayoutWorkaround;
+  tiledLayoutWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(tiledLayoutWorkaround)      // input
+      .addInputOperandWorkaround(tiledLayoutWorkaround)      // index
+      .addOutputOperandWorkaround(TTNNOperandWorkarounds()); // result
+}
+
 // Factory method to create a set of workarounds for ScatterOp. The ScatterOp
 // expects the input to be in row-major layout if using f32, bf16, or int32.
 TTNNOperandsWorkarounds
@@ -1125,9 +1138,9 @@ TTNNOperandsWorkaroundsFactory::createAllToAllDispatchOpOperandsWorkarounds() {
 // Factory method to create workarounds for all_to_all_dispatch_metadata op
 // operands.
 // tt-metal CCL requirements:
-//   input_tensor:      ROW_MAJOR, BFLOAT16
-//   expert_indices:    ROW_MAJOR, UINT16
-//   expert_scores:     ROW_MAJOR, BFLOAT16
+//   input_tensor:      ROW_MAJOR, BFLOAT16, L1 INTERLEAVED
+//   expert_indices:    ROW_MAJOR, UINT16, L1 INTERLEAVED
+//   expert_scores:     ROW_MAJOR, BFLOAT16, L1 INTERLEAVED
 //   expert_mapping:    ROW_MAJOR, UINT16
 //   dispatched out:    ROW_MAJOR, BFLOAT16
 //   indices out:       ROW_MAJOR, UINT16, L1 HEIGHT_SHARDED
@@ -1141,6 +1154,22 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   TTNNOperandWorkarounds rowMajorUint16Workaround;
   rowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   rowMajorUint16Workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  auto interleaved = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  TTNNOperandWorkarounds l1InterleavedBf16Workaround;
+  l1InterleavedBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1InterleavedBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  l1InterleavedBf16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  l1InterleavedBf16Workaround.tensorMemoryLayoutWorkaround = interleaved;
+
+  TTNNOperandWorkarounds l1InterleavedUint16Workaround;
+  l1InterleavedUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1InterleavedUint16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt16;
+  l1InterleavedUint16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  l1InterleavedUint16Workaround.tensorMemoryLayoutWorkaround = interleaved;
 
   // The metal kernel produces indices/scores outputs as HEIGHT_SHARDED on L1
   // (on the drain_sync_tilizer_core). Set output workarounds so the compiler
@@ -1161,13 +1190,14 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   l1ShardedBf16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorBf16Workaround)     // input_tensor
-      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_indices
-      .addInputOperandWorkaround(rowMajorBf16Workaround)     // expert_scores
-      .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_mapping
-      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // dispatched
-      .addOutputOperandWorkaround(l1ShardedUint16Workaround) // indices
-      .addOutputOperandWorkaround(l1ShardedBf16Workaround);  // scores
+      .addInputOperandWorkaround(l1InterleavedBf16Workaround) // input_tensor
+      .addInputOperandWorkaround(
+          l1InterleavedUint16Workaround)                      // expert_indices
+      .addInputOperandWorkaround(l1InterleavedBf16Workaround) // expert_scores
+      .addInputOperandWorkaround(rowMajorUint16Workaround)    // expert_mapping
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)     // dispatched
+      .addOutputOperandWorkaround(l1ShardedUint16Workaround)  // indices
+      .addOutputOperandWorkaround(l1ShardedBf16Workaround);   // scores
 }
 
 // Factory method to create workarounds for all_to_all_combine op operands.

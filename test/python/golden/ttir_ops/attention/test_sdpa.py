@@ -267,28 +267,23 @@ def test_sdpa_mask_broadcast(
 @pytest.mark.parametrize(
     "shapes,mask_shape,scale",
     [
-        # Decode mask: [batch, 1, num_heads, kv_seq] - standard
+        # Decode mask: [1, batch, num_heads, kv_seq] - standard
         (
             [(1, 32, 32, 64), (32, 32, 128, 64), (32, 32, 128, 64), (32,)],
-            (32, 1, 32, 128),
+            (1, 32, 32, 128),
             0.124999993,
         ),
         # Decode mask with GQA: mask num_heads matches query num_heads
         (
             [(1, 32, 32, 64), (32, 8, 128, 64), (32, 8, 128, 64), (32,)],
-            (32, 1, 32, 128),
+            (1, 32, 32, 128),
             0.124999993,
         ),
-        # Decode mask with batch broadcast: mask[0]=1
-        pytest.param(
+        # Decode mask with batch broadcast: mask[1]=1
+        (
             [(1, 32, 32, 64), (32, 32, 128, 64), (32, 32, 128, 64), (32,)],
             (1, 1, 32, 128),
             0.0883883387,
-            marks=pytest.mark.xfail(
-                reason="SDPA decode does not support batch broadcasting on "
-                "attention mask. "
-                "https://github.com/tenstorrent/tt-metal/issues/39910"
-            ),
         ),
     ],
     ids=[

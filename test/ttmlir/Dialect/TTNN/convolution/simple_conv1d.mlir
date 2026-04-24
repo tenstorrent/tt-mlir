@@ -24,16 +24,12 @@ module {
   // Test a different ordering of dimensions
   func.func public @conv1d_test2(%arg0: tensor<1x7x768xbf16>, %arg1: tensor<1x192x768xbf16>) -> (tensor<1x7x768xbf16>) {
     // CHECK: "ttnn.reshape"
-    // CHECK-SAME: shape = [1 : i32, 7 : i32, 768 : i32, 1 : i32]
-    // CHECK: "ttnn.reshape"
     // CHECK-SAME: shape = [1 : i32, 192 : i32, 768 : i32, 1 : i32]
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 2, 1, 0, 3>
-    // CHECK: "ttnn.permute"
-    // CHECK-SAME: permutation = array<i64: 0, 1, 3, 2>
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 7 : i32, 768 : i32]
     // CHECK: "ttnn.conv2d"
-    // CHECK: "ttnn.permute"
-    // CHECK-SAME: permutation = array<i64: 0, 1, 3, 2>
     // CHECK: "ttnn.reshape"
     // CHECK-SAME: shape = [1 : i32, 7 : i32, 768 : i32]
     %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 7 : i32, 768 : i32, 1 : i32]}> : (tensor<1x7x768xbf16>) -> tensor<1x7x768x1xbf16>

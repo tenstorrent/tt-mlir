@@ -1387,12 +1387,15 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   // and check that all input tensors have the same rank
   // and that all dimensions except `dim` are the same.
   int64_t dimSizeSum = firstTensor.getDimSize(dim);
-  for (auto input : inputs.drop_front()) {
+  for (auto [idx, input] : llvm::enumerate(llvm::drop_begin(inputs, /*N=*/1))) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
 
     // Check if all inputs have the same rank.
     if (inputType.getRank() != firstTensorRank) {
-      return emitOpError("All input tensors must have the same rank.");
+      return emitOpError() << "All input tensors must have the same rank "
+                              "(operand 0 rank "
+                           << firstTensorRank << ", operand " << (idx + 1)
+                           << " rank " << inputType.getRank() << ").";
     }
 
     // Check that dimensions (except `dim`) are the same.
@@ -1402,9 +1405,13 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
         continue;
       }
       if (inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
-        return emitOpError() << "All input tensors must have the same "
-                                "dimensions, except for dimension "
-                             << dim << ".";
+        return emitOpError()
+               << "All input tensors must have the same "
+                  "dimensions, except for dimension "
+               << dim << " (operand 0 shape " << firstTensor.getShape()
+               << ", operand " << (idx + 1) << " shape " << inputType.getShape()
+               << " differ at dim " << i << ": " << firstTensor.getDimSize(i)
+               << " vs " << inputType.getDimSize(i) << ").";
       }
     }
   }
@@ -2769,6 +2776,29 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// SelectiveReduceCombineOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult SelectiveReduceCombineOp::verify() {
+  // Verify select_experts_k > 0
+  if (getSelectExpertsK() == 0) {
+    return emitOpError("select_experts_k must be positive");
+  }
+
+  // Verify experts > 0
+  if (getExperts() == 0) {
+    return emitOpError("experts must be positive");
+  }
+
+  // Verify hidden_size > 0
+  if (getHiddenSize() == 0) {
+    return emitOpError("hidden_size must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MoeExpertTokenRemapOp
 //===----------------------------------------------------------------------===//
 
@@ -3567,6 +3597,13 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType resultType = getResult().getType();
 
+  if (!indexType.getElementType().isUnsignedInteger(16) &&
+      !indexType.getElementType().isUnsignedInteger(32)) {
+    return emitOpError() << "Index tensor must have an unsigned integer "
+                         << "type of ui16 or ui32, got "
+                         << indexType.getElementType();
+  }
+
   const int64_t inputRank = inputType.getRank();
   const int64_t indexRank = indexType.getRank();
 
@@ -4022,6 +4059,54 @@ mlir::OpFoldResult mlir::tt::ttnn::PermuteOp::fold(FoldAdaptor adaptor) {
     return result;
   }
   return nullptr;
+}
+
+// PermuteOp canonicalizes to ReshapeOp when only size-1 dims are permuted.
+void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+
+  patterns.add(+[](PermuteOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    // Require ranked tensors so we can reason about shapes.
+    auto inputType = op.getInput().getType();
+    auto resultType = op.getResult().getType();
+
+    auto inShape = inputType.getShape();
+    auto outShape = resultType.getShape();
+    auto permutation = op.getPermutation();
+
+    // Collect indices of non-1 dims in the original order.
+    llvm::SmallVector<int64_t> origNonOne;
+    for (int64_t i = 0, e = inShape.size(); i < e; ++i) {
+      if (inShape[i] != 1) {
+        origNonOne.push_back(i);
+      }
+    }
+
+    // Collect indices of non-1 dims in the permuted order.
+    llvm::SmallVector<int64_t> permNonOne;
+    for (int64_t idx : permutation) {
+      if (inShape[idx] != 1) {
+        permNonOne.push_back(idx);
+      }
+    }
+
+    // If non-1 dims change relative order, this is a real permute.
+    if (!llvm::equal(origNonOne, permNonOne)) {
+      return mlir::failure();
+    }
+
+    // Only singleton dims are moved: we can safely rewrite as reshape.
+    llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
+
+    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
+    auto memCfg = op.getMemoryConfigAttr();
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
+        op, resultType, op.getInput(), shapeAttr, memCfg);
+
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -5333,13 +5418,18 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
+    // First 3 dims of the mask must each either be 1 (broadcast) or match the
+    // corresponding query dim. Query layout is [1, batch, nQueryHeads,
+    // headSize].
     if (attentionMaskType.getShape()[0] != 1 &&
-        attentionMaskType.getShape()[0] != batchSize) {
+        attentionMaskType.getShape()[0] != queryType.getShape()[0]) {
+      return emitOpError("Attention mask dim 0 must be 1 (broadcast) or "
+                         "match query dim 0");
+    }
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
-    }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {

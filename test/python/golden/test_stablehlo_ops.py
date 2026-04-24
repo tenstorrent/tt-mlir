@@ -2282,3 +2282,51 @@ def test_composite_op(target: str, request, device):
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize("target", ["stablehlo"])
+def test_stablehlo_composite_mlir_parse_split(target, request, device):
+    mlir_path = os.path.join(
+        os.path.dirname(__file__),
+        "mlir_snippets",
+        "stablehlo",
+        "stablehlo_composite.mlir",
+    )
+    with open(mlir_path, encoding="utf-8") as f:
+        mlir_text = f.read()
+    module, builder = load_mlir_file(mlir_text, target=target)
+    split_modules = split_mlir_file(module, builder, target=target)
+    assert len(split_modules) >= 1
+
+
+@pytest.mark.parametrize("target", ["stablehlo"])
+def test_stablehlo_convert_mlir_parse_split(target, request, device):
+    mlir_path = os.path.join(
+        os.path.dirname(__file__),
+        "mlir_snippets",
+        "stablehlo",
+        "stablehlo_convert.mlir",
+    )
+    with open(mlir_path, encoding="utf-8") as f:
+        mlir_text = f.read()
+    module, builder = load_mlir_file(mlir_text, target=target)
+    split_modules = split_mlir_file(module, builder, target=target)
+    assert len(split_modules) >= 1
+
+
+@pytest.mark.parametrize("target", ["ttir"])
+def test_ttir_stablehlo_convert_cpu_hoisted_parse_split(target, request, device):
+    # Exercises the TTIRBuilder delegators that route stablehlo.convert
+    # inside CPU-hoisted TTIR modules to StableHLOBuilder.convert_parser /
+    # convert_split.
+    mlir_path = os.path.join(
+        os.path.dirname(__file__),
+        "mlir_snippets",
+        "ttir",
+        "stablehlo_convert_cpu_hoisted.mlir",
+    )
+    with open(mlir_path, encoding="utf-8") as f:
+        mlir_text = f.read()
+    module, builder = load_mlir_file(mlir_text, target=target)
+    split_modules = split_mlir_file(module, builder, target=target)
+    assert len(split_modules) >= 1

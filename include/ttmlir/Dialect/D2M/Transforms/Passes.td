@@ -572,6 +572,10 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-buffer-size-policy",
           "std::string", /*default=*/"\"auto\"",
           "Set policy for sizing stream buffers ('auto', 'min', 'max').">,
+    Option<"testAllowAliasedEltwiseBlocking",
+          "test-allow-aliased-eltwise-blocking",
+          "bool", /*default=*/"true",
+          "Allow auto reblocking for eltwise generics even when blocked outputs must leave alias mode.">,
   ];
 }
 
@@ -911,11 +915,11 @@ def D2MPreallocateMcastSemaphores : Pass<"d2m-preallocate-mcast-semaphores", "::
 
     // After (semaphores pre-allocated):
     d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]} {
-    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.local_semaphore, %sem1: !d2m.local_semaphore):
       d2m.remote_load %cb0, %memref[%i] core[%c0] mcast[%c4]
         {preallocated_semaphores = [2, 3]} : ...
     }, {
-    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.local_semaphore, %sem1: !d2m.local_semaphore):
       ...
     }
     ```
@@ -1057,6 +1061,32 @@ def D2MHoistCBAllocs : Pass<"d2m-hoist-cb-allocs", "::mlir::ModuleOp"> {
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::memref::MemRefDialect"
   ];
+}
+
+def D2MNormalizeThreadArgs : Pass<"d2m-normalize-thread-args", "::mlir::ModuleOp"> {
+  let summary = "This pass normalizes thread arguments.";
+  let description = [{
+    This pass normalizes how thread bodies access arguments by inserting
+    `d2m.get_arg` operations for thread arguments (including additionalArgs),
+    while leaving `d2m.get_cb` operations in place.
+
+    Example transformation:
+    ```mlir
+    // Before:
+    d2m.generic {}
+    ^unified0():
+      %cb0 = d2m.get_cb(0) operand_index = 0 : <tensor<1x1x!ttcore.tile<32x32, f32>>>
+      %cb1 = d2m.get_cb(1) operand_index = 1 : <tensor<1x1x!ttcore.tile<32x32, f32>>>
+
+    // After:
+    d2m.generic {}
+    ^unified0():
+      %5 = d2m.get_arg(2) resolution_stage =  compile : !d2m.global_semaphore
+      %6 = d2m.get_cb(0) operand_index = 0 resolution_stage =  compile : <tensor<1x1x!ttcore.tile<32x32, f32>>>
+      %7 = d2m.get_cb(1) operand_index = 1 resolution_stage =  compile : <tensor<1x1x!ttcore.tile<32x32, f32>>>
+    ```
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
 def D2MLowerScratchAllocate : Pass<"d2m-lower-scratch-allocate", "::mlir::ModuleOp"> {

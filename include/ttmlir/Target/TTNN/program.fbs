@@ -124,6 +124,7 @@ union OpType {
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,
   ScatterOp,
+  SelectiveReduceCombineOp,
   SliceOp,
   SoftmaxOp,
   SortOp,

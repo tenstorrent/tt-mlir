@@ -1,8 +1,8 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --flatten-composite -o %t %s
+// RUN: ttmlir-opt --flatten-or-convert-composites -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Verify that FlattenCompositePass correctly annotates a multi-result op
+// Verify that FlattenOrConvertCompositesPass correctly annotates a multi-result op
 // (stablehlo.sort) when both of its results are returned by the composite.
 // The reoutline.result_pos array should carry a position for each result.
 

@@ -414,6 +414,22 @@ public:
       indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
     }
 
+    // tt-metal reshapes indices from (batch, seq_len) to (batch, 1, 1, seq_len)
+    // and asserts batch * seq_len == number of gradient vectors which are
+    // further embedded into the weight tensor. For 1D indices (N,) it takes
+    // first_dim == last_dim == N, producing (N, 1, 1, N) and the assert fails
+    // (N*N != N). Unsqueeze to 2D: (N,) -> (1, N) so tt-metal sees
+    // (1, 1, 1, N).
+    if (indicesType.getRank() == 1) {
+      llvm::SmallVector<int64_t, 2> unsqueezedShape{1,
+                                                    indicesType.getDimSize(0)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices),
+          unsqueezedShape, rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_unsqueeze_indices"));
+      indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+    }
+
     // Pad the sequence length to be divisible by TILE_WIDTH (32).
     constexpr int64_t TILE_WIDTH = 32;
     int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
@@ -677,6 +693,19 @@ private:
     return {};
   }
 
+  // Helper function to check if exponent is negative.
+  // Negative constant exponents are handled by the pow_tensor op, as
+  // pow_scalar does not support negative exponents.
+  static bool isNegativeConstant(mlir::Attribute attr) {
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
+      return floatAttr.getValueAsDouble() < 0.0;
+    }
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      return intAttr.getValue().isNegative();
+    }
+    return false;
+  }
+
 public:
   using OpConversionPattern<ttir::PowOp>::OpConversionPattern;
 
@@ -684,7 +713,7 @@ public:
   matchAndRewrite(ttir::PowOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     mlir::Attribute exponent = getConstantAttr(adaptor.getRhs());
-    if (exponent) {
+    if (exponent && !isNegativeConstant(exponent)) {
       rewriter.replaceOpWithNewOp<ttnn::PowScalarOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
           adaptor.getLhs(), exponent);
@@ -1794,6 +1823,27 @@ public:
         op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
         op.getOutputShardDimAttr(),
         /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SelectiveReduceCombineOpConversionPattern
+    : public OpConversionPattern<ttir::SelectiveReduceCombineOp> {
+public:
+  using OpConversionPattern<
+      ttir::SelectiveReduceCombineOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SelectiveReduceCombineOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
+        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getDenseInputTensor(), adaptor.getDenseActivationsTensor(),
+        adaptor.getDenseTokenMapsTensor(), adaptor.getDenseTokenCountsTensor(),
+        op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
+        op.getSelectExpertsKAttr(), op.getExpertsAttr());
     return success();
   }
 };
@@ -3110,13 +3160,12 @@ public:
 } // namespace
 
 namespace {
-class GatherDimOpConversionPattern
-    : public OpConversionPattern<ttir::GatherDimOp> {
-  using OpConversionPattern<ttir::GatherDimOp>::OpConversionPattern;
+class GatherOpConversionPattern : public OpConversionPattern<ttir::GatherOp> {
+  using OpConversionPattern<ttir::GatherOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(ttir::GatherDimOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::GatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -3786,6 +3835,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllDispatchOpConversionPattern,
            AllToAllDispatchMetadataOpConversionPattern,
            AllToAllCombineOpConversionPattern,
+           SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
@@ -3804,7 +3854,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
            ScatterOpConversionPattern,
-           GatherDimOpConversionPattern,
+           GatherOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,

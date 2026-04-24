@@ -19,7 +19,7 @@ from ttmlir.dialects import func, ttcore, ttnn, ttir
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
+    ttir_to_ttnn_runtime_pipeline,
     ttnn_to_flatbuffer_file,
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,

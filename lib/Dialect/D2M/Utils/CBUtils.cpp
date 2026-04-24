@@ -61,6 +61,19 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
   }
 
   if (!cbUnderlyingType) {
+    // The operand itself may carry CBLayoutAttr (e.g. hoisted additionalArgs
+    // whose alloc is outside the region).  Use it directly.
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(
+            generic->getOperand(operandIndex).getType())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+        cbUnderlyingType =
+            MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
+                            nullptr, L1Attr);
+      }
+    }
+  }
+
+  if (!cbUnderlyingType) {
     // Derive from the generic operand's device layout.
     auto operandType =
         mlir::cast<ShapedType>(generic->getOperand(operandIndex).getType());
@@ -95,7 +108,9 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
   rewriter.setInsertionPointToStart(&region.front());
   auto getCBOp = rewriter.create<GetCBOp>(
       generic.getLoc(), cbType, port,
-      rewriter.getI64IntegerAttr(static_cast<int64_t>(operandIndex)));
+      rewriter.getI64IntegerAttr(static_cast<int64_t>(operandIndex)),
+      ResolutionStageAttr::get(rewriter.getContext(),
+                               ResolutionStage::Compile));
 
   Value result = getCBOp.getResult();
   cache[key] = result;
@@ -135,29 +150,6 @@ Value findAssociatedCB(Operation *op, Value memrefOperand,
 
   return getOrCreateCB(generic, *genericRegion, operandIndex, rewriter, cache,
                        portCounters);
-}
-
-memref::AllocOp findAllocOp(Value value) {
-  while (value) {
-    Operation *definingOp = value.getDefiningOp();
-    if (!definingOp) {
-      return nullptr;
-    }
-
-    if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-      return allocOp;
-    }
-
-    // Only trace through view-like operations (e.g., memref.collapse_shape,
-    // memref.subview, memref.cast).
-    if (mlir::isa<mlir::ViewLikeOpInterface>(definingOp)) {
-      value = definingOp->getOperand(0);
-      continue;
-    }
-
-    return nullptr;
-  }
-  return nullptr;
 }
 
 } // namespace mlir::tt::d2m

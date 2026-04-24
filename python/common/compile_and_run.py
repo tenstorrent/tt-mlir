@@ -47,7 +47,7 @@ def ttir_to_ttnn(
     ),
 ) -> Module:
     """
-    Runs `ttir-to-ttnn-backend-pipeline` compiler pass on `module` in a safe way.
+    Runs `ttir-to-ttnn-runtime-pipeline` compiler pass on `module` in a safe way.
 
     This is a segfault resistant function. It runs the pybound compiler pass in a
     separate process, thus protecting the caller of this function from any unpredictable
@@ -63,7 +63,7 @@ def ttir_to_ttnn(
     """
     m = module if isinstance(module, str) else str(module)
     return run_compilation_process(
-        ttir_to_ttnn_backend_pipeline_worker, (m, system_desc)
+        ttir_to_ttnn_runtime_pipeline_worker, (m, system_desc)
     )
 
 

@@ -120,7 +120,7 @@ public:
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
       return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
     });
-    addConversion([ctx](mlir::tt::ttkernel::SemaphoreType type) -> Type {
+    addConversion([ctx](mlir::tt::ttkernel::LocalSemaphoreType type) -> Type {
       // Convert semaphore to an address type. (i32)
       return Builder(ctx).getI32Type();
     });
@@ -288,6 +288,24 @@ public:
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), op.getFullFp32() ? "true" : "false"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceInitOp>) {
+      // sfpu_reduce_init<PoolType, DataFormat>()
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getReduceType(op.getReduceType())));
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDataFormat()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceTileOp>) {
+      // sfpu_reduce<PoolType, DataFormat, ReduceDim>(dst_index)
+      SmallVector<Attribute, 3> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getReduceType(op.getReduceType())));
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDataFormat()));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getReduceDim(op.getReduceDim())));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
                          std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
@@ -1361,12 +1379,16 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceUninitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SFPUReduceInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SFPUReduceTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RandTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RandTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileInitOp>,
