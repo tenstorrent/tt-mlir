@@ -12,6 +12,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -146,10 +147,10 @@ public:
           continue;
         }
 
-        if (!mlir::isa<d2m::LocalSemaphoreType>(argType) &&
-            !mlir::isa<d2m::GlobalSemaphoreType>(argType)) {
+        if (!mlir::isa<d2m::LocalSemaphoreType, d2m::GlobalSemaphoreType,
+                       IndexType, IntegerType, FloatType>(argType)) {
           generic.emitOpError("non-memref additionalArg has unsupported type ")
-              << argType << "; only semaphore types are supported";
+              << argType << "; only semaphore and scalar types are supported";
           signalPassFailure();
           return;
         }

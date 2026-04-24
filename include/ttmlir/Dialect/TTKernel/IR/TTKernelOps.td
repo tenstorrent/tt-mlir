@@ -3544,7 +3544,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr]>;
+def TTKernel_ArgResultType : AnyTypeOf<[I32, UI32, TTKernel_CB, TTKernel_L1Addr]>;
 
 def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
@@ -3596,6 +3596,23 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
 //===----------------------------------------------------------------------===//
 // TTKernel Helper functions
 //===----------------------------------------------------------------------===//
+
+def TTKernel_BitcastOp : TTKernel_Op<"bitcast", [Pure]> {
+    let summary = "Reinterpret a ui32 compile-time arg value as a scalar type.";
+    let description = [{
+      Reinterprets the bits of a ui32 compile-time arg as the given type.
+      Used to recover typed scalar kernel arguments after reading them from
+      the compile-time arg slot (which always stores ui32).
+    }];
+
+    let arguments = (ins UI32:$input);
+
+    let results = (outs AnyType:$result);
+
+    let assemblyFormat = [{
+      $input `:` type($input) `to` type($result) attr-dict
+    }];
+}
 
 def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr uint32_t*>"> {
     let summary = "CastToL1Ptr";
