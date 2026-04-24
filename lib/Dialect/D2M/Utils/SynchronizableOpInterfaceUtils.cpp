@@ -53,6 +53,8 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                                     Block::iterator start, Block::iterator end,
                                     const SmallVector<Value> &consumers,
                                     const SmallVector<Value> &producers) {
+  assert(start != end && "Cannot wrap an empty range in SynchronizedRegionOp");
+
   // Verify no results are used outside the wrapped range.
   llvm::DenseSet<Operation *> opsInRange;
   for (Operation &op : llvm::make_range(start, end)) {
