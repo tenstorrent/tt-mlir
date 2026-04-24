@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -20,16 +20,16 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
     // which CBs are consumed (i.e. read from) and which are produced (i.e.
     // written to) by the op. We then store this information in a map keyed by
     // the CB Value.
-    if (SynchronizableOpInterface synchronized_op =
+    if (SynchronizableOpInterface synchronizedOp =
             dyn_cast<SynchronizableOpInterface>(op)) {
       for (auto &operand : op->getOpOperands()) {
-        if (synchronized_op.isProducer(operand) &&
-            synchronized_op.isConsumer(operand)) {
+        if (synchronizedOp.isProducer(operand) &&
+            synchronizedOp.isConsumer(operand)) {
           llvm_unreachable(
               "A single op operand cannot be both a producer and consumer");
-        } else if (synchronized_op.isProducer(operand)) {
+        } else if (synchronizedOp.isProducer(operand)) {
           cbUsageInfo[operand.get()].producers.push_back(op);
-        } else if (synchronized_op.isConsumer(operand)) {
+        } else if (synchronizedOp.isConsumer(operand)) {
           cbUsageInfo[operand.get()].consumers.push_back(op);
         }
       }

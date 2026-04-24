@@ -1859,8 +1859,6 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       bool isConsumer(mlir::OpOperand &operand) {
         return false;
       }
-
-
     }];
 }
 
