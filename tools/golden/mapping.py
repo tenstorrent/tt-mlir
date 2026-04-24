@@ -6572,7 +6572,9 @@ def ttnn_where_golden(
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.where(condition, x, y).to(output_dtype)
+    # torch.where requires a bool condition; TTNN comparison ops (eq, gt, etc.) return
+    # the same dtype as their inputs (e.g. bf16), so cast explicitly.
+    return torch.where(condition.to(torch.bool), x, y).to(output_dtype)
 
 
 def ttnn_clamp_tensor_golden(
@@ -6924,8 +6926,9 @@ def ttir_sdpa_golden(
     if is_causal and attention_mask is None:
         seq_len_q = qk.shape[-2]
         seq_len_k = qk.shape[-1]
+        # Create causal_mask on the same device as qk to avoid meta/CPU device mismatch.
         causal_mask = torch.triu(
-            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
+            torch.full((seq_len_q, seq_len_k), float("-inf"), device=qk.device), diagonal=1
         )
         qk = torch.add(qk, causal_mask)
 
@@ -8309,8 +8312,15 @@ def chisel_ttnn_conv2d(op, inputs, asm_state):
     input_height = unpack_mlir_attr(op.attributes["input_height"])
     input_width = unpack_mlir_attr(op.attributes["input_width"])
     in_channels = unpack_mlir_attr(op.attributes["in_channels"])
+    out_channels = unpack_mlir_attr(op.attributes["out_channels"])
+    kh, kw = unpack_mlir_attr(op.attributes["kernel_size"])
+    groups = unpack_mlir_attr(op.attributes["groups"])
     nhwc = input_tensor.reshape(batch_size, input_height, input_width, in_channels)
-    result_nhwc = conv2d_golden(nhwc, weight, bias,
+    # TTNN weight is prepared as [1, 1, (C_in/groups)*kH*kW, C_out]; reshape to
+    # OIHW [C_out, C_in/groups, kH, kW] to match torch.nn.functional.conv2d.
+    in_channels_per_group = in_channels // groups
+    weight_oihw = weight.reshape(in_channels_per_group, kh, kw, out_channels).permute(3, 0, 1, 2)
+    result_nhwc = conv2d_golden(nhwc, weight_oihw, bias,
         stride=op.attributes["stride"], padding=op.attributes["padding"],
         dilation=op.attributes["dilation"], groups=op.attributes["groups"],
         batch_dim=0, height_dim=1, width_dim=2, channel_dim=3)
@@ -8577,6 +8587,15 @@ def chisel_ttnn_dequantize(op, inputs, asm_state):
     scale_tensor = inputs[op.operands[1].get_name(asm_state)]
     zero_point_tensor = inputs[op.operands[2].get_name(asm_state)]
     output_dtype = mlir_type_to_torch_dtype(op.results[0].type.element_type)
+    # For per-axis quantization, reshape scale/zero_point so they broadcast correctly
+    # over the input dimensions.  E.g. axis=0 on a 4D tensor needs shape [C, 1, 1, 1].
+    if "axis" in op.attributes:
+        axis = unpack_mlir_attr(op.attributes["axis"])
+        ndim = len(op.results[0].type.shape)
+        view = [1] * ndim
+        view[axis] = scale_tensor.shape[0]
+        scale_tensor = scale_tensor.reshape(view)
+        zero_point_tensor = zero_point_tensor.reshape(view)
     return ((input_tensor.float() - zero_point_tensor.float()) * scale_tensor.float()).to(output_dtype)
 
 

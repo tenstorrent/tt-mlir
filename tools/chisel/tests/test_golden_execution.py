@@ -11,7 +11,6 @@ vs skipped counts.
 import pytest
 import torch
 
-from chisel.exceptions import NoGoldenImplementation
 from chisel.executor import execute_golden
 from chisel.ops import get_op_inputs, get_op_outputs
 from golden import is_non_executable_op
@@ -68,10 +67,9 @@ def test_golden_execution(subtests, ir_module, binary, mlir_source_path):
                     dtype = _element_type_to_torch_dtype(operand.type.element_type)
                     inputs[name] = torch.empty(shape, dtype=dtype, device="meta")
 
-                try:
-                    result = execute_golden(op.opview, ir_module, inputs)
-                except NoGoldenImplementation:
-                    pytest.skip(f"no golden implementation for {type(op.opview).__name__}")
+                result = execute_golden(op.opview, ir_module, inputs)
+                if result is None:
+                    pytest.skip(f"no golden for {type(op.opview).__name__}")
 
                 op_outputs = get_op_outputs(op)
                 if op_outputs:
