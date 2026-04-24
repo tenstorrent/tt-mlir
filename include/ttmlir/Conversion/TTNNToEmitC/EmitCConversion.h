@@ -355,7 +355,7 @@ struct TypeName<::ttnn::QueueId> {
 
 template <>
 struct TypeName<::ttnn::MathFidelity> {
-  inline static const std::string value = "::MathFidelity";
+  inline static const std::string value = "::tt::tt_metal::MathFidelity";
 };
 
 template <>

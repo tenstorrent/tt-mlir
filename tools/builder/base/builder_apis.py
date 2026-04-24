@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from contextvars import ContextVar
+import gc
 import os
 import inspect
 import time
@@ -75,20 +76,31 @@ def _compile_and_execute(
         deferred.prepare()
         device = None
 
-    builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
-        target=target,
-        **compile_kwargs,
-    )
+    # Avoid GC while compiling/executing against the runtime so Python does not
+    # finalize wrappers in the middle of backend teardown. Force one collection
+    # only after the deferred device is closed and large references are dropped.
+    gc_was_enabled = gc.isenabled()
+    if gc_was_enabled:
+        gc.disable()
 
-    if skip_exec:
-        raise TTBuilderRuntimeException("Manually skipped execution")
-
-    if is_deferred:
-        device = deferred.open()
-
-    # Execute the flatbuffer, closing deferred devices after execution so that
-    # the next test's compilation can use a mock device without conflict.
+    builder = None
+    compiled_bin = None
+    input_output_goldens = None
+    intermediate_goldens = None
     try:
+        builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
+            target=target,
+            **compile_kwargs,
+        )
+
+        if skip_exec:
+            raise TTBuilderRuntimeException("Manually skipped execution")
+
+        if is_deferred:
+            device = deferred.open()
+
+        # Execute the flatbuffer, closing deferred devices after execution so that
+        # the next test's compilation can use a mock device without conflict.
         if target in ["ttnn", "ttmetal"]:
             execute_fb(
                 compiled_bin,
@@ -145,6 +157,16 @@ def _compile_and_execute(
     finally:
         if is_deferred and device is not None:
             deferred.close(device)
+            device = None
+
+        builder = None
+        compiled_bin = None
+        input_output_goldens = None
+        intermediate_goldens = None
+
+        if gc_was_enabled:
+            gc.enable()
+        gc.collect()
 
 
 def _compile(root_func: Callable, builder: Builder):
