@@ -1973,6 +1973,34 @@ struct OpModel<TopKOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SamplingOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputValuesShape,
+                   TTNNLayoutAttr inputValuesLayout,
+                   llvm::ArrayRef<int64_t> inputIndicesShape,
+                   TTNNLayoutAttr inputIndicesLayout,
+                   llvm::ArrayRef<int64_t> kShape, TTNNLayoutAttr kLayout,
+                   llvm::ArrayRef<int64_t> pShape, TTNNLayoutAttr pLayout,
+                   llvm::ArrayRef<int64_t> tempShape, TTNNLayoutAttr tempLayout,
+                   std::optional<uint32_t> seed, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputValuesShape,
+               TTNNLayoutAttr inputValuesLayout,
+               llvm::ArrayRef<int64_t> inputIndicesShape,
+               TTNNLayoutAttr inputIndicesLayout,
+               llvm::ArrayRef<int64_t> kShape, TTNNLayoutAttr kLayout,
+               llvm::ArrayRef<int64_t> pShape, TTNNLayoutAttr pLayout,
+               llvm::ArrayRef<int64_t> tempShape, TTNNLayoutAttr tempLayout,
+               std::optional<uint32_t> seed, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // MeshPartitionOp
 //===----------------------------------------------------------------------===//
 
