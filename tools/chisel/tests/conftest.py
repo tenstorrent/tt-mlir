@@ -4,10 +4,21 @@
 import os
 from pathlib import Path
 
+import json
+import re
+
 import pytest
-import ttrt.binary
+from _ttmlir_runtime import binary as rt_binary
 
 from chisel.ops import IRModule
+
+
+def _json_as_dict(json_string):
+    if json_string == "":
+        return {}
+    json_string = re.sub(r"\bnan\b", "NaN", json_string)
+    json_string = re.sub(r"\binf\b", "Infinity", json_string)
+    return json.loads(json_string)
 
 
 def pytest_addoption(parser):
@@ -39,12 +50,12 @@ def _collect_binary_paths(config):
 
 @pytest.fixture
 def binary(binary_path):
-    return ttrt.binary.load_binary_from_path(binary_path)
+    return rt_binary.load_binary_from_path(binary_path)
 
 
 @pytest.fixture
 def ir_module(binary):
-    mlir_json = ttrt.binary.mlir_as_dict(binary)
+    mlir_json = _json_as_dict(binary.get_mlir_as_json())
     functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
     return IRModule(mlir_source=mlir_json["source"], functions=functions)
 
@@ -65,12 +76,12 @@ def pytest_generate_tests(metafunc):
 
 @pytest.fixture
 def binary(binary_path):
-    return ttrt.binary.load_binary_from_path(binary_path)
+    return rt_binary.load_binary_from_path(binary_path)
 
 
 @pytest.fixture
 def ir_module(binary):
-    mlir_json = ttrt.binary.mlir_as_dict(binary)
+    mlir_json = _json_as_dict(binary.get_mlir_as_json())
     functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
     return IRModule(mlir_source=mlir_json["source"], functions=functions)
 
@@ -78,7 +89,7 @@ def ir_module(binary):
 @pytest.fixture
 def mlir_source_path(binary, binary_path):
     """Write the MLIR embedded in the flatbuffer to a .mlir file next to the binary."""
-    mlir_json = ttrt.binary.mlir_as_dict(binary)
+    mlir_json = _json_as_dict(binary.get_mlir_as_json())
     out = Path(binary_path).with_suffix(".mlir")
     out.write_text(mlir_json.get("source", ""))
     return out

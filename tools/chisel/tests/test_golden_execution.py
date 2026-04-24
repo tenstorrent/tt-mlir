@@ -47,6 +47,7 @@ def _iterate_programs(binary):
         yield i, binary.get_program_name(i)
 
 
+@pytest.mark.no_device
 def test_golden_execution(subtests, ir_module, binary, mlir_source_path):
     """Execute each TTNN op on the meta device; verify output shape and dtype."""
     for _prog_idx, prog_name in _iterate_programs(binary):
