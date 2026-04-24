@@ -3434,7 +3434,13 @@ createKernelArgs(FlatbufferObjectCache &cache,
       arg = ::tt::target::ttnn::CreateKernelArgGlobalSemaphore(
                 *cache.fbb, kernelArgGlobalSemaphore.getGlobalSemaphoreIndex())
                 .Union();
-
+    } else if (auto kernelArgScalar =
+                   llvm::dyn_cast<KernelArgScalarAttr>(argAttr);
+               kernelArgScalar) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgScalar;
+      arg = ::tt::target::ttnn::CreateKernelArgScalar(
+                *cache.fbb, kernelArgScalar.getOperandIndex())
+                .Union();
     } else {
       llvm_unreachable("Unsupported kernel argument attribute");
     }
