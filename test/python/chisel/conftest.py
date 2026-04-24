@@ -2,28 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import os
-from pathlib import Path
-
-import json
-import re
 
 import pytest
-from _ttmlir_runtime import binary as rt_binary
-
-from chisel.ops import IRModule
-
-
-def _json_as_dict(json_string):
-    if json_string == "":
-        return {}
-    json_string = re.sub(r"\bnan\b", "NaN", json_string)
-    json_string = re.sub(r"\binf\b", "Infinity", json_string)
-    return json.loads(json_string)
+import _ttmlir_runtime as tt_runtime
 
 
 def pytest_addoption(parser):
     # Guard: --binary may already be registered when this conftest is loaded
-    # alongside test/python/chisel/conftest.py in a combined pytest session.
+    # alongside tools/chisel/tests/conftest.py in a combined pytest session.
     try:
         parser.addoption(
             "--binary",
@@ -53,18 +39,6 @@ def _collect_binary_paths(config):
     return [p]
 
 
-@pytest.fixture
-def binary(binary_path):
-    return rt_binary.load_binary_from_path(binary_path)
-
-
-@pytest.fixture
-def ir_module(binary):
-    mlir_json = _json_as_dict(binary.get_mlir_as_json())
-    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
-    return IRModule(mlir_source=mlir_json["source"], functions=functions)
-
-
 def pytest_generate_tests(metafunc):
     if "binary_path" in metafunc.fixturenames:
         paths = _collect_binary_paths(metafunc.config)
@@ -79,22 +53,14 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize("binary_path", paths)
 
 
-@pytest.fixture
-def binary(binary_path):
-    return rt_binary.load_binary_from_path(binary_path)
-
-
-@pytest.fixture
-def ir_module(binary):
-    mlir_json = _json_as_dict(binary.get_mlir_as_json())
-    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
-    return IRModule(mlir_source=mlir_json["source"], functions=functions)
-
-
-@pytest.fixture
-def mlir_source_path(binary, binary_path):
-    """Write the MLIR embedded in the flatbuffer to a .mlir file next to the binary."""
-    mlir_json = _json_as_dict(binary.get_mlir_as_json())
-    out = Path(binary_path).with_suffix(".mlir")
-    out.write_text(mlir_json.get("source", ""))
-    return out
+@pytest.fixture(scope="function")
+def device():
+    """Open a 1x1 TTNN mesh device for chisel device-execution tests."""
+    tt_runtime.runtime.set_current_device_runtime(
+        tt_runtime.runtime.DeviceRuntime.TTNN
+    )
+    mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+    mesh_options.mesh_shape = (1, 1)
+    dev = tt_runtime.runtime.open_mesh_device(mesh_options)
+    yield dev
+    tt_runtime.runtime.close_mesh_device(dev)

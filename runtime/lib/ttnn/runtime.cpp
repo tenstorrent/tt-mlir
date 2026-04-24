@@ -1286,7 +1286,6 @@ getOpOutputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
-    tensorRefs = {opContext.type_as_PagedFillCacheOp()->cache()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
@@ -1347,10 +1346,22 @@ getOpOutputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::BatchNormTrainingOp: {
+    tensorRefs = {opContext.type_as_BatchNormTrainingOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
+    tensorRefs = {opContext.type_as_MaxPool2dWithIndicesOp()->result(),
+                  opContext.type_as_MaxPool2dWithIndicesOp()->result_indices()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SortOp: {
+    for (const auto *ref : *opContext.type_as_SortOp()->outputs()) {
+      tensorRefs.push_back(ref);
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::CpuOp:
-  case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
-  case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
-  case ::tt::target::ttnn::OpType::SortOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp:
@@ -1513,7 +1524,14 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
-    tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
+    auto *op = opContext.type_as_EltwiseUnaryCompositeOp();
+    tensorRefs = {op->in()};
+    if (op->type() ==
+        ::tt::target::ttnn::EltwiseUnaryCompositeOpType::ClampTensor) {
+      const auto *params = op->params_as_ClampTensorOpParams();
+      tensorRefs.push_back(params->min());
+      tensorRefs.push_back(params->max());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
@@ -1565,7 +1583,9 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::EmbeddingBackwardOp: {
-    tensorRefs = {opContext.type_as_EmbeddingBackwardOp()->input()};
+    tensorRefs = {opContext.type_as_EmbeddingBackwardOp()->input(),
+                  opContext.type_as_EmbeddingBackwardOp()->weight(),
+                  opContext.type_as_EmbeddingBackwardOp()->in_grad()};
     break;
   }
   case ::tt::target::ttnn::OpType::SoftmaxOp: {
@@ -1621,15 +1641,27 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
-    tensorRefs = {opContext.type_as_Conv2dOp()->input()};
+    auto *op = opContext.type_as_Conv2dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::Conv3dOp: {
-    tensorRefs = {opContext.type_as_Conv3dOp()->input()};
+    auto *op = opContext.type_as_Conv3dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
-    tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
+    auto *op = opContext.type_as_ConvTranspose2dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::Pool2dOp: {
@@ -1911,9 +1943,11 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
-    tensorRefs = {
-        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->in(),
-        opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp()->kv_input()};
+    auto *op = opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp();
+    tensorRefs = {op->in()};
+    if (op->kv_input()) {
+      tensorRefs.push_back(op->kv_input());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
@@ -1923,23 +1957,28 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
-    tensorRefs = {
-        opContext.type_as_ScaledDotProductAttentionDecodeOp()->query(),
-        opContext.type_as_ScaledDotProductAttentionDecodeOp()->key(),
-        opContext.type_as_ScaledDotProductAttentionDecodeOp()->value(),
-        opContext.type_as_ScaledDotProductAttentionDecodeOp()->attention_mask(),
-        opContext.type_as_ScaledDotProductAttentionDecodeOp()->cur_pos_tensor(),
-        opContext.type_as_ScaledDotProductAttentionDecodeOp()
-            ->attention_sink()};
+    auto *op = opContext.type_as_ScaledDotProductAttentionDecodeOp();
+    tensorRefs = {op->query(), op->key(), op->value()};
+    if (op->attention_mask()) {
+      tensorRefs.push_back(op->attention_mask());
+    }
+    if (op->cur_pos_tensor()) {
+      tensorRefs.push_back(op->cur_pos_tensor());
+    }
+    if (op->attention_sink()) {
+      tensorRefs.push_back(op->attention_sink());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
-    tensorRefs = {
-        opContext.type_as_ScaledDotProductAttentionOp()->query(),
-        opContext.type_as_ScaledDotProductAttentionOp()->key(),
-        opContext.type_as_ScaledDotProductAttentionOp()->value(),
-        opContext.type_as_ScaledDotProductAttentionOp()->attention_mask(),
-        opContext.type_as_ScaledDotProductAttentionOp()->attention_sink()};
+    auto *op = opContext.type_as_ScaledDotProductAttentionOp();
+    tensorRefs = {op->query(), op->key(), op->value()};
+    if (op->attention_mask()) {
+      tensorRefs.push_back(op->attention_mask());
+    }
+    if (op->attention_sink()) {
+      tensorRefs.push_back(op->attention_sink());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
@@ -1989,9 +2028,11 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
-    tensorRefs = {
-        opContext.type_as_NLPCreateQKVHeadsDecodeOp()->input(),
-        opContext.type_as_NLPCreateQKVHeadsDecodeOp()->batch_offset()};
+    auto *op = opContext.type_as_NLPCreateQKVHeadsDecodeOp();
+    tensorRefs = {op->input()};
+    if (op->batch_offset()) {
+      tensorRefs.push_back(op->batch_offset());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {

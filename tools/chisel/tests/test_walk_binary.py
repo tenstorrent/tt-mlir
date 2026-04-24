@@ -11,11 +11,11 @@ as a pytest subtest so failures are reported individually.
 import pytest
 from _ttmlir_runtime import runtime as rt
 
+from chisel.op_configs import get_skipped_op_names
 from chisel.ops import get_op_inputs, get_op_outputs
 
 
-# scale/zero_point operands are stored as FB attribute structs, not TensorRefs
-_SKIP_OPS = {"ttnn.quantize", "ttnn.dequantize", "ttnn.requantize"}
+_SKIP_OPS = get_skipped_op_names()
 
 
 @pytest.mark.no_device
