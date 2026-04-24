@@ -17,11 +17,6 @@ from typing import Callable, Dict, Optional, Type
 
 from ttmlir.dialects import ttcore, ttnn
 
-from .checker import ChiselChecker
-from .context import ChiselContext
-from .ops import get_op_outputs
-from .utils import retrieve_torch_tensor
-
 logger = logging.getLogger("chisel")
 
 
@@ -30,6 +25,10 @@ class ChiselOpConfig:
     """Per-op behavior overrides for chisel preOp/postOp dispatch.
 
     Attributes:
+        skip:           Entirely bypass preOp and postOp for this op type.
+                        No records are written and the tensor pool is not updated.
+                        Use for ops whose IR/FB output counts disagree or whose
+                        tensors are not retrievable (e.g. cache identifiers).
         skip_pcc:       Run isolation golden but skip numerical PCC comparison.
                         Useful for ops whose device output is intentionally undefined
                         (e.g. ttnn.empty produces uninitialized memory).
@@ -42,6 +41,7 @@ class ChiselOpConfig:
                   owns PCC logic).
     """
 
+    skip: bool = False
     skip_pcc: bool = False
     skip_accum_pcc: bool = False
     pre_op: Optional[Callable] = None
@@ -61,17 +61,13 @@ def get_op_config(op: object) -> ChiselOpConfig:
     return _OP_CONFIGS.get(type(op), ChiselOpConfig())
 
 
-# ---------------------------------------------------------------------------
-# Per-op implementations
-# ---------------------------------------------------------------------------
-
-
-def _load_cached_pre_op(binary, program_context, op_context) -> None:
-    logger.info("_load_cached_pre_op: noop")
-
-
-def _load_cached_post_op(binary, program_context, op_context) -> None:
-    logger.info("_load_cached_post_op: noop")
+def get_skipped_op_names() -> frozenset:
+    """MLIR op names (e.g. 'ttcore.load_cached') for all ops registered with skip=True."""
+    return frozenset(
+        op_type.OPERATION_NAME
+        for op_type, config in _OP_CONFIGS.items()
+        if config.skip
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +78,15 @@ def _load_cached_post_op(binary, program_context, op_context) -> None:
 # meaningless for both isolation and accumulation checks.
 register_op_config(ttnn.EmptyOp, ChiselOpConfig(skip_pcc=True, skip_accum_pcc=True))
 
-# ttcore.load_cached loads a tensor from the device cache. Inputs are cache
-# identifiers, not retrievable tensors, and the cached value is opaque.
-register_op_config(
-    ttcore.LoadCachedOp,
-    ChiselOpConfig(pre_op=_load_cached_pre_op, post_op=_load_cached_post_op),
-)
+# ttcore.load_cached: IR output count > 0 but FB output count = 0.
+# Inputs are cache identifiers, not retrievable tensors.
+register_op_config(ttcore.LoadCachedOp, ChiselOpConfig(skip=True))
+
+# ttnn.generic: IR output count = 0 but FB output count = 1.
+register_op_config(ttnn.GenericOp, ChiselOpConfig(skip=True))
+
+# scale/zero_point operands are stored as FB attribute structs, not TensorRefs,
+# so IR and FB input counts disagree.
+register_op_config(ttnn.QuantizeOp, ChiselOpConfig(skip=True))
+register_op_config(ttnn.DequantizeOp, ChiselOpConfig(skip=True))
+register_op_config(ttnn.RequantizeOp, ChiselOpConfig(skip=True))

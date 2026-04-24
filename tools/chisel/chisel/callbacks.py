@@ -234,6 +234,8 @@ def chisel_pre_op_callback(binary, program_context, op_context):
     ctx.current_program.current_op = next(ctx.current_program.op_iter)
 
     config = get_op_config(ctx.current_program.current_op.opview)
+    if config.skip:
+        return
     if config.pre_op is not None:
         config.pre_op(binary, program_context, op_context)
     else:
@@ -252,6 +254,8 @@ def chisel_post_op_callback(binary, program_context, op_context):
     """
     ctx = ChiselContext.get_instance()
     config = get_op_config(ctx.current_program.current_op.opview)
+    if config.skip:
+        return
     if config.post_op is not None:
         config.post_op(binary, program_context, op_context)
     else:
