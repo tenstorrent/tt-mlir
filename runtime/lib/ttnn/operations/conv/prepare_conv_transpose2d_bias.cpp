@@ -4,10 +4,8 @@
 
 #include "operations/conv/prepare_conv_transpose2d_bias.h"
 
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-
-#include "ttnn/operations/conv/conv_transpose2d/prepare_conv_transpose2d_weights.hpp"
+#include "conv/unifiedPrepareConvTranspose2dBiasOp.h"
+#include "tt/runtime/detail/common/logger.h"
 
 namespace tt::runtime::ttnn::operations::conv {
 void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
@@ -16,72 +14,20 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
   const ::ttnn::Tensor &biasTensor =
       tensorPool.getTTNNTensorAndValidate(op->bias_tensor());
 
-  std::optional<::ttnn::MemoryConfig> inputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->input_memory_config());
-  LOG_ASSERT(inputMemoryConfig.has_value(),
-             "Input memory expected to have a value");
-
-  LOG_ASSERT(op->kernel_size()->size() == 2,
-             "Kernel size expected to have 2 elements");
-  LOG_ASSERT(op->stride()->size() == 2, "Stride expected to have 2 elements");
-  LOG_ASSERT(op->padding()->size() == 2 || op->padding()->size() == 4,
-             "Padding expected to have 2 or 4 elements");
-  LOG_ASSERT(op->dilation()->size() == 2,
-             "Dilation expected to have 2 elements");
-
-  std::array<uint32_t, 2> kernelSize, stride, dilation;
-  std::copy_n(op->kernel_size()->begin(), 2, kernelSize.begin());
-  std::copy_n(op->stride()->begin(), 2, stride.begin());
-  std::copy_n(op->dilation()->begin(), 2, dilation.begin());
-
-  std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>> padding;
-  if (op->padding()->size() == 2) {
-    std::array<uint32_t, 2> symPadding;
-    std::copy_n(op->padding()->begin(), 2, symPadding.begin());
-    padding = symPadding;
-  } else {
-    std::array<uint32_t, 4> asymPadding;
-    std::copy_n(op->padding()->begin(), 4, asymPadding.begin());
-    padding = asymPadding;
-  }
-
-  ::ttnn::DataType inputDtype =
-      unifiedOpLib::operations::utils::toTTNNDataType(op->input_dtype());
-
-  std::optional<::ttnn::DataType> outputDtype;
-  if (op->output_dtype()) {
-    outputDtype =
-        unifiedOpLib::operations::utils::toTTNNDataType(*(op->output_dtype()));
-  }
-
-  std::optional<::ttnn::Conv2dConfig> conv2dConfig;
-  if (op->conv2d_config()) {
-    conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
-  }
-
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
+  ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT opT;
+  op->UnPackTo(&opT);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
-  if (op->conv2d_slice_config()) {
-    sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
-  }
-  ::ttnn::Tensor out =
-      ::ttnn::operations::conv::conv_transpose2d::prepare_conv_transpose2d_bias(
-          biasTensor, *inputMemoryConfig,
-          ::unifiedOpLib::operations::utils::toTTNNLayout(
-              op->input_tensor_layout()),
-          op->in_channels(), op->out_channels(), op->batch_size(),
-          op->input_height(), op->input_width(), kernelSize, stride, padding,
-          dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
-          conv2dConfig, computeConfig, sliceConfig);
+  unifiedOpLib::PrepareConvTranspose2dBiasOpResult result =
+      unifiedOpLib::callPrepareConvTranspose2dBias(
+          unifiedOpLib::CallType::EXECUTE, opT, &biasTensor, targetDevice);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callPrepareConvTranspose2dBias execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::conv

@@ -62,6 +62,9 @@ getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 ::tt::target::ttnn::MemoryConfigT
 getMemoryConfigT(const TTNNLayoutAttr &layout);
 
+::tt::target::ttnn::MemoryConfigT
+getMemoryConfigT(const MemoryConfigAttr &memConfigAttr);
+
 ::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr);
 
 ::tt::tt_metal::MemoryConfig
