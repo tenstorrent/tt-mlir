@@ -147,6 +147,18 @@ bool LegalOpLayoutAnalysis::isValidAnalysisTarget(Operation *op) {
   if (llvm::isa<mlir::tt::ttnn::EmptyOp>(op)) {
     return false;
   }
+  // MoE composite ops have very specific output layout requirements
+  // (UInt16 / L1 / HeightSharded / etc.) enforced by operand workarounds.
+  // The greedy optimizer at opt-level 1 only considers DRAM layouts
+  // (enableL1ShardingLayouts=false), so it would otherwise overwrite the
+  // workaround-pinned outputs with DRAM/Interleaved/bf16, breaking the
+  // downstream MoE chain.
+  if (llvm::isa<mlir::tt::ttnn::AllToAllDispatchMetadataOp,
+                mlir::tt::ttnn::MoeGptOp,
+                mlir::tt::ttnn::SelectiveReduceCombineOp,
+                mlir::tt::ttnn::TopKRouterGptOp>(op)) {
+    return false;
+  }
   return true;
 }
 
