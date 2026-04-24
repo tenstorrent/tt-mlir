@@ -12,7 +12,7 @@ Usage:
 import functools
 import logging
 
-from __ttmlir_runtime import runtime as tt_runtime
+from _ttmlir_runtime import runtime as tt_runtime
 from builder.base.builder_runtime import execute_fb
 from chisel import bind, unbind
 from chisel.callbacks import chisel_post_op_callback
