@@ -18,6 +18,7 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -182,6 +183,9 @@ public:
           cbs.push_back(operand);
           cbPorts.push_back(cbPort++);
         }
+      } else if (mlir::isa<IntegerType, IndexType, FloatType>(
+                     operand.getType())) {
+        args.push_back(operand);
       } else {
         op.emitOpError(
             "unexpected operand type in d2m.generic's additionalArgs: ")
