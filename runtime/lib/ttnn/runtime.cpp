@@ -1361,6 +1361,16 @@ getOpOutputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp: {
+    auto *op = opContext.type_as_NLPCreateQKVHeadsDecodeOp();
+    tensorRefs = {op->q_out(), op->k_out(), op->v_out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp: {
+    auto *op = opContext.type_as_SplitQueryKeyValueAndSplitHeadsOp();
+    tensorRefs = {op->q_out(), op->k_out(), op->v_out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::CpuOp:
   case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
@@ -1370,8 +1380,6 @@ getOpOutputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::EndTraceCaptureOp:
   case ::tt::target::ttnn::OpType::ExecuteTraceOp:
   case ::tt::target::ttnn::OpType::CaptureOrExecuteTraceOp:
-  case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
-  case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
   case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp:
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
@@ -1867,10 +1875,11 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::PagedUpdateCacheOp: {
-    tensorRefs = {opContext.type_as_PagedUpdateCacheOp()->cache(),
-                  opContext.type_as_PagedUpdateCacheOp()->input(),
-                  opContext.type_as_PagedUpdateCacheOp()->update_index(),
-                  opContext.type_as_PagedUpdateCacheOp()->page_table()};
+    auto *op = opContext.type_as_PagedUpdateCacheOp();
+    tensorRefs = {op->cache(), op->input(), op->update_index()};
+    if (op->page_table()) {
+      tensorRefs.push_back(op->page_table());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {

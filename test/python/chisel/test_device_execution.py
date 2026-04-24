@@ -52,6 +52,8 @@ def test_device_execution(subtests, binary_path, device):
         execute_fb(
             compiled_bin=binary_path,
             device=device,
+            input_output_goldens={},
+            intermediate_goldens={},
             disable_golden=True,  # chisel handles golden comparison via callbacks
             enable_intermediate_verification=False,  # prevent execute_fb re-registering post_op
         )
