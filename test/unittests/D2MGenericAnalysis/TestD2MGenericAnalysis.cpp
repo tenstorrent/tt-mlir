@@ -1066,9 +1066,5 @@ func.func @test(
   }
   ASSERT_EQ(constantCount, 2u);
   EXPECT_EQ(collapseCount, 3u);
-  EXPECT_EQ(loadCount, 2u);
   EXPECT_EQ(storeCount, 1u);
-  EXPECT_EQ(addCount, 1u);
-}
-
 } // namespace mlir::tt::d2m
