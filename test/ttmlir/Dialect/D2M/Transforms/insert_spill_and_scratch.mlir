@@ -83,7 +83,8 @@ func.func @two_intermediates_inplace_consumer(
         affine.store %r, %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
       } {d2m.linalg_root}
     } {d2m.scratch_space_loop}
-    // Nest C: reads BOTH tmp_a and tmp_b, updates tmp_b in place.
+    // Nest C: reads BOTH tmp_a and tmp_b, updates tmp_b in place, and writes
+    // the result directly to the output CB.
     affine.for %i = 0 to 2 {
       affine.for %j = 0 to 1 {
         %va = affine.load %tmp_a[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
@@ -91,13 +92,7 @@ func.func @two_intermediates_inplace_consumer(
         %r  = "d2m.tile_add"(%va, %vb)
             : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
         affine.store %r, %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-      } {d2m.linalg_root}
-    } {d2m.scratch_space_loop}
-    // Final copy to output so tmp_b remains observable after the in-place update.
-    affine.for %i = 0 to 2 {
-      affine.for %j = 0 to 1 {
-        %v = affine.load %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
-        affine.store %v, %cb2[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        affine.store %r, %cb2[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
       } {d2m.linalg_root}
     } {d2m.scratch_space_loop}
   }
