@@ -100,6 +100,80 @@ func.func @two_intermediates_inplace_consumer(
 }
 
 // ---------------------------------------------------------------------------
+// Test: two scratch_space_loop nests wrapped in matching inner non-blocking
+//       scf.for loops, all of which sit inside a shared blocking scf.for
+//       (d2m.blocking_loop = 0).  The pass should:
+//         - stop climbing the parent chain at the blocking loop, so only the
+//           inner (non-blocking) scf.for is collected as a fusion candidate
+//         - fuse those inner non-blocking scf.for wrappers into one loop
+//         - leave the outer blocking scf.for untouched
+//         - insert a scratch_allocate as usual
+// ---------------------------------------------------------------------------
+
+// CHECK-LABEL: func.func @blocking_loop_inner_scf_fusion
+// CHECK:       %[[SCRATCH:.*]] = d2m.scratch_allocate {slot = 0 : i64}
+// Outer blocking loop is preserved.
+// CHECK:       scf.for
+// The two inner non-blocking scf.for wrappers are fused into one.
+// CHECK:       scf.for
+// CHECK-NOT:   scf.for
+// Both scratch nests are now tagged d2m.scratch_inserted.
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
+// Outer blocking loop attribute is preserved.
+// CHECK:       } {d2m.blocking_loop = 0 : i64}
+// CHECK-NOT:   memref.alloc
+func.func @blocking_loop_inner_scf_fusion(
+    %in0  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
+    %out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>,
+               indexing_maps = [], iterator_types = [],
+               threads = [#d2m.thread<unified>]}
+      ins(%in0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
+      outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %cb1 = d2m.reserve %cb1_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %tmp = memref.alloc() {alignment = 64 : i64}
+        : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c4 = arith.constant 4 : index
+    // Blocking loop (shared context for the whole shard tile).
+    scf.for %bi = %c0 to %c1 step %c1 {
+      // Each scratch nest is wrapped in its own matching non-blocking scf.for.
+      // Nest A: cb0 → tmp (tile_exp).
+      scf.for %k = %c0 to %c4 step %c1 {
+        affine.for %i = 0 to 2 {
+          affine.for %j = 0 to 1 {
+            %v = affine.load %cb0[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+            %r = "d2m.tile_exp"(%v) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+            affine.store %r, %tmp[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+          } {d2m.linalg_root}
+        } {d2m.scratch_space_loop}
+      }
+      // Nest B: tmp → cb1 (tile_sin).
+      scf.for %k = %c0 to %c4 step %c1 {
+        affine.for %i = 0 to 2 {
+          affine.for %j = 0 to 1 {
+            %v = affine.load %tmp[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+            %r = "d2m.tile_sin"(%v) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+            affine.store %r, %cb1[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+          } {d2m.linalg_root}
+        } {d2m.scratch_space_loop}
+      }
+    } {d2m.blocking_loop = 0}
+  }
+  return
+}
+
+// ---------------------------------------------------------------------------
 // Test: three scratch_space_loop nests in a linear A→B→C chain with two
 //       intermediate allocs.  Verifies that:
 //         - two scratch_allocate ops are created with slot 0 and slot 1
