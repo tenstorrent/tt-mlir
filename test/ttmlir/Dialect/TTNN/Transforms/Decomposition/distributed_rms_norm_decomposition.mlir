@@ -44,14 +44,25 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     return %1 : tensor<1x1x32x128xbf16, #ttnn_layout_supported>
   }
 
-  func.func public @test_no_decompose_rank3_supported_shape(
+  func.func public @test_reshape_rank3_to_canonical_shape(
       %arg0: tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>,
       %arg1: tensor<128xbf16, #ttnn_layout_weight>) -> tensor<1x32x128xbf16, #ttnn_layout_supported_rank3> {
-    // CHECK-LABEL: func.func public @test_no_decompose_rank3_supported_shape
-    // Rank-3 (1, 32, M) is reshapable to (1, 1, 32, M); the workaround
-    // pass (not this pass) handles it, so the op must survive here.
+    // CHECK-LABEL: func.func public @test_reshape_rank3_to_canonical_shape
+    // Rank-3 (1, 32, M) is eligible for the fused kernel but not yet canonical.
+    // The decomposition pass wraps it: reshape to (1,1,32,M), forward to the
+    // fused op, then reshape the result back to (1,32,M).
+    // Input is reshaped to (1, 1, 32, 128).
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 32 : i32, 128 : i32]
+    // CHECK-SAME: -> tensor<1x1x32x128
+    // The fused op is kept on the canonical shape.
     // CHECK: "ttnn.distributed_rms_norm"
+    // CHECK-SAME: tensor<1x1x32x128
     // CHECK-NOT: "ttnn.rsqrt"
+    // Result is reshaped back to (1, 32, 128).
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 32 : i32, 128 : i32]
+    // CHECK-SAME: -> tensor<1x32x128
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
     %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>
     return %1 : tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>

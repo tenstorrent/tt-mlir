@@ -363,8 +363,8 @@ def test_hoisted_layer_norm(
         (1, 1, 32, 68),
         (1, 1, 37, 72),
         # Shapes below exercise the relaxed fused-kernel eligibility check and
-        # the canonical-shape reshape workaround: dim -2 == 32 and dim -1 % 32
-        # == 0 with all leading dims equal to 1, but rank != 4.
+        # the canonical-shape reshape in the decomposition pass: dim -2 == 32
+        # and dim -1 % 32 == 0 with all leading dims equal to 1, but rank != 4.
         (32, 128),
         (1, 32, 128),
     ],
