@@ -80,10 +80,25 @@ def untilize_golden(input_tensor):
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.int32 | SkipIf("sim"), torch.bfloat16, torch.uint16],
+    [
+        torch.float32,
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.bfloat16,
+        torch.uint16,
+    ],
     ids=["f32", "i32", "bf16", "u16"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
     def module(builder: D2MBuilder):
         if dtype.is_floating_point:
@@ -141,10 +156,25 @@ def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64), (64, 128)])
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.int32 | SkipIf("sim"), torch.bfloat16, torch.uint16],
+    [
+        torch.float32,
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.bfloat16,
+        torch.uint16,
+    ],
     ids=["f32", "i32", "bf16", "u16"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
     def module(builder: D2MBuilder):
         if dtype.is_floating_point:
@@ -201,10 +231,25 @@ def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device
 @pytest.mark.parametrize("shape", [(32, 64), (64, 32), (64, 64)])
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.int32 | SkipIf("sim"), torch.bfloat16, torch.uint16],
+    [
+        torch.float32,
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.bfloat16,
+        torch.uint16,
+    ],
     ids=["f32", "i32", "bf16", "u16"],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttmetal"],
+)
 def test_tilize_untilize(
     shape: Shape, target: str, dtype: torch.dtype, request, device
 ):

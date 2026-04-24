@@ -83,14 +83,33 @@ ternary_ops = [
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-        torch.bool | SkipIf("sim"),
+        torch.int32
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.int64
+        | SkipIf(
+            ["n150", "sim"],
+            ["n300", "sim"],
+            ["llmbox", "sim"],
+            ["tg", "sim"],
+            reason="A hardware bug workaround in LLK is causing UndefinedBehavior in the unpacker in WH (not BH).",
+        ),
+        torch.bool,
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
 @pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal",
+        "emitpy" | SkipIf("sim"),
+    ],
 )
 @pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(

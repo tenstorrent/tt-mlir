@@ -21,7 +21,7 @@ on:
         description: "Timeout in minutes for the TTSim test job"
         required: false
         type: number
-        default: 120
+        default: 480
 
 permissions:
   checks: write
@@ -148,6 +148,7 @@ jobs:
           export TT_METAL_INSPECTOR="0"
           export TT_METAL_INSPECTOR_RPC="0"
           export TT_METAL_DISABLE_SFPLOADMACRO="1"
+          pip install pytest-xdist
           mkdir -p test_reports
 
           run_sim_test() {
@@ -155,9 +156,9 @@ jobs:
             local kexpr="$2"
             local report="$3"
             if [[ -n "$kexpr" ]]; then
-              pytest -ssv "$nodeid" -k "$kexpr" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report"
+              pytest -ssv "$nodeid" -k "$kexpr" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report" -n 4
             else
-              pytest -ssv "$nodeid" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report"
+              pytest -ssv "$nodeid" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report" -n 4
             fi
           }
 
@@ -173,6 +174,21 @@ jobs:
           run_sim_test "test/python/golden/test_ttir_eltwise_fusion.py" "ttmetal" "test_reports/ttsim_ttir_eltwise_fusion_${{ matrix.arch }}.xml"
           run_sim_test "test/python/golden/test_ttir_models.py" "ttmetal" "test_reports/ttsim_ttir_models_${{ matrix.arch }}.xml"
           run_sim_test "test/python/golden/test_ttir_ops.py" "ttmetal" "test_reports/ttsim_ttir_ops_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_composite_functions.py" "ttmetal" "test_reports/ttsim_composite_functions_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_generic.py" "ttmetal" "test_reports/ttsim_generic_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_allocate.py" "ttmetal" "test_reports/ttsim_metal_allocate_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_constants.py" "ttmetal" "test_reports/ttsim_metal_constants_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_dma.py" "ttmetal" "test_reports/ttsim_metal_dma_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_layout.py" "ttmetal" "test_reports/ttsim_metal_layout_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_masking.py" "ttmetal" "test_reports/ttsim_metal_masking_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_matmul.py" "ttmetal" "test_reports/ttsim_metal_matmul_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_matmul_higher_rank.py" "ttmetal" "test_reports/ttsim_metal_matmul_higher_rank_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_reductions.py" "ttmetal" "test_reports/ttsim_metal_reductions_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_tensor_collapsing.py" "ttmetal" "test_reports/ttsim_metal_tensor_collapsing_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_virtual_grid_rowmajor.py" "ttmetal" "test_reports/ttsim_metal_virtual_grid_rowmajor_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_metal_virtual_grids.py" "ttmetal" "test_reports/ttsim_metal_virtual_grids_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/test_rearrange.py" "ttmetal" "test_reports/ttsim_rearrange_${{ matrix.arch }}.xml"
+          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_binary_tree.py" "ttmetal" "test_reports/ttsim_ttir_binary_tree_${{ matrix.arch }}.xml"
 
       - name: Upload TTSim test report xml
         if: success() || failure()
