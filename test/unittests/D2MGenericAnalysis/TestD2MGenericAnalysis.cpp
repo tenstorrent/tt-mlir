@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
-#include "ttmlir/Dialect/D2M/Utils/SyncrhonizableOpInterfaceUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/Linalg/Transforms/SynchronizableOpInterfaceImpl.h"
 

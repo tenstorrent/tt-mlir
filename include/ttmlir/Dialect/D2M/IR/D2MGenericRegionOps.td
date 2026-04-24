@@ -2075,6 +2075,7 @@ def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
   AttrSizedOperandSegments,
   DestinationStyleOpInterface,
   NoTerminator,
+  SingleBlock,
   D2M_SynchronizableOpInterface
   ]> {
 
@@ -2084,7 +2085,7 @@ def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
   }];
 
   let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$consumers, Variadic<AnyRankedTensorOrMemRef>:$producers);
-  let regions = (region AnyRegion:$region);
+  let regions = (region SizedRegion<1>:$region);
 
   let assemblyFormat = [{
     `consumers` `(` $consumers `)` `producers` `(` $producers `)` $region attr-dict `:` type($consumers) type($producers)
