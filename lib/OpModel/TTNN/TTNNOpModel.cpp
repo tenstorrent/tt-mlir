@@ -6573,18 +6573,18 @@ buildPrepareConvTranspose2dBiasOpTFromMLIR(
   opT.input_dtype = toNative(inputDtype);
 
   opT.out = detail::getOutputTensorRefT(outputLayout);
-  if(opT.out) {
+  if (opT.out) {
     opT.output_dtype = opT.out->desc->layout->memory_desc->data_type;
   }
-  if(outputDtype.has_value()) {
+  if (outputDtype.has_value()) {
     opT.output_dtype = toNative(outputDtype.value());
-    if(opT.out && opT.output_dtype.has_value()) {
+    if (opT.out && opT.output_dtype.has_value()) {
       opT.out->desc->layout->memory_desc->data_type = opT.output_dtype.value();
     }
   }
 
   opT.input_memory_config = std::make_unique<::tt::target::ttnn::MemoryConfigT>(
-      conversion::getMemoryConfigT(inputMemConfig));
+      toNative(inputMemConfig));
   opT.conv2d_config = (conv2dConfig.has_value() && *conv2dConfig)
                           ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
                                 toNative(*conv2dConfig))
