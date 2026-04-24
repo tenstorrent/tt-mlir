@@ -379,10 +379,11 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
       tt_metal::KernelHandle handle = createKernel(
           program, kernelSourceString, coreRangeSet,
-          createKernelConfig(
-              kernelConfig, command->arg_refs_type(), command->arg_refs(),
-              meshBuffers, global_semaphores, local_semaphore_initializer,
-              command->cbs(), deviceAddressValidator, createSemaphore),
+          createKernelConfig(kernelConfig, command->arg_refs_type(),
+                             command->arg_refs(), meshBuffers,
+                             global_semaphores, local_semaphore_initializer,
+                             command->cbs(), deviceAddressValidator,
+                             createSemaphore, hostBuffers),
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
@@ -390,7 +391,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           kernelConfig->args()->rt_args(), command->arg_refs_type(),
           command->arg_refs(), meshBuffers, global_semaphores,
           local_semaphore_initializer, command->cbs(), deviceAddressValidator,
-          createSemaphore);
+          createSemaphore, hostBuffers);
 
       if (command->fabric_connection_config() &&
           kernelConfig->type_type() ==

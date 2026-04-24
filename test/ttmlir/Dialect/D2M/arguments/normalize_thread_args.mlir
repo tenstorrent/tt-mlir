@@ -178,3 +178,81 @@ module {
     return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1>
   }
 }
+
+// -----
+
+// Test for capturing scalar types.
+#l1 = #ttcore.memory_space<l1>
+module {
+  func.func @test(%arg0: index) {
+    %alloc = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_0 = memref.alloc() {address = 107808 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<32x4, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%alloc_0 : memref<1x1x32x32xf32, #ttcore.shard<32x4, 1>, #l1>)
+        outs(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
+        additionalArgs(%arg0 : index)
+     {
+    // CHECK: %0 = d2m.get_arg(2) resolution_stage =  compile : index
+    ^unified0():
+      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<32x32xf32, #l1>>
+      %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      scf.for %arg2 = %c0 to %c1 step %arg0 {
+
+      }
+    }
+    return
+  }
+}
+
+// -----
+
+// Test for inserting multiple dtype scalar values.
+#l1 = #ttcore.memory_space<l1>
+module {
+  func.func @test(%arg0: i32, %arg1: si32, %arg2: ui16, %arg3: si16, %arg4: ui8, %arg5: si8, %arg6: i1, %arg7: f32, %arg8: bf16, %arg9: f16) {
+    %alloc = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_0 = memref.alloc() {address = 107808 : i64, alignment = 16 : i64} : memref<1x1x32x32xf32, #ttcore.shard<32x4, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+        ins(%alloc_0 : memref<1x1x32x32xf32, #ttcore.shard<32x4, 1>, #l1>)
+        outs(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>)
+        additionalArgs(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5, %arg6, %arg7, %arg8, %arg9 : i32, si32, ui16, si16, ui8, si8, i1, f32, bf16, f16)
+     {
+    ^unified0():
+      // CHECK: %0 = d2m.get_arg(11) resolution_stage =  compile : f16
+      // CHECK: %1 = d2m.get_arg(10) resolution_stage =  compile : bf16
+      // CHECK: %2 = d2m.get_arg(9) resolution_stage =  compile : f32
+      // CHECK: %3 = d2m.get_arg(8) resolution_stage =  compile : i1
+      // CHECK: %4 = d2m.get_arg(7) resolution_stage =  compile : si8
+      // CHECK: %5 = d2m.get_arg(6) resolution_stage =  compile : ui8
+      // CHECK: %6 = d2m.get_arg(5) resolution_stage =  compile : si16
+      // CHECK: %7 = d2m.get_arg(4) resolution_stage =  compile : ui16
+      // CHECK: %8 = d2m.get_arg(3) resolution_stage =  compile : si32
+      // CHECK: %9 = d2m.get_arg(2) resolution_stage =  compile : i32
+      // unrealized_conversion_cast are inserted to force the argument to not be canonicalized away
+      %temp0 = builtin.unrealized_conversion_cast %arg0 : i32 to i32
+      %temp1 = builtin.unrealized_conversion_cast %arg1 : si32 to si32
+      %temp2 = builtin.unrealized_conversion_cast %arg2 : ui16 to ui16
+      %temp3 = builtin.unrealized_conversion_cast %arg3 : si16 to si16
+      %temp4 = builtin.unrealized_conversion_cast %arg4 : ui8 to ui8
+      %temp5 = builtin.unrealized_conversion_cast %arg5 : si8 to si8
+      %temp6 = builtin.unrealized_conversion_cast %arg6 : i1 to i1
+      %temp7 = builtin.unrealized_conversion_cast %arg7 : f32 to f32
+      %temp8 = builtin.unrealized_conversion_cast %arg8 : bf16 to bf16
+      %temp9 = builtin.unrealized_conversion_cast %arg9 : f16 to f16
+      %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<32x32xf32, #l1>>
+      %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.reserve %cb0 : <memref<32x32xf32, #l1>> -> memref<32x32xf32, #l1>
+      d2m.push %cb0 : <memref<32x32xf32, #l1>>
+      %1 = d2m.wait %cb0 : <memref<32x32xf32, #l1>> -> memref<32x32xf32, #l1>
+      %2 = d2m.reserve %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      %3 = "d2m.tile_tilize_block"(%1, %2) : (memref<32x32xf32, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb0 : <memref<32x32xf32, #l1>>
+      d2m.push %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %4 = d2m.wait %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+      d2m.pop %cb1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    return
+  }
+}

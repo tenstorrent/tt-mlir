@@ -81,12 +81,17 @@ table KernelArgGlobalSemaphore {
   operand_idx: uint32;
 }
 
+table KernelArgScalar {
+  operand_idx: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
   KernelArgLocalSemaphore,
   KernelArgNamedArgument,
   KernelArgGlobalSemaphore,
+  KernelArgScalar,
 }
 
 table KernelArg {

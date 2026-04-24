@@ -170,6 +170,9 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
     return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
         arg.getOperandIndex());
   }
+  case ttkernel::ArgType::Scalar: {
+    return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
+  }
   }
   llvm_unreachable("Invalid ArgType");
 }
