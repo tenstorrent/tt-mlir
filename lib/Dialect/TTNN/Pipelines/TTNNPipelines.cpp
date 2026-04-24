@@ -405,6 +405,12 @@ void createTTIRToTTNNDevicePipeline(
       }
     }
 
+    // Simplify redundant ops between ttnn.all_to_all_dispatch_metadata and
+    // ttnn.moe_gpt. Must run after layout decomposition so the layout ops
+    // we are trying to short-circuit are already concrete
+    // (to_memory_config / reshape / etc.).
+    devicePm.addPass(createTTNNMoEOpsWorkaround());
+
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It
     // is much easier to work at the layout abstraction level than on individual
@@ -415,11 +421,6 @@ void createTTIRToTTNNDevicePipeline(
 
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
 
-    // Simplify redundant ops between ttnn.all_to_all_dispatch_metadata and
-    // ttnn.moe_gpt. Must run after layout decomposition so the layout ops
-    // we are trying to short-circuit are already concrete
-    // (to_memory_config / reshape / etc.).
-    devicePm.addPass(createTTNNMoEOpsWorkaround());
 
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
