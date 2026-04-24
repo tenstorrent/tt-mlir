@@ -1,31 +1,35 @@
-# SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+#
+# ttmetal-only mirrors of multi-backend tests in
+# `ttir_ops/eltwise/test_ttir_unary.py`. Helper functions are inlined here
+# so the d2m mirrors are self-contained.
+
+import math
 
 import pytest
 import torch
 from typing import Callable, List, Optional
+
 from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import (
-    compile_and_execute_ttir,
-)
-from test_utils import (
-    SkipIf,
-    shape_str,
-)
+from builder.base.builder_apis import compile_and_execute_ttir
+from test_utils import Marks, SkipIf, shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
 
-# Unary ops
+
+# ---------------------------------------------------------------------------
+# Unary op helpers (mirrored from ttir_ops/eltwise/test_ttir_unary.py).
+# ---------------------------------------------------------------------------
 def abs(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.abs(in0, unit_attrs=unit_attrs)
 
 
 def acos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     acos_0 = builder.acos(in0, unit_attrs=unit_attrs)
-
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("acos op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -38,7 +42,6 @@ def acos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 def asin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     asin_0 = builder.asin(in0, unit_attrs=unit_attrs)
-
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("asin op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -99,13 +102,8 @@ def is_finite(
     return builder.is_finite(in0, unit_attrs=unit_attrs)
 
 
-# Special handling for log PCC checks. Due to the vertical asymptote on the log graph,
-# small changes in input values result in large changes in output values at negative values,
-# so both graph and golden tensors must be constrained accordingly.
 def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     log_0 = builder.log(in0, unit_attrs=unit_attrs)
-
-    # Constrain values for log
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -120,8 +118,6 @@ def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 
 def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     log1p_0 = builder.log1p(in0, unit_attrs=unit_attrs)
-
-    # Constrain values for log1p
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log1p op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -130,7 +126,6 @@ def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     error_margin = torch.full(randn_tensor.shape, -0.99, dtype=dtype)
     input_golden = torch.add(abs_tensor, error_margin)
     output_golden = torch.log1p(input_golden)
-
     builder.set_goldens({in0: input_golden}, {log1p_0: output_golden})
     return log1p_0
 
@@ -157,8 +152,6 @@ def reciprocal(
     in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
 ):
     reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
-
-    # Constrain values for reciprocal
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("reciprocal op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -176,7 +169,6 @@ def relu6(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
 
 def rsqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
-    # Constrain values for rsqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -206,8 +198,6 @@ def silu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 def sqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     sqrt_0 = builder.sqrt(in0, unit_attrs=unit_attrs)
-
-    # Constrain values for sqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -251,15 +241,8 @@ def sin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     return builder.sin(in0, unit_attrs=unit_attrs)
 
 
-# Special handling for log PCC checks. Due to the vertical asymptote on the log graph,
-# small changes in input values result in large changes in output values at negative values,
-# so both graph and golden tensors must be constrained accordingly.
 def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
-
-    # Constrain values for tan
-    import math
-
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("tan op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if str(in0.type.element_type) == "bf16" else torch.float32
@@ -276,28 +259,29 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 unary_ops = [
     abs,
-    acos,
-    asin,
-    asinh,
-    atan,
-    cbrt,
+    acos | Marks(pytest.mark.skip_config(["ttmetal"])),
+    asin | Marks(pytest.mark.skip_config(["ttmetal"])),
+    asinh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    atan | Marks(pytest.mark.skip_config(["ttmetal"])),
+    cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil,
     cos,
     erf,
     erfc,
     exp,
     expm1,
+    exp2 | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     floor,
     gelu,
-    is_finite,
+    is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     log,
     log1p,
     logical_not,
-    mish,
+    mish | Marks(pytest.mark.skip_config(["ttmetal"])),
     neg,
     reciprocal,
     relu,
-    relu6,
+    relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
     rsqrt,
     sigmoid,
     sign,
@@ -305,6 +289,12 @@ unary_ops = [
     silu,
     sin,
     sqrt,
+    square | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    softsign | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    signbit | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    selu | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    frac | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    trunc | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     tan,
     tanh,
 ]
@@ -318,14 +308,7 @@ unary_ops_dtypes = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
-@pytest.mark.parametrize(
-    "target",
-    [
-        "ttnn" | SkipIf("sim"),
-        "emitc" | SkipIf("sim"),
-        "emitpy" | SkipIf("sim"),
-    ],
-)
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -365,13 +348,12 @@ def test_unary_ops(
         ):
             return test_fn(in0, builder, unit_attrs=unit_attrs)
 
-    pipeline_options = []
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=pipeline_options,
+        pipeline_options=[],
     )
 
 
@@ -387,11 +369,13 @@ bitwise_unary_ops = [bitwise_not]
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
 def test_bitwise_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    pytest.xfail(reason="i32 unary ops not supported on ttmetal yet")
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def bitwise_unary_ops(
@@ -419,19 +403,12 @@ def leaky_relu(
     return builder.leaky_relu(in0, parameter, unit_attrs=unit_attrs)
 
 
-unary_ops_with_float_param = [leaky_relu]
+unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize(
-    "target",
-    [
-        "ttnn" | SkipIf("sim"),
-        "emitc" | SkipIf("sim"),
-        "emitpy" | SkipIf("sim"),
-    ],
-)
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
 @pytest.mark.parametrize("parameter", [0.01, 0.1, 0.2])
 def test_unary_ops_with_float_param(
@@ -452,62 +429,16 @@ def test_unary_ops_with_float_param(
         ):
             return test_fn(in0, parameter, builder, unit_attrs=unit_attrs)
 
-    pipeline_options = []
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=pipeline_options,
-    )
-
-
-# Unary ops with int parameter
-def get_dimension_size(
-    in0: Operand,
-    parameter: int,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.get_dimension_size(in0, parameter, unit_attrs=unit_attrs)
-
-
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
-)
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
-@pytest.mark.parametrize("dimension", [0, 1])
-def test_get_dimension_size(
-    dimension: int,
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def wrapper_func(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return get_dimension_size(in0, dimension, builder, unit_attrs=unit_attrs)
-
-    pipeline_options = []
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=pipeline_options,
+        pipeline_options=[],
     )
 
 
 # Hoisted unary ops
-
-
 hoisted_unary_ops_float = [
     acos,
     asin,
@@ -558,10 +489,7 @@ hoisted_shapes = [
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
-@pytest.mark.parametrize(
-    "target",
-    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
-)
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_cpu_hoistable_unary_ops_float(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -586,10 +514,7 @@ def test_cpu_hoistable_unary_ops_float(
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
-@pytest.mark.parametrize(
-    "target",
-    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
-)
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_cpu_hoistable_unary_ops_float_integer(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -613,10 +538,7 @@ def test_cpu_hoistable_unary_ops_float_integer(
 @x86_only
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize(
-    "target",
-    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
-)
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_hoisted_leaky_relu(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -634,6 +556,76 @@ def test_hoisted_leaky_relu(
     compile_and_execute_ttir(
         module,
         test_base=f"{request.node.name}",
+        target=target,
+        device=device,
+    )
+
+
+# 1D tensor test for ttmetal
+@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def unary_1d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return neg(in0, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# ============================================================
+# Tests moved from test_ttir_ops.py during TTMetal test
+# reorganization.
+# ============================================================
+
+
+def _logical_not_with_goldens(
+    in0: Operand,
+    builder: TTIRBuilder,
+    shape: Shape,
+    dtype: torch.dtype,
+    unit_attrs: Optional[List[str]] = None,
+):
+    randn_tensor = torch.randn(shape, dtype=torch.float32)
+    input_tensor = randn_tensor.uniform_(-10.0, 10.0)
+    input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
+    input_tensor = input_tensor.to(dtype)
+    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
+    golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
+    logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
+    builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
+    return logical_not_0
+
+
+@x86_only
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+def test_hoisted_logical_not(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_logical_not_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return _logical_not_with_goldens(
+                in0, builder, shape, dtype, unit_attrs=["ttir.should_hoist"]
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

@@ -99,7 +99,6 @@ def test_batch_norm(
     "target",
     [
         "ttnn" | SkipIf("sim"),
-        "ttmetal",
         "emitpy" | SkipIf("sim"),
         "emitc" | SkipIf("sim"),
     ],
@@ -192,7 +191,7 @@ def test_softmax(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_softmax(
     shape: Shape,
@@ -299,7 +298,7 @@ def test_layer_norm(
 @pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_layer_norm(
     shape: Shape,
@@ -370,7 +369,10 @@ def test_hoisted_layer_norm(
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "emitc" | SkipIf("sim")],
+)
 def test_distributed_rms_norm(
     shape: Shape,
     has_weight: bool,

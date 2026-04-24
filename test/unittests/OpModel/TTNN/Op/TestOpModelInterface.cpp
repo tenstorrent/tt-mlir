@@ -2179,7 +2179,8 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
           /*cur_pos_tensor=*/curPos,
           /*attention_sink=*/nullptr,
           /*scale=*/builder.getF32FloatAttr(0.125f),
-          /*memory_config=*/nullptr);
+          /*memory_config=*/nullptr,
+          /*core_grid=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(

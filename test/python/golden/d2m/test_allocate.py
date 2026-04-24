@@ -9,10 +9,10 @@ from conftest import get_request_kwargs
 from builder.base.builder_apis import compile_and_execute_ttir
 
 # borrow currently constrained way to build matmul inputs:
-from test_metal_matmul import create_matmul_constrained_inputs as create_matmul_inputs
+from d2m.test_matmul import create_matmul_constrained_inputs as create_matmul_inputs
 
 # borrow currently constrained way to build reduction inputs:
-from test_metal_reductions import (
+from d2m.test_reductions import (
     create_reductions_constrained_inputs as create_reduction_inputs,
 )
 
