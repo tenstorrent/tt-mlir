@@ -3506,7 +3506,7 @@ class StableHLOBuilder(Builder):
             decomp_fn, operand_goldens
         )
 
-        result_types = [r.type for r in decomp_fn.type.results]
+        result_types = list(decomp_fn.type.results)
         if len(result_types) != 1:
             raise NotImplementedError(
                 "stablehlo.composite with multiple results is not supported yet."
