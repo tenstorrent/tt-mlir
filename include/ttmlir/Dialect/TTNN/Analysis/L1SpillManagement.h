@@ -288,6 +288,11 @@ private:
   bool evictUntil(int64_t pos, const ScheduleData &data,
                   std::function<bool()> shouldStop);
 
+  /// Evict a specific live value: spill to DRAM, update tracker, insert
+  /// reshards for already-processed consumers. Used by evictUntil and by
+  /// sibling-operand eviction paths.
+  void evictValue(Value victim, int64_t pos, const ScheduleData &data);
+
   /// Insert a ToMemoryConfigOp before an already-processed consumer to
   /// convert the DRAM spill output back to the consumer's expected L1 layout.
   void insertReshardForConsumer(Operation *consumer, unsigned operandIdx,

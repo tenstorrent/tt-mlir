@@ -1284,6 +1284,26 @@ createOp(FlatbufferObjectCache &cache, AllToAllCombineOp op) {
       static_cast<uint32_t>(op.getOutputShardDim()), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SelectiveReduceCombineOp>
+createOp(FlatbufferObjectCache &cache, SelectiveReduceCombineOp op) {
+  auto denseInputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseInputTensor()));
+  auto denseActivationsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseActivationsTensor()));
+  auto denseTokenMapsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenMapsTensor()));
+  auto denseTokenCountsTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getDenseTokenCountsTensor()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, std::nullopt);
+
+  return ::tt::target::ttnn::CreateSelectiveReduceCombineOp(
+      *cache.fbb, denseInputTensor, denseActivationsTensor,
+      denseTokenMapsTensor, denseTokenCountsTensor, output, op.getHiddenSize(),
+      op.getBatchSize(), op.getSeqSize(), op.getSelectExpertsK(),
+      op.getExperts());
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::MoeExpertTokenRemapOp>
 createOp(FlatbufferObjectCache &cache, MoeExpertTokenRemapOp op) {
   auto topkTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -3261,6 +3281,12 @@ createOp(FlatbufferObjectCache &cache,
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  const ::tt::target::ttnn::CoreCoord *coreGridPtr = nullptr;
+  ::tt::target::ttnn::CoreCoord coreGridVal;
+  if (auto coreGridAttr = op.getCoreGrid()) {
+    coreGridVal = toFlatbuffer(cache, *coreGridAttr);
+    coreGridPtr = &coreGridVal;
+  }
 
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
@@ -3269,7 +3295,7 @@ createOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
-      curPosTensor, attentionSink, scale, out, memoryConfig);
+      curPosTensor, attentionSink, scale, out, memoryConfig, coreGridPtr);
 }
 
 ::flatbuffers::Offset<
@@ -4446,6 +4472,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto allToAllCombineOp = dyn_cast<AllToAllCombineOp>(op);
       allToAllCombineOp) {
     return createOperation(cache, createOp(cache, allToAllCombineOp),
+                           debugString, locInfo);
+  }
+  if (auto selectiveReduceCombineOp = dyn_cast<SelectiveReduceCombineOp>(op);
+      selectiveReduceCombineOp) {
+    return createOperation(cache, createOp(cache, selectiveReduceCombineOp),
                            debugString, locInfo);
   }
   if (auto moeExpertTokenRemapOp = dyn_cast<MoeExpertTokenRemapOp>(op);

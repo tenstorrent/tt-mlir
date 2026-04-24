@@ -248,6 +248,38 @@ def AnalyzeMeshPass : Pass<"analyze-mesh", "::mlir::ModuleOp">
   ];
 }
 
+def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
+  let summary = "Automatically search for optimal sharding configuration by evaluating CCL costs";
+  let description = [{
+    This pass enumerates possible sharding configurations for function arguments,
+    runs the remaining StableHLO passes (propagation, reshard-to-collectives,
+    canonicalization) on each variant, evaluates a cost function based on the
+    resulting Shardy CCL operations, and selects the configuration with the
+    lowest cost.
+
+    The pass runs after AnalyzeMesh and before shardy propagation passes.
+    For each candidate sharding, it clones the module, applies sharding hints,
+    runs the remaining StableHLO passes, and counts/costs the Shardy CCL ops
+    (sdy.all_gather, sdy.reduce_scatter, sdy.all_reduce, etc.) in the result.
+
+    The winning sharding configuration is applied to the original module, which
+    then continues through the normal pipeline.
+  }];
+
+  let options = [
+    Option<"dumpVariants", "dump-variants", "bool",
+           /*default=*/"false",
+           "Dump each sharding variant IR to disk for inspection">,
+    Option<"dumpDir", "dump-dir", "std::string",
+           /*default=*/"\"/tmp/\"",
+           "Directory to dump variants into (default: /tmp/)">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def DecoupleConstFanoutPass : Pass<
     "decouple-const-fanout", "::mlir::ModuleOp"> {
   let summary = "Duplicate const-fed, value-preserving ops per-use to decouple propagation";
@@ -297,18 +329,29 @@ def DecomposeCustomCallTuplesPass : Pass<"decompose-custom-call-tuples", "::mlir
   ];
 }
 
-def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
-  let summary = "Inline (flatten) stablehlo.composite ops and tag cloned ops for optional re-outlining.";
+def FlattenOrConvertCompositesPass : Pass<"flatten-or-convert-composites", "::mlir::ModuleOp"> {
+  let summary = "Flatten or convert stablehlo.composite ops depending on whether they have custom sharding rules.";
   let description = [{
-    This pass inlines each `stablehlo.composite` by cloning the callee body at its call site.
-    Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
-    The first cloned op additionally receives a `reoutline.seed` (UnitAttr).
-    After rewiring the cloned return values to the original users, the composite op itself is erased.
+    This pass processes each `stablehlo.composite` op in one of two ways:
 
-    This pass is intended to run **before** sharding propagation so that propagation
-    occurs on a fully flattened graph. A later re-outlining pass may reconstruct
-    composite ops by grouping operations with the same `reoutline.group` attribute,
-    provided that the subgraph is closed and movable.
+    1. Composites with custom sharding rules (listed in kCompositesWithCustomSharding)
+       are converted to `stablehlo.custom_call` ops. The composite name becomes the
+       `call_target_name`, composite attributes are carried as a
+       `tt.composite_attributes` discardable attribute, and a `tt.has_custom_sharding`
+       UnitAttr is used to tag the op.
+
+    2. All other composites are inlined (flattened) by cloning the callee body at the
+       call site. Every cloned op is annotated with `reoutline.group = "composite_<callee>"`.
+       The first cloned op additionally receives a `reoutline.seed` (UnitAttr).
+       After rewiring the cloned return values to the original users, the composite op
+       itself is erased.
+
+    This pass is intended to run before sharding propagation so that propagation
+    occurs on a fully flattened graph for generic composites, while composites with
+    custom sharding rules become custom_calls that Shardy can propagate through
+    directly. A later re-outlining pass may reconstruct flattened composite ops by
+    grouping operations with the same `reoutline.group` attribute, provided that the
+    subgraph is closed and movable.
 
     This pass also checks whether the arguments and results of the composite are sharded,
     and performs inlining only if sharding (not replicated) is detected.
@@ -346,7 +389,8 @@ def FlattenCompositePass : Pass<"flatten-composite", "::mlir::ModuleOp"> {
 
 
   let dependentDialects = [
-    "::mlir::func::FuncDialect"
+    "::mlir::func::FuncDialect",
+    "::mlir::stablehlo::StablehloDialect"
   ];
 }
 
@@ -581,6 +625,29 @@ def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
 
   let dependentDialects = [
     "::mlir::sdy::SdyDialect"
+  ];
+}
+
+def FuseDistributedCustomCallsPass : Pass<"fuse-distributed-custom-calls", "::mlir::ModuleOp">
+{
+  let summary = "Fuse custom_call ops with surrounding CCL ops into distributed op variants.";
+  let description = [{
+    This pass pattern-matches custom_call ops marked with `tt.has_custom_sharding`
+    which are surrounded by CCL ops and fuses them into a single distributed
+    custom_call variant, that handles cross-device communication internally.
+
+    Example.
+    Before fusing:
+      all_gather(local_input) -> gathered_input
+      all_gather(local_weight) -> gathered_weight
+      custom_call @tenstorrent.rms_norm(gathered_input, gathered_weight) -> gathered_result
+      sdy.all_slice(gathered_result) -> local_result
+    After fusing:
+      custom_call @tenstorrent.distributed_rms_norm(local_input, local_weight) -> local_result
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
   ];
 }
 

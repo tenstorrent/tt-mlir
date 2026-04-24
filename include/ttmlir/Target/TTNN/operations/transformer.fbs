@@ -117,6 +117,7 @@ table PagedScaledDotProductAttentionDecodeOp {
   scale: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  core_grid: tt.target.ttnn.CoreCoord;
 }
 
 table PagedFlashMultiLatentAttentionDecodeOp {

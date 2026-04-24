@@ -257,6 +257,11 @@ public:
   // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
   static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
 
+  // Create workarounds for gather op operands. The input and index tensors must
+  // always be in TILED layout.
+  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451
+  static TTNNOperandsWorkarounds createGatherOpOperandsWorkarounds();
+
   // Create workarounds for scatter op operands.
   static TTNNOperandsWorkarounds
   createScatterOpOperandsWorkarounds(mlir::Operation *op);
@@ -299,6 +304,9 @@ public:
   createRotaryEmbeddingOpOperandsWorkarounds(ttnn::RotaryEmbeddingOp op);
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
+
+  static TTNNOperandsWorkarounds
+  createErfOpOperandsWorkarounds(mlir::RankedTensorType inputType);
 
   // Create workarounds for group norm op operands.
   static TTNNOperandsWorkarounds

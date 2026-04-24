@@ -19,13 +19,14 @@ from test_metal_matmul import create_matmul_constrained_inputs
 
 from test_utils import (
     shape_str,
+    SkipIf,
 )
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize("shape", [(512, 512)])
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
 def test_triple_exp_f32(shape: Shape, target: str, request, device):
     pipeline_options = ["global-data-format-target=bfp_bf8"]
 
@@ -61,7 +62,7 @@ def test_triple_exp_f32(shape: Shape, target: str, request, device):
 
 
 @pytest.mark.parametrize("shape", [(512, 512)])
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
 def test_exp_f32(shape: Shape, target: str, request, device):
     pipeline_options = ["global-data-format-target=bfp_bf8"]
 
@@ -126,7 +127,7 @@ def test_cos_bf16(shape: Shape, target: str, request, device):
     ids=shape_str,
 )
 @pytest.mark.parametrize("use_tile_matmul", [True, False])
-@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
 def test_matmul_f32(
     shape: tuple[int, ...],
     use_tile_matmul: bool,

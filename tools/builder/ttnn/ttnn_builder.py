@@ -9643,6 +9643,156 @@ class TTNNBuilder(Builder):
 
         return layer_norm_post_all_gather_module, layer_norm_post_all_gather_builder
 
+    ############### ttnn.GatherOp ###############
+
+    @tag(ttnn.GatherOp)
+    def gather(
+        self,
+        in0: Operand,
+        index: Operand,
+        dim: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
+
+        input0 = self._get_golden_tensor(in0)
+        input_index = self._get_golden_tensor(index)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            input_index,
+            dim_attr,
+            mlir_output_type,
+        )
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            index,
+            dim_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.GatherOp)
+    def gather_parser(
+        self,
+        old_op: ttnn.GatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.gather_parser)
+
+        in0 = global_dict[old_op.input]
+        index = global_dict[old_op.index]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+
+        new_op = ttnn_op(
+            result,
+            in0,
+            index,
+            dim_attr,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        input_index = self._get_golden_tensor(index)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(
+            input0,
+            input_index,
+            dim_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.GatherOp)
+    def gather_split(
+        self,
+        old_op: ttnn.GatherOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            gather_module = Module.create()
+            gather_builder = TTNNBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.input.type, old_op.index.type]
+
+            with InsertionPoint(gather_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    index = inputs[1]
+                    result = old_op.result.type
+                    dim_attr = old_op.dim
+
+                    new_op = ttnn_op(
+                        result,
+                        in0,
+                        index,
+                        dim_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    input_index = self._get_golden_tensor(old_op.index)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    gather_builder._set_golden_tensor(new_op_result, old_op_result)
+                    gather_builder._set_golden_tensor(in0, input0)
+                    gather_builder._set_golden_tensor(index, input_index)
+                    gather_builder._annotate_presharded_arg(in0)
+                    gather_builder._annotate_presharded_arg(index)
+                    ordered_inputs.extend([in0, index])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                gather_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return gather_module, gather_builder
+
     ############### ttnn.AllGatherOp ###############
 
     @tag(ttnn.AllGatherOp)

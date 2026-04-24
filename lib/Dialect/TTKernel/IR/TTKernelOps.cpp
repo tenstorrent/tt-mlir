@@ -256,6 +256,43 @@ static ::mlir::LogicalResult verifyPackUntilizeDims(Operation *op,
   return success();
 }
 
+// The D2M pipeline today only exercises sfpu_reduce for signed int32
+// reductions (the float path goes through reduce_tile). Restrict these ops to
+// Int32 until we grow coverage for other data formats.
+static bool isSFPUReduceTypeSupported(ttkernel::ReduceType rt) {
+  return rt == ttkernel::ReduceType::Sum || rt == ttkernel::ReduceType::Max;
+}
+static bool isSFPUReduceDataFormatSupported(ttcore::DataType dt) {
+  return dt == ttcore::DataType::Int32;
+}
+
+::mlir::LogicalResult SFPUReduceInitOp::verify() {
+  if (!isSFPUReduceTypeSupported(getReduceType())) {
+    return emitOpError("sfpu_reduce only supports reduce_type Sum or Max");
+  }
+  if (!isSFPUReduceDataFormatSupported(getDataFormat())) {
+    return emitOpError("sfpu_reduce only supports data_format Int32");
+  }
+  return success();
+}
+
+::mlir::LogicalResult SFPUReduceTileOp::verify() {
+  if (!isSFPUReduceTypeSupported(getReduceType())) {
+    return emitOpError("sfpu_reduce only supports reduce_type Sum or Max");
+  }
+  if (!isSFPUReduceDataFormatSupported(getDataFormat())) {
+    return emitOpError("sfpu_reduce only supports data_format Int32");
+  }
+  // The sfpu_reduce kernel only performs intra-tile reductions along a single
+  // dim (Row or Col). Scalar reductions must be decomposed into Col + Row by
+  // the caller.
+  if (getReduceDim() == ttkernel::ReduceDim::Scalar) {
+    return emitOpError("sfpu_reduce does not support reduce_dim Scalar; "
+                       "decompose into Col + Row");
+  }
+  return success();
+}
+
 ::mlir::LogicalResult DPrintOp::verify() {
   StringRef fmt = getFmt();
   size_t numFormatSpecifiers = fmt.count("{}");

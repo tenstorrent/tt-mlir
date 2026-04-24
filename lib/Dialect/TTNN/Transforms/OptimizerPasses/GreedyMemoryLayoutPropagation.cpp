@@ -20,6 +20,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -61,7 +62,7 @@ public:
     rowMajorEnabled = opts.rowMajorEnabled;
     beamWidth = opts.beamWidth;
     maxInputCandidatesPerOperand = opts.maxInputCandidatesPerOperand;
-    maxReshardCandidates = opts.maxReshardCandidates;
+    maxReshardCandidatesPerType = opts.maxReshardCandidatesPerType;
     enableL1ShardingLayouts = opts.enableL1ShardingLayouts;
     enableDecisionTrace = opts.enableDecisionTrace;
     decisionTraceDir = std::move(opts.decisionTraceDir);
@@ -186,8 +187,13 @@ public:
           func, deviceGrid, legalConfigs, &tensorTypePossibleLayouts,
           static_cast<size_t>(beamWidth),
           static_cast<size_t>(maxInputCandidatesPerOperand),
-          static_cast<size_t>(maxReshardCandidates), std::move(observer));
+          static_cast<size_t>(maxReshardCandidatesPerType),
+          std::move(observer));
       propagation.run();
+
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after reshard insertion, operand types may have changed).
+      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
 
       // Write decision trace JSON if enabled.
       if (enableDecisionTrace) {

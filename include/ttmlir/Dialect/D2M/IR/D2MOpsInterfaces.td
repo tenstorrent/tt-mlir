@@ -103,6 +103,26 @@ def D2M_DMAOpInterface : OpInterface<"DMAOpInterface"> {
   ];
 }
 
+// Interface for CB-based DMA ops that run on the DM thread (RemoteLoadOp,
+// RemoteStoreOp, LocalCopyOp).
+def D2M_ShardDMAOpInterface : OpInterface<"ShardDMAOpInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let description = [{
+    Implemented by the shard-level DMA ops (RemoteLoadOp, RemoteStoreOp,
+    LocalCopyOp) that run on the datamovement thread before lowering to fully
+    indexed form.  Provides a uniform getCBPort() accessor so scheduling and
+    thread-splitting passes do not need to enumerate individual op types.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/"Return the CB port number for this DMA operation. "
+               "The op must be in explicit CB form (getCb() != nullptr). ",
+      /*retTy=*/"unsigned",
+      /*methodName=*/"getCBPort"
+    >,
+  ];
+}
+
 // Parent interface used to verify D2M region ops are nested in d2m.generic or func.func
 
 def D2M_GenericParent : OpInterface<"GenericParent"> {
@@ -172,6 +192,20 @@ def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegis
         }
         return false;
       }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the number of DST scratch slices this op needs beyond its
+        operand/output slices. Only 0 or 1 are supported today: when 1, the
+        insert-dst-register-access pass reserves a slice from the DST
+        allocator and records its index on the op via `dst_scratch_index`
+        for the lowering to consume.
+      }],
+      /*retTy=*/"int64_t",
+      /*methodName=*/"getNumDstScratchSlices",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return 0;"
     >,
   ];
 }

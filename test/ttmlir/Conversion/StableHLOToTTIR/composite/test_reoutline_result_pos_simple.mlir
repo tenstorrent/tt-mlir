@@ -4,7 +4,7 @@
 
 // Verify that ReoutlineCompositePass produces a private decomposition function
 // with results in the order specified by the reoutline.result_pos
-// annotations from FlattenCompositePass.
+// annotations from FlattenOrConvertCompositesPass.
 
 // CHECK-LABEL: func.func @main
 // CHECK: stablehlo.composite "tenstorrent.topk"

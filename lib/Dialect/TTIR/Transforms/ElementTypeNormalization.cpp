@@ -142,6 +142,41 @@ private:
   }
 };
 
+// `ttir.rand` carries its output element type as a `TypeAttr` (`$dtype`),
+// which `UniformTypeRewriter` doesn't touch. Normalize it through the same
+// `TypeConverter` used for tensor element types so the attribute tracks the
+// rewritten result type (e.g. signless `i32` -> signed `si32`).
+class RandOpAttrRewriter : public mlir::OpRewritePattern<tt::ttir::RandOp> {
+public:
+  using mlir::OpRewritePattern<tt::ttir::RandOp>::OpRewritePattern;
+
+  RandOpAttrRewriter(const mlir::TypeConverter &converter,
+                     mlir::MLIRContext *ctx)
+      : OpRewritePattern(ctx), converter(converter) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(tt::ttir::RandOp op,
+                  mlir::PatternRewriter &rewriter) const override {
+    mlir::Type dtype = op.getDtype();
+    auto dtypeTensor = mlir::RankedTensorType::get({1}, dtype);
+    auto normalizedTensor = mlir::dyn_cast_or_null<mlir::RankedTensorType>(
+        converter.convertType(dtypeTensor));
+    if (!normalizedTensor) {
+      return failure();
+    }
+    mlir::Type normalized = normalizedTensor.getElementType();
+    if (normalized == dtype) {
+      return failure();
+    }
+    rewriter.modifyOpInPlace(
+        op, [&]() { op.setDtypeAttr(mlir::TypeAttr::get(normalized)); });
+    return success();
+  }
+
+private:
+  mlir::TypeConverter converter;
+};
+
 struct ElementTypeNormalization
     : public impl::ElementTypeNormalizationBase<ElementTypeNormalization> {
   using impl::ElementTypeNormalizationBase<
@@ -159,6 +194,7 @@ struct ElementTypeNormalization
     config.enableFolding(false);
     patterns.add<UniformTypeRewriter>(converter, &getContext());
     patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
+    patterns.add<RandOpAttrRewriter>(converter, &getContext());
     if (failed(mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
                                            config))) {
       signalPassFailure();

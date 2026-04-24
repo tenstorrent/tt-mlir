@@ -5109,7 +5109,7 @@ private:
   }
 };
 
-// Converts batched StableHLO gather into ttir.gather_dim when the gather is a
+// Converts batched StableHLO gather into ttir.gather when the gather is a
 // simple batched index-select along a single dimension.
 // This handles the common case where:
 // - operand_batching_dims and start_indices_batching_dims are present
@@ -5120,7 +5120,7 @@ private:
 // Example:
 //   operand: tensor<256x24x3xf32>, indices: tensor<256x1x1xi32>
 //   batching_dims = [0], start_index_map = [1], collapsed_slice_dims = [1]
-//   -> ttir.gather_dim(%operand, %reshaped_indices) {dim = 1}
+//   -> ttir.gather(%operand, %reshaped_indices) {dim = 1}
 //      : (tensor<256x24x3xf32>, tensor<256x1x3xi32>) -> tensor<256x1x3xf32>
 class StableHLOGatherToGatherDimPattern
     : public OpConversionPattern<mlir::stablehlo::GatherOp> {
@@ -5271,7 +5271,7 @@ public:
     }
 
     // Step 3: Create gather_dim with the appropriate dimension.
-    rewriter.replaceOpWithNewOp<ttir::GatherDimOp>(
+    rewriter.replaceOpWithNewOp<ttir::GatherOp>(
         srcOp, outputType, operand, indices,
         rewriter.getI32IntegerAttr(static_cast<int32_t>(indexedDim)));
 
@@ -5706,11 +5706,12 @@ public:
     RankedTensorType updatesType =
         mlir::cast<RankedTensorType>(updates.getType());
 
-    // If the cachePositions tensor has more than one element we assume it
-    // represents a set of arranged indices (0, cachePositions.size), so we
-    // replace it with FillCacheOp. If the tensor has only one element, we
-    // assume it represents the update index for UpateCacheOp.
-    if (cacheUpdateInputShape[0] != 1) {
+    // If the update seq_len > 1 we use FillCacheOp (prefill). If not, we use
+    // UpdateCacheOp (single-token decode). We use the update tensor's sequence
+    // dim rather than the block arg shape because the block arg may be a scalar
+    // cumulative_length (shape [1]) even when filling multiple positions.
+    int64_t cacheUpdateSeqLen = updatesType.getShape()[2];
+    if (cacheUpdateSeqLen != 1) {
       // Fill cache requires that each batch is filled separately. So, we will
       // insert a FillCacheOp for each batch. This requires slicing out each
       // batch.
@@ -5872,7 +5873,8 @@ private:
       if (!effectively1D) {
         continue;
       }
-      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
+      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize ||
+          ttmlir::utils::volume(argTensorShape) == 1) {
         // We found the cachePositions input tensor.
         return blockArg;
       }

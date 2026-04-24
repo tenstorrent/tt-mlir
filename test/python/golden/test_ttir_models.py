@@ -7,6 +7,7 @@ import pytest
 from typing import List
 
 from conftest import get_request_kwargs
+from test_utils import SkipIf
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -15,7 +16,9 @@ from builder.base.builder_apis import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.parametrize("shapes", [[(32, 32), (32, 32), (32, 32)]], ids=["32x32"])
+@pytest.mark.parametrize(
+    "shapes", [[(32, 32), (32, 32), (32, 32)] | SkipIf("sim")], ids=["32x32"]
+)
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
 def test_arbitrary_model(
     shapes: List[Shape], dtypes: List[torch.dtype], request, device
@@ -54,7 +57,7 @@ def test_arbitrary_model(
 @pytest.mark.parametrize(
     "target",
     [
-        "ttnn",
+        "ttnn" | SkipIf("sim"),
         pytest.param("ttmetal", marks=pytest.mark.skip("TTMetal not supported yet")),
     ],
 )
@@ -117,7 +120,7 @@ def test_mnist(
 @pytest.mark.parametrize(
     "target",
     [
-        "ttnn",
+        "ttnn" | SkipIf("sim"),
         pytest.param("ttmetal", marks=pytest.mark.skip("TTMetal not supported yet")),
     ],
 )
