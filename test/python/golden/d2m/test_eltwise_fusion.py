@@ -184,7 +184,7 @@ def binary_op_builder(op_name: str, builder: TTIRBuilder):
 def test_eltwise_fuse_cosh(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
@@ -261,7 +261,7 @@ def test_eltwise_sanity_check_unary_op(
                 num_inputs=1,
             )
 
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     compile_and_execute_ttir(
         module,
@@ -316,7 +316,7 @@ def test_eltwise_fuse_unary_chain(
 
             return res_19
 
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     compile_and_execute_ttir(
         module,
@@ -356,7 +356,7 @@ def test_eltwise_fuse_converging_unary_branches(
 
             return builder.div(branch_0_2, branch_1_2)
 
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     compile_and_execute_ttir(
         module,
@@ -377,13 +377,10 @@ def test_eltwise_fuse_converging_unary_branches(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.skip(
-    reason="TODO(ckaravasilisTT): reenable when binary FPU fusion is supported"
-)
 def test_eltwise_fuse_binary_reduction_tree(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     def module(builder: TTIRBuilder):
         @builder.func([shape] * 8, [dtype] * 8)
@@ -476,7 +473,7 @@ def test_eltwise_fuse_where_simple(
 
             return builder.where(cond, true_branch, false_branch)
 
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     compile_and_execute_ttir(
         module,
@@ -528,7 +525,7 @@ def test_eltwise_fuse_where_with_unary_chains(
 
             return out_1
 
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     compile_and_execute_ttir(
         module,
@@ -574,7 +571,7 @@ def test_eltwise_fuse_where_with_binary_inputs(
 
             return builder.where(cond, true_branch, false_branch)
 
-    options = [grid]
+    options = [grid, "enable-elementwise-fusion=true"]
 
     compile_and_execute_ttir(
         module,
