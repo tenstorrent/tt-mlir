@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <algorithm>
-
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -18,6 +16,8 @@
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTSPILLANDSCRATCH
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+
+#include <algorithm>
 
 namespace {
 
@@ -404,7 +404,7 @@ static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
     return true;
   }
 
-  // Walk linearly through the block and rehome the operations between
+  // Walk linearly through the block and reorder the operations between
   // consecutive loop nests.
   Block *outerBlock = chains[0].chain[firstDivergentLevel]->getBlock();
   for (auto &ci : chains) {
