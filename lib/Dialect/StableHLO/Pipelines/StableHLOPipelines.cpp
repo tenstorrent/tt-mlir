@@ -51,6 +51,15 @@ void createStableHLOPipeline(OpPassManager &pm,
   analyzeMeshOptions.automaticArgAnalysis = options.automaticArgAnalysis;
   pm.addPass(createAnalyzeMeshPass(analyzeMeshOptions));
 
+  // Optionally search for optimal sharding configuration by evaluating CCL
+  // costs across all candidate shardings.
+  if (options.enableAutoSharding) {
+    AutoShardingPassOptions searchOptions;
+    searchOptions.dumpVariants = options.autoShardingDumpVariants;
+    searchOptions.dumpDir = options.autoShardingDumpDir;
+    pm.addPass(createAutoShardingPass(searchOptions));
+  }
+
   pm.addPass(createDecoupleConstFanoutPass());
 
   // Convert tuple-returning custom_call ops to multi-result ops so that
@@ -58,8 +67,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   // tuple types).
   pm.addPass(createDecomposeCustomCallTuplesPass());
 
-  // Flatten all composite ops to make sharding propagation easier.
-  pm.addPass(createFlattenCompositePass());
+  // Flatten or convert composite ops. Composites with custom sharding rules
+  // are converted to stablehlo.custom_call ops so Shardy can propagate through
+  // them. All other composites are flattened (inlined).
+  pm.addPass(createFlattenOrConvertCompositesPass());
 
   // Register custom sharding rules for unsupported ops in Shardy.
   pm.addPass(createRegisterCustomShardingRulePass());
@@ -110,6 +121,10 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Re-outline composite ops from flattened groups.
   pm.addPass(createReoutlineCompositePass());
+
+  // Fuse custom_calls with surrounding CCL ops into
+  // distributed variants that handle cross-device communication internally.
+  pm.addPass(createFuseDistributedCustomCallsPass());
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());

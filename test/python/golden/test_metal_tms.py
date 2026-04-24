@@ -12,6 +12,7 @@ import pytest
 import torch
 from typing import List, Tuple
 from conftest import get_request_kwargs
+from test_utils import SkipIf
 
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -36,24 +37,43 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
     "shape, permutation",
     [
         # 2d transpose
-        [(32, 128 * 500), [1, 0]],
+        pytest.param(
+            (32, 128 * 500),
+            [1, 0],
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
+            ),
+        ),
         pytest.param(
             (32, 128 * 501),
             [1, 0],
-            marks=pytest.mark.skip_config(
-                ["n150"],
-                ["n300"],
-                reason="L1 memory usage exceeds capacity #7559",
-            ),
+            marks=[
+                pytest.mark.skip_config(
+                    ["n150"],
+                    ["n300"],
+                    reason="L1 memory usage exceeds capacity #7559",
+                ),
+                pytest.mark.skip_config(
+                    ["p150"],
+                    reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
+                ),
+            ],
         ),
         pytest.param(
             (32, 128 * 800),
             [1, 0],
-            marks=pytest.mark.skip_config(
-                ["n150"],
-                ["n300"],
-                reason="L1 memory usage exceeds capacity #7559",
-            ),
+            marks=[
+                pytest.mark.skip_config(
+                    ["n150"],
+                    ["n300"],
+                    reason="L1 memory usage exceeds capacity #7559",
+                ),
+                pytest.mark.skip_config(
+                    ["p150"],
+                    reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
+                ),
+            ],
         ),
         pytest.param(
             (32, 128 * 801),
@@ -122,11 +142,17 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         pytest.param(
             (32, 8, 128, 128),
             [0, 1, 3, 2],
-            marks=pytest.mark.skip_config(
-                ["p150"],
-                ["p300"],
-                reason="L1 memory usage exceeds capacity on p150/p300",
-            ),
+            marks=[
+                pytest.mark.skip_config(
+                    ["p150"],
+                    ["p300"],
+                    reason="L1 memory usage exceeds capacity on p150/p300",
+                ),
+                pytest.mark.skip_config(
+                    ["sim"],
+                    reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
+                ),
+            ],
         ),
         # 4d complex permutes (llama3-70b, qwen3-32b)
         [(32, 1, 1, 128), [2, 1, 0, 3]],
@@ -139,7 +165,14 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 32, 8, 128), [0, 2, 1, 3]],
         [(1, 32, 96, 128), [0, 2, 1, 3]],
         # 4d inner permutes (glm-358b)
-        [(1, 96, 32, 128), [0, 1, 3, 2]],
+        pytest.param(
+            (1, 96, 32, 128),
+            [0, 1, 3, 2],
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
+            ),
+        ),
         # 3d inner permutes (gpt_oss-120b)
         [(1, 128, 32), [0, 2, 1]],
         # 4d outer permutes (gpt_oss-120b)
@@ -273,10 +306,10 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((2, 128, 64), (2, 64, 128)),
     # ==================== WEIRD SHAPES ====================
     # Shapes with prime numbers and odd dimensions
-    ((7, 7, 7), (49, 7)),
-    ((49, 7), (7, 7, 7)),
-    ((3, 11, 13), (33, 13)),
-    ((33, 13), (3, 11, 13)),
+    ((7, 7, 7), (49, 7)) | SkipIf("sim"),
+    ((49, 7), (7, 7, 7)) | SkipIf("sim"),
+    ((3, 11, 13), (33, 13)) | SkipIf("sim"),
+    ((33, 13), (3, 11, 13)) | SkipIf("sim"),
     # 1D tensor shapes
     ((1,), (1, 1, 1)),
     ((1,), (1, 1, 1, 1)),
@@ -298,13 +331,13 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((1, 64), (1, 64, 1)),
     # GPT OSS 120B
     ((1, 128), (128, 1)),
-    ((1, 16), (1, 16, 1, 1)),
+    ((1, 16), (1, 16, 1, 1)) | SkipIf("sim"),
     # Kimi K2 1T
     ((1, 32), (32, 1)),
     ((32,), (32, 1)),
     # DeepSeek 671B
     ((1, 32), (1, 32, 1)),
-    ((8,), (8, 1, 1)),
+    ((8,), (8, 1, 1)) | SkipIf("sim"),
     # GLM 358B
     ((1, 32, 8), (1, 32, 8, 1)),
     ((1, 96, 32), (1, 96, 32, 1)),
@@ -328,7 +361,13 @@ def shapes_to_id(shapes) -> str:
 )
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.bfloat16, torch.int32, torch.int64, torch.bool],
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.int32 | SkipIf("sim"),
+        torch.int64 | SkipIf("sim"),
+        torch.bool,
+    ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -368,7 +407,9 @@ def test_reshape(
         ((1, 128), 0, 1),  # Four tiles (from GPT model)
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_arange(
     shape: tuple,
@@ -383,11 +424,15 @@ def test_arange(
 
     Tests tiled arange implementation with various shapes and parameters.
     """
+
+    if dtype == torch.int32:
+        pytest.xfail(
+            reason="Currently no llk for multiplying a tile with a scalar for i32, Issue: https://github.com/tenstorrent/tt-mlir/issues/7946"
+        )
+
     num_elements = shape[0] * shape[1]
     end = start + num_elements * step
     arange_dimension = 1  # Arange is always on the last dimension
-
-    golden = torch.arange(start, end, step, dtype=dtype).reshape(shape)
 
     def arange_module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -413,4 +458,6 @@ def test_arange(
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline",
         **get_request_kwargs(request),
+        atol=1e-6,
+        check_atol=True,
     )

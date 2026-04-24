@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from functools import partial
 import math
 
-from ttmlir.dialects import ttir, ttcore, arith
-from ttmlir.ir import (
+from ttnn_jit.ttmlir.dialects import ttir, ttcore, arith
+from ttnn_jit.ttmlir.ir import (
     InsertionPoint,
     Location,
     RankedTensorType,
@@ -188,7 +188,7 @@ class BaseOpHandler(ABC):
 
             # Use ttir.full to create a tensor filled with the scalar value
             # Note: ttir.full expects shape as DenseI32ArrayAttr and fill_value as Attribute
-            from ttmlir.ir import DenseI32ArrayAttr
+            from ttnn_jit.ttmlir.ir import DenseI32ArrayAttr
 
             shape_attr = DenseI32ArrayAttr.get(shape, self.jit_ctx.ctx)
 

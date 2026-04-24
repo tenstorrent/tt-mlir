@@ -270,3 +270,61 @@ func.func @complex_tiled_mapping_preserves_untilize_shape(%arg0: tensor<1x1x1x5x
   %1 = d2m.to_layout %arg0, %0 : tensor<1x1x1x5x32x2x!ttcore.tile<32x32, f32>, #layout_tm_src> into tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst> -> tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst>
   return %1 : tensor<1x32x2x5x1x1x!ttcore.tile<32x32, f32>, #layout_tm_dst>
 }
+
+
+#layer_tile_with_vgm_dst = #ttcore.metal_layout<logical_shape = 32x32, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded>
+func.func @tilize_with_vgm(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
+  // CHECK-LABEL: @tilize_with_vgm
+  // Output VGM should be propagated to createEmpty host->device intermediate.
+  // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<32x32xbf16> into tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 1, d1 + 1, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  %1 = d2m.to_layout %arg0, %0 : tensor<32x32xbf16> into tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+}
+
+func.func @tilize_without_vgm(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
+  // CHECK-LABEL: @tilize_without_vgm
+  // Without source/output VGM, host->device intermediate empty uses fallback.
+  // CHECK: %[[MID:.*]] = d2m.empty() : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<32x32xbf16> into tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: d2m.tile_tilize_block
+  %0 = d2m.empty() : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  %1 = d2m.to_layout %arg0, %0 : tensor<32x32xbf16> into tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+}
+
+func.func @tilize_with_vgm_custom_map(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
+  // CHECK-LABEL: @tilize_with_vgm_custom_map
+  // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<32x32xbf16> into tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: grid = #ttcore.grid<1x1, virt_to_physical_map = (d0, d1) -> (0, d0 + 2, d1 + 3), physical_to_virt_map = (d0, d1) -> (0, d0 - 2, d1 - 3)>
+  %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1 + 3, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 2, d1 - 3)>} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  %1 = d2m.to_layout %arg0, %0 : tensor<32x32xbf16> into tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+}
+
+func.func @tilize_output_only_vgm_fallback(%arg0: tensor<32x32xbf16>) -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> {
+  // CHECK-LABEL: @tilize_output_only_vgm_fallback
+  // Input is host tensor (no VGM on source), output has VGM attrs.
+  // createEmpty should use output VGM for host->device intermediate.
+  // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: %[[TODEV:.*]] = d2m.to_device %arg0, %[[MID]] layout = #layout{{[0-9]+}} : tensor<32x32xbf16> into tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 4, d1 + 5, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 4, d1 - 5)>} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  %1 = d2m.to_layout %arg0, %0 : tensor<32x32xbf16> into tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  return %1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+}
+
+func.func @untilize_input_only_vgm_fallback() -> tensor<32x32xbf16> {
+  // CHECK-LABEL: @untilize_input_only_vgm_fallback
+  // Input has VGM attrs, output is host tensor (no VGM on target).
+  // createEmpty should use input VGM for untilize intermediate.
+  // CHECK: %[[MID:.*]] = d2m.empty() {virtualGridForwardMapping = #map{{[0-9]+}}, virtualGridInverseMapping = #map{{[0-9]+}}} : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>
+  // CHECK: outs(%[[MID]] : tensor<1x1x32x32xbf16, #layout{{[0-9]+}}>)
+  // CHECK: d2m.tile_untilize_block
+  // CHECK: d2m.to_host
+  %0 = d2m.empty() {virtualGridForwardMapping = affine_map<(d0, d1, d2, d3) -> (d0 + 6, d1 + 7, d2, d3)>, virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 6, d1 - 7)>} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst>
+  %1 = d2m.empty() : tensor<32x32xbf16>
+  %2 = d2m.to_layout %0, %1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layer_tile_with_vgm_dst> into tensor<32x32xbf16> -> tensor<32x32xbf16>
+  return %2 : tensor<32x32xbf16>
+}

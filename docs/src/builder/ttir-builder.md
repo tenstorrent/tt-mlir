@@ -77,7 +77,7 @@ module {
 
 ## Running a pipeline
 
-`run_ttir_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_backend_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
+`run_ttir_pipeline` runs a pass on the TTIR module to lower it into a backend, using `pipeline_fn`. You can pass `pipeline_fn` in as one of the following: `ttir_to_ttnn_runtime_pipeline`, `ttir_to_ttmetal_backend_pipeline` (both found in `ttmlir.passes`), or a custom pipeline built with `create_custom_pipeline_fn`. The default if none is provided is the TTNN pipeline.
 
 ```python
 def run_ttir_pipeline(
@@ -97,7 +97,7 @@ def run_ttir_pipeline(
 Let's expand on our previous example
 
 ```python
-from ttmlir.passes import ttir_to_ttnn_backend_pipeline
+from ttmlir.passes import ttir_to_ttnn_runtime_pipeline
 from builder.base.builder import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import build_ttir_module, run_ttir_pipeline
@@ -110,7 +110,7 @@ def model(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
     return builder.multiply(multiply_1, in2)
 
 module, builder = build_ttir_module(model, shapes)
-ttnn_module = run_ttir_pipeline(module, ttir_to_ttnn_backend_pipeline)
+ttnn_module = run_ttir_pipeline(module, ttir_to_ttnn_runtime_pipeline)
 ```
 
 #### Returns

@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true memory-layout-analysis-enabled=true max-legal-layouts=32" -o resnet50_layer3_module2_ttnn.mlir %s --mlir-print-debuginfo
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 enable-greedy-optimizer=false max-legal-layouts=32" -o resnet50_layer3_module2_ttnn.mlir %s --mlir-print-debuginfo
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn resnet50_layer3_module2_ttnn.mlir
 #loc = loc("ResNetForImageClassification")
 module @ResNetLayer3Module2 attributes {} {

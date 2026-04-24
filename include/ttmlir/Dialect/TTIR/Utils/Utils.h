@@ -242,6 +242,15 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
+// Given a "from" shape and a "to" shape with the same total element count,
+// find the dimension in `toShape` whose size and trailing-stride (product of
+// all dimensions to its right) match the dimension at position `dim` in
+// `fromShape`. This identifies the dimension preserved by a reshape between
+// the two shapes (i.e. neither split nor merged). Returns -1 if no such
+// dimension exists. `dim` uses LTR (left-to-right) indexing.
+int64_t findMatchingDim(llvm::ArrayRef<int64_t> fromShape,
+                        llvm::ArrayRef<int64_t> toShape, int64_t dim);
+
 // Given a reshape operation and an input dimension position (RTL - right to
 // left, 0 = rightmost), finds the corresponding output dimension position where
 // that dimension maps to. Returns -1 if no matching dimension is found.
@@ -252,6 +261,15 @@ int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
 // the product of trailing dimensions (stride) is preserved.
 // Dimension can be negative (counted from back, e.g. -1 for last dimension).
 bool preservesDim(mlir::Operation *op, int64_t dim);
+
+// If `originalOp` consumes values that were typecasted from the same source
+// dtype, add an inverse typecast pair after `newValue`. The first typecast
+// converts `newValue` back to that common source dtype and is returned for new
+// uses, while the inverse typecast preserves the original dtype for existing
+// users of `originalOp`.
+mlir::Value revertTypecastFolding(mlir::PatternRewriter &rewriter,
+                                  mlir::Operation *originalOp,
+                                  mlir::Value newValue);
 
 // In tt-metal, implicit broadcast is supported up to rank 5.
 // For rank >= 6, the device ops require a_dim == b_dim (and c_dim) on all

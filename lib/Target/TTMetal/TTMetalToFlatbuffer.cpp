@@ -606,6 +606,13 @@ globalSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                                                  cache.nextGlobalId(), address);
 }
 
+static flatbuffers::Offset<target::metal::LocalSemaphoreRef>
+localSemaphoreValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
+                                uint32_t initialValue) {
+  return target::metal::CreateLocalSemaphoreRef(
+      *cache.fbb, cache.nextGlobalId(), initialValue);
+}
+
 static flatbuffers::Offset<target::metal::KernelArg>
 toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   target::metal::KernelArgType argType;
@@ -625,9 +632,11 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
-  case ttkernel::ArgType::Semaphore: {
-    argType = target::metal::KernelArgType::KernelArgSemaphore;
-    arg = target::metal::CreateKernelArgSemaphore(*cache.fbb).Union();
+  case ttkernel::ArgType::LocalSemaphore: {
+    argType = target::metal::KernelArgType::KernelArgLocalSemaphore;
+    arg = target::metal::CreateKernelArgLocalSemaphore(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
     break;
   }
   case ttkernel::ArgType::NamedArgument: {
@@ -882,6 +891,10 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
             argTypes.push_back(target::metal::ArgRef::GlobalSemaphoreRef);
             args.push_back(
                 cache.at<target::metal::GlobalSemaphoreRef>(arg).Union());
+          } else if (mlir::isa<LocalSemaphoreType>(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::LocalSemaphoreRef);
+            args.push_back(
+                cache.at<target::metal::LocalSemaphoreRef>(arg).Union());
           }
         }
 
@@ -1046,6 +1059,19 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
                 meshShardType, meshShardDirection,
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardShape()),
                 cache.fbb->CreateVector<int64_t>(meshShardOp.getShardDims())),
+            op);
+      } else if (auto createLocalSemaphoreOp =
+                     dyn_cast_if_present<tt::ttmetal::CreateLocalSemaphoreOp>(
+                         op);
+                 createLocalSemaphoreOp) {
+        uint32_t initialValue = createLocalSemaphoreOp.getInitialValue()
+                                    ? *createLocalSemaphoreOp.getInitialValue()
+                                    : 0;
+        cqBuilder.appendCommand(
+            target::metal::CreateCreateLocalSemaphoreCommand(
+                fbb, cache.getOrCreate(createLocalSemaphoreOp.getResult(),
+                                       localSemaphoreValueToFlatbuffer,
+                                       initialValue)),
             op);
       } else if (auto createGlobalSemaphoreOp =
                      dyn_cast_if_present<tt::ttmetal::CreateGlobalSemaphoreOp>(

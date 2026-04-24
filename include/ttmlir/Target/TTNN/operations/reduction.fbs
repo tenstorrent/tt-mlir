@@ -45,3 +45,13 @@ table TopKOp {
   memcfg: tt.target.ttnn.MemoryConfig;
   outputs: [tt.target.ttnn.TensorRef];
 }
+
+table TopKRouterGptOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  k: int32;
+  num_experts: int32;
+  expert_indices: tt.target.ttnn.TensorRef;
+  expert_weights: tt.target.ttnn.TensorRef;
+}

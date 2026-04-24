@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
@@ -17,9 +18,10 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LayerNormPostAllGatherDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LayerNormPreAllGatherZeroPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpOutputShapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
@@ -33,7 +35,9 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SliceStaticOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/UpsampleOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -565,6 +569,41 @@ private:
   }
 };
 
+class PagedSDPADecodeP150CoreGridWorkaround
+    : public OpRewritePattern<ttnn::PagedScaledDotProductAttentionDecodeOp> {
+  // Paged SDPA decode crashes with TT_FATAL: Output spatial index 32 out of
+  // bounds (max 32) when batch=32 and num_kv_heads=8 on Blackhole. tt-metal
+  // issue: https://github.com/tenstorrent/tt-metal/issues/40978
+public:
+  using OpRewritePattern<
+      ttnn::PagedScaledDotProductAttentionDecodeOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::PagedScaledDotProductAttentionDecodeOp op,
+                                PatternRewriter &rewriter) const override {
+    if (op.getCoreGrid()) {
+      return failure();
+    }
+
+    ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(op);
+    if (chipDesc.getArch().getValue() != ttcore::Arch::Blackhole) {
+      return failure();
+    }
+
+    ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+    for (int64_t dim : device.getMeshShape()) {
+      if (dim != 1) {
+        return failure();
+      }
+    }
+
+    rewriter.modifyOpInPlace(op, [&]() {
+      op->setAttr("core_grid", ttnn::CoreCoordAttr::get(rewriter.getContext(),
+                                                        /*x=*/8, /*y=*/8));
+    });
+    return success();
+  }
+};
+
 // Pass to apply workarounds to the operands of TTNN operations.
 class TTNNWorkarounds : public impl::TTNNWorkaroundsBase<TTNNWorkarounds> {
 public:
@@ -574,7 +613,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          TTNNAllReduceWorkarounds,
+          PagedSDPADecodeP150CoreGridWorkaround, TTNNAllReduceWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
           workarounds::decomposition::TTNNScatterWorkarounds,
@@ -583,7 +622,6 @@ public:
           workarounds::decomposition::ArgMaxOpDimRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
-          workarounds::decomposition::MultiplyOpDecompositionRewritePattern,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::
@@ -606,8 +644,16 @@ public:
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
           workarounds::decomposition::
+              LayerNormPostAllGatherDecompositionRewritePattern,
+          workarounds::decomposition::
+              LayerNormPreAllGatherZeroPadRewritePattern,
+          workarounds::decomposition::
               DistributedRMSNormWidthShardInputRewritePattern,
-          workarounds::decomposition::ReduceScatterConfigRewritePattern>(
+          workarounds::decomposition::ReduceScatterConfigRewritePattern,
+          workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
+          workarounds::decomposition::
+              AllToAllDispatchMetadataDrainCoreRewritePattern,
+          workarounds::decomposition::SliceStaticOpRewritePattern>(
           &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);

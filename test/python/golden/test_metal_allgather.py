@@ -30,6 +30,7 @@ pytestmark = pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
     "test_shape",
     [
+        (128, 128),
         (256, 256),
         # (1, 32, 32, 32),
         # (1, 32, 32, 1),
@@ -55,9 +56,9 @@ pytestmark = pytest.mark.frontend("ttir")
     ],
     ids=shape_str,
 )
-@pytest.mark.parametrize("all_gather_dim", [0])  # range(4)
-@pytest.mark.parametrize("cluster_axis", [1])  # 0, 1
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])  # "f32"
+@pytest.mark.parametrize("all_gather_dim", range(4))
+@pytest.mark.parametrize("cluster_axis", [0, 1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D_RING]
@@ -77,6 +78,13 @@ def test_all_gather(
         pytest.skip("all_gather_dim is out of range")
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("all_gather across 1 device is meaningless")
+    if fabric_config == tt_runtime.runtime.FabricConfig.FABRIC_1D_RING and tuple(
+        mesh_shape
+    ) == (1, 8):
+        pytest.skip(
+            "Temporarily disabled: hangs on civ2 llmbox-stable runners "
+            "(stale eth-core fabric state)."
+        )
 
     rank_in = len(test_shape)
     rank_mesh = len(mesh_shape)
@@ -127,7 +135,7 @@ def test_all_gather(
 
     compile_and_execute_ttir(
         module,
-        target="ttmetal",
+        target=target,
         device=device,
         mesh_name="mesh",
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),

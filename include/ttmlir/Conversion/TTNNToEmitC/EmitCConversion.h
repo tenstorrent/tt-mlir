@@ -355,7 +355,7 @@ struct TypeName<::ttnn::QueueId> {
 
 template <>
 struct TypeName<::ttnn::MathFidelity> {
-  inline static const std::string value = "::MathFidelity";
+  inline static const std::string value = "::tt::tt_metal::MathFidelity";
 };
 
 template <>
@@ -1920,6 +1920,11 @@ inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";
 
+// Name for the function that creates a GlobalSemaphore from a tensor's shard
+// spec.
+inline constexpr const char *kCreateGlobalSemaphoreFunctionName =
+    "::ttnn::createGlobalSemaphore";
+
 template <typename TTNNOp>
 class EmitCTTNNEmitter {
 public:
@@ -2287,6 +2292,34 @@ public:
 
       rewriter.replaceOp(op, loadOp.getResult());
       return loadOp.getResult();
+    }
+
+    // TopKRouterGptOp returns a std::tuple<ttnn::Tensor, ttnn::Tensor>
+    // containing two elements: [0] = expert_indices, [1] = expert_weights.
+    // Extract both elements using std::get<i> to replace the original op.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::TopKRouterGptOp>) {
+      assert(op.getNumResults() == 2 &&
+             "Expected two outputs (expert_indices and expert_weights) for "
+             "TopKRouterGptOp.");
+      using ReturnTy = std::tuple<::ttnn::Tensor, ::ttnn::Tensor>;
+      auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, operands);
+
+      SmallVector<Value> results;
+      for (unsigned i = 0; i < op.getNumResults(); ++i) {
+        auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+            op.getLoc(),
+            rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+            "::std::get", /*args=*/nullptr,
+            rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+            callOp.getResult(0));
+        results.push_back(getTensorOp.getResult(0));
+      }
+
+      rewriter.replaceOp(op, results);
+      return callOp.getResult(0);
     }
 
     // SortOp and TopKOp returns a std::vector<ttnn::Tensor> containing two

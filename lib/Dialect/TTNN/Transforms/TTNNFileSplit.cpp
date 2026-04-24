@@ -34,7 +34,8 @@ namespace mlir::tt::ttnn {
 //
 // This pass effectively does the following:
 //   - Moves the consteval functions to the consteval file.
-//   - Moves the cpu-hoisted declarations to the consteval file.
+//   - Moves the cpu-hoisted declarations to whichever file they get invoked
+//   from.
 //   - For each forward function that has a consteval wrapper, creates a
 //   declaration in the main file so that func.call ops can resolve the symbols.
 //
@@ -69,8 +70,7 @@ private:
     // If there is no consteval logic, do not perform file split.
     bool hasConstevalLogic =
         llvm::any_of(moduleOp.getOps<func::FuncOp>(), [](func::FuncOp funcOp) {
-          return ttmlir::utils::isConstEvalFunc(funcOp) ||
-                 ttmlir::utils::isForwardCPUDeclarationFunc(funcOp);
+          return ttmlir::utils::isConstEvalFunc(funcOp);
         });
     if (!hasConstevalLogic) {
       return;
@@ -93,20 +93,15 @@ private:
       deviceOp->erase();
     }
 
-    // Move const-eval functions to the consteval file. Clone
-    // CPU-hoisted declarations into both files so that func.call ops
-    // in both files can resolve the symbol.
+    // Move const-eval and wrapper functions to the consteval file.
     llvm::SmallVector<func::FuncOp> constevalFuncs;
-    llvm::SmallVector<func::FuncOp> cpuDecls;
     llvm::SmallVector<func::FuncOp> wrapperFuncs;
     for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
       if (ttmlir::utils::isConstEvalFunc(funcOp)) {
         constevalFuncs.push_back(funcOp);
-      } else if (funcOp->hasAttr(kWrapperAttr)) {
+      } else if (ttmlir::utils::isConstEvalWrapperFunc(funcOp)) {
         wrapperFuncs.push_back(funcOp);
         constevalFuncs.push_back(funcOp);
-      } else if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
-        cpuDecls.push_back(funcOp);
       }
     }
 
@@ -114,22 +109,59 @@ private:
       constevalOp->moveBefore(&constevalFile.getBodyRegion().front(),
                               constevalFile.getBodyRegion().front().end());
     }
-    for (auto cpuDecl : cpuDecls) {
-      builder.setInsertionPointToStart(&constevalFile.getBodyRegion().front());
-      builder.clone(*cpuDecl.getOperation());
-      builder.setInsertionPointToStart(&mainFile.getBodyRegion().front());
-      builder.clone(*cpuDecl.getOperation());
-      cpuDecl->erase();
-    }
 
-    // Create a declaration in the main file for each consteval wrapper function
-    // so that func.call ops can resolve the symbols.
+    // Create an ImportedDeclaration in the main file for each consteval wrapper
+    // function so that func.call ops can resolve the symbols.
     builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
     for (auto wrapperFunc : wrapperFuncs) {
       auto privateDecl = builder.create<func::FuncOp>(
           wrapperFunc.getLoc(), wrapperFunc.getName().str(),
           wrapperFunc.getFunctionType());
       privateDecl.setPrivate();
+      ttmlir::utils::setFunctionType(
+          privateDecl, ttmlir::utils::FunctionType::ImportedDeclaration);
+      ttmlir::utils::setImportedFrom(privateDecl, kConstevalFileName);
+    }
+
+    // Move CPU-hoisted declarations into the file that contains their
+    // call site. Each declaration is called from exactly one file.
+    llvm::SmallVector<func::FuncOp> cpuDecls;
+    for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
+      if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+        cpuDecls.push_back(funcOp);
+      }
+    }
+
+    auto fileContainsCallTo = [](auto fileOp, StringRef symbol) {
+      return fileOp
+          .walk([&symbol](func::CallOp callOp) {
+            return callOp.getCallee() == symbol ? WalkResult::interrupt()
+                                                : WalkResult::advance();
+          })
+          .wasInterrupted();
+    };
+
+    for (auto cpuDecl : cpuDecls) {
+      bool calledFromMain = fileContainsCallTo(mainFile, cpuDecl.getSymName());
+      bool calledFromConsteval =
+          fileContainsCallTo(constevalFile, cpuDecl.getSymName());
+
+      if (calledFromMain && calledFromConsteval) {
+        cpuDecl.emitOpError(
+            "CPU-hoisted declaration is called from both files");
+        signalPassFailure();
+        return;
+      }
+      if (!calledFromMain && !calledFromConsteval) {
+        cpuDecl.emitOpError(
+            "CPU-hoisted declaration is not called from any file");
+        signalPassFailure();
+        return;
+      }
+
+      FileOpTy targetFile = calledFromMain ? mainFile : constevalFile;
+      cpuDecl->moveBefore(&targetFile.getBodyRegion().front(),
+                          targetFile.getBodyRegion().front().begin());
     }
 
     // Move remaining top-level operations to the main file.

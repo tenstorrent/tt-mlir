@@ -4,7 +4,7 @@
 // to ensure fusing patterns remain compatible across framework/version updates.
 
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s | FileCheck %s
 module {
 
   // ===----------------------------------------------------------------------===
@@ -1117,10 +1117,8 @@ module {
   // GPT OSS 20B decode pattern (GQA: 64 Q heads, 8 KV heads)
   //
   // CHECK-LABEL: func.func @sdpa_decode_gpt_oss_20b_softmax_padding
-  // CHECK: "ttnn.reshape"
-  // CHECK-SAME: tensor<64x1xbf16
-  // CHECK: "ttnn.pad"
-  // CHECK-SAME: tensor<64x32xbf16
+  // CHECK: "ttnn.reshape"{{.*}}tensor<64x1xbf16
+  // CHECK: "ttnn.pad"{{.*}}tensor<64x32xbf16
   // CHECK: "ttnn.scaled_dot_product_attention_decode"
   // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1>
   func.func @sdpa_decode_gpt_oss_20b_softmax_padding(

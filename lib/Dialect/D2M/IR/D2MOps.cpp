@@ -141,9 +141,8 @@ void d2m::EmptyOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
     auto gridShape = llvm::to_vector(metalLayout.getGridShape(resultType));
     if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
                                                        targetGridShape)) {
-      auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
       auto physGrid = utils::findLegalPhysicalGridForVolume(
-          ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
+          ttmlir::utils::volume<int64_t>(gridShape), targetGridShape);
       TT_assertv(!physGrid.empty(),
                  "Virtual grid required but no legal physical grid found for "
                  "volume {}; target grid [{},{}]",
@@ -1398,7 +1397,7 @@ void d2m::GenericOp::build(
 
   build(builder, state, TypeRange(outputs), inputs, outputs, additionalArgs,
         grid, blockFactorsAttr, indexingMaps, iteratorTypes, threads,
-        /*scratch_inputs=*/nullptr, fabricConnectionConfig, /*numRegions=*/1);
+        fabricConnectionConfig, /*numRegions=*/1);
 }
 
 void d2m::GenericOp::build(
@@ -1733,7 +1732,6 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
       SmallVector<int64_t> physicalGridShape =
           d2m::utils::getPhysicalGridShape(output);
-
       // Drop the deviceID result (first result) from the inverse map.
       AffineMap invMapNoDevice = gridInvMap.dropResult(0);
 
@@ -1742,6 +1740,23 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
       SmallVector<int64_t> outputGridShape =
           llvm::to_vector(ttcore::getGridShape(output));
+
+      if (auto memrefType = mlir::dyn_cast<MemRefType>(output.getType())) {
+        if (auto viewOp = output.getDefiningOp<d2m::ViewOpInterface>()) {
+          if (!viewOp.isComposite()) {
+            auto [baseMemrefType, viewMap] = applyViews(viewOp.getOperation());
+            if (ttcore::isL1MemorySpace(
+                    ttcore::getMemorySpace(baseMemrefType))) {
+              SmallVector<int64_t> baseGridShape =
+                  getGridAndShardFromShapedType(baseMemrefType).first;
+              AffineMap gridViewMap = ttmlir::utils::affineMapTakeFrontResults(
+                  viewMap, baseGridShape.size());
+              outputGridShape =
+                  ttmlir::utils::evalShape(gridViewMap, memrefType.getShape());
+            }
+          }
+        }
+      }
 
       if (outputGridShape != impliedVirtShape) {
         return emitOpError("output grid shape does not match implied virtual "
@@ -1863,9 +1878,9 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     // Block arguments may only be semaphore type.
     // Semaphore block args are added by PreallocateMcastSemaphores.
     for (BlockArgument arg : region.getArguments()) {
-      if (!mlir::isa<d2m::SemaphoreType>(arg.getType())) {
+      if (!mlir::isa<d2m::LocalSemaphoreType>(arg.getType())) {
         return emitOpError(
-            "region block arguments must be of 'semaphore' type");
+            "region block arguments must be of local semaphore type");
       }
 
       if (arg.getType() !=
@@ -2239,8 +2254,7 @@ createParallelizedGenericShell(d2m::GenericOp thisOp, OpBuilder &builder,
       thisOp.getAdditionalArgs(), newGrid,
       builder.getI64ArrayAttr(newBlockFactors), thisOp.getIndexingMaps(),
       thisOp.getIteratorTypes(), thisOp.getThreads(),
-      thisOp.getScratchInputsAttr(), thisOp.getFabricConnectionConfigAttr(),
-      thisOp.getNumRegions());
+      thisOp.getFabricConnectionConfigAttr(), thisOp.getNumRegions());
 }
 
 // Clone one generic region and retarget its block args to reblocked operands.
@@ -2492,10 +2506,13 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
 
   // If the derived grid shape is different from the requested newGrid,
   // compute the reblocked types again with the adjusted grid.
+  //
+  // Skip this adjustment when only block factors are changing (no explicit
+  // new grid): the output grid already incorporates the new blocking and
+  // feeding it back would double-apply the block factors.
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
-  if (numOutputs > 0) {
-    // derive grid from first output index
+  if (numOutputs > 0 && newGrid.has_value()) {
     auto [derivedGridShape, _] = getGridAndShardFromShapedType(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&
@@ -2741,7 +2758,7 @@ void d2m::GenericOp::getAsmBlockArgumentNames(
     Region &region, function_ref<void(Value, StringRef)> setNameFn) {
   int semIndex = 0;
   for (BlockArgument arg : region.getArguments()) {
-    if (mlir::isa<SemaphoreType>(arg.getType())) {
+    if (mlir::isa<LocalSemaphoreType>(arg.getType())) {
       setNameFn(arg, "sem" + std::to_string(semIndex++));
     }
   }
@@ -2795,7 +2812,7 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
   auto bufferGeneric = rewriter.create<d2m::GenericOp>(
       getLoc(), ValueRange(), bufferInputs, bufferOutputs, getAdditionalArgs(),
       getGrid(), getBlockFactors(), getIndexingMaps(), getIteratorTypes(),
-      getThreads(), getScratchInputsAttr(), getFabricConnectionConfigAttr(),
+      getThreads(), getFabricConnectionConfigAttr(),
       /*numRegions=*/getNumRegions());
   for (mlir::Region &region : bufferGeneric.getRegions()) {
     region.takeBody(getRegion(region.getRegionNumber()));

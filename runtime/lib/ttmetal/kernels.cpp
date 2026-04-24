@@ -114,13 +114,16 @@ createKernelConfig(
         std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
         &global_semaphores_cache,
+    const std::unordered_map<std::uint32_t, std::uint32_t>
+        &local_semaphores_cache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn) {
   std::vector<uint32_t> compileArgs = processCompileArgs(
       kernelConfig->args()->ct_args(), argRefsType, argRefs, meshBuffers,
-      global_semaphores_cache, cbs, deviceAddressValidator, createSemaphoreFn);
+      global_semaphores_cache, local_semaphores_cache, cbs,
+      deviceAddressValidator, createSemaphoreFn);
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
     switch (kernelConfig->type_as_NocConfig()->noc_index()) {
@@ -144,19 +147,19 @@ createKernelConfig(
     computeConfig.compile_args = compileArgs;
     switch (fbComputeConfig->math_fidelity()) {
     case tt::target::MathFidelity::HiFi4: {
-      computeConfig.math_fidelity = MathFidelity::HiFi4;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::HiFi4;
       break;
     }
     case tt::target::MathFidelity::HiFi3: {
-      computeConfig.math_fidelity = MathFidelity::HiFi3;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::HiFi3;
       break;
     }
     case tt::target::MathFidelity::HiFi2: {
-      computeConfig.math_fidelity = MathFidelity::HiFi2;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::HiFi2;
       break;
     }
     case tt::target::MathFidelity::LoFi: {
-      computeConfig.math_fidelity = MathFidelity::LoFi;
+      computeConfig.math_fidelity = ::tt::tt_metal::MathFidelity::LoFi;
       break;
     }
     }

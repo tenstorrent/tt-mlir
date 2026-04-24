@@ -50,6 +50,10 @@ def asin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return asin_0
 
 
+def asinh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.asinh(in0, unit_attrs=unit_attrs)
+
+
 def atan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.atan(in0, unit_attrs=unit_attrs)
 
@@ -214,6 +218,36 @@ def sqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return sqrt_0
 
 
+def square(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.square(in0, unit_attrs=unit_attrs)
+
+
+def exp2(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.exp2(in0, unit_attrs=unit_attrs)
+
+
+def softsign(
+    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+):
+    return builder.softsign(in0, unit_attrs=unit_attrs)
+
+
+def signbit(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.signbit(in0, unit_attrs=unit_attrs)
+
+
+def selu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.selu(in0, unit_attrs=unit_attrs)
+
+
+def frac(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.frac(in0, unit_attrs=unit_attrs)
+
+
+def trunc(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.trunc(in0, unit_attrs=unit_attrs)
+
+
 def sin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.sin(in0, unit_attrs=unit_attrs)
 
@@ -245,6 +279,7 @@ unary_ops = [
     abs,
     acos | Marks(pytest.mark.skip_config(["ttmetal"])),
     asin | Marks(pytest.mark.skip_config(["ttmetal"])),
+    asinh | Marks(pytest.mark.skip_config(["ttmetal"])),
     atan | Marks(pytest.mark.skip_config(["ttmetal"])),
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil,
@@ -252,12 +287,13 @@ unary_ops = [
     erf,
     erfc,
     exp,
-    expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    expm1,
+    exp2 | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     floor,
     gelu,
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
     log,
-    log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
+    log1p,
     logical_not,
     mish | Marks(pytest.mark.skip_config(["ttmetal"])),
     neg,
@@ -267,14 +303,19 @@ unary_ops = [
     rsqrt,
     sigmoid,
     sign,
-    hardsigmoid | Marks(pytest.mark.skip_config(["emitpy"])),
+    hardsigmoid,
     silu,
     sin,
     sqrt,
+    square | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    softsign | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    signbit | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    selu | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    frac | SkipIf("ttnn", "emitc", "emitpy", "sim"),
+    trunc | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     tan,
     tanh,
 ]
-
 
 unary_ops_dtypes = [
     torch.float32,
@@ -285,18 +326,44 @@ unary_ops_dtypes = [
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal",
+        "emitc" | SkipIf("sim"),
+        "emitpy" | SkipIf("sim"),
+    ],
+)
 @pytest.mark.parametrize("test_fn", unary_ops)
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    if dtype == torch.int32 and test_fn not in [
-        abs,
-        neg,
-        relu,
-        logical_not,
-    ]:
-        pytest.skip("int32 unary op is not supported yet for this operation")
+    if dtype == torch.int32 and getattr(test_fn, "__name__", None) not in {
+        "abs",
+        "erf",
+        "is_finite",
+        "logical_not",
+        "neg",
+        "relu",
+        "sign",
+    }:
+        pytest.skip("int32 unary op is not in the allowlist for this test")
+
+    # tt-metal #41850 replaced the SFPU erf kernel with a LUT-based rational
+    # approximation. The new kernel reads the input as a float, so int32 bit
+    # patterns become NaN/Inf and the output diverges from torch.erf. The
+    # TTNN pipeline inserts a bf16 typecast workaround around ttnn.erf for
+    # integer inputs (see TTNNWorkaroundsPass), but the TTMetal pipeline
+    # lowers ttir.erf directly into a D2M tile op without that workaround.
+    # Skip until a TTIR-level decomposition is added for ttmetal.
+    # Tracking issue: https://github.com/tenstorrent/tt-mlir/issues/8105
+    if dtype == torch.int32 and test_fn is erf and target == "ttmetal":
+        pytest.skip(
+            "erf with int32 input is not supported on ttmetal yet; "
+            "TTNN typecast workaround doesn't apply to the ttmetal pipeline. "
+            "See https://github.com/tenstorrent/tt-mlir/issues/8105"
+        )
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -370,7 +437,13 @@ unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitc", "emitpy"]
+    "target",
+    [
+        "ttnn" | SkipIf("sim"),
+        "ttmetal" | SkipIf("sim"),
+        "emitc" | SkipIf("sim"),
+        "emitpy" | SkipIf("sim"),
+    ],
 )
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
 @pytest.mark.parametrize("parameter", [0.01, 0.1, 0.2])
@@ -416,7 +489,7 @@ def get_dimension_size(
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.int32 | SkipIf("sim")], ids=["f32", "i32"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 @pytest.mark.parametrize("dimension", [0, 1])
 def test_get_dimension_size(
     dimension: int,
@@ -495,6 +568,7 @@ def test_unaligned_shapes_neg(
         **get_request_kwargs(request),
         target=target,
         device=device,
+        print_ir=False,
     )
 
 
@@ -504,6 +578,7 @@ def test_unaligned_shapes_neg(
 hoisted_unary_ops_float = [
     acos,
     asin,
+    asinh,
     atan,
     cbrt,
     ceil,
@@ -550,7 +625,10 @@ hoisted_shapes = [
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_unary_ops_float(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -575,7 +653,10 @@ def test_cpu_hoistable_unary_ops_float(
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_cpu_hoistable_unary_ops_float_integer(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
 ):
@@ -599,7 +680,10 @@ def test_cpu_hoistable_unary_ops_float_integer(
 @x86_only
 @pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_hoisted_leaky_relu(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):

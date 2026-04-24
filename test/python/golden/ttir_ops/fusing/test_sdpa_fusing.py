@@ -10,10 +10,10 @@ from dataclasses import dataclass
 import pytest
 import torch
 
-from builder.base.builder_utils import Operand, Shape
+from builder.base.builder_utils import Operand, Shape, DeferredDevice
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from conftest import get_request_kwargs, DeferredDevice
+from conftest import get_request_kwargs
 
 pytestmark = [
     pytest.mark.frontend("ttir"),
@@ -307,7 +307,7 @@ def compile_and_run_sdpa(module_fn, target, request):
         target=target,
         **get_request_kwargs(request),
         device=DeferredDevice(request),
-        pipeline_options=["enable-optimizer=true"],
+        pipeline_options=["optimization-level=1"],
         save_artifacts=True,
     )
 

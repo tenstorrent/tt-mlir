@@ -163,6 +163,7 @@ using OpModelSigmoidParam = OpModelUnaryEltwiseParam<SigmoidOp>;
 using OpModelHardsigmoidParam = OpModelUnaryEltwiseParam<HardsigmoidOp>;
 using OpModelSinParam = OpModelUnaryEltwiseParam<SinOp>;
 using OpModelAsinParam = OpModelUnaryEltwiseParam<AsinOp>;
+using OpModelAsinhParam = OpModelUnaryEltwiseParam<AsinhOp>;
 using OpModelCosParam = OpModelUnaryEltwiseParam<CosOp>;
 using OpModelAcosParam = OpModelUnaryEltwiseParam<AcosOp>;
 using OpModelExpParam = OpModelUnaryEltwiseParam<ExpOp>;
@@ -195,6 +196,7 @@ TEST_P(OpModelSigmoidParam, SigmoidOp) { RunTest(); }
 TEST_P(OpModelHardsigmoidParam, HardsigmoidOp) { RunTest(); }
 TEST_P(OpModelSinParam, SinOp) { RunTest(); }
 TEST_P(OpModelAsinParam, AsinOp) { RunTest(); }
+TEST_P(OpModelAsinhParam, AsinhOp) { RunTest(); }
 TEST_P(OpModelCosParam, CosOp) { RunTest(); }
 TEST_P(OpModelAcosParam, AcosOp) { RunTest(); }
 TEST_P(OpModelExpParam, ExpOp) { RunTest(); }
@@ -279,6 +281,9 @@ INSTANTIATE_TEST_SUITE_P(SinTests, OpModelSinParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(AsinTests, OpModelAsinParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
+INSTANTIATE_TEST_SUITE_P(AsinhTests, OpModelAsinhParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
 INSTANTIATE_TEST_SUITE_P(CosTests, OpModelCosParam,
@@ -1583,6 +1588,56 @@ TEST_F(OpModelTest, TopK) {
       layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
+}
+
+TEST_F(OpModelTest, TopKRouterGpt) {
+  // TopKRouterGptOp constraints: B=32, num_experts=128
+  // input: [B, hidden_dim], weight: [hidden_dim, num_experts],
+  // bias: [B, num_experts]
+  const llvm::SmallVector<int64_t> inputShape = {32, 128};
+  const llvm::SmallVector<int64_t> weightShape = {128, 128};
+  const llvm::SmallVector<int64_t> biasShape = {32, 128};
+  const uint32_t k = 4;
+  const uint32_t numExperts = 128;
+
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr weightLayoutDRAM = CreateTiledLayout(
+      weightShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr biasLayoutDRAM = CreateTiledLayout(
+      biasShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr outputLayoutDRAM = CreateTiledLayout(
+      inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto legalExp = Device::getDeviceConstraints(workerGrid);
+  EXPECT_TRUE(static_cast<bool>(legalExp));
+
+  // DRAM layouts
+  auto constraintsExp = op_model::OpModel<TopKRouterGptOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayoutDRAM, weightShape,
+      weightLayoutDRAM, biasShape, biasLayoutDRAM, k, numExperts,
+      outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    // TopKRouterGptOp has two outputs: expert_indices and expert_weights.
+    ASSERT_EQ(opCstr.outputLayouts.size(), 2);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = op_model::OpModel<TopKRouterGptOp>::getOpRuntime(
+      inputShape, inputLayoutDRAM, weightShape, weightLayoutDRAM, biasShape,
+      biasLayoutDRAM, k, numExperts, outputLayoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
 }
 
 TEST_F(OpModelTest, MaxPool2dWithIndices) {
@@ -3069,20 +3124,20 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(std::make_tuple(
         // tt-metal Conv3d expects input in [N, D, H, W, C] format (channels
         // LAST)
-        detail::TestTensor{{1, 5, 10, 10, 3}, // [N, D, H, W, C]
+        detail::TestTensor{{1, 5, 10, 10, 32}, // [N, D, H, W, C]
                            TensorMemoryLayout::Interleaved,
                            BufferType::DRAM},
         // Weight must be 2D: [kD*kH*kW*C_in, C_out] where C_in is input
-        // channels patch_size = 3*3*3*3 = 81, out_channels = 64 (multiple of
+        // channels patch_size = 3*3*3*32 = 864, out_channels = 64 (multiple of
         // 32)
         detail::TestTensor{
-            {81, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+            {864, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8,
         // W_out=(10-3)/1+1=8
         detail::TestTensor{{1, 3, 8, 8, 64}, // [N, D_out, H_out, W_out, C_out]
                            TensorMemoryLayout::Interleaved,
                            BufferType::DRAM},
-        3, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
+        32, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
         llvm::SmallVector<int32_t>{1, 1, 1},
         llvm::SmallVector<int32_t>{0, 0, 0}, 1, "zeros",
         detail::ExpectedResult{true})));
@@ -4510,6 +4565,124 @@ const auto rmsNormTestValues = ::testing::Values(
         std::nullopt, std::nullopt, 1e-6f, detail::ExpectedResult{true}));
 
 INSTANTIATE_TEST_SUITE_P(RMSNormTests, OpModelRMSNormParam, rmsNormTestValues);
+
+//===----------------------------------------------------------------------===//
+// RMSNormPreAllGatherOp Tests
+//===----------------------------------------------------------------------===//
+
+class OpModelRMSNormPreAllGatherParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,                // input
+                     detail::TestTensor,                // output
+                     std::optional<detail::TestTensor>, // residual_input
+                     std::optional<ttcore::DataType>,   // dtype
+                     std::optional<bool>,               // use_2d_core_grid
+                     detail::ExpectedResult             // expected result
+                     >> {};
+
+TEST_P(OpModelRMSNormPreAllGatherParam, RMSNormPreAllGatherParam) {
+  auto params = GetParam();
+
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto residualOpt = std::get<2>(params);
+  const auto dtype = std::get<3>(params);
+  const auto use_2d_core_grid = std::get<4>(params);
+  const auto expectedResult = std::get<5>(params);
+  const auto expectedLegal = expectedResult.expectedLegal;
+
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  // Create optional layouts for residual_input
+  std::optional<llvm::ArrayRef<int64_t>> residualInputShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
+  if (residualOpt.has_value()) {
+    const auto &[shape, layout, bufferType, virtualGrid] = residualOpt.value();
+    residualInputShape = shape;
+    residualInputLayout =
+        CreateTiledLayout(shape, bufferType, layout, virtualGrid);
+  }
+
+  // Test Constraints
+  auto constraintsExp =
+      op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
+          CreateWorkerGrid(), inputShape, inputLayout, residualInputShape,
+          residualInputLayout, dtype, use_2d_core_grid, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBacks] = constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+    EXPECT_GE(outputSize, 0);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  // Test Op Runtime
+  auto runtimeExp = op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
+      inputShape, inputLayout, residualInputShape, residualInputLayout, dtype,
+      use_2d_core_grid, outputLayout);
+
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+// Test Values for RMSNormPreAllGatherOp
+const auto rmsNormPreAllGatherTestValues = ::testing::Values(
+    // Test case 1: Basic with input only (no residual tensor)
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::nullopt, std::nullopt, detail::ExpectedResult{true}),
+
+    // Test case 2: With residual_input
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::make_optional(detail::TestTensor{{1, 1, 32, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        std::nullopt, std::nullopt, detail::ExpectedResult{true}),
+
+    // Test case 3: With explicit BFloat16 dtype
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        std::nullopt, std::make_optional(ttcore::DataType::BFloat16),
+        std::nullopt, detail::ExpectedResult{true}),
+
+    // Test case 4: With L1 memory buffers
+    std::make_tuple(
+        detail::TestTensor{
+            {1, 1, 32, 128}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        std::nullopt, std::nullopt, std::nullopt,
+        detail::ExpectedResult{true}));
+
+INSTANTIATE_TEST_SUITE_P(RMSNormPreAllGatherTests,
+                         OpModelRMSNormPreAllGatherParam,
+                         rmsNormPreAllGatherTestValues);
 
 //===----------------------------------------------------------------------===//
 // LayerNormOp Tests
@@ -6406,7 +6579,7 @@ protected:
             valueShape, valueLayout, pageTableShape, pageTableLayout, isCausal,
             attentionMaskShape, attentionMaskLayout, curPosTensorShape,
             curPosTensorLayout, attentionSinkShape, attentionSinkLayout, scale,
-            outputLayout);
+            /*coreGrid=*/std::nullopt, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {

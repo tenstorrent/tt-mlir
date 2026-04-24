@@ -1214,6 +1214,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RMSNormOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
+    tensorRef = opContext.type_as_RMSNormPreAllGatherOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     tensorRef = opContext.type_as_DistributedRMSNormOp()->out();
     break;
@@ -1260,6 +1264,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     tensorRef = opContext.type_as_AllToAllCombineOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SelectiveReduceCombineOp: {
+    tensorRef = opContext.type_as_SelectiveReduceCombineOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
@@ -1355,9 +1363,11 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
   case ::tt::target::ttnn::OpType::AllToAllDispatchOp:
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp:
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp:
   case ::tt::target::ttnn::OpType::TopKOp:
+  case ::tt::target::ttnn::OpType::TopKRouterGptOp:
   case ::tt::target::ttnn::OpType::BreakpointOp:
   case ::tt::target::ttnn::OpType::PrintOp:
   case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
@@ -1541,6 +1551,12 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_TopKOp()->input_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::TopKRouterGptOp: {
+    tensorRefs = {opContext.type_as_TopKRouterGptOp()->input(),
+                  opContext.type_as_TopKRouterGptOp()->weight(),
+                  opContext.type_as_TopKRouterGptOp()->bias()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::EmbeddingOp: {
     tensorRefs = {opContext.type_as_EmbeddingOp()->input(),
                   opContext.type_as_EmbeddingOp()->weight()};
@@ -1670,6 +1686,14 @@ getOpInputRefs(OpContext opContextHandle,
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::RMSNormPreAllGatherOp: {
+    tensorRefs = {opContext.type_as_RMSNormPreAllGatherOp()->input()};
+    if (opContext.type_as_RMSNormPreAllGatherOp()->residual()) {
+      tensorRefs.push_back(
+          opContext.type_as_RMSNormPreAllGatherOp()->residual());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::DistributedRMSNormOp: {
     tensorRefs = {opContext.type_as_DistributedRMSNormOp()->input()};
     if (opContext.type_as_DistributedRMSNormOp()->weight()) {
@@ -1759,10 +1783,28 @@ getOpInputRefs(OpContext opContextHandle,
                   opContext.type_as_AllToAllDispatchOp()->expert_mapping()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AllToAllDispatchMetadataOp: {
+    tensorRefs = {
+        opContext.type_as_AllToAllDispatchMetadataOp()->input_tensor(),
+        opContext.type_as_AllToAllDispatchMetadataOp()->expert_indices(),
+        opContext.type_as_AllToAllDispatchMetadataOp()->expert_scores(),
+        opContext.type_as_AllToAllDispatchMetadataOp()->expert_mapping()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllToAllCombineOp: {
     tensorRefs = {opContext.type_as_AllToAllCombineOp()->input_tensor(),
                   opContext.type_as_AllToAllCombineOp()->expert_metadata(),
                   opContext.type_as_AllToAllCombineOp()->expert_mapping()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SelectiveReduceCombineOp: {
+    tensorRefs = {
+        opContext.type_as_SelectiveReduceCombineOp()->dense_input_tensor(),
+        opContext.type_as_SelectiveReduceCombineOp()
+            ->dense_activations_tensor(),
+        opContext.type_as_SelectiveReduceCombineOp()->dense_token_maps_tensor(),
+        opContext.type_as_SelectiveReduceCombineOp()
+            ->dense_token_counts_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {

@@ -2353,9 +2353,9 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op
     bool isArgLhs = false;
-    Operation *one = getScalarThroughTMChain(gaussianCDFAdd.getLhs());
+    Operation *one = getSplatCreationOp(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = getScalarThroughTMChain(gaussianCDFAdd.getRhs());
+      one = getSplatCreationOp(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
@@ -2474,19 +2474,10 @@ private:
   // it exists, given the result of the sequence.
   Value getXCubedInput(Value xCubedResult) const {
     if (PowOp xCubed = xCubedResult.getDefiningOp<ttir::PowOp>()) {
-      ttir::FullOp power = xCubed.getRhs().getDefiningOp<ttir::FullOp>();
-      if (!power) {
+      mlir::Value power = xCubed.getRhs();
+      if (!isScalarValue(power, THREE)) {
         return nullptr;
       }
-      if (!isa<FloatAttr>(power.getFillValue())) {
-        return nullptr;
-      }
-
-      APFloat powerValue = dyn_cast<FloatAttr>(power.getFillValue()).getValue();
-      if (!checkFloatIsNear(powerValue.convertToFloat(), THREE)) {
-        return nullptr;
-      }
-
       return xCubed.getLhs();
     }
     if (ttir::MultiplyOp xCubed =
@@ -2527,20 +2518,16 @@ private:
     // isArgLhs will track if the argument to gelu is on the lhs or rhs of the
     // add op.
     bool isArgLhs = false;
-    ttir::FullOp one = gaussianCDFAdd.getLhs().getDefiningOp<ttir::FullOp>();
+    Operation *one = getSplatCreationOp(gaussianCDFAdd.getLhs());
     if (!one) {
-      one = gaussianCDFAdd.getRhs().getDefiningOp<ttir::FullOp>();
+      one = getSplatCreationOp(gaussianCDFAdd.getRhs());
       isArgLhs = true;
     }
     if (!one) {
       return nullptr;
     }
 
-    if (!isa<FloatAttr>(one.getFillValue())) {
-      return nullptr;
-    }
-    APFloat value = dyn_cast<FloatAttr>(one.getFillValue()).getValue();
-    if (!checkFloatIsNear(value.convertToFloat(), ONE)) {
+    if (!isScalarValue(one->getResult(0), ONE)) {
       return nullptr;
     }
 
@@ -2582,12 +2569,11 @@ private:
            value / trueValue - 1.0 >= -1.5e-3;
   }
 
-  // This function will return true if the Value 'val' is a scalar constant
-  // creation op (or the result of tensor-manipulation ops (Reshape, Permute,
-  // Broadcast) beginning with a scalar constant creation op), with the
-  // fill_value near 'scalar'. It allows for an error of 1.5%
+  // This function returns true if the Value 'val' is a splat constant
+  // creation op, with the fill_value near 'scalar'. It allows for an error
+  // of 1.5%.
   bool isScalarValue(Value val, double scalar) const {
-    Operation *scalarOp = getScalarThroughTMChain(val);
+    Operation *scalarOp = val.getDefiningOp();
     if (!scalarOp) {
       return false;
     }
@@ -2610,14 +2596,9 @@ private:
     return false;
   }
 
-  Operation *getScalarThroughTMChain(Value value) const {
+  Operation *getSplatCreationOp(Value value) const {
     Operation *currentOp = value.getDefiningOp();
-
-    while (isa_and_nonnull<ttir::ReshapeOp, ttir::BroadcastOp, ttir::PermuteOp>(
-        currentOp)) {
-      currentOp = currentOp->getOperand(0).getDefiningOp();
-    }
-    if (isa_and_nonnull<ttir::FullOp, ttir::OnesOp, ttir::ZerosOp>(currentOp)) {
+    if (isa_and_present<ttir::FullOp, ttir::OnesOp, ttir::ZerosOp>(currentOp)) {
       return currentOp;
     }
     return nullptr;
@@ -2655,6 +2636,13 @@ public:
             if (auto broadcast = mlir::dyn_cast<BroadcastOp>(op)) {
               auto outType = mlir::cast<RankedTensorType>(broadcast.getType());
               return outType.getShape().back() == normalizedDimSize;
+            }
+            // Allow reshapes from scalar (rank 0) to higher rank. Aggressive
+            // simplification keeps constants as scalars wrapped in reshapes.
+            if (auto reshape = mlir::dyn_cast<ReshapeOp>(op)) {
+              auto inputType =
+                  mlir::cast<RankedTensorType>(reshape.getInput().getType());
+              return inputType.getRank() == 0;
             }
             return false;
           });
@@ -2729,8 +2717,7 @@ public:
       return mlir::failure();
     }
 
-    // Look through layout ops to find the epsilon FullOp
-    auto epsFull = lookThroughSafeOps(epsilon).getDefiningOp<FullOp>();
+    auto epsFull = epsilon.getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
     }
@@ -2771,8 +2758,16 @@ public:
     // the indication that the matching is not correct.
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
     if (inputType.getElementType() != gammaType.getElementType()) {
-      return mlir::failure();
+      if (mlir::Operation *xOp = x.getDefiningOp()) {
+        x = utils::revertTypecastFolding(rewriter, xOp, x);
+        inputType = mlir::cast<RankedTensorType>(x.getType());
+      }
+      if (inputType.getElementType() != gammaType.getElementType()) {
+        return mlir::failure();
+      }
     }
+
+    rewriter.setInsertionPoint(outerMul);
 
     // Create RMSNormOp with output shape and dtype matching input.
     auto rmsNormOutputType =

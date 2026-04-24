@@ -89,7 +89,9 @@ ternary_ops = [
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
+)
 @pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -138,7 +140,7 @@ def test_ternary_ops(
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
 def test_ternary_eltwise_ops_implicit_broadcast(
     shapes: List[Shape],
     input_dtypes: Tuple[torch.dtype, torch.dtype, torch.dtype],
@@ -206,7 +208,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     [torch.float32, torch.bfloat16],
     ids=["f32", "bf16"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 @pytest.mark.parametrize(
     "special_value",
     [float("nan"), float("inf"), float("-inf")],
@@ -269,7 +271,7 @@ def test_where_nan_inf_implicit_broadcast(
     ],
     ids=["f32", "bf16", "i32", "i64"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
 def test_clamp_scalar(
     shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
 ):
@@ -301,7 +303,10 @@ def test_clamp_scalar(
 @x86_only
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+)
 def test_hoisted_clamp_scalar(
     shape: Shape, max_arg: float, min_arg: float, target: str, request, device
 ):

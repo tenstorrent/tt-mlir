@@ -20,7 +20,7 @@ from ttmlir.dialects import func, ttcore, ttnn, ttir
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
+    ttir_to_ttnn_runtime_pipeline,
     ttnn_to_flatbuffer_file,
     ttir_to_ttmetal_backend_pipeline,
     ttmetal_to_flatbuffer_file,
@@ -348,6 +348,48 @@ def affine_map_from_lambda(fn):
             )
     num_syms = 0
     return AffineMap.get(num_dims, num_syms, exprs)
+
+
+class DeferredDevice:
+    """Device that opens after compilation, not before.
+
+    The optimizer pipeline uses OpModel's internal mock device during
+    compilation. If a real device is already open, mock device creation
+    fails. Pass ``DeferredDevice(request)`` as the ``device`` argument to
+    ``compile_and_execute_ttir`` so the real device is opened only for
+    execution.
+    """
+
+    def __init__(self, request):
+        self._request = request
+
+    def prepare(self):
+        """Close any cached device from prior tests so compilation can use
+        the mock device without conflict."""
+        # Expected to be used through pytest
+        from conftest import _current_device, clear_device_cache
+        import _ttmlir_runtime as tt_runtime
+
+        if _current_device is not None:
+            tt_runtime.runtime.close_mesh_device(_current_device)
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.DISABLED
+            )
+            clear_device_cache()
+
+    def open(self):
+        return self._request.getfixturevalue("device")
+
+    def close(self, device):
+        """Close the device and clear the fixture cache so the next test
+        can compile with a mock device."""
+        import _ttmlir_runtime as tt_runtime
+
+        tt_runtime.runtime.close_mesh_device(device)
+        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
+        from conftest import clear_device_cache
+
+        clear_device_cache()
 
 
 class DeferredDevice:

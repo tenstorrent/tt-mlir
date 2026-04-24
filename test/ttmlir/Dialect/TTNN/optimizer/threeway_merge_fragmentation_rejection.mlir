@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true optimization-level=2" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=2 enable-greedy-optimizer=false" %s > %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // This test verifies that the optimizer rejects 3-way merges that would cause

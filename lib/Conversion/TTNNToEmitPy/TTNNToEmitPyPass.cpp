@@ -69,17 +69,6 @@ struct ConvertTTNNToEmitPyPass
       signalPassFailure();
     }
 
-    // Set insertion point to start of first module child
-    //
-    builder.setInsertionPointToStart(module.getBody(0));
-
-    // Include headers
-    //
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttnn", nullptr, nullptr,
-                                     nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
-                                     nullptr, nullptr, nullptr);
-
     // If we are in the module-export path (i.e., `target-module=true`),
     // const-eval functions must also take `device` as an explicit argument so
     // they can avoid materializing `ttnn.get_device` in the function body.
@@ -123,7 +112,6 @@ struct ConvertTTNNToEmitPyPass
     }
   }
 
-private:
   // This function is used to convert the const-eval functions to accept a
   // device argument. This is duplicated from
   // `lib/Dialect/TTNN/Transforms/Passes.cpp@TTNNPrepareModuleForExport` because

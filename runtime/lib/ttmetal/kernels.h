@@ -44,6 +44,8 @@ createKernelConfig(
         std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
         &global_semaphores_cache,
+    const std::unordered_map<std::uint32_t, std::uint32_t>
+        &local_semaphores_cache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,

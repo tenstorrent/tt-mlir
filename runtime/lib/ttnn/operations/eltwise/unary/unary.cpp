@@ -212,6 +212,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::asin);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Asinh: {
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::asinh);
+    break;
+  }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal: {
     runEltwiseUnaryOp(op, tensorPool, [](auto &&...args) {
       return ::ttnn::reciprocal(std::forward<decltype(args)>(args)...);
@@ -259,7 +263,7 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Erfc: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::erfc);
+    runEltwiseUnaryOp(op, tensorPool, ::ttnn::erfc);
     break;
   }
   }

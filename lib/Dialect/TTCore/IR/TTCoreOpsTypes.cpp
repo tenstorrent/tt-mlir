@@ -64,6 +64,7 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
 
   // Populate dummy values for single chip or multi chip config.
   llvm::SmallVector<std::int64_t> gridShape = {10, 13};
+  llvm::SmallVector<std::int64_t> dramGridShape = {1, 8};
 
   // Physical-to-translated coordinate translation offsets
   llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
@@ -107,8 +108,8 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
         nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd, supported_data_types, supported_tile_sizes,
-        dstPhysicalSizeTiles, numCBs, numComputeThreads,
-        numDatamovementThreads));
+        dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads,
+        dramGridShape));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -178,6 +179,7 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
 
   // Populate dummy values for single chip or multi chip config.
   llvm::SmallVector<std::int64_t> gridShape = {8, 8};
+  llvm::SmallVector<std::int64_t> dramGridShape = {1, 12};
 
   // Physical-to-translated coordinate translation offsets
   llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
@@ -221,8 +223,8 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
         nocL1AddressAlignBytes, pcieAddressAlignBytes, nocDRAMAddressAlignBytes,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
-        dstPhysicalSizeTiles, numCBs, numComputeThreads,
-        numDatamovementThreads));
+        dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads,
+        dramGridShape));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -447,7 +449,8 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
         element->dram_unreserved_end(), supportedDataTypesAttr,
         supportedTileSizesAttr, element->dst_physical_size_tiles(),
         element->num_cbs(), element->num_compute_threads(),
-        element->num_datamovement_threads());
+        element->num_datamovement_threads(),
+        {element->dram_grid_size()->y(), element->dram_grid_size()->x()});
     chipDescList.push_back(currentChipDescAttr);
   }
 
@@ -1551,9 +1554,11 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
   // Due mainly to SPMD programming model for multi-devices, workerGrid
   // currently is set to be limited to a single device {1, 1}.
   auto workerGrid = createWorkerGrid(context, chipGrid, {1, 1});
+  auto dramGrid =
+      GridAttr::get(context, SmallVector<int64_t>(chipDesc.getDramGrid()));
   auto l1Map = createL1Map(context, workerGrid);
   auto dramMap = createDramMap(context, workerGrid, systemDesc, chipIds);
-  return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds,
+  return get(context, workerGrid, dramGrid, l1Map, dramMap, meshShape, chipIds,
              meshTopology);
 }
 
@@ -1650,11 +1655,13 @@ size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
   return sizeBytes / pageSize;
 }
 
-::mlir::LogicalResult DeviceAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-    GridAttr workerGrid, ::mlir::AffineMap l1Map, ::mlir::AffineMap dramMap,
-    ::llvm::ArrayRef<int64_t> meshShape, ::llvm::ArrayRef<unsigned> chipIds,
-    ::llvm::ArrayRef<Topology> meshTopology) {
+::mlir::LogicalResult
+DeviceAttr::verify(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                   GridAttr workerGrid, GridAttr dramGrid,
+                   ::mlir::AffineMap l1Map, ::mlir::AffineMap dramMap,
+                   ::llvm::ArrayRef<int64_t> meshShape,
+                   ::llvm::ArrayRef<unsigned> chipIds,
+                   ::llvm::ArrayRef<Topology> meshTopology) {
   if (chipIds.empty()) {
     emitError() << "expected at least one chip";
     return ::mlir::failure();
@@ -1669,7 +1676,19 @@ size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
   auto workerGridShape = workerGrid.getShape();
   for (auto dim : workerGridShape) {
     if (dim <= 0) {
-      emitError() << "expected positive grid dimensions";
+      emitError() << "expected positive worker grid dimensions";
+      return ::mlir::failure();
+    }
+  }
+
+  auto dramGridShape = dramGrid.getShape();
+  if (dramGridShape.size() != 2) {
+    emitError() << "expected 2D dram grid, got " << dramGridShape.size() << "D";
+    return ::mlir::failure();
+  }
+  for (auto dim : dramGridShape) {
+    if (dim <= 0) {
+      emitError() << "expected positive dram grid dimensions";
       return ::mlir::failure();
     }
   }

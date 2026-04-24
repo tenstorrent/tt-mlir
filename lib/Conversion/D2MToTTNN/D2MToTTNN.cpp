@@ -144,8 +144,9 @@ convertMathFidelity(ttmetal::MathFidelity fidelity) {
   llvm_unreachable("Invalid MathFidelity");
 }
 
-static mlir::Attribute convertKernelArg(Builder &builder,
-                                        const ttkernel::ArgAttr &arg) {
+static mlir::Attribute
+convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
+                 const llvm::DenseMap<size_t, size_t> &semIndexMap) {
   switch (arg.getArgType()) {
   case ttkernel::ArgType::BufferAddress: {
     return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(
@@ -155,9 +156,11 @@ static mlir::Attribute convertKernelArg(Builder &builder,
     return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
         arg.getOperandIndex());
   }
-  case ttkernel::ArgType::Semaphore: {
-    return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
-        arg.getOperandIndex());
+  case ttkernel::ArgType::LocalSemaphore: {
+    auto it = semIndexMap.find(arg.getOperandIndex());
+    assert(it != semIndexMap.end() &&
+           "local semaphore operand index not in map");
+    return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(it->second);
   }
   case ttkernel::ArgType::NamedArgument: {
     return builder.getAttr<ttnn::KernelArgNamedArgAttr>(arg.getArgumentName(),
@@ -174,7 +177,8 @@ static mlir::Attribute convertKernelArg(Builder &builder,
 static SmallVector<ttnn::KernelSemaphoreAttr>
 createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
                            const ttnn::CoreRangeSetAttr &coreRangeSet,
-                           const SymbolTable &symbolTable) {
+                           const SymbolTable &symbolTable,
+                           llvm::DenseMap<size_t, size_t> &semIndexMap) {
   llvm::DenseSet<size_t> seenSemaphoreIndices;
 
   for (Attribute threadAttr : threads) {
@@ -192,20 +196,24 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
     }
 
     for (auto ctArg : kernelSpec.getCtArgs()) {
-      if (ctArg.getArgType() == ttkernel::ArgType::Semaphore) {
+      if (ctArg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
         seenSemaphoreIndices.insert(ctArg.getOperandIndex());
       }
     }
   }
-  size_t numSemaphores = seenSemaphoreIndices.size();
-  if (numSemaphores > 0) {
-    // Semaphore indices are assigned sequentially in D2MToTTKernel, so they
-    // should be dense.
-    size_t minIndex = *llvm::min_element(seenSemaphoreIndices);
-    size_t maxIndex = *llvm::max_element(seenSemaphoreIndices);
-    TT_assertv((minIndex == 0u && maxIndex == numSemaphores - 1),
-               "Semaphore indices must be dense (0, 1, 2, ..., n-1)");
+
+  // Sort collected operand indices and build a mapping to 0-based semaphore
+  // descriptor ids. The operand indices are positions in the d2m.generic's
+  // full operand list (which includes buffers), so they are not necessarily
+  // 0-based.
+  SmallVector<size_t> sortedIndices(seenSemaphoreIndices.begin(),
+                                    seenSemaphoreIndices.end());
+  llvm::sort(sortedIndices);
+  for (auto [id, idx] : llvm::enumerate(sortedIndices)) {
+    semIndexMap[idx] = id;
   }
+
+  size_t numSemaphores = sortedIndices.size();
   SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors(numSemaphores);
   for (size_t i = 0; i < numSemaphores; ++i) {
     semaphoreDescriptors[i] = builder.getAttr<ttnn::KernelSemaphoreAttr>(
@@ -220,7 +228,8 @@ static SmallVector<mlir::Attribute>
 createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
                         const ttnn::CoreRangeSetAttr &coreRangeSet,
                         const SymbolTable &symbolTable,
-                        ttmetal::MathFidelity mathFidelity) {
+                        ttmetal::MathFidelity mathFidelity,
+                        const llvm::DenseMap<size_t, size_t> &semIndexMap) {
   SmallVector<mlir::Attribute> kernelConfigs(threads.size());
   int unassignedNocCounter = 0;
   for (const auto [i, thread] : llvm::enumerate(threads)) {
@@ -242,10 +251,10 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
     llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
     llvm::SmallVector<mlir::Attribute> kernelCRTArgs(crtArgs.size());
     for (const auto [i, arg] : llvm::enumerate(crtArgs)) {
-      kernelCRTArgs[i] = convertKernelArg(builder, arg);
+      kernelCRTArgs[i] = convertKernelArg(builder, arg, semIndexMap);
     }
     for (const auto [i, arg] : llvm::enumerate(ctArgs)) {
-      kernelCTArgs[i] = convertKernelArg(builder, arg);
+      kernelCTArgs[i] = convertKernelArg(builder, arg, semIndexMap);
     }
 
     // Create KernelDescriptor.
@@ -701,6 +710,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     } else if (isa<d2m::GlobalSemaphoreType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
       additionalArgs.push_back(mapped);
+    } else if (isa<d2m::LocalSemaphoreType>(arg.getType())) {
+      // Local semaphores are described via createSemaphoreDescriptors; skip.
     } else {
       return op.emitOpError(
                  "unexpected operand type in d2m.generic's additionalArgs: ")
@@ -712,12 +723,15 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       createCBDescriptors(rewriter, infos, device, coreRangeSet);
 
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
-  SmallVector<mlir::Attribute> kernelDescriptors = createKernelDescriptors(
-      rewriter, op.getThreads(), coreRangeSet, opSymTable, mathFidelity);
-
+  // Build the semaphore mapping first so createKernelDescriptors can use it.
+  llvm::DenseMap<size_t, size_t> semIndexMap;
   SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
       createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
-                                 opSymTable);
+                                 opSymTable, semIndexMap);
+
+  SmallVector<mlir::Attribute> kernelDescriptors =
+      createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
+                              opSymTable, mathFidelity, semIndexMap);
 
   ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
       ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
@@ -1063,7 +1077,8 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
             d2m::ResetGlobalSemaphoreOp, d2m::CreateGlobalSemaphoreOp,
-            memref::DeallocOp, memref::AllocOp>(op)) {
+            d2m::CreateLocalSemaphoreOp, memref::DeallocOp, memref::AllocOp>(
+            op)) {
       opsToErase.push_back(op);
     }
   });

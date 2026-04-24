@@ -70,8 +70,11 @@ private:
   void execute(const target::metal::MeshShardCommand *command);
   void execute(const target::metal::CreateGlobalSemaphoreCommand *command);
   void execute(const target::metal::ResetGlobalSemaphoreCommand *command);
+  void execute(const target::metal::CreateLocalSemaphoreCommand *command);
 
-  std::uint64_t getUniqueProgramRuntimeId() { return nextProgramRuntimeId++; }
+  std::uint64_t generateUniqueProgramRuntimeId() {
+    return nextProgramRuntimeId++;
+  }
 
 private:
   distributed::MeshDevice *meshDevice;
@@ -80,6 +83,12 @@ private:
       meshBuffers;
   std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
       global_semaphores;
+
+  // Local semaphores. Indexed by global_id. We only store their initial value
+  // here and lookup during their creation.
+  std::unordered_map<std::uint32_t, std::uint32_t> local_semaphore_initializer;
+
+  // Buffers that live on the host. Indexed by global_id.
   std::unordered_map<std::uint32_t, Tensor> hostBuffers;
   std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshEvent>>
       meshEvents;
@@ -223,6 +232,10 @@ void MCQExecutor::execute(const target::metal::Command *command) {
     execute(command->type_as_ResetGlobalSemaphoreCommand());
     break;
   }
+  case target::metal::CommandType::CreateLocalSemaphoreCommand: {
+    execute(command->type_as_CreateLocalSemaphoreCommand());
+    break;
+  }
   case target::metal::CommandType::NONE: {
     LOG_FATAL("Unsupported CommandType::NONE");
     break;
@@ -328,6 +341,17 @@ void MCQExecutor::execute(
       .reset_semaphore_value(command->value());
 }
 
+void MCQExecutor::execute(
+    const target::metal::CreateLocalSemaphoreCommand *command) {
+  LOG_ASSERT(
+      this->local_semaphore_initializer.find(command->ref()->global_id()) ==
+          this->local_semaphore_initializer.end(),
+      "Local semaphore with id ", command->ref()->global_id(),
+      " already exists.");
+  this->local_semaphore_initializer.emplace(command->ref()->global_id(),
+                                            command->ref()->initial_value());
+}
+
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
@@ -355,17 +379,18 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
       tt_metal::KernelHandle handle = createKernel(
           program, kernelSourceString, coreRangeSet,
-          createKernelConfig(kernelConfig, command->arg_refs_type(),
-                             command->arg_refs(), meshBuffers,
-                             global_semaphores, command->cbs(),
-                             deviceAddressValidator, createSemaphore),
+          createKernelConfig(
+              kernelConfig, command->arg_refs_type(), command->arg_refs(),
+              meshBuffers, global_semaphores, local_semaphore_initializer,
+              command->cbs(), deviceAddressValidator, createSemaphore),
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->arg_refs_type(),
-          command->arg_refs(), meshBuffers, global_semaphores, command->cbs(),
-          deviceAddressValidator, createSemaphore);
+          command->arg_refs(), meshBuffers, global_semaphores,
+          local_semaphore_initializer, command->cbs(), deviceAddressValidator,
+          createSemaphore);
 
       if (command->fabric_connection_config() &&
           kernelConfig->type_type() ==
@@ -424,11 +449,13 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     auto devices = meshDevice->get_devices();
     auto meshShape = meshDevice->shape();
 
+    // We use the same opId for all programs in the workload.
+    auto opId = generateUniqueProgramRuntimeId();
     for (auto &[range, program] : meshWorkload.get_programs()) {
+      program.set_runtime_id(opId);
       for (auto coord : range) {
         size_t linearIdx = coord.to_linear_index(meshShape);
         auto deviceId = devices[linearIdx]->id();
-        program.set_runtime_id(getUniqueProgramRuntimeId());
         profiler::addProgramProfileHostMetadata(deviceId, program, loc);
       }
     }

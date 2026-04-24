@@ -30,10 +30,8 @@ func.func @reduce_scatter_fusion_single_dim(
   return %1 : tensor<4x1x32x2880xbf16>
 }
 
-// all_slice(all_gather(x)) with the same axes should cancel out to identity.
-// The dead all_gather remains (no Pure trait) but the all_slice is eliminated.
 // CHECK-LABEL: func.func @all_slice_cancels_all_gather
-// CHECK: sdy.all_gather
+// CHECK-NOT: sdy.all_gather
 // CHECK-NOT: sdy.all_slice
 // CHECK: return %arg0
 func.func @all_slice_cancels_all_gather(

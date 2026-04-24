@@ -7,6 +7,8 @@
           "image": "tracy",
               "script": "ttrt.sh", "args": ["perf", "Silicon/TTNN/$RUNS_ON/perf"] },
 
+    { "runs-on": "n150", "image": "tracy", "script": "chisel.sh" },
+
     { "runs-on": "n150",
           "image": "tracy",
               "script": "test-ttrt.sh" },

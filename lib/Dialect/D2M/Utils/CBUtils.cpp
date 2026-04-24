@@ -34,7 +34,7 @@ unsigned getNextAvailablePort(Region &region, PortCounter &portCounters,
 }
 
 Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
-                    IRRewriter &rewriter, CBCache &cache,
+                    RewriterBase &rewriter, CBCache &cache,
                     PortCounter &portCounters) {
   auto key = std::make_pair(generic.getOperation(), operandIndex);
   auto it = cache.find(key);
@@ -56,6 +56,19 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
       auto allocType = allocOp.getType();
       if (mlir::isa<ttcore::CBLayoutAttr>(allocType.getLayout())) {
         cbUnderlyingType = allocType;
+      }
+    }
+  }
+
+  if (!cbUnderlyingType) {
+    // The operand itself may carry CBLayoutAttr (e.g. hoisted additionalArgs
+    // whose alloc is outside the region).  Use it directly.
+    if (auto memrefType = mlir::dyn_cast<MemRefType>(
+            generic->getOperand(operandIndex).getType())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+        cbUnderlyingType =
+            MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
+                            nullptr, L1Attr);
       }
     }
   }
@@ -95,15 +108,18 @@ Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
   rewriter.setInsertionPointToStart(&region.front());
   auto getCBOp = rewriter.create<GetCBOp>(
       generic.getLoc(), cbType, port,
-      rewriter.getI64IntegerAttr(static_cast<int64_t>(operandIndex)));
+      rewriter.getI64IntegerAttr(static_cast<int64_t>(operandIndex)),
+      ResolutionStageAttr::get(rewriter.getContext(),
+                               ResolutionStage::Compile));
 
   Value result = getCBOp.getResult();
   cache[key] = result;
   return result;
 }
 
-Value findAssociatedCB(Operation *op, Value memrefOperand, IRRewriter &rewriter,
-                       CBCache &cache, PortCounter &portCounters) {
+Value findAssociatedCB(Operation *op, Value memrefOperand,
+                       RewriterBase &rewriter, CBCache &cache,
+                       PortCounter &portCounters) {
   GenericOp generic = op->getParentOfType<GenericOp>();
   if (!generic) {
     return Value();
