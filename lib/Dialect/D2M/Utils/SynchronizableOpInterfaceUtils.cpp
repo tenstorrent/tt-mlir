@@ -91,7 +91,6 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
         for (Operation &op : llvm::make_range(start, end)) {
           bbBuilder.clone(op, mapping);
         }
-        bbBuilder.create<d2m::YieldOp>(bbLoc, ValueRange());
       });
 
   SmallVector<Operation *> opsToErase;
