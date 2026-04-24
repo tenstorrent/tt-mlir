@@ -15028,44 +15028,6 @@ class TTIRBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
-        """
-        Creates ``ttir.matmul``.
-
-        *Matrix multiplication operation.*
-
-        Performs matrix multiplication between two tensors with optional transposition.
-        Supports batched matrix multiplication where batch dimensions are broadcast.
-
-        .. code-block:: mlir
-
-            // Basic matrix multiplication
-            %result = ttir.matmul(%a, %b, %output) {
-                transpose_a = false,
-                transpose_b = false
-            } : tensor<2x3xf32>, tensor<3x4xf32>, tensor<2x4xf32> -> tensor<2x4xf32>
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        transpose_a : bool, optional
-            Whether to transpose the first input (default: False)
-        transpose_b : bool, optional
-            Whether to transpose the second input (default: False)
-        output_type : *Optional[torch.dtype]*, optional
-            Optional output data type (default: None, uses input type)
-        loc : *Optional[str]*, optional
-            Optional location string for debugging
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpResult*)
-            Result of matrix multiplication
-        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.matmul)
 
         if output_type is None:

@@ -1417,7 +1417,7 @@ def ttir_sparse_matmul_golden(
         return torch.matmul(a, b)
 
 
-def all_to_all_dispatch_golden(
+def ttir_all_to_all_dispatch_golden(
     input_tensor: GoldenMapTensor,
     expert_indices: GoldenMapTensor,
     expert_mapping: GoldenMapTensor,
@@ -1446,7 +1446,7 @@ def all_to_all_dispatch_golden(
     return dispatched, metadata
 
 
-def all_to_all_dispatch_metadata_golden(
+def ttir_all_to_all_dispatch_metadata_golden(
     input_tensor: GoldenMapTensor,
     expert_indices: GoldenMapTensor,
     expert_scores: GoldenMapTensor,
@@ -1546,7 +1546,7 @@ def all_to_all_dispatch_metadata_golden(
     )
 
 
-def all_to_all_combine_golden(
+def ttir_all_to_all_combine_golden(
     input_tensor: GoldenMapTensor,
     expert_metadata: GoldenMapTensor,
     expert_mapping: GoldenMapTensor,
@@ -1668,7 +1668,7 @@ def all_to_all_combine_golden(
     return GoldenMapTensor(output_shards, input_tensor.mesh_shape)
 
 
-def moe_expert_token_remap_golden(
+def ttir_moe_expert_token_remap_golden(
     topk_tensor: GoldenMapTensor,
     expert_mapping: GoldenMapTensor,
     expert_metadata: GoldenMapTensor,
@@ -1686,7 +1686,7 @@ def moe_expert_token_remap_golden(
     return mapping, reduced
 
 
-def matmul_golden(
+def ttir_matmul_golden(
     a: GoldenMapTensor,
     b: GoldenMapTensor,
     transpose_a: bool,
@@ -7325,7 +7325,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SliceStaticOp: ttir_slice_golden,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
-    ttir.MatmulOp: matmul_golden,
+    ttir.MatmulOp: ttir_matmul_golden,
     ttir.EmbeddingOp: ttir_embedding_golden,
     ttir.EmbeddingBackwardOp: ttir_embedding_backward_golden,
     ttir.Upsample2dOp: upsample2d_golden,
@@ -7386,10 +7386,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CollectiveBroadcastOp: ttir_collective_broadcast_golden,
     # Sparse MoE operations
     ttir.SparseMatmulOp: ttir_sparse_matmul_golden,
-    ttir.AllToAllDispatchOp: all_to_all_dispatch_golden,
-    ttir.AllToAllDispatchMetadataOp: all_to_all_dispatch_metadata_golden,
-    ttir.AllToAllCombineOp: all_to_all_combine_golden,
-    ttir.MoeExpertTokenRemapOp: moe_expert_token_remap_golden,
+    ttir.AllToAllDispatchOp: ttir_all_to_all_dispatch_golden,
+    ttir.AllToAllDispatchMetadataOp: ttir_all_to_all_dispatch_metadata_golden,
+    ttir.AllToAllCombineOp: ttir_all_to_all_combine_golden,
+    ttir.MoeExpertTokenRemapOp: ttir_moe_expert_token_remap_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
     # Attention operations
