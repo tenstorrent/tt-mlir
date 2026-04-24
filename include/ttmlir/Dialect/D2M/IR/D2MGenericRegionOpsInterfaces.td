@@ -17,14 +17,16 @@ def D2M_SynchronizableOpInterface : OpInterface<"SynchronizableOpInterface"> {
 
   let methods = [
     InterfaceMethod<
-      /*desc=*/[{Get the (only) input of the view op.}],
+      /*desc=*/[{Returns true if the given operand is a producer (i.e. written
+                 to) for synchronization purposes.}],
       /*retTy=*/"bool",
       /*methodName=*/"isProducer",
       /*args=*/(ins "mlir::OpOperand &":$operand),
       /*methodBody=*/""
     >,
     InterfaceMethod<
-      /*desc=*/[{Get the result of the view op.}],
+      /*desc=*/[{Returns true if the given operand is a consumer (i.e. read
+                 from) for synchronization purposes.}],
       /*retTy=*/"bool",
       /*methodName=*/"isConsumer",
       /*args=*/(ins "mlir::OpOperand &":$operand),
