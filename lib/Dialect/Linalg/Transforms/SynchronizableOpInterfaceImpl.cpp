@@ -18,13 +18,13 @@ struct LinalgGenericOpSynchronizableModel
 
   bool isProducer(Operation *op, OpOperand &operand) const {
     auto genericOp = cast<linalg::GenericOp>(op);
-    // DPS init operands are producers (they write to the buffer)
+    // DPS init operands are producers (they write to the buffer).
     return genericOp.isDpsInit(&operand);
   }
 
   bool isConsumer(Operation *op, OpOperand &operand) const {
     auto genericOp = cast<linalg::GenericOp>(op);
-    // DPS input operands are consumers (they read from the buffer)
+    // DPS input operands are consumers (they read from the buffer).
     return genericOp.isDpsInput(&operand);
   }
 };

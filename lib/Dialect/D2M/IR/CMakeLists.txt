@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRD2MDialect
         D2MOps.cpp
         D2MOpsTypes.cpp
         D2MGenericRegionOps.cpp
+        D2MGenericRegionOpsInterfaces.cpp
         D2MOpsInterfaces.cpp
         D2MTraits.cpp
 

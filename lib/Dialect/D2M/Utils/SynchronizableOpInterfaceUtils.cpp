@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
-#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.cpp.inc"
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.h"
@@ -11,7 +10,8 @@
 
 namespace mlir::tt::d2m::utils {
 
-// Note: this function must be used before converting to explicit CB form
+// Note: This function must be used post-bufferization but before converting
+// to explicit CB form.
 llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
   llvm::DenseMap<Value, CBUsageInfo> cbUsageInfo;
   genericRegion.walk([&](Operation *op) {
@@ -45,7 +45,7 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
 // generically implements SynchronizableOpInterface (e.g. wrapping
 // linalg.generic after it has been lowered into loops so we can use analysis
 // relying on SynchronizableOpInterface, such as in SplitUnifiedThread pass to
-// identify CBs and insert correct CB ops on producer/consumer side)
+// identify CBs and insert correct CB ops on producer/consumer side).
 Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
                                     Block::iterator start, Block::iterator end,
                                     const SmallVector<Value> &consumers,
