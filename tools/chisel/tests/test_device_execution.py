@@ -12,6 +12,8 @@ Usage:
 import functools
 import logging
 
+from _ttmlir_runtime import runtime as tt_runtime
+
 from ttrt.common.api import API
 from ttrt.common.util import Logger as RtLogger
 from ttrt.common.util import Artifacts as RtArtifacts
@@ -49,8 +51,6 @@ def wrap_for_subtests(fn, subtests):
 
 def test_device_execution(subtests, binary_path):
     """Execute a flatbuffer on device; mismatches are reported as subtests."""
-    from ttrt import runtime as tt_runtime
-
     ChiselContext.reset_instance()
     ctx = ChiselContext()
     ctx.strict = False

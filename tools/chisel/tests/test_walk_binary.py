@@ -8,7 +8,7 @@ For every op in every program, zips MLIR-level operands/results with the
 runtime TensorRefs and asserts that reported shapes agree. Each op runs
 as a pytest subtest so failures are reported individually.
 """
-import ttrt.runtime as rt
+from _ttmlir_runtime import runtime as rt
 
 from chisel.ops import get_op_inputs, get_op_outputs
 

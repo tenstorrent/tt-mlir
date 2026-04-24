@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Callable, Dict, Iterator, Optional, TextIO
 
 from ttmlir.ir import Operation
+from _ttmlir_runtime import runtime as tt_runtime
 
 from .ops import IRModule
 from .tensors import TensorPool
@@ -78,8 +79,6 @@ class ChiselContext:
         return self.skip_criterion(op)
 
     def preprogram(self, binary, program_context) -> None:
-        from ttrt import runtime as tt_runtime
-
         program_index = tt_runtime.get_program_index(program_context)
 
         if binary.id not in self.binaries:

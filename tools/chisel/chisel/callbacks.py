@@ -15,6 +15,8 @@ Either check can be disabled via ctx.isolation_check / ctx.accum_check.
 """
 import logging
 
+from _ttmlir_runtime import runtime as tt_runtime
+
 from .checker import ChiselChecker
 from .context import ChiselContext
 from .executor import execute_golden, execute_golden_from_pool
@@ -59,8 +61,6 @@ def _default_pre_op(binary, program_context, op_context) -> None:
     4. Stash inputs in program.stashed_inputs for isolation golden in postOp
     5. Seed golden_tensor_pool for inputs not yet present (program inputs)
     """
-    from ttrt import runtime as tt_runtime
-
     ctx = ChiselContext.get_instance()
     program = ctx.current_program
     binary_state = ctx.current_binary
@@ -108,8 +108,6 @@ def _default_post_op(
     7. execute_golden_from_pool with program.golden_tensor_pool
     8. check_golden_vs_runtime_tensor(accum=True) — PCC/atol/rtol (skip if skip_accum_pcc)
     """
-    from ttrt import runtime as tt_runtime
-
     ctx = ChiselContext.get_instance()
     program = ctx.current_program
     binary_state = ctx.current_binary
