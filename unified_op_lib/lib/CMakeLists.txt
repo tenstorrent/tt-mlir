@@ -2,6 +2,7 @@ add_library(TTUnifiedOpLib STATIC
   utils/utils.cpp
   conv/unifiedConv2dOp.cpp
   conv/unifiedPrepareConvTranspose2dBiasOp.cpp
+  conv/unifiedPrepareConvTranspose2dWeightsOp.cpp
   eltwise/binary/unifiedEltwiseBinaryCompositeOp.cpp
   eltwise/binary/unifiedEltwiseBinaryOp.cpp
   eltwise/ternary/unifiedEltwiseTernaryOp.cpp
