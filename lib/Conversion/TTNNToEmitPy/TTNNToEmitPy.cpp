@@ -2576,6 +2576,47 @@ public:
 };
 } // namespace
 
+// SliceWriteOp
+//
+namespace {
+class SliceWriteOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::SliceWriteOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::SliceWriteOp::getOperationName().str();
+  }
+
+  std::string getPrefixSwapPattern() const override {
+    return "utils.slice_write_from_tensors";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SliceWriteOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SliceWriteOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::SliceWriteOp> emitter(
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    // utils.slice_write_from_tensors(operand, input, begins, ends)
+    // handles tensor-to-list conversion for begins/ends internally.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getOperand()),
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getBegins()),
+        emitter.emit(srcOp.getEnds()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // UpdateCacheOp
 //
 namespace {
@@ -4849,6 +4890,11 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                MoeExpertTokenRemapOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
+
+  // Slice write op
+  //
+  patterns.add<SliceWriteOpConversionPattern>(typeConverter, ctx,
+                                              enableGoldenMode);
 
   // KV Cache ops
   //

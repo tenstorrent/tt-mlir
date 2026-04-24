@@ -126,6 +126,7 @@ union OpType {
   ScatterOp,
   SelectiveReduceCombineOp,
   SliceOp,
+  SliceWriteOp,
   SoftmaxOp,
   SortOp,
   SplitQueryKeyValueAndSplitHeadsOp,

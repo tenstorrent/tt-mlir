@@ -111,6 +111,13 @@ table SliceOp {
   params: SliceOpParams;
 }
 
+table SliceWriteOp {
+  operand: tt.target.ttnn.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  begins: tt.target.ttnn.TensorRef;
+  ends: tt.target.ttnn.TensorRef;
+}
+
 table SortOp {
   in: tt.target.ttnn.TensorRef;
   dim: int8;

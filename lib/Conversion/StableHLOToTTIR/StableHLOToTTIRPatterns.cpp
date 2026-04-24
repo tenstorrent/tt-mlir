@@ -4538,6 +4538,114 @@ public:
 };
 } // namespace
 
+// Conversion pattern for stablehlo.dynamic_update_slice.
+//
+// Decomposes into:
+//   1. Reshape scalar start indices to 1D and concat into a single tensor
+//   2. Create constant tensors for clamping bounds
+//   3. Clamp start indices: adjusted = clamp(0, starts, shape(op) - shape(upd))
+//   4. Compute end indices: ends = adjusted + shape(update)
+//   5. Emit ttir.slice_write(operand, update, adjusted, ends)
+//
+// The clamping ensures start indices are valid per the StableHLO spec:
+//   adjusted_start = clamp(0, start_indices, shape(operand) - shape(update))
+namespace {
+class StableHLOToTTIRDynamicUpdateSliceOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::DynamicUpdateSliceOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::DynamicUpdateSliceOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::DynamicUpdateSliceOp srcOp,
+                  mlir::stablehlo::DynamicUpdateSliceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = srcOp.getLoc();
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto operandType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    auto updateType =
+        mlir::cast<RankedTensorType>(adaptor.getUpdate().getType());
+    int64_t rank = operandType.getRank();
+
+    // Step 1: Reshape each scalar start index to tensor<1xi32> and concat.
+    ValueRange startIndicesRange = adaptor.getStartIndices();
+    SmallVector<Value> startIndices1D;
+    auto startIndexElementType =
+        mlir::cast<RankedTensorType>(startIndicesRange[0].getType())
+            .getElementType();
+    auto singleElementTensorType =
+        RankedTensorType::get({1}, startIndexElementType);
+
+    for (Value startIndex : startIndicesRange) {
+      auto reshaped = rewriter.create<ttir::ReshapeOp>(
+          loc,
+          RankedTensorType::get(singleElementTensorType.getShape(),
+                                startIndexElementType,
+                                singleElementTensorType.getEncoding()),
+          startIndex, rewriter.getI32ArrayAttr({1}));
+      startIndices1D.push_back(reshaped);
+    }
+
+    auto indicesTensorType = RankedTensorType::get({static_cast<int64_t>(rank)},
+                                                   startIndexElementType);
+    auto startIndicesTensor = rewriter.create<ttir::ConcatOp>(
+        loc,
+        RankedTensorType::get(indicesTensorType.getShape(),
+                              startIndexElementType,
+                              indicesTensorType.getEncoding()),
+        startIndices1D, /*dim=*/0);
+
+    // Step 2: Create constant tensors for clamping.
+    // zeros = [0, 0, ..., 0]
+    SmallVector<int32_t> zerosVec(rank, 0);
+    auto constType = RankedTensorType::get({static_cast<int64_t>(rank)},
+                                           rewriter.getI32Type());
+    auto zerosAttr =
+        mlir::DenseElementsAttr::get(constType, llvm::ArrayRef(zerosVec));
+    auto zerosConst =
+        rewriter.create<ttir::ConstantOp>(loc, constType, zerosAttr);
+
+    // maxStarts = shape(operand) - shape(update)
+    SmallVector<int32_t> maxStartsVec;
+    for (int64_t i = 0; i < rank; ++i) {
+      maxStartsVec.push_back(static_cast<int32_t>(operandType.getDimSize(i) -
+                                                  updateType.getDimSize(i)));
+    }
+    auto maxStartsAttr =
+        mlir::DenseElementsAttr::get(constType, llvm::ArrayRef(maxStartsVec));
+    auto maxStartsConst =
+        rewriter.create<ttir::ConstantOp>(loc, constType, maxStartsAttr);
+
+    // Step 3: Clamp start indices.
+    // adjusted = clamp(zeros, startIndices, maxStarts)
+    auto clampedStarts = rewriter.create<ttir::ClampTensorOp>(
+        loc, constType, startIndicesTensor, zerosConst, maxStartsConst);
+
+    // Step 4: Compute end indices = clampedStarts + shape(update).
+    SmallVector<int32_t> updateShapeVec;
+    for (int64_t i = 0; i < rank; ++i) {
+      updateShapeVec.push_back(static_cast<int32_t>(updateType.getDimSize(i)));
+    }
+    auto updateShapeAttr =
+        mlir::DenseElementsAttr::get(constType, llvm::ArrayRef(updateShapeVec));
+    auto updateShapeConst =
+        rewriter.create<ttir::ConstantOp>(loc, constType, updateShapeAttr);
+
+    auto endIndicesTensor = rewriter.create<ttir::AddOp>(
+        loc, constType, clampedStarts, updateShapeConst);
+
+    // Step 5: Emit ttir.slice_write.
+    rewriter.replaceOpWithNewOp<ttir::SliceWriteOp>(
+        srcOp, outputType, adaptor.getOperand(), adaptor.getUpdate(),
+        clampedStarts, endIndicesTensor);
+
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class StableHLOToTTIROpClampOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ClampOp> {
@@ -8199,6 +8307,14 @@ static void addDynamicSliceOpConversionPattern(MLIRContext *ctx,
                                                                ctx);
 }
 
+static void
+addDynamicUpdateSliceOpConversionPattern(MLIRContext *ctx,
+                                         RewritePatternSet &patterns,
+                                         TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRDynamicUpdateSliceOpConversionPattern>(
+      typeConverter, ctx);
+}
+
 static void addClampOpConversionPattern(MLIRContext *ctx,
                                         RewritePatternSet &patterns,
                                         TypeConverter &typeConverter) {
@@ -8796,6 +8912,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addLogicalAndBitwiseOpsConversionPatterns(ctx, patterns, typeConverter);
   addSliceOpConversionPattern(ctx, patterns, typeConverter);
   addDynamicSliceOpConversionPattern(ctx, patterns, typeConverter);
+  addDynamicUpdateSliceOpConversionPattern(ctx, patterns, typeConverter);
   addClampOpConversionPattern(ctx, patterns, typeConverter);
   addGatherOpConversionPattern(ctx, patterns, typeConverter);
   addIotaOpConversionPattern(ctx, patterns, typeConverter);
