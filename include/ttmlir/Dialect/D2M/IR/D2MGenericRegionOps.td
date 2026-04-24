@@ -2080,7 +2080,7 @@ def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
 
   let summary = "D2M Synchronized Region Op";
   let description = [{
-    This is a generic op to wrap a region of non synchronized ops to be synchronizeable.
+    This is a generic op to wrap a region of non synchronized ops to be synchronizable.
   }];
 
   let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$consumers, Variadic<AnyRankedTensorOrMemRef>:$producers);
