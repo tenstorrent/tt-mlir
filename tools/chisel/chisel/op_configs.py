@@ -19,7 +19,6 @@ from ttmlir.dialects import ttcore, ttnn
 
 from .checker import ChiselChecker
 from .context import ChiselContext
-from .exceptions import record_check
 from .ops import get_op_outputs
 from .utils import retrieve_torch_tensor
 

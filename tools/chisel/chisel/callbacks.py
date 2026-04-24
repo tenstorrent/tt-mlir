@@ -17,7 +17,6 @@ import logging
 
 from .checker import ChiselChecker
 from .context import ChiselContext
-from .exceptions import record_check
 from .executor import execute_golden, execute_golden_from_pool
 from .op_configs import get_op_config
 from .ops import get_op_inputs, get_op_outputs
@@ -76,14 +75,15 @@ def _default_pre_op(binary, program_context, op_context) -> None:
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
         name = mlir_input.get_name(asm_state)
         checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_input, tensor_ref)
-        tensor = None
-        with record_check([name], "retrieve_input", checker, log_prefix=op.name):
-            tensor = retrieve_torch_tensor(program_context, tensor_ref)
+        tensor = retrieve_torch_tensor(
+            program_context, tensor_ref,
+            checker=checker, slot=name, check="retrieve_input",
+        )
         if tensor is None:
             continue
         checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_input, tensor)
         program.stashed_inputs[name] = tensor
-        # Seed pool for program inputs (never produced by a prior golden op)
+        # Seed pool for program inputs (never produced by a prior golden op).
         if name not in program.golden_tensor_pool:
             program.golden_tensor_pool[name] = tensor
 
@@ -138,20 +138,18 @@ def _default_post_op(
 
     iso_result = None
     if ctx.isolation_check or skip_this_op:
-        with record_check(
-            slots, "golden", checker,
-            log_prefix=op_name, record=ctx.isolation_check,
-        ):
-            iso_result = execute_golden(
-                op.opview, ir_module, program.stashed_inputs
-            )
+        iso_result = execute_golden(
+            op.opview, ir_module, program.stashed_inputs,
+            checker=checker if ctx.isolation_check else None,
+            slots=slots, check="golden",
+        )
 
     acc_result = None
     if ctx.accum_check:
-        with record_check(slots, "accum_golden", checker, log_prefix=op_name):
-            acc_result = execute_golden_from_pool(
-                op.opview, ir_module, program.golden_tensor_pool
-            )
+        acc_result = execute_golden_from_pool(
+            op.opview, ir_module, program.golden_tensor_pool,
+            checker=checker, slots=slots, check="accum_golden",
+        )
 
     # --- Per-output validation loop ---
 
@@ -165,9 +163,10 @@ def _default_post_op(
 
         checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
 
-        device_tensor = None
-        with record_check([name], "retrieve_output", checker, log_prefix=op_name):
-            device_tensor = retrieve_torch_tensor(program_context, output_ref)
+        device_tensor = retrieve_torch_tensor(
+            program_context, output_ref,
+            checker=checker, slot=name, check="retrieve_output",
+        )
         if device_tensor is None:
             continue
 
@@ -213,11 +212,10 @@ def _apply_skip(
     ):
         name = mlir_output.get_name(asm_state)
         tensor = iso_result[i]
-        with record_check(
-            [name], "skip_on_device", checker,
-            log_prefix=op.name, success="applied",
-        ):
-            write_torch_tensor_to_pool(program_context, output_ref, tensor)
+        write_torch_tensor_to_pool(
+            program_context, output_ref, tensor,
+            checker=checker, slot=name, check="skip_on_device",
+        )
 
 
 # ---------------------------------------------------------------------------

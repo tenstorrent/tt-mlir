@@ -8,12 +8,11 @@ import functools
 import logging
 import os
 import traceback
+from typing import Optional
 
 import torch
 
 from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtype
-
-from .exceptions import TensorRetrievalError, TensorWriteError
 
 logger = logging.getLogger("chisel")
 
@@ -28,10 +27,12 @@ def get_torch_tensor(tensor) -> torch.Tensor:
     return torch_tensor.reshape(shape).clone()
 
 
-def retrieve_torch_tensor(program_context, tensor_ref) -> torch.Tensor:
+def retrieve_torch_tensor(
+    program_context, tensor_ref, *, checker=None, slot: str = "", check: str = "retrieve",
+) -> Optional[torch.Tensor]:
     """Retrieve a tensor from the runtime pool and convert it to a PyTorch tensor.
 
-    Raises TensorRetrievalError on any underlying failure.
+    On failure records an "error" entry via `checker` (if provided) and returns None.
     """
     from ttrt import runtime as tt_runtime
 
@@ -40,20 +41,26 @@ def retrieve_torch_tensor(program_context, tensor_ref) -> torch.Tensor:
             program_context, tensor_ref
         )
         return get_torch_tensor(device_tensor)
-    except Exception as e:
-        raise TensorRetrievalError(str(e)) from e
+    except Exception:
+        tb = traceback.format_exc()
+        logger.error(f"{slot} [{check}]: retrieve_tensor error\n{tb}")
+        if checker is not None:
+            checker.record(slot, check, "error", traceback=tb)
+        return None
 
 
 def write_torch_tensor_to_pool(
-    program_context, tensor_ref, torch_tensor: torch.Tensor
-) -> None:
+    program_context, tensor_ref, torch_tensor: torch.Tensor,
+    *, checker=None, slot: str = "", check: str = "skip_on_device",
+) -> bool:
     """Overwrite a tensor in the runtime pool with a host-side torch tensor.
 
     Shape/stride/dtype are taken from the existing pool tensor so the substitute
     matches the layout downstream ops expect. The source tensor is made
     contiguous first so its data_ptr points at a valid linear buffer.
 
-    Raises TensorWriteError on any underlying failure.
+    Records "applied" on success and "error" on failure via `checker` (if provided).
+    Returns True on success, False on failure.
     """
     from ttrt import runtime as tt_runtime
 
@@ -68,8 +75,15 @@ def write_torch_tensor_to_pool(
             dst.get_dtype(),
         )
         tt_runtime.update_tensor_in_pool(program_context, tensor_ref, rt)
-    except Exception as e:
-        raise TensorWriteError(str(e)) from e
+    except Exception:
+        tb = traceback.format_exc()
+        logger.error(f"{slot} [{check}]: write_tensor error\n{tb}")
+        if checker is not None:
+            checker.record(slot, check, "error", traceback=tb)
+        return False
+    if checker is not None:
+        checker.record(slot, check, "applied")
+    return True
 
 
 def debug_wrap(fn):
@@ -97,10 +111,10 @@ def debug_wrap(fn):
 def chisel_safe(fn):
     """Safety net for top-level DebugHooks callbacks.
 
-    Swallows any uncaught exception (typed or not) so a chisel bug never kills
-    the ttrt execution. ChiselErrors are expected to be caught at per-slot
-    level inside the callback body via record_check — if one reaches this
-    wrapper it means we forgot to guard something.
+    Swallows any uncaught exception so a chisel bug never kills ttrt execution.
+    Emitter functions are expected to catch and record their own failures; if
+    anything still escapes, this wrapper best-effort records a `chisel_bug`
+    entry against the current op so the failure is visible in the report.
     """
 
     @functools.wraps(fn)
@@ -110,5 +124,16 @@ def chisel_safe(fn):
         except Exception:
             tb = traceback.format_exc()
             logger.error(f"chisel callback {fn.__name__} crashed\n{tb}")
+            try:
+                from .checker import ChiselChecker
+                from .context import ChiselContext
+                ctx = ChiselContext.get_instance()
+                op = ctx.current_program.current_op if ctx.current_program else None
+                if op is not None:
+                    ChiselChecker(ctx, op.name).record(
+                        "<callback>", fn.__name__, "chisel_bug", traceback=tb,
+                    )
+            except Exception:
+                pass
 
     return wrapper
