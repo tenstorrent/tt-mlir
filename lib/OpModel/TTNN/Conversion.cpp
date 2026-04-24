@@ -471,6 +471,28 @@ getMemoryConfigT(const TTNNLayoutAttr &layout) {
   return memoryConfigT;
 }
 
+::tt::target::ttnn::MemoryConfigT
+getMemoryConfigT(const MemoryConfigAttr &memConfigAttr) {
+  ::tt::target::ttnn::MemoryConfigT memoryConfigT;
+
+  TensorMemoryLayout memLayout = TensorMemoryLayout::Interleaved;
+  if (memConfigAttr.getTensorMemoryLayout()) {
+    memLayout = memConfigAttr.getTensorMemoryLayout().getValue();
+  }
+  memoryConfigT.tensor_memory_layout = getTensorMemoryLayoutT(memLayout);
+
+  BufferType bufferType = BufferType::DRAM;
+  if (memConfigAttr.getBufferType()) {
+    bufferType = memConfigAttr.getBufferType().getValue();
+  }
+  memoryConfigT.buffer_type = getBufferTypeT(bufferType);
+
+  // Shard spec conversion from MemoryConfigAttr is not yet supported.
+  memoryConfigT.shard_spec = nullptr;
+
+  return memoryConfigT;
+}
+
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
   // Get tensor memory layout if available, otherwise use INTERLEAVED as default
