@@ -1689,10 +1689,12 @@ def ttir_moe_expert_token_remap_golden(
 def ttir_matmul_golden(
     a: GoldenMapTensor,
     b: GoldenMapTensor,
-    transpose_a: bool,
-    transpose_b: bool,
+    transpose_a_attr: BoolAttr,
+    transpose_b_attr: BoolAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
+    transpose_a = unpack_mlir_attr(transpose_a_attr)
+    transpose_b = unpack_mlir_attr(transpose_b_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     a = torch.transpose(a, -2, -1) if transpose_a else a
     b = torch.transpose(b, -2, -1) if transpose_b else b
