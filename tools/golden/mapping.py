@@ -1565,11 +1565,12 @@ def ttir_all_to_all_combine_golden(
     num_devices = unpack_mlir_attr(num_devices_attr)
     cluster_axis = unpack_mlir_attr(cluster_axis_attr)
     num_experts_per_tok = unpack_mlir_attr(num_experts_per_tok_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     if not isinstance(input_tensor, GoldenMapTensor):
         D = num_devices if isinstance(num_devices, int) else 2
         B = max(1, input_tensor.shape[1] // D)
-        return input_tensor[:, :B, :, :]
+        return input_tensor[:, :B, :, :].to(output_dtype)
 
     grouped_inputs = input_tensor.group_by_axis(cluster_axis)
     grouped_metadata = expert_metadata.group_by_axis(cluster_axis)
@@ -1665,7 +1666,7 @@ def ttir_all_to_all_combine_golden(
                             local_e, src_b, src_s, :
                         ]
 
-    return GoldenMapTensor(output_shards, input_tensor.mesh_shape)
+    return GoldenMapTensor(output_shards, input_tensor.mesh_shape).to(output_dtype)
 
 
 def ttir_moe_expert_token_remap_golden(
