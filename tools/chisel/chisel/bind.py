@@ -38,7 +38,8 @@ def bind(skip_criterion: Optional[Callable[[Operation], bool]] = None):
 
 def unbind():
     """Tear down ChiselContext singleton. Safe to call even if bind() was not called."""
-    tt_runtime.DebugHooks.get()
     if ChiselContext._instance is not None:
         ChiselContext._instance.close_results()
     ChiselContext.reset_instance()
+
+    tt_runtime.unregister_hooks()
