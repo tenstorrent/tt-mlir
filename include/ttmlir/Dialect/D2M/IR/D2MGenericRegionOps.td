@@ -918,10 +918,10 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
 
       bool isProducer(mlir::OpOperand &operand) {
-        return operand.get() == getOutput();
+        return llvm::any_of(getOutputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
       bool isConsumer(mlir::OpOperand &operand) {
-        return operand.get() == getInput();
+        return llvm::any_of(getInputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
     }];
 
@@ -952,10 +952,10 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
 
       bool isProducer(mlir::OpOperand &operand) {
-        return operand.get() == getOutput();
+        return llvm::any_of(getOutputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
       bool isConsumer(mlir::OpOperand &operand) {
-        return operand.get() == getInput();
+        return llvm::any_of(getInputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
     }];
 
@@ -1525,11 +1525,11 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       unsigned getCBPort();
 
       bool isProducer(mlir::OpOperand &operand) {
-        return operand.get() == getDst();
+        return llvm::any_of(getDstMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
 
       bool isConsumer(mlir::OpOperand &operand) {
-        return operand.get() == getSrc();
+        return llvm::any_of(getSrcMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
     }];
 
@@ -1853,7 +1853,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       }
 
       bool isProducer(mlir::OpOperand &operand) {
-        return operand.get() == getLocalBuffer();
+        return llvm::any_of(getLocalBufferMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
 
       bool isConsumer(mlir::OpOperand &operand) {
@@ -2072,7 +2072,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       }
 
       bool isConsumer(mlir::OpOperand &operand) {
-        return operand.get() == getLocalBuffer();
+        return llvm::any_of(getLocalBufferMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
     }];
 }
@@ -2121,11 +2121,11 @@ def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
     MutableOperandRange getDpsInitsMutable() { return getProducersMutable(); }
 
     bool isProducer(mlir::OpOperand &operand) {
-      return llvm::find(getProducers(), operand.get()) != getProducers().end();
+      return llvm::any_of(getProducersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
     }
 
     bool isConsumer(mlir::OpOperand &operand) {
-      return llvm::find(getConsumers(), operand.get()) != getConsumers().end();
+      return llvm::any_of(getConsumersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
     }
   }];
 
