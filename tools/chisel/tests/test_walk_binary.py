@@ -8,6 +8,7 @@ For every op in every program, zips MLIR-level operands/results with the
 runtime TensorRefs and asserts that reported shapes agree. Each op runs
 as a pytest subtest so failures are reported individually.
 """
+import pytest
 from _ttmlir_runtime import runtime as rt
 
 from chisel.ops import get_op_inputs, get_op_outputs
@@ -17,6 +18,8 @@ from chisel.ops import get_op_inputs, get_op_outputs
 _SKIP_OPS = {"ttnn.quantize", "ttnn.dequantize", "ttnn.requantize"}
 
 
+@pytest.mark.no_device
+@pytest.mark.llvm_lit
 def test_walk_binary_shapes_match_ir(binary, ir_module, subtests):
     """TensorRef shapes from walk_binary must match shapes in the IR module."""
 
