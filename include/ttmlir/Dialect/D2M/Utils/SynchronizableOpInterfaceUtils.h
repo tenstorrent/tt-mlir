@@ -23,14 +23,20 @@ struct CBUsageInfo {
 
 llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion);
 
-Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
+/// Wraps a range of ops [start, end) in a SynchronizedRegionOp.
+///
+/// PRECONDITION: No op in [start, end) may produce SSA results that are used
+/// outside of [start, end). Since SynchronizedRegionOp has no results, any such
+/// external uses would become invalid when the original ops are erased.
+Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                                     Block::iterator start, Block::iterator end,
                                     const SmallVector<Value> &consumers,
                                     const SmallVector<Value> &producers);
 
+/// Unwraps a SynchronizedRegionOp by hoisting its ops to the parent level.
 LogicalResult
-removeSynchronizedRegions(IRRewriter &rewriter,
-                          d2m::SynchronizedRegionOp synchronizedOp);
+unwrapSynchronizedRegion(RewriterBase &rewriter,
+                         d2m::SynchronizedRegionOp synchronizedOp);
 
 } // namespace mlir::tt::d2m::utils
 

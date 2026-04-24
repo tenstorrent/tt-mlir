@@ -960,4 +960,114 @@ func.func @test(
       mlir::isa<d2m::RemoteStoreOp>(cbUsageInfo[cbs[2]].consumers.front()));
 }
 
+TEST_F(GenericOpAnalysisTest, CanWrapAndUnwrapSynchronizedRegion) {
+  // Test wrapInSynchronizedRegion and unwrapSynchronizedRegion.
+  // Creates ops inside a generic using cb_layout memrefs and collapse_shape,
+  // wraps them in a SynchronizedRegionOp, verifies, then unwraps.
+  std::string moduleText = wrapInModule(R"mlir(
+func.func @test(
+    %in1: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>,
+    %in2: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>,
+    %out: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>,
+    %consumer1: memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>>,
+    %consumer2: memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>>,
+    %producer: memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+    ins(%in1, %in2 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>)
+    outs(%out : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.memory_space<l1>>)
+    additionalArgs(%consumer1, %consumer2, %producer : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>>, memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>>) {
+    ^unified0:
+      %c0 = arith.constant 0 : index
+      %collapse_consumer1 = memref.collapse_shape %consumer1 [[0, 1]] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>> into memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+      %collapse_consumer2 = memref.collapse_shape %consumer2 [[0, 1]] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>> into memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+      %collapse_producer = memref.collapse_shape %producer [[0, 1]] : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #ttcore.memory_space<l1>> into memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+      %tile1 = memref.load %collapse_consumer1[%c0] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+      %tile2 = memref.load %collapse_consumer2[%c0] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+      %result = "d2m.tile_add"(%tile1, %tile2) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+      memref.store %result, %collapse_producer[%c0] : memref<8x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>
+    }
+  return
+}
+)mlir");
+
+  auto module = parseModule(moduleText);
+  ASSERT_TRUE(module);
+  d2m::GenericOp generic = getSingleGenericOp(*module);
+  ASSERT_TRUE(generic);
+  Block &block = generic.getRegion(0).front();
+
+  // Get consumers and producer from additionalArgs.
+  SmallVector<Value> consumers;
+  SmallVector<Value> producers;
+  auto additionalArgs = generic.getAdditionalArgs();
+  consumers.push_back(additionalArgs[0]);
+  consumers.push_back(additionalArgs[1]);
+  producers.push_back(additionalArgs[2]);
+
+  // Wrap from start of block to end.
+  Block::iterator start = block.begin();
+  Block::iterator end = block.end();
+  size_t opsBeforeWrap = 0;
+  for (auto it = start; it != end; ++it) {
+    ++opsBeforeWrap;
+  }
+  ASSERT_EQ(opsBeforeWrap, 8u);
+  IRRewriter rewriter(&context);
+  Operation *synchronizedOp = d2m::utils::wrapInSynchronizedRegion(
+      rewriter, start, end, consumers, producers);
+  ASSERT_NE(synchronizedOp, nullptr);
+  ASSERT_TRUE(mlir::isa<d2m::SynchronizedRegionOp>(synchronizedOp));
+  auto syncOp = mlir::cast<d2m::SynchronizedRegionOp>(synchronizedOp);
+  // Verify the synchronized region has a body with ops
+  // and consumer/producer operands are set correctly.
+  ASSERT_EQ(syncOp.getRegion().getBlocks().size(), 1u);
+  EXPECT_EQ(syncOp.getConsumers().size(), 2u);
+  EXPECT_EQ(syncOp.getProducers().size(), 1u);
+
+  // Now unwrap using unwrapSynchronizedRegion
+  // and verify the synchronized region op is gone.
+  LogicalResult unwrapResult =
+      d2m::utils::unwrapSynchronizedRegion(rewriter, syncOp);
+  ASSERT_TRUE(succeeded(unwrapResult));
+  bool foundSyncOp = false;
+  generic.walk([&](d2m::SynchronizedRegionOp op) { foundSyncOp = true; });
+  EXPECT_FALSE(foundSyncOp);
+
+  // Verify same number of ops after unwrapping.
+  Block &blockAfter = generic.getRegion(0).front();
+  Block::iterator startAfter = blockAfter.begin();
+  Block::iterator endAfter = blockAfter.end();
+  size_t opsAfterUnwrap = 0;
+  for (auto it = startAfter; it != endAfter; ++it) {
+    ++opsAfterUnwrap;
+  }
+  EXPECT_EQ(opsAfterUnwrap, opsBeforeWrap);
+
+  // Verify IR structure is restored by checking op types.
+  size_t collapseCount = 0, loadCount = 0, storeCount = 0, addCount = 0,
+         constantCount = 0;
+  for (auto it = startAfter; it != endAfter; ++it) {
+    if (mlir::isa<arith::ConstantOp>(&*it)) {
+      constantCount++;
+    }
+    if (mlir::isa<memref::CollapseShapeOp>(&*it)) {
+      collapseCount++;
+    }
+    if (mlir::isa<memref::LoadOp>(&*it)) {
+      loadCount++;
+    }
+    if (mlir::isa<memref::StoreOp>(&*it)) {
+      storeCount++;
+    }
+    if (it->getName().getStringRef() == "d2m.tile_add") {
+      addCount++;
+    }
+  }
+  ASSERT_EQ(constantCount, 1u);
+  EXPECT_EQ(collapseCount, 3u);
+  EXPECT_EQ(loadCount, 2u);
+  EXPECT_EQ(storeCount, 1u);
+  EXPECT_EQ(addCount, 1u);
+}
+
 } // namespace mlir::tt::d2m

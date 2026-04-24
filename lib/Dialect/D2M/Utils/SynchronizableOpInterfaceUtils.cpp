@@ -49,7 +49,7 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
 //
 // PRECONDITION: No op in [start, end) may produce SSA results that are used
 // outside of [start, end).
-Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
+Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                                     Block::iterator start, Block::iterator end,
                                     const SmallVector<Value> &consumers,
                                     const SmallVector<Value> &producers) {
@@ -107,8 +107,8 @@ Operation *wrapInSynchronizedRegion(PatternRewriter &rewriter,
 
 // This is used to remove SynchronizedRegionOps and hoist their ops up parent
 // level (opposite of wrapInSynchronizedRegion)
-LogicalResult removeSynchronizedRegions(IRRewriter &rewriter,
-                                        SynchronizedRegionOp synchronizedOp) {
+LogicalResult unwrapSynchronizedRegion(RewriterBase &rewriter,
+                                       SynchronizedRegionOp synchronizedOp) {
   // Remove synchronized region ops, and hoist it's ops up parent level
   // and replace the block args with the synchronized region's operands
   rewriter.setInsertionPoint(synchronizedOp);
