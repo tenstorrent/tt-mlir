@@ -681,7 +681,12 @@ def execute_fb(
     Tuple[Dict[str, Dict], Dict[str, Dict]]
         golden_report, output_tensors
     """
-    fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
+    if isinstance(compiled_bin, str):
+        fbb = tt_runtime.binary.load_binary_from_path(compiled_bin)
+    elif isinstance(compiled_bin, tt_runtime.binary.Binary):
+        fbb = compiled_bin
+    else:
+        fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
