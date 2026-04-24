@@ -19,8 +19,10 @@
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -705,8 +707,9 @@ static Value resolveToRegionBorderValue(Value operand,
       return false;
     }
     Region *parent = def->getBlock()->getParent();
-    return llvm::any_of(spatialOp->getRegions(),
-                        [parent](Region &r) { return &r == parent; });
+    return llvm::any_of(
+        spatialOp->getRegions(),
+        [parent](Region &spatialRegion) { return &spatialRegion == parent; });
   };
   Value current = operand;
   while (inSpatialRegion(current)) {
@@ -717,6 +720,96 @@ static Value resolveToRegionBorderValue(Value operand,
     }
   }
   return current;
+}
+
+// Hoist every op except d2m.generic out of each spatial region: prefix ops
+// move before the spatial (forward moveBefore order), suffix ops (after generic
+// until an optional d2m.spatial_yield or block end) move after the spatial
+// with generic-result uses rewired to spatial results. Any existing
+// d2m.spatial_yield ops in the region are erased, then a fresh yield of the
+// generic's results is created at the end of the region block.
+static mlir::LogicalResult
+hoistNonGenericOpsAroundSpatial(d2m::SpatialOp spatialOp) {
+  mlir::OpBuilder builder(spatialOp.getContext());
+  Operation *suffixInsertTail = spatialOp.getOperation();
+  unsigned cumulativeGenericResults = 0;
+
+  for (Region &spatialRegion : spatialOp->getRegions()) {
+    TT_assertv(!spatialRegion.empty(),
+               "each spatial region must not be empty.");
+    Block &regionBlock = spatialRegion.front();
+    auto genericOps = llvm::to_vector(regionBlock.getOps<d2m::GenericOp>());
+    TT_assertv(genericOps.size() == 1u,
+               "each spatial region must contain exactly one d2m.generic op.");
+    d2m::GenericOp genericOp = genericOps.front();
+
+    llvm::SmallVector<Operation *> beforeOps;
+    llvm::SmallVector<Operation *> afterOps;
+    bool seenGeneric = false;
+    for (Operation &regionBodyOp : regionBlock) {
+      if (&regionBodyOp == genericOp.getOperation()) {
+        seenGeneric = true;
+        continue;
+      }
+      if (!seenGeneric) {
+        beforeOps.push_back(&regionBodyOp);
+      } else {
+        if (mlir::isa<d2m::SpatialYieldOp>(&regionBodyOp)) {
+          break;
+        }
+        afterOps.push_back(&regionBodyOp);
+      }
+    }
+
+    for (d2m::SpatialYieldOp yieldOp :
+         llvm::to_vector(regionBlock.getOps<d2m::SpatialYieldOp>())) {
+      yieldOp.erase();
+    }
+
+    for (Operation *prefixOp : beforeOps) {
+      prefixOp->moveBefore(spatialOp);
+    }
+
+    if (!afterOps.empty()) {
+      const unsigned resultBase = cumulativeGenericResults;
+      const unsigned numGenResults = genericOp->getNumResults();
+      const unsigned numSpatialResults = spatialOp->getNumResults();
+      TT_assertv(((numGenResults == 0u) ||
+                  (resultBase + numGenResults <= numSpatialResults)),
+                 "spatial op result count must cover generic results for "
+                 "suffix hoist remapping");
+
+      for (unsigned resultIndex = 0; resultIndex < numGenResults;
+           ++resultIndex) {
+        Value genericResult = genericOp.getResult(resultIndex);
+        Value spatialResult = spatialOp.getResult(resultBase + resultIndex);
+        genericResult.replaceUsesWithIf(spatialResult, [&](OpOperand &operand) {
+          return llvm::is_contained(afterOps, operand.getOwner());
+        });
+      }
+
+      for (Operation *suffixOp : afterOps) {
+        for (Value operand : suffixOp->getOperands()) {
+          TT_assertv(!llvm::is_contained(genericOp.getResults(), operand),
+                     "suffix op operand should use spatial op results after "
+                     "remapping");
+        }
+      }
+
+      for (Operation *suffixOp : afterOps) {
+        suffixOp->moveAfter(suffixInsertTail);
+        suffixInsertTail = suffixOp;
+      }
+    }
+
+    cumulativeGenericResults += genericOp->getNumResults();
+
+    builder.setInsertionPointToEnd(&regionBlock);
+    builder.create<d2m::SpatialYieldOp>(genericOp.getLoc(),
+                                        genericOp.getResults());
+  }
+
+  return mlir::success();
 }
 
 // Rebuild d2m.spatial's ins and outs from the operands actually used by
@@ -791,11 +884,19 @@ public:
       applyGridDecisions(genericOp, *result, this->ttnnMode);
     }
 
-    // Phase 3: Rebuild each SpatialOp's ins/outs from the operands actually
-    // used by generics in its regions.
-    module.walk([&](d2m::SpatialOp spatialOp) {
+    // Phase 3: Hoist non-generic ops out of spatial regions, then rebuild
+    // ins/outs from generic operands.
+    SmallVector<d2m::SpatialOp> spatials;
+    module.walk(
+        [&](d2m::SpatialOp spatialOp) { spatials.push_back(spatialOp); });
+
+    for (d2m::SpatialOp spatialOp : spatials) {
+      if (mlir::failed(hoistNonGenericOpsAroundSpatial(spatialOp))) {
+        signalPassFailure();
+        return;
+      }
       reconstructSpatialOperands(spatialOp);
-    });
+    }
   }
 
 private:
