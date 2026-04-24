@@ -4930,6 +4930,33 @@ def ttir_topk_router_gpt_golden(
     return expert_indices, expert_weights
 
 
+def ttnn_sampling_golden(
+    input_values: GoldenMapTensor,
+    input_indices: GoldenMapTensor,
+    _k: GoldenMapTensor,
+    _p: GoldenMapTensor,
+    temp: GoldenMapTensor,
+    _seed: Optional[IntegerAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """CPU golden for ttnn.sampling (fused top-k/p + multinomial).
+
+    Inputs are already pre-filtered candidates, so k/p are unused on the
+    CPU side. The device kernel is stochastic with hardware RNG that
+    cannot be mirrored on CPU, so callers should disable PCC comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    temperature = temp.float().clamp(min=1e-6).unsqueeze(-1)
+    scaled = torch.div(input_values.float(), temperature)
+    probs = torch.softmax(scaled, dim=-1)
+    sampled_local = torch.multinomial(probs, num_samples=1).squeeze(-1)
+    return (
+        torch.gather(input_indices, 1, sampled_local.unsqueeze(-1))
+        .squeeze(-1)
+        .to(output_dtype)
+    )
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -7617,6 +7644,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
     ttnn.GatherOp: ttir_gather_golden,
+    ttnn.SamplingOp: ttnn_sampling_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----

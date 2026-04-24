@@ -8348,6 +8348,133 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputValuesShape,
+    TTNNLayoutAttr inputValuesLayout, llvm::ArrayRef<int64_t> inputIndicesShape,
+    TTNNLayoutAttr inputIndicesLayout, llvm::ArrayRef<int64_t> kShape,
+    TTNNLayoutAttr kLayout, llvm::ArrayRef<int64_t> pShape,
+    TTNNLayoutAttr pLayout, llvm::ArrayRef<int64_t> tempShape,
+    TTNNLayoutAttr tempLayout, std::optional<uint32_t> seed,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // ttnn::sampling kernel expects 4D [N, C, H, W] with N*C*H==32. Runtime
+  // reshapes 2D [batch, candidates] -> [1, 1, batch, candidates] before
+  // dispatch; mirror that here so constraint queries see the kernel-expected
+  // shape.
+  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
+                                            inputValuesShape[1]};
+  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
+                                             inputIndicesShape[1]};
+
+  auto valuesSpecExp =
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
+  if (!valuesSpecExp) {
+    return valuesSpecExp.takeError();
+  }
+  auto indicesSpecExp =
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
+  if (!indicesSpecExp) {
+    return indicesSpecExp.takeError();
+  }
+  auto kSpecExp = detail::convertToTensorSpec(device, kShape, kLayout);
+  if (!kSpecExp) {
+    return kSpecExp.takeError();
+  }
+  auto pSpecExp = detail::convertToTensorSpec(device, pShape, pLayout);
+  if (!pSpecExp) {
+    return pSpecExp.takeError();
+  }
+  auto tempSpecExp = detail::convertToTensorSpec(device, tempShape, tempLayout);
+  if (!tempSpecExp) {
+    return tempSpecExp.takeError();
+  }
+
+  // Extract TensorSpecs before lambda capture (Expected is not copyable).
+  ::ttnn::TensorSpec valuesSpec = valuesSpecExp.get();
+  ::ttnn::TensorSpec indicesSpec = indicesSpecExp.get();
+  ::ttnn::TensorSpec kSpec = kSpecExp.get();
+  ::ttnn::TensorSpec pSpec = pSpecExp.get();
+  ::ttnn::TensorSpec tempSpec = tempSpecExp.get();
+
+  auto samplingQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::sampling, device, valuesSpec,
+                                indicesSpec, kSpec, pSpec, tempSpec, seed,
+                                std::nullopt, std::nullopt);
+  };
+
+  return operation::getOpConstraints(inputValuesLayout.getContext(), deviceGrid,
+                                     samplingQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputValuesShape, TTNNLayoutAttr inputValuesLayout,
+    llvm::ArrayRef<int64_t> inputIndicesShape,
+    TTNNLayoutAttr inputIndicesLayout, llvm::ArrayRef<int64_t> kShape,
+    TTNNLayoutAttr kLayout, llvm::ArrayRef<int64_t> pShape,
+    TTNNLayoutAttr pLayout, llvm::ArrayRef<int64_t> tempShape,
+    TTNNLayoutAttr tempLayout, std::optional<uint32_t> seed,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // See getOpConstraints: reshape 2D -> 4D to match runtime dispatch.
+  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
+                                            inputValuesShape[1]};
+  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
+                                             inputIndicesShape[1]};
+
+  auto valuesSpecExp =
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
+  if (!valuesSpecExp) {
+    return valuesSpecExp.takeError();
+  }
+  auto indicesSpecExp =
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
+  if (!indicesSpecExp) {
+    return indicesSpecExp.takeError();
+  }
+  auto kSpecExp = detail::convertToTensorSpec(device, kShape, kLayout);
+  if (!kSpecExp) {
+    return kSpecExp.takeError();
+  }
+  auto pSpecExp = detail::convertToTensorSpec(device, pShape, pLayout);
+  if (!pSpecExp) {
+    return pSpecExp.takeError();
+  }
+  auto tempSpecExp = detail::convertToTensorSpec(device, tempShape, tempLayout);
+  if (!tempSpecExp) {
+    return tempSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec valuesSpec = valuesSpecExp.get();
+  ::ttnn::TensorSpec indicesSpec = indicesSpecExp.get();
+  ::ttnn::TensorSpec kSpec = kSpecExp.get();
+  ::ttnn::TensorSpec pSpec = pSpecExp.get();
+  ::ttnn::TensorSpec tempSpec = tempSpecExp.get();
+
+  auto samplingQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::sampling, device, valuesSpec, indicesSpec,
+                            kSpec, pSpec, tempSpec, seed, std::nullopt,
+                            std::nullopt);
+  };
+
+  return operation::getOpRuntime(samplingQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // MeshPartitionOp
 //===----------------------------------------------------------------------===//
 

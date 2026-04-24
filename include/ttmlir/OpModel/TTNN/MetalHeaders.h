@@ -92,6 +92,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"
 #include "ttnn/operations/reduction/prod/prod.hpp"
 #include "ttnn/operations/reduction/reduction_common/reduction_common.hpp"
+#include "ttnn/operations/reduction/sampling/sampling.hpp"
 #include "ttnn/operations/reduction/topk/topk.hpp"
 #include "ttnn/operations/transformer/concatenate_heads/concatenate_heads.hpp"
 #include "ttnn/operations/transformer/sdpa/sdpa.hpp"
