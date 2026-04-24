@@ -6,6 +6,7 @@
 #define TOOLS_TTNN_STANDALONE_TTNN_PRECOMPILED_HPP
 
 // ANCHOR: standalone_includes
+#include "operations/ccl/all_gather/all_gather.hpp"
 #include "operations/ccl/all_to_all_combine/all_to_all_combine.hpp"
 #include "operations/ccl/all_to_all_dispatch/all_to_all_dispatch.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
@@ -32,6 +33,7 @@
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
 #include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
+#include "operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
@@ -62,6 +64,7 @@
 #include "ttnn/common/queue_id.hpp"
 #include "ttnn/core.hpp"
 #include "ttnn/device.hpp"
+#include "ttnn/global_semaphore.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
 #include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
@@ -249,6 +252,17 @@ nlp_create_qkv_heads_decode_wrapper(
   return ::ttnn::experimental::nlp_create_qkv_heads_decode(
       input_tensor, num_heads, num_kv_heads, optional_output_tensors,
       overlap_qk_coregrid, batch_offset, slice_size, memory_config);
+}
+
+// Helper for distributed RMS norm EmitC support.
+// TODO(amilovanovic): Remove this once the following issue is fixed in
+// tt-metal: https://github.com/tenstorrent/tt-metal/issues/38212
+::ttnn::GlobalSemaphore createGlobalSemaphore(const ::ttnn::Tensor &input) {
+  auto shardSpec = input.shard_spec();
+  assert(shardSpec.has_value() &&
+         "Input tensor must have shard spec for createGlobalSemaphore");
+  return ::ttnn::global_semaphore::create_global_semaphore(input.device(),
+                                                           shardSpec->grid, 0);
 }
 
 } // namespace ttnn
