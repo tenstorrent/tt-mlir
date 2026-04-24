@@ -1763,7 +1763,7 @@ def sdpa_decode_golden(
         Query:  [1, batch, num_heads, head_dim]
         Key:    [batch, num_kv_heads, seq_len, head_dim]
         Value:  [batch, num_kv_heads, seq_len, head_dim]
-        Mask:   [1, batch_or_1, num_heads_or_1, seq_len]
+        Mask:   [batch_or_1, 1, num_heads_or_1, seq_len]
         Output: [1, batch, num_heads, head_dim]
     """
     # Query: [1, B, H, D] -> [B, H, 1, D]
@@ -1786,9 +1786,9 @@ def sdpa_decode_golden(
     qk = torch.matmul(q, k.transpose(-2, -1))
 
     # Add attention mask (before scaling, matching tt-metal)
-    # Mask is in decode layout [1, B, H, S], permute to [B, H, 1, S] to match qk
+    # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
     if attention_mask is not None:
-        qk = torch.add(qk, attention_mask.float().permute(1, 2, 0, 3))
+        qk = torch.add(qk, attention_mask.float().permute(0, 2, 1, 3))
 
     # Scale AFTER masking (tt-metal fuses scale into exp)
     if scale is not None:
