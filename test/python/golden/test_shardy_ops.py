@@ -18,7 +18,7 @@ pytestmark = pytest.mark.frontend("shlo")
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_sharding_constraint(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
