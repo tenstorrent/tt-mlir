@@ -168,6 +168,24 @@ public:
             wb.addOp.erase();
         }
       }
+
+      // Phase 2: Replace all remaining uses of eliminated block args with the
+      // canonical block arg.  All per-layer cumulative_length args are
+      // value-equivalent at function entry (lockstep decode invariant), so
+      // routing every internal use (e.g. update_cache position operands) to a
+      // single arg collapses N-1 ttnn.repeat ops after TTNN lowering.
+      for (auto &[key, group] : groups) {
+        if (group.size() <= 1)
+          continue;
+
+        BlockArgument canonicalArg = group.back().blockArg;
+        for (size_t i = 0; i + 1 < group.size(); ++i) {
+          BlockArgument eliminatedArg = group[i].blockArg;
+          if (eliminatedArg == canonicalArg)
+            continue;
+          eliminatedArg.replaceAllUsesWith(canonicalArg);
+        }
+      }
     });
   }
 };
