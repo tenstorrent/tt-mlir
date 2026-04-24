@@ -5466,18 +5466,15 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    // First 3 dims of the mask must each either be 1 (broadcast) or match the
-    // corresponding query dim. Query layout is [1, batch, nQueryHeads,
-    // headSize].
+    // Mask layout: [batch_or_1, 1, num_heads_or_1, kv_seq_len]. Query layout
+    // is [1, batch, nQueryHeads, headSize].
     if (attentionMaskType.getShape()[0] != 1 &&
-        attentionMaskType.getShape()[0] != queryType.getShape()[0]) {
-      return emitOpError("Attention mask dim 0 must be 1 (broadcast) or "
-                         "match query dim 0");
-    }
-    if (attentionMaskType.getShape()[1] != 1 &&
-        attentionMaskType.getShape()[1] != batchSize) {
+        attentionMaskType.getShape()[0] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1) {
+      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {

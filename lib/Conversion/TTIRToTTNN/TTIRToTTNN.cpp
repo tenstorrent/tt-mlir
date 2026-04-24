@@ -3488,6 +3488,14 @@ private:
   // decode op.
   static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
 
+  // Permutation to convert mask from [B, H, S=1, kv_seq] -> [B, 1, H, kv_seq]
+  // for SDPA decode op.
+  static constexpr std::array<int64_t, 4> kToDecodeMaskPermutation = {0, 2, 1,
+                                                                      3};
+
+  // Decode mask layout dim of the heads dimension: [B, 1, H, kv_seq].
+  static constexpr int64_t kDecodeMaskNumHeadsDim = 2;
+
   // Determine if the decode op should be used based on query sequence length.
   // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
   bool shouldUseDecode(ttir::ScaledDotProductAttentionOp op) const {
@@ -3506,7 +3514,7 @@ private:
 
     auto maskType = mlir::cast<RankedTensorType>(mask.getType());
     SmallVector<int64_t> broadcastShape(maskType.getShape());
-    broadcastShape[kSeqLenDim] = numHeads;
+    broadcastShape[kDecodeMaskNumHeadsDim] = numHeads;
 
     auto broadcastType =
         ttnn::utils::RankedTensorTypeFactory::create(maskType, broadcastShape);
@@ -3518,8 +3526,8 @@ private:
   }
 
   // Lower to SDPA decode op with necessary permutations.
-  // Decode op expects [S, B, H, D] query shape, so we permute from [B, H, S,
-  // D].
+  // Decode op expects [S, B, H, D] query and [B, 1, H, kv_seq] mask, so we
+  // permute from [B, H, S, D] and [B, H, S=1, kv_seq] respectively.
   LogicalResult lowerToDecodeOp(ttir::ScaledDotProductAttentionOp op,
                                 OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
@@ -3531,9 +3539,14 @@ private:
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
         llvm::to_vector(kToDecodePermutation), rewriter, op.getLoc());
 
-    // Broadcast mask head dimension if needed.
-    Value attentionMask = broadcastMaskForDecode(
-        adaptor.getAttentionMask(), numHeads, rewriter, op.getLoc());
+    Value attentionMask = adaptor.getAttentionMask();
+    if (attentionMask) {
+      attentionMask = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<mlir::RankedTensorType>>(attentionMask),
+          llvm::to_vector(kToDecodeMaskPermutation), rewriter, op.getLoc());
+      attentionMask = broadcastMaskForDecode(attentionMask, numHeads, rewriter,
+                                             op.getLoc());
+    }
 
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
