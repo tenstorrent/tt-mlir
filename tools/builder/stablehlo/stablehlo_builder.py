@@ -3459,81 +3459,13 @@ class StableHLOBuilder(Builder):
         arg_goldens: Sequence[Any],
     ) -> Union[Any, Tuple[Any, ...]]:
         """
-        Execute a StableHLO decomposition function symbolically on golden tensors.
-
-        Dispatches each inner op through the globally registered
-        ``get_golden_function`` mapping so any op already supported by the
-        builder is automatically handled. The goal is to compute a reasonable
-        golden for the enclosing ``stablehlo.composite`` without needing a
-        hand-written case per decomposition op.
+        Compute the golden for a ``stablehlo.composite`` by delegating to the
+        ``stablehlo.CompositeOp`` entry in ``GOLDEN_MAPPINGS``, which walks the
+        referenced decomposition function and dispatches each inner op through
+        the same global golden mapping.
         """
-        if len(decomp_fn.body.blocks) != 1:
-            raise NotImplementedError(
-                "Composite decomposition with multiple blocks is not supported."
-            )
-        block = decomp_fn.body.blocks[0]
-        if len(block.arguments) != len(arg_goldens):
-            raise ValueError(
-                "Composite operand count does not match decomposition function arity."
-            )
-
-        ssa: Dict[Any, Any] = {}
-        for arg_value, golden in zip(block.arguments, arg_goldens):
-            ssa[arg_value] = golden
-
-        def _resolve(value: Any) -> Any:
-            if value in ssa:
-                return ssa[value]
-            raise NotImplementedError(
-                "Composite decomposition references a value produced outside "
-                "the decomposition body (e.g. a constant or cross-block ref) "
-                "which is not yet supported for golden simulation."
-            )
-
-        for op in block.operations:
-            if isinstance(op, func.ReturnOp):
-                outs = tuple(_resolve(o) for o in op.operands)
-                if len(outs) == 1:
-                    return outs[0]
-                return outs
-
-            try:
-                gfn = get_golden_function(type(op))
-            except AssertionError as e:
-                raise NotImplementedError(
-                    f"Golden simulation for decomposition op {op.name} is not implemented. "
-                    f"Register a golden function for {type(op).__name__} in tools/golden/mapping.py."
-                ) from e
-
-            operand_goldens = [_resolve(o) for o in op.operands]
-
-            # Most StableHLO golden functions take the result element type as
-            # the last positional argument; be permissive so ops that don't
-            # need it still work.
-            result_element_type = None
-            if len(op.results) > 0:
-                try:
-                    result_element_type = op.results[0].type.element_type
-                except AttributeError:
-                    result_element_type = None
-
-            try:
-                out = (
-                    gfn(*operand_goldens, result_element_type)
-                    if result_element_type is not None
-                    else gfn(*operand_goldens)
-                )
-            except TypeError:
-                # Fallback for goldens that don't accept a trailing dtype.
-                out = gfn(*operand_goldens)
-
-            if len(op.results) == 1:
-                ssa[op.results[0]] = out
-            else:
-                for r, o in zip(op.results, out):
-                    ssa[r] = o
-
-        raise RuntimeError("Decomposition function missing return")
+        composite_golden = get_golden_function(stablehlo.CompositeOp)
+        return composite_golden(*arg_goldens, decomposition_fn=decomp_fn)
 
     ################ stablehlo.CompositeOp ###############
 

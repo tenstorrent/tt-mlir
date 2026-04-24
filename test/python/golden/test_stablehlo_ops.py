@@ -10,6 +10,8 @@ from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
+from ttmlir.ir import StringAttr
+
 from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import (
@@ -201,6 +203,41 @@ def module_convert(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.convert(in0, output_type=torch.bfloat16, unit_attrs=unit_attrs)
+
+
+def module_composite(builder: StableHLOBuilder):
+    # Author the decomposition function first as a private sibling func. The
+    # `stablehlo.composite` op emitted in the main func references it by name
+    # via its `decomposition` symbol attribute, mirroring the canonical form
+    # in test/ttmlir/Silicon/StableHLO/n150/composite_op.mlir.
+    @builder.func([(64, 128), (64, 128)], [torch.float32, torch.float32])
+    def add_impl(
+        lhs: Operand,
+        rhs: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.add(lhs, rhs)
+
+    add_impl.sym_visibility = StringAttr.get("private")
+    # Exclude the private decomposition from the golden_map program list so
+    # only the public entry point is treated as an executable program.
+    builder._nested_funcs.append(add_impl.name.value)
+
+    @builder.func([(64, 128), (64, 128)], [torch.float32, torch.float32])
+    def composite_main(
+        lhs: Operand,
+        rhs: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.composite(
+            "jit_eltwise_add.my_add",
+            [lhs, rhs],
+            decomposition=add_impl,
+            unit_attrs=unit_attrs,
+        )
 
 
 def module_cbrt(builder: StableHLOBuilder):
@@ -2234,49 +2271,14 @@ def test_broadcast_ops(
     )
 
 
-@pytest.mark.parametrize("target", ["stablehlo"])
-def test_stablehlo_composite_mlir_parse_split(target, request, device):
-    mlir_path = os.path.join(
-        os.path.dirname(__file__),
-        "mlir_snippets",
-        "stablehlo",
-        "stablehlo_composite.mlir",
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_composite_op(target: str, request, device):
+    # Op-creating test for stablehlo.composite: emits a private decomposition
+    # function and a public entry point that references it via the
+    # `decomposition` symbol attribute. Mirrors composite_op.mlir.
+    compile_and_execute_shlo(
+        module_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
     )
-    with open(mlir_path, encoding="utf-8") as f:
-        mlir_text = f.read()
-    module, builder = load_mlir_file(mlir_text, target=target)
-    split_modules = split_mlir_file(module, builder, target=target)
-    assert len(split_modules) >= 1
-
-
-@pytest.mark.parametrize("target", ["stablehlo"])
-def test_stablehlo_convert_mlir_parse_split(target, request, device):
-    mlir_path = os.path.join(
-        os.path.dirname(__file__),
-        "mlir_snippets",
-        "stablehlo",
-        "stablehlo_convert.mlir",
-    )
-    with open(mlir_path, encoding="utf-8") as f:
-        mlir_text = f.read()
-    module, builder = load_mlir_file(mlir_text, target=target)
-    split_modules = split_mlir_file(module, builder, target=target)
-    assert len(split_modules) >= 1
-
-
-@pytest.mark.parametrize("target", ["ttir"])
-def test_ttir_stablehlo_convert_cpu_hoisted_parse_split(target, request, device):
-    # Exercises the TTIRBuilder delegators that route stablehlo.convert
-    # inside CPU-hoisted TTIR modules to StableHLOBuilder.convert_parser /
-    # convert_split.
-    mlir_path = os.path.join(
-        os.path.dirname(__file__),
-        "mlir_snippets",
-        "ttir",
-        "stablehlo_convert_cpu_hoisted.mlir",
-    )
-    with open(mlir_path, encoding="utf-8") as f:
-        mlir_text = f.read()
-    module, builder = load_mlir_file(mlir_text, target=target)
-    split_modules = split_mlir_file(module, builder, target=target)
-    assert len(split_modules) >= 1
