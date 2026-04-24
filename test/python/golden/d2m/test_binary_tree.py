@@ -25,13 +25,12 @@ pytestmark = pytest.mark.frontend("ttir")
         (1024, 2048),
         (2048, 1024),
         (2048, 2048),
-        # (256, 256), - Issue #7539
+        (256, 256),
     ],
     ids=shape_str,
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.skip_exec(("p150",), ("p300",), reason="Not supported on Blackhole")
 def test_binary_tree(shape: Shape, dtype: torch.dtype, target: str, request, device):
     """Test a binary tree of adds: add(add(arg0, arg1), add(arg2, arg3))"""
 
