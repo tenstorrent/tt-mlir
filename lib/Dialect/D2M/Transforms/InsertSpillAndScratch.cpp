@@ -54,6 +54,10 @@ struct ConsumerLoopLoads {
 struct IntermediateAllocInfo {
   memref::AllocOp allocOp;
   ScratchLoopInfo *producer; // Loop nest that writes to this alloc
+  // Loads are only rewritten while the producer's definition still reaches.
+  // If a later loop writes the same allocation, that loop is the last consumer
+  // we can safely redirect to this producer's scratch slot.
+  size_t lastConsumerIndex;
   SmallVector<ConsumerLoopLoads>
       consumers; // all consumer loop nests that read from it
   SmallVector<affine::AffineStoreOp> stores; // Stores to this alloc
@@ -676,6 +680,7 @@ private:
       IntermediateAllocInfo allocInfo;
       allocInfo.allocOp = allocOp;
       allocInfo.producer = nullptr;
+      allocInfo.lastConsumerIndex = 0;
 
       Value allocResult = allocOp.getResult();
       SmallVector<SmallVector<affine::AffineStoreOp>> storesByLoop(
@@ -723,17 +728,27 @@ private:
 
         // Pick the earliest writer with a later read so in-place consumer
         // updates do not replace the true producer for this intermediate.
+        size_t firstLaterWriterIdx = scratchLoops.size();
+        for (size_t laterIdx = loopIdx + 1; laterIdx < storesByLoop.size();
+             ++laterIdx) {
+          if (!storesByLoop[laterIdx].empty()) {
+            firstLaterWriterIdx = laterIdx;
+            break;
+          }
+        }
+
         bool hasLaterConsumer =
             llvm::any_of(allocInfo.consumers, [&](const ConsumerLoopLoads &c) {
               size_t consIdx =
                   static_cast<size_t>(c.loop - scratchLoops.data());
-              return consIdx > loopIdx;
+              return consIdx > loopIdx && consIdx <= firstLaterWriterIdx;
             });
         if (!hasLaterConsumer) {
           continue;
         }
 
         allocInfo.producer = &scratchLoops[loopIdx];
+        allocInfo.lastConsumerIndex = firstLaterWriterIdx;
         allocInfo.stores = std::move(stores);
         hasSubsequentExternalConsumer = true;
         break;
@@ -801,6 +816,12 @@ private:
         if (consumerEntry.loop == allocInfo.producer) {
           continue;
         }
+        size_t consumerIdx =
+            static_cast<size_t>(consumerEntry.loop - scratchLoops.data());
+        if (consumerIdx > allocInfo.lastConsumerIndex) {
+          continue;
+        }
+
         ScratchLoopInfo &consumer = *consumerEntry.loop;
         // Use producer-aware map so that consumers with a different linalgRoot
         // step size correctly address the scratch buffer (which is laid out
