@@ -12,6 +12,7 @@ Usage:
 import functools
 import logging
 
+from __ttmlir_runtime import runtime as tt_runtime
 from builder.base.builder_runtime import execute_fb
 from chisel import bind, unbind
 from chisel.callbacks import chisel_post_op_callback
@@ -41,7 +42,6 @@ def _wrap_post_op_for_subtests(subtests):
 def test_device_execution(subtests, binary_path, device):
     """Execute a flatbuffer on device via builder's execute_fb; mismatches are
     reported as per-op pytest subtests."""
-    from ttrt import runtime as tt_runtime
 
     bind()  # reset ChiselContext, register all 4 chisel callbacks via DebugHooks
     # DebugHooks.get() merges per-slot, so this overwrites only post_op while

@@ -5,6 +5,6 @@
 
 set -e -o pipefail
 
-pytest -v tools/chisel/tests/ \
+pytest -v tools/chisel/tests/ test/python/chisel/ \
     --binary "$BUILD_DIR/test/ttmlir/Silicon/TTNN/n150" \
     --junit-xml="$TEST_REPORT_PATH"
