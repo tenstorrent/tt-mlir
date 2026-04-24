@@ -45,7 +45,20 @@ class TTNNBuilder(Builder):
             return super().func(input_shapes, input_types)
 
         def wrapper(fn):
-            self.create_tensor_encoding = self.create_host_row_major_tensor_encoding
+            # Create a wrapper that matches create_tensor_encoding signature
+            # but sets layout to RowMajor and buffer type to SystemMemory for host tensors.
+            def host_row_major_wrapper(
+                shape, element_type, layout=None, buffer_type=None
+            ):
+                return self._create_tensor_encoding(
+                    shape,
+                    element_type,
+                    ttnn.Layout.RowMajor,
+                    ttnn.BufferType.SystemMemory,
+                )
+
+            self.create_tensor_encoding = host_row_major_wrapper
+
             try:
                 result = super(TTNNBuilder, self).func(input_shapes, input_types)(fn)
             finally:
@@ -235,27 +248,6 @@ class TTNNBuilder(Builder):
             )
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
-    def create_host_row_major_tensor_encoding(
-        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
-    ) -> ttnn.ir.TTNNLayoutAttr:
-        """
-        Create a TTNN tensor encoding for a host (system memory) tensor
-        in row-major layout. Used for intermediate tensors produced by
-        distribute_tensor / aggregate_tensor at runtime.
-        """
-        if isinstance(element_type, torch.dtype):
-            element_type = self._get_type_from_torch_dtype(element_type)
-        with self._ctx, self._loc:
-            buffer_type = ttnn.BufferType.SystemMemory
-            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
-            return ttnn.ir.TTNNLayoutAttr.get(
-                self._ctx,
-                shape,
-                element_type,
-                buffer_type,
-                grid_attr,
-            )
-
     def _get_location(self) -> Location:
         stack = inspect.stack()
         caller_frame = stack[2]
@@ -264,36 +256,6 @@ class TTNNBuilder(Builder):
         return Location.name(f"{filename}:{lineno}")
 
     # ----- Private CCL Helpers -----
-
-    def _create_dram_tiled_ttnn_tensor(
-        self, shape: Shape, element_type: Type
-    ) -> RankedTensorType:
-        return self.create_ttnn_tensor(
-            shape,
-            element_type,
-            layout=ttnn.Layout.Tile,
-            buffer_type=ttnn.BufferType.DRAM,
-        )
-
-    def _create_dram_untiled_ttnn_tensor(
-        self, shape: Shape, element_type: Type
-    ) -> RankedTensorType:
-        return self.create_ttnn_tensor(
-            shape,
-            element_type,
-            layout=ttnn.Layout.RowMajor,
-            buffer_type=ttnn.BufferType.DRAM,
-        )
-
-    def create_l1_width_sharded_tiled_ttnn_tensor(
-        self, shape: Shape, element_type: Type
-    ) -> RankedTensorType:
-        return self.create_ttnn_tensor(
-            shape,
-            element_type,
-            layout=ttnn.Layout.Tile,
-            buffer_type=ttnn.BufferType.L1,
-        )
 
     def _create_memory_config_attr(
         self,
@@ -8543,9 +8505,11 @@ class TTNNBuilder(Builder):
         """
         with self._ctx, self._loc:
             # Create L1 width-sharded output tensor
-            sharded_output_type = self.create_l1_width_sharded_tiled_ttnn_tensor(
-                shape=inputs[0].type.shape,
-                element_type=inputs[0].type.element_type,
+            sharded_output_type = self.create_ttnn_tensor(
+                inputs[0].type.shape,
+                inputs[0].type.element_type,
+                ttnn.Layout.Tile,
+                ttnn.BufferType.L1,
             )
 
             # Prepare location for the operation
@@ -8882,7 +8846,9 @@ class TTNNBuilder(Builder):
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input_golden, mlir_output_type)
         shape = input.type.shape
-        result = self._create_dram_untiled_ttnn_tensor(shape, mlir_output_type)
+        result = self.create_ttnn_tensor(
+            shape, mlir_output_type, ttnn.Layout.RowMajor, ttnn.BufferType.DRAM
+        )
 
         if memory_config is None:
             memory_config = self._create_memory_config_attr(ttnn.BufferType.DRAM)
@@ -10273,8 +10239,11 @@ class TTNNBuilder(Builder):
         golden_output = op_golden_function(
             input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
         )
-        result = self._create_dram_tiled_ttnn_tensor(
-            golden_output.shape, mlir_output_type
+        result = self.create_ttnn_tensor(
+            golden_output.shape,
+            mlir_output_type,
+            ttnn.Layout.Tile,
+            ttnn.BufferType.DRAM,
         )
 
         if loc is None:
@@ -10429,8 +10398,11 @@ class TTNNBuilder(Builder):
             cluster_axis_attr,
             mlir_output_type,
         )
-        result = self._create_dram_tiled_ttnn_tensor(
-            golden_output.shape, mlir_output_type
+        result = self.create_ttnn_tensor(
+            golden_output.shape,
+            mlir_output_type,
+            ttnn.Layout.Tile,
+            ttnn.BufferType.DRAM,
         )
 
         if loc is None:
