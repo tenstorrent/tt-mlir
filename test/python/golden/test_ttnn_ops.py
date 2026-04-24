@@ -326,19 +326,19 @@ def test_all_gather(
                 device=device,
                 shard_dims=shard_dims,
             )
-            tilized = builder.to_layout(distributed, layout=ttnn.Layout.Tile)
-            on_device = builder.to_device(tilized, device=device)
+            on_device = builder.to_device(distributed, device=device)
+            tilized = builder.to_layout(on_device, layout=ttnn.Layout.Tile)
 
             gathered = builder.all_gather(
-                on_device,
+                tilized,
                 all_gather_dim=all_gather_dim,
                 cluster_axis=cluster_axis,
             )
 
-            from_dev = builder.from_device(gathered)
-            untilized = builder.to_layout(from_dev, layout=ttnn.Layout.RowMajor)
+            untilized = builder.to_layout(gathered, layout=ttnn.Layout.RowMajor)
+            from_dev = builder.from_device(untilized)
             return builder.aggregate_tensor(
-                untilized,
+                from_dev,
                 device=device,
                 shard_dims=shard_dims,
             )
@@ -432,20 +432,21 @@ def test_reduce_scatter(
                 device=device,
                 shard_dims=shard_dims,
             )
-            tilized = builder.to_layout(distributed, layout=ttnn.Layout.Tile)
-            on_device = builder.to_device(tilized, device=device)
+            on_device = builder.to_device(distributed, device=device)
+            tilized = builder.to_layout(on_device, layout=ttnn.Layout.Tile)
 
             scattered = builder.reduce_scatter(
-                on_device,
+                tilized,
                 reduce_type=ReduceType.Sum,
                 scatter_dim=scatter_dim,
                 cluster_axis=cluster_axis,
             )
 
-            from_dev = builder.from_device(scattered)
-            untilized = builder.to_layout(from_dev, layout=ttnn.Layout.RowMajor)
+            untilized = builder.to_layout(scattered, layout=ttnn.Layout.RowMajor)
+            from_dev = builder.from_device(untilized)
+
             return builder.aggregate_tensor(
-                untilized,
+                from_dev,
                 device=device,
                 shard_dims=shard_dims,
             )
@@ -462,4 +463,135 @@ def test_reduce_scatter(
         target="ttnn",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("fill_value", [1.0])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "full_layout",
+    [ttnn.Layout.Tile, ttnn.Layout.RowMajor],
+    ids=["tile", "row_major"],
+)
+def test_full(
+    shape: Shape,
+    fill_value: float,
+    dtype: torch.dtype,
+    full_layout: ttnn.Layout,
+    request,
+    device,
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([], [])
+        def full(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+            get_device = builder.get_device()
+
+            if full_layout == ttnn.Layout.RowMajor:
+                buffer_type = ttnn.BufferType.SystemMemory
+            else:
+                buffer_type = ttnn.BufferType.DRAM
+
+            full = builder.full(
+                device=get_device,
+                shape=list(shape),
+                fill_value=fill_value,
+                output_type=dtype,
+                layout=full_layout,
+                buffer_type=buffer_type,
+                unit_attrs=unit_attrs,
+            )
+            if full_layout == ttnn.Layout.RowMajor:
+                return builder.to_layout(
+                    full, layout=ttnn.Layout.Tile, output_type=dtype
+                )
+            return full
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "constant_layout",
+    [ttnn.Layout.Tile, ttnn.Layout.RowMajor],
+    ids=["tile", "row_major"],
+)
+def test_constant(
+    shape: Shape,
+    dtype: torch.dtype,
+    constant_layout: ttnn.Layout,
+    request,
+    device,
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([], [])
+        def constant(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+            if constant_layout == ttnn.Layout.Tile:
+                get_device = builder.get_device()
+                buffer_type = ttnn.BufferType.DRAM
+            else:
+                get_device = None
+                buffer_type = ttnn.BufferType.SystemMemory
+            # Create a simple constant tensor with values from 0 to size-1
+            size = 1
+            for dim in shape:
+                size *= dim
+            value = torch.arange(size, dtype=dtype).reshape(shape)
+
+            constant = builder.constant(
+                value=value,
+                device=get_device,
+                output_type=dtype,
+                unit_attrs=unit_attrs,
+                layout=constant_layout,
+                buffer_type=buffer_type,
+            )
+            if constant_layout == ttnn.Layout.RowMajor:
+                return builder.to_layout(
+                    constant,
+                    layout=ttnn.Layout.Tile,
+                    buffer_type=ttnn.BufferType.DRAM,
+                    output_type=dtype,
+                )
+            return constant
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,output_shape",
+    [
+        ((32, 32), (64, 16)),
+        ((64, 128), (32, 256)),
+        ((16, 16, 16), (32, 128)),
+        ((2, 3, 4), (6, 4)),
+        ((32, 32), (1024,)),
+        ((1024,), (32, 32)),
+    ],
+    ids=lambda x: f"{x}",
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_reshape(
+    input_shape: Shape, output_shape: Shape, dtype: torch.dtype, request, device
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([input_shape], [dtype])
+        def reshape(
+            in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.reshape(in0, shape=list(output_shape), unit_attrs=unit_attrs)
+
+    compile_and_execute_ttnn(
+        module,
+        **get_request_kwargs(request),
+        device=device,
     )
