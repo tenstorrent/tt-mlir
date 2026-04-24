@@ -751,7 +751,12 @@ def execute_fb(
                         i_dict["desc"]["layout"]["memory_desc"]["data_type"]
                     ),
                 )
-                golden_inputs_torch.append(torch_tensor)
+                num_shards = 1
+                for dim in device.get_mesh_shape():
+                    num_shards *= dim
+                golden_inputs_torch.append(
+                    {shard_id: torch_tensor.clone() for shard_id in range(num_shards)}
+                )
 
         inputs = []
         for i in golden_inputs_torch:
