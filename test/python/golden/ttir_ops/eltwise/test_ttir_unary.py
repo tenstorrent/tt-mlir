@@ -350,6 +350,21 @@ def test_unary_ops(
     }:
         pytest.skip("int32 unary op is not in the allowlist for this test")
 
+    # tt-metal #41850 replaced the SFPU erf kernel with a LUT-based rational
+    # approximation. The new kernel reads the input as a float, so int32 bit
+    # patterns become NaN/Inf and the output diverges from torch.erf. The
+    # TTNN pipeline inserts a bf16 typecast workaround around ttnn.erf for
+    # integer inputs (see TTNNWorkaroundsPass), but the TTMetal pipeline
+    # lowers ttir.erf directly into a D2M tile op without that workaround.
+    # Skip until a TTIR-level decomposition is added for ttmetal.
+    # Tracking issue: https://github.com/tenstorrent/tt-mlir/issues/8105
+    if dtype == torch.int32 and test_fn is erf and target == "ttmetal":
+        pytest.skip(
+            "erf with int32 input is not supported on ttmetal yet; "
+            "TTNN typecast workaround doesn't apply to the ttmetal pipeline. "
+            "See https://github.com/tenstorrent/tt-mlir/issues/8105"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def unary_op(

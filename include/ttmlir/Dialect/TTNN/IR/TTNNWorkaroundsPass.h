@@ -305,6 +305,9 @@ public:
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
 
+  static TTNNOperandsWorkarounds
+  createErfOpOperandsWorkarounds(mlir::RankedTensorType inputType);
+
   // Create workarounds for group norm op operands.
   static TTNNOperandsWorkarounds
   createGroupNormOpOperandsWorkarounds(mlir::Operation *op);
