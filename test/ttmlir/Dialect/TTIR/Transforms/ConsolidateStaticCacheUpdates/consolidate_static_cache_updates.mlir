@@ -84,6 +84,35 @@ module {
   }
 }
 
+// Positive case: per-layer block args with internal uses — Phase 2 replaces all
+// remaining uses of eliminated block args with the canonical arg so that
+// internal consumers (e.g. update_cache position operands) collapse to one arg.
+module {
+  // CHECK-LABEL: func.func @consolidate_block_args_internal_uses
+  func.func @consolidate_block_args_internal_uses(
+      %cl0: tensor<1xi64>,
+      %cl1: tensor<1xi64>,
+      %cl2: tensor<1xi64>,
+      %other: tensor<1xi64>
+  ) -> (tensor<1xi64>, tensor<1xi64>, tensor<1xi64>, tensor<1xi64>) {
+    %delta = "ttir.constant"() <{value = dense<1> : tensor<1xi64>}> : () -> tensor<1xi64>
+    %a0 = "ttir.add"(%cl0, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
+    %a1 = "ttir.add"(%cl1, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
+    %a2 = "ttir.add"(%cl2, %delta) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
+    // Internal use of %cl0 — after Phase 2, %cl0 (%arg0) is replaced by
+    // %cl2 (%arg2), the canonical arg, so this add becomes add(%arg2, %arg3).
+    %internal = "ttir.add"(%cl0, %other) : (tensor<1xi64>, tensor<1xi64>) -> tensor<1xi64>
+    // Phase 1: only one ttir.add(blockArg, delta) survives.
+    // CHECK:     [[KEPT:%.+]] = "ttir.add"(%arg2,
+    // CHECK-NOT: "ttir.add"(%arg0, %delta
+    // CHECK-NOT: "ttir.add"(%arg1, %delta
+    // Phase 2: internal use of eliminated arg is replaced with canonical.
+    // CHECK:     [[INT:%.+]] = "ttir.add"(%arg2, %arg3)
+    // CHECK:     return [[KEPT]], [[KEPT]], [[KEPT]], [[INT]]
+    return %a0, %a1, %a2, %internal : tensor<1xi64>, tensor<1xi64>, tensor<1xi64>, tensor<1xi64>
+  }
+}
+
 // Negative case: BlockArgument type (tensor<1xi32>) differs from add result
 // type (tensor<2xi32>) due to broadcasting — replacement would violate the
 // function return type, so no consolidation.
