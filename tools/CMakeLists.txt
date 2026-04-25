@@ -29,6 +29,7 @@ endif()
 
 if(TTMLIR_ENABLE_TOOLS)
   add_subdirectory(ttmlir-translate)
+  add_subdirectory(ttmlir-lec)
   add_subdirectory(ttnn-standalone)
 endif()
 
