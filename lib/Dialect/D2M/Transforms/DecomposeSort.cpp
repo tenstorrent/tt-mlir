@@ -249,20 +249,23 @@ struct DecomposeSortBlockPattern : OpRewritePattern<SortBlockOp> {
         emitPackTileFromDst(rewriter, loc, dst, 2, indicesTransposed, left);
         emitPackTileFromDst(rewriter, loc, dst, 3, indicesTransposed, right);
       } else {
+        // `topk_merge`'s `idir` template arg controls which DST slot ends up
+        // with the larger value: idir=false → DST[0]=larger; idir=true →
+        // DST[0]=smaller. We set `mergeIdir = !descending` so that DST[0]
+        // always holds the value that should land at the LEFT tile (the
+        // "first" tile in spatial order):
+        //   - descending: idir=false → DST[0]=larger → larger to left ✓
+        //   - ascending : idir=true  → DST[0]=smaller → smaller to left ✓
+        // No additional pack-side swap is needed.
         emitTopkMerge(rewriter, loc, /*idst=*/0, /*m_iter=*/1, mergeIdir,
                       stable);
-        // `topk_merge` puts smaller in DST[0] and larger in DST[1]; for
-        // descending we swap which slot writes the "low" tile.
-        int64_t lowVal = descending ? 1 : 0;
-        int64_t highVal = descending ? 0 : 1;
-        int64_t lowIdx = descending ? 3 : 2;
-        int64_t highIdx = descending ? 2 : 3;
-        emitPackTileFromDst(rewriter, loc, dst, lowVal, valuesTransposed, left);
-        emitPackTileFromDst(rewriter, loc, dst, highVal, valuesTransposed,
-                            right);
-        emitPackTileFromDst(rewriter, loc, dst, lowIdx, indicesTransposed,
+        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/0, valuesTransposed,
                             left);
-        emitPackTileFromDst(rewriter, loc, dst, highIdx, indicesTransposed,
+        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/1, valuesTransposed,
+                            right);
+        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/2, indicesTransposed,
+                            left);
+        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/3, indicesTransposed,
                             right);
       }
     };

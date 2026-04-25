@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
@@ -79,7 +80,18 @@ static Operation *findLastUseOfAliasedValue(Value value, Block *block) {
           break;
         }
       }
-      if (takesAliasedInput && mlir::isa<mlir::ViewLikeOpInterface>(op)) {
+      // Propagate through view-like ops (subview/expand/...) and through
+      // load ops. memref.load isn't a view, but for CBs the eventual
+      // consumer of the loaded tile (e.g. d2m.tile_transpose) is what
+      // actually reads the CB after lowering — its lowered ttkernel op
+      // (e.g. ttkernel.transpose_wh_tile) takes the CB and tile-index and
+      // reads from L1 directly. So the CB pop must happen after the last
+      // such consumer, not after the d2m.load that is essentially a no-op
+      // index extraction post-lowering.
+      bool isAliasingProducer =
+          mlir::isa<mlir::ViewLikeOpInterface>(op) ||
+          mlir::isa<memref::LoadOp, affine::AffineLoadOp>(op);
+      if (takesAliasedInput && isAliasingProducer) {
         for (Value result : op.getResults()) {
           if (aliasedValues.insert(result).second) {
             changed = true;

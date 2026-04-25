@@ -1923,7 +1923,23 @@ public:
     // TileTransposeOp is a unary op that takes an input tile and produces
     // an output tile.
 
-    Value inCB = getInCB(rewriter, op);
+    // Prefer the CB that this transpose's input tile actually came from (via
+    // its defining memref.load) over `getInCB`'s "first L1 input CB in the
+    // function" heuristic. The latter is wrong when a generic body has
+    // multiple input CBs and we transpose tiles from different ones at
+    // different points (e.g. d2m.sort_block decomposition: initial bitonic
+    // pairs read from the input shard, but the final transpose-and-pack
+    // reads from the values-scratch shard).
+    Value inCB;
+    if (auto loadOp = op.getInput().getDefiningOp<memref::LoadOp>()) {
+      Value srcMemref = loadOp.getMemref();
+      if (ttcore::getMemorySpace(srcMemref) == ttcore::MemorySpace::DeviceL1) {
+        inCB = rewriter.getRemappedValue(srcMemref);
+      }
+    }
+    if (!inCB) {
+      inCB = getInCB(rewriter, op);
+    }
 
     Value outCB = getOutCB(rewriter, op);
 
