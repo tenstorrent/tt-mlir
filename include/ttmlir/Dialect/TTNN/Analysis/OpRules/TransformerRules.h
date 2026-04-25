@@ -46,12 +46,14 @@ struct SDPARuleBook : OpRuleBook {
 };
 
 /// ScaledDotProductAttentionDecodeOp / PagedScaledDotProductAttentionDecodeOp:
-/// Like SDPARuleBook, but also rejects sharded inputs.
-/// tt-metal sdpa_decode_device_operation validates that K and V (and all
-/// inputs after Q) reside in DRAM.  The OpModel bypasses this check because
-/// mock tensors in NO_DISPATCH mode lack real device buffers, so without an
-/// explicit input layout filter the optimizer can assign V=L1-block-sharded,
-/// which then fails the TTNN verifier (keyType != valueType).
+/// Per-operand input layout filtering.
+/// - Q (operand 0): DRAM (any) or L1-sharded -- L1-interleaved rejected
+///   ("Q tensor buffer type must be DRAM when not sharded").
+/// - K, V, and cache tensors (operand >= 1): DRAM-interleaved only.
+/// The OpModel bypasses tt-metal's input validation because mock tensors in
+/// NO_DISPATCH mode lack real device buffers, so without these filters the
+/// optimizer can assign V=L1-block-sharded (TTNN verifier fails with
+/// keyType != valueType) or Q=L1-interleaved (kernel-side assert).
 struct SDPADecodeRuleBook : SDPARuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
