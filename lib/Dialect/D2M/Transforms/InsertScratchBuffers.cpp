@@ -29,19 +29,28 @@ static ttcore::TileType getTileType(MemRefType memrefType) {
   return mlir::dyn_cast<ttcore::TileType>(memrefType.getElementType());
 }
 
-// Find a tiled input operand and return its memref type.
-// Returns a null MemRefType if no tiled input is found.
-static MemRefType findTiledInputType(GenericOp genericOp) {
-  for (Value input : genericOp.getInputs()) {
-    auto memrefType = mlir::dyn_cast<MemRefType>(input.getType());
-    if (!memrefType) {
-      continue;
+// Find a tiled memref operand that can serve as the scratch type reference.
+// Prefer tiled inputs when present, but fall back to tiled outputs.
+// TO-DO (ckaravasilis): A better semantic criterion based on intermediate
+// analysis rather than relying on input/output.
+static MemRefType findTiledReferenceType(GenericOp genericOp) {
+  auto findTiledType = [](ValueRange values) -> MemRefType {
+    for (Value value : values) {
+      auto memrefType = mlir::dyn_cast<MemRefType>(value.getType());
+      if (!memrefType) {
+        continue;
+      }
+      if (getTileType(memrefType)) {
+        return memrefType;
+      }
     }
-    if (getTileType(memrefType)) {
-      return memrefType;
-    }
+    return MemRefType();
+  };
+
+  if (MemRefType tiledInputType = findTiledType(genericOp.getInputs())) {
+    return tiledInputType;
   }
-  return MemRefType();
+  return findTiledType(genericOp.getOutputs());
 }
 
 // Check if a d2m.generic needs a scratch buffer. Scratch is needed when the
@@ -73,8 +82,7 @@ static void addScratchToGeneric(GenericOp genericOp) {
     return;
   }
 
-  // Find a tiled input to derive the tile type.
-  MemRefType refMemRefType = findTiledInputType(genericOp);
+  MemRefType refMemRefType = findTiledReferenceType(genericOp);
   if (!refMemRefType) {
     return;
   }
