@@ -1122,6 +1122,141 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
+//===----------------------------------------------------------------------===//
+// SortBlockOp Implementation
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult SortBlockOp::verify() {
+  // All operands must consistently be tensors or all be memrefs.
+  Type inputType = getInput().getType();
+  bool inputIsTensor = mlir::isa<mlir::RankedTensorType>(inputType);
+  for (Value v : {getValuesScratch(), getIndicesScratch(), getValuesOut(),
+                  getIndicesOut()}) {
+    bool isTensor = mlir::isa<mlir::RankedTensorType>(v.getType());
+    if (isTensor != inputIsTensor) {
+      return emitOpError(
+          "all sort_block operands must be either tensors or memrefs");
+    }
+  }
+  return mlir::success();
+}
+
+void SortBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  // Scratches are read+written during the bitonic merge.
+  for (mlir::OpOperand *opOperand :
+       {&getValuesScratchMutable(), &getIndicesScratchMutable()}) {
+    effects.emplace_back(mlir::MemoryEffects::Read::get(), opOperand, 0, true,
+                         mlir::SideEffects::DefaultResource::get());
+    effects.emplace_back(mlir::MemoryEffects::Write::get(), opOperand, 0, true,
+                         mlir::SideEffects::DefaultResource::get());
+  }
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getValuesOutMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getIndicesOutMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+bool SortBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput() || operand.get() == getValuesScratch() ||
+         operand.get() == getIndicesScratch();
+}
+
+bool SortBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getValuesOut() || operand.get() == getIndicesOut() ||
+         operand.get() == getValuesScratch() ||
+         operand.get() == getIndicesScratch();
+}
+
+mlir::bufferization::AliasingValueList
+SortBlockOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
+  // Each result aliases the matching DPS init operand.
+  if (operand.get() == getValuesOut()) {
+    return {{getValues(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  if (operand.get() == getIndicesOut()) {
+    return {{getIndices(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+SortBlockOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  // Each result derives its buffer type from the matching DPS init operand.
+  Value sourceOperand =
+      (value == getValues()) ? getValuesOut() : getIndicesOut();
+  auto tensorType =
+      mlir::dyn_cast<mlir::RankedTensorType>(sourceOperand.getType());
+  if (!tensorType) {
+    return mlir::bufferization::BufferLikeType(
+        mlir::cast<mlir::MemRefType>(sourceOperand.getType()));
+  }
+  auto memrefType =
+      mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
+  return mlir::bufferization::BufferLikeType(memrefType);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult
+SortBlockOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  // Skip if already bufferized.
+  if (!mlir::isa<mlir::RankedTensorType>(getValuesOut().getType())) {
+    return mlir::failure();
+  }
+
+  auto maybeInputBuffer =
+      mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
+  if (failed(maybeInputBuffer)) {
+    return maybeInputBuffer;
+  }
+  auto maybeValuesScratchBuffer = mlir::bufferization::getBuffer(
+      rewriter, getValuesScratch(), options, state);
+  if (failed(maybeValuesScratchBuffer)) {
+    return maybeValuesScratchBuffer;
+  }
+  auto maybeIndicesScratchBuffer = mlir::bufferization::getBuffer(
+      rewriter, getIndicesScratch(), options, state);
+  if (failed(maybeIndicesScratchBuffer)) {
+    return maybeIndicesScratchBuffer;
+  }
+  auto maybeValuesBuffer =
+      mlir::bufferization::getBuffer(rewriter, getValuesOut(), options, state);
+  if (failed(maybeValuesBuffer)) {
+    return maybeValuesBuffer;
+  }
+  auto maybeIndicesBuffer =
+      mlir::bufferization::getBuffer(rewriter, getIndicesOut(), options, state);
+  if (failed(maybeIndicesBuffer)) {
+    return maybeIndicesBuffer;
+  }
+
+  auto newOp = rewriter.create<SortBlockOp>(
+      getLoc(), *maybeInputBuffer, *maybeValuesScratchBuffer,
+      *maybeIndicesScratchBuffer, *maybeValuesBuffer, *maybeIndicesBuffer,
+      getDim(), getDescending(), getStable());
+
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
+                                                     newOp.getResults());
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
 bool RemoteLoadOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
   // Only result-form (no CB) operations should exist during bufferization

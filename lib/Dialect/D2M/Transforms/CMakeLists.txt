@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         DMAOptimizations.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp
+        DecomposeSort.cpp
         GenericApplyInterchange.cpp
         GenericLinearizeMemref.cpp
         GenericRegionsToFuncs.cpp

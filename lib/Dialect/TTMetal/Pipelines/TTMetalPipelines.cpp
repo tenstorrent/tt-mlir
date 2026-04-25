@@ -169,6 +169,7 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MDecomposeMasking());
   pm.addPass(d2m::createD2MDecomposeArange());
+  pm.addPass(d2m::createD2MDecomposeSort());
 
   d2m::D2MGenericTileComputeLoopsOptions tileComputeLoopsOptions;
   {

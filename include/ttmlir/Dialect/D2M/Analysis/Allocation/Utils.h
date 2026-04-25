@@ -427,20 +427,24 @@ inline std::array<int64_t, 2> getEffectiveTileShape(Type elementType) {
   return {1, 1};
 }
 
-/// @return the effective input/output tile shapes for the single-output
-/// `genericOp`.
+/// @return the effective input/output tile shapes for `genericOp`. Inputs may
+/// have different element types as long as their tile shapes match (which is
+/// what the downstream shard-extent math actually relies on); the returned
+/// "input" tile shape is taken from the first input.
 inline std::pair<std::array<int64_t, 2>, std::array<int64_t, 2>>
 getGenericInputAndOutputTileShapes(d2m::GenericOp genericOp) {
   const Type inputElementType =
       mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().front().getType())
           .getElementType();
+  const std::array<int64_t, 2> inputTileShape =
+      getEffectiveTileShape(inputElementType);
   for (std::size_t operandIndex = 1;
        operandIndex < genericOp.getOutputs().getBeginOperandIndex();
        ++operandIndex) {
-    TT_assertv(inputElementType ==
-                   mlir::cast<MemRefType>(
-                       genericOp->getOperand(operandIndex).getType())
-                       .getElementType(),
+    Type elementType =
+        mlir::cast<MemRefType>(genericOp->getOperand(operandIndex).getType())
+            .getElementType();
+    TT_assertv(getEffectiveTileShape(elementType) == inputTileShape,
                "expected no change in tile shapes across generic op inputs");
   }
 
@@ -448,8 +452,7 @@ getGenericInputAndOutputTileShapes(d2m::GenericOp genericOp) {
       mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().back().getType())
           .getElementType();
 
-  return {getEffectiveTileShape(inputElementType),
-          getEffectiveTileShape(outputElementType)};
+  return {inputTileShape, getEffectiveTileShape(outputElementType)};
 }
 
 /// @return a bitmask that indicates which dims are blocked.

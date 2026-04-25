@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_D2M_UTILS_CBUTILS_H
 
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/DenseMap.h"
 
@@ -38,8 +39,13 @@ Value findAssociatedCB(Operation *op, Value memrefOperand,
                        RewriterBase &rewriter, CBCache &cache,
                        PortCounter &portCounters);
 
-/// Trace a value through view-like operations (subview, expand_shape, etc.)
-/// and return the defining op if it matches OpT.  Returns null otherwise.
+/// Trace a value through view-like and DPS-style operations and return the
+/// defining op if it matches OpT.  Returns null otherwise.
+///
+/// Follows view-like ops directly (subview, expand_shape, ...) and, for
+/// DestinationStyleOpInterface ops, walks from an OpResult to its matching
+/// DPS init operand. This lets callers find, e.g., the underlying
+/// `memref.alloc` that backs a multi-result DPS op like `d2m.sort_block`.
 template <typename OpT>
 OpT traceToDefiningOp(Value value) {
   while (value) {
@@ -52,6 +58,19 @@ OpT traceToDefiningOp(Value value) {
     }
     if (mlir::isa<mlir::ViewLikeOpInterface>(definingOp)) {
       value = definingOp->getOperand(0);
+      continue;
+    }
+    if (auto dps =
+            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(definingOp)) {
+      auto opResult = mlir::dyn_cast<mlir::OpResult>(value);
+      if (!opResult || opResult.getOwner() != definingOp) {
+        return nullptr;
+      }
+      unsigned resultIdx = opResult.getResultNumber();
+      if (resultIdx >= dps.getNumDpsInits()) {
+        return nullptr;
+      }
+      value = dps.getDpsInitOperand(resultIdx)->get();
       continue;
     }
     return nullptr;

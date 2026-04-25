@@ -20,6 +20,7 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
@@ -474,10 +475,37 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
             // Check if this is a compute operation with results
             if (op->getNumResults() > 0) {
-              // Update result types for operations that produce values
+              // For DPS ops we must respect per-init typing: `alloc` may be a
+              // specific DPS init of `op`, in which case only the matching
+              // result should adopt the alloc's type. Naively setting every
+              // result to `allocType` mistypes the other results in
+              // multi-output DPS ops (e.g. `d2m.sort_block`).
+              auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(op);
+              llvm::SmallVector<unsigned, 2> resultsToRetype;
+              if (dpsOp && op->getNumResults() == dpsOp.getNumDpsInits()) {
+                for (OpOperand &init : dpsOp.getDpsInitsMutable()) {
+                  if (init.get() == allocResult) {
+                    unsigned resultIdx =
+                        init.getOperandNumber() - dpsOp.getNumDpsInputs();
+                    if (resultIdx < op->getNumResults()) {
+                      resultsToRetype.push_back(resultIdx);
+                    }
+                  }
+                }
+              } else {
+                // Non-DPS or asymmetric op: preserve the legacy behavior of
+                // setting every memref result to the alloc type. This is
+                // safe for single-result ops (the historical case) and for
+                // tile_tilize_block / tile_untilize_block style ops whose
+                // sole memref result aliases their alloc operand.
+                for (unsigned i = 0; i < op->getNumResults(); ++i) {
+                  resultsToRetype.push_back(i);
+                }
+              }
+
               rewriter.modifyOpInPlace(op, [&]() {
-                for (OpResult result : op->getResults()) {
-                  // Only update if the result is a memref type
+                for (unsigned idx : resultsToRetype) {
+                  OpResult result = op->getResult(idx);
                   if (mlir::isa<MemRefType>(result.getType())) {
                     result.setType(allocType);
                   }

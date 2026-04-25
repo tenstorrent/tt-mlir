@@ -2965,6 +2965,88 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
   let hasVerifier = 1;
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Sort Op
+//===----------------------------------------------------------------------===//
+
+def D2M_SortBlockOp : D2M_GenericRegionComputeOp<"sort_block",
+  [DestinationStyleOpInterface,
+   DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+   DeclareOpInterfaceMethods<BufferizableOpInterface,
+     ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+      "getAliasingValues", "getBufferType"]>,
+   D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "Bitonic sort of an input shard along the last dim";
+  let description = [{
+      The `sort_block` operation sorts an input shard of tiles along the last
+      tile-dimension and produces both the sorted values and the corresponding
+      argsort indices. It operates at the block level (memref/tensor of tiles)
+      and is decomposed by `d2m-decompose-sort` into a sequence of low-level
+      tile transposes, `topk_*` SFPU calls, and DST/CB plumbing that mirrors
+      the tt-metal `data_movement/sort` kernel.
+
+      The op is intentionally narrow today: rank-2 inputs sorted on the last
+      dim, with `Ht=1` and `Wt` a power of two compatible with the bitonic
+      `topk_local_sort` / `topk_merge` / `topk_rebuild` SFPU pipeline.
+
+      Operand ordering:
+      - `input`         : per-core shard of input values (Ht x Wt tiles).
+      - `values_out`    : DPS init for the sorted values (same shape as input).
+      - `indices_out`   : DPS init for the argsort indices (same shape as input,
+                           integer element type).
+
+      Example:
+      ```mlir
+      %values, %indices = d2m.sort_block %input, %vout, %iout
+        {dim = 1, descending = false, stable = false}
+        : (tensor<1x4x!ttcore.tile<32x32, f32>>,
+           tensor<1x4x!ttcore.tile<32x32, f32>>,
+           tensor<1x4x!ttcore.tile<32x32, i32>>)
+        -> (tensor<1x4x!ttcore.tile<32x32, f32>>,
+            tensor<1x4x!ttcore.tile<32x32, i32>>)
+      ```
+  }];
+
+  let arguments = (ins
+      AnyRankedTensorOrMemRef:$input,
+      AnyRankedTensorOrMemRef:$values_scratch,
+      AnyRankedTensorOrMemRef:$indices_scratch,
+      AnyRankedTensorOrMemRef:$values_out,
+      AnyRankedTensorOrMemRef:$indices_out,
+      I64Attr:$dim,
+      BoolAttr:$descending,
+      BoolAttr:$stable);
+
+  let results = (outs
+      AnyRankedTensorOrMemRef:$values,
+      AnyRankedTensorOrMemRef:$indices);
+
+  let builders = [
+    OpBuilder<(ins "Value":$input,
+                   "Value":$valuesScratch, "Value":$indicesScratch,
+                   "Value":$valuesOut, "Value":$indicesOut,
+                   "int64_t":$dim, "bool":$descending, "bool":$stable), [{
+      SmallVector<Type, 2> resultTypes{valuesOut.getType(), indicesOut.getType()};
+      build($_builder, $_state, resultTypes, input, valuesScratch,
+            indicesScratch, valuesOut, indicesOut,
+            $_builder.getI64IntegerAttr(dim),
+            $_builder.getBoolAttr(descending),
+            $_builder.getBoolAttr(stable));
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() {
+      // values_out (operand 3) and indices_out (operand 4) are the DPS inits.
+      // The scratch operands (1, 2) are read+written intermediate buffers but
+      // are not aliased to any result.
+      return MutableOperandRange(getOperation(), /*start=*/3, /*length=*/2);
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
   [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "Device synchronize op.";

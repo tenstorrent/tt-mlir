@@ -730,6 +730,42 @@ def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MDecomposeSort : Pass<"d2m-decompose-sort", "::mlir::ModuleOp"> {
+  let summary = "Decompose sort_block ops into low-level tile + topk SFPU ops";
+  let description = [{
+    Decomposes `d2m.sort_block` into the bitonic-sort sequence used by the
+    tt-metal `data_movement/sort` kernel:
+
+    1. Allocate transposed-values and transposed-indices L1 scratch CBs (one
+       tile slot per input tile).
+    2. Seed an index tile with `d2m.fill_arange_tile` and per-tile-pair
+       arithmetic to generate global argsort indices.
+    3. For each pair of tiles (Wt/2 pairs), acquire DST, transpose the value
+       and index tiles into DST, and call `topk_local_sort` with alternating
+       directions to form a bitonic sequence in the transposed scratch CBs.
+    4. Run the bitonic merge stages: for each `stage` in `[2..log2(Wt)]` and
+       each `sub` in `[stage..1]`, copy a tile pair from the transposed
+       scratch CBs into DST and call either `topk_merge` (sub > 1) or
+       `topk_local_sort` (sub == 1).
+    5. Transpose the sorted tiles back from the transposed CBs into the
+       output values and indices shards.
+
+    Today the decomposition only handles rank-2 inputs sorted on the last
+    dim with `Ht=1` and `Wt=4` (the shape covered by the existing
+    `test_sort.py` unit). Other shapes leave `sort_block` in place.
+
+    This pass should run after bufferization (alongside `d2m-decompose-arange`)
+    and before `d2m-insert-dst-register-access` so that the manual `acquire_dst`
+    it inserts is preserved verbatim.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
+  ];
+}
+
 def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
   let summary = "Decompose arange_block ops into low-level tile operations";
   let description = [{
