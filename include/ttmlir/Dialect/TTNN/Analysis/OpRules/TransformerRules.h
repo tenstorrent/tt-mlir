@@ -53,7 +53,7 @@ struct SDPARuleBook : OpRuleBook {
 /// explicit input layout filter the optimizer can assign V=L1-block-sharded,
 /// which then fails the TTNN verifier (keyType != valueType).
 struct SDPADecodeRuleBook : SDPARuleBook {
-  LayoutFilterFn getInputLayoutFilter() const override;
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
 /// RotaryEmbedding / RotaryEmbeddingLlama:
