@@ -416,4 +416,33 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
 }
 
 
+def ConvertTTIRToSMT : Pass<"convert-ttir-to-smt", "::mlir::ModuleOp"> {
+  let summary = "Convert TTIR dialect to SMT dialect for formal verification.";
+  let description = [{
+    Lowers TTIR tensor operations to SMT bitvector operations for use in
+    logical equivalence checking and bounded model checking. Single-element
+    tensors (tensor<1xiN>) map to smt::BitVectorType(N). Multi-element
+    tensors (tensor<KxiN>) map to smt::ArrayType.
+  }];
+  let constructor = "createConvertTTIRToSMTPass()";
+  let dependentDialects = ["mlir::smt::SMTDialect"];
+}
+
+def ConstructTTIRLEC : Pass<"construct-ttir-lec", "::mlir::ModuleOp"> {
+  let summary = "Construct an LEC (logical equivalence check) from two SMT functions.";
+  let description = [{
+    Takes two func.func ops (already lowered to SMT) and constructs an
+    smt.solver that asserts their outputs differ for some input, then
+    issues a check. If port widths differ between the two functions, this
+    pass inserts zero-extend on inputs and truncate on outputs to adapt
+    the wider side down to the narrower side's width.
+  }];
+  let constructor = "createConstructTTIRLECPass()";
+  let dependentDialects = ["mlir::smt::SMTDialect", "mlir::func::FuncDialect"];
+  let options = [
+    Option<"firstFunc", "c1", "std::string", /*default=*/"", "Name of first function to compare">,
+    Option<"secondFunc", "c2", "std::string", /*default=*/"", "Name of second function to compare">
+  ];
+}
+
 #endif // TTMLIR_CONVERSION_PASSES
