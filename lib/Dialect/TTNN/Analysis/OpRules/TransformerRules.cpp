@@ -50,8 +50,12 @@ OutputHints SDPARuleBook::getOutputHints(
 // SDPADecodeRuleBook
 //===----------------------------------------------------------------------===//
 
-LayoutFilterFn SDPADecodeRuleBook::getInputLayoutFilter() const {
-  // K, V, and cache tensors must be DRAM-interleaved.
+LayoutFilterFn SDPADecodeRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  // Q (operand 0) is unrestricted; K, V, and cache tensors must be
+  // DRAM-interleaved.
+  if (operandIdx == 0) {
+    return nullptr;
+  }
   return layout_filter_utils::requireDRAMInterleaved;
 }
 
