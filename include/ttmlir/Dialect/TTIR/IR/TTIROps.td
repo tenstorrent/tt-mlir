@@ -1261,6 +1261,27 @@ def TTIR_ErfcOp: TTIR_ElementwiseUnaryOp<"erfc"> {
   }];
 }
 
+def TTIR_RoundNearestEvenOp: TTIR_ElementwiseUnaryOp<"round_nearest_even"> {
+  let summary = "Element-wise round operation.";
+  let description = [{
+    Element-wise round operation. Rounds each element of the input tensor to the nearest integer,
+    breaking ties towards the even integer, on the operand tensor and produces a result tensor.
+
+    Example:
+    ```mlir
+    // Compute round for all elements in %input
+    %result = "ttir.round_nearest_even"(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
+    // Input tensor with values [-2.5, 0.4, 0.5, 0.6, 2.5]
+    // Output tensor with values [-2.0, 0.0, 0.0, 1.0, 2.0]
+    ```
+
+    Mathematical definition: round_nearest_even(x) = {
+      floor(x + 0.5) if floor(x) is even
+      ceil(x - 0.5) if floor(x) is odd
+    }
+  }];
+}
+
 class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTIR_ElementwiseUnaryOp<mnemonic, traits> {
     let summary = "Base class for elementwise operations with one input tensor and a floating-point parameter.";
