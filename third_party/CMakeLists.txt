@@ -14,8 +14,22 @@ if (TTMLIR_TTMETAL_SOURCE_DIR)
   # BUILD_RPATH in lib/CMakeLists.txt) hardcode third_party/tt-metal/src/tt-metal.
   # Symlink the canonical location to the override so those continue to work.
   set(TTMETAL_CANONICAL_LINK "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src/tt-metal")
-  if(NOT EXISTS "${TTMETAL_CANONICAL_LINK}")
-    file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src")
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src")
+  if(IS_SYMLINK "${TTMETAL_CANONICAL_LINK}")
+    file(READ_SYMLINK "${TTMETAL_CANONICAL_LINK}" _existing_link_target)
+    if(NOT "${_existing_link_target}" STREQUAL "${TTMETAL_SOURCE_DIR}")
+      file(REMOVE "${TTMETAL_CANONICAL_LINK}")
+      file(CREATE_LINK "${TTMETAL_SOURCE_DIR}" "${TTMETAL_CANONICAL_LINK}" SYMBOLIC)
+      message(STATUS "Repointed ${TTMETAL_CANONICAL_LINK} -> ${TTMETAL_SOURCE_DIR}")
+    endif()
+  elseif(EXISTS "${TTMETAL_CANONICAL_LINK}")
+    message(FATAL_ERROR
+        "TTMLIR_TTMETAL_SOURCE_DIR is set, but a real directory exists at\n"
+        "  ${TTMETAL_CANONICAL_LINK}\n"
+        "(likely a leftover clone from a prior non-override configure). "
+        "Remove it so cmake can replace it with a symlink to the override:\n"
+        "  rm -rf ${TTMETAL_CANONICAL_LINK}")
+  else()
     file(CREATE_LINK "${TTMETAL_SOURCE_DIR}" "${TTMETAL_CANONICAL_LINK}" SYMBOLIC)
     message(STATUS "Symlinked ${TTMETAL_CANONICAL_LINK} -> ${TTMETAL_SOURCE_DIR}")
   endif()
