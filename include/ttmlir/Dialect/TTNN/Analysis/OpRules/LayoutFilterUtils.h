@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include <vector>
 
@@ -16,6 +17,15 @@ namespace mlir::tt::ttnn::layout_filter_utils {
 inline bool rejectAllSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();
   return !(ml && isShardedMemoryLayout(ml.getValue()));
+}
+
+/// Require DRAM-interleaved: reject sharded and L1 layouts.
+inline bool requireDRAMInterleaved(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  if (ml && isShardedMemoryLayout(ml.getValue())) {
+    return false;
+  }
+  return isDRAMBufferType(layout.getBufferType());
 }
 
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
