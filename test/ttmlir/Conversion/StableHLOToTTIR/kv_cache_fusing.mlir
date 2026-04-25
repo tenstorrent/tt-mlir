@@ -7,8 +7,8 @@ module @scatter_fill_cache{
   func.func @fill_cache(%arg0: tensor<1x8x64x128xbf16>, %arg1: tensor<15xi64>, %arg2: tensor<1x8x15x128xbf16>) -> tensor<1x8x64x128xbf16> {
     // CHECK-NOT: ttir.scatter
     // CHECK-NOT: ttir.update_cache
-    // CHECK: %[[RET:[0-9]+]] = "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x15x128xbf16>) -> tensor<1x8x64x128xbf16>
-    // CHECK: return %[[RET]] : tensor<1x8x64x128xbf16>
+    // CHECK: "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x15x128xbf16>) -> ()
+    // CHECK: return %arg0 : tensor<1x8x64x128xbf16>
 
     %0 = stablehlo.constant() <{value = dense<0> : tensor<1xi64>}> : () -> tensor<1xi64>
     %1 = stablehlo.constant() <{value = dense<1> : tensor<1xi64>}> : () -> tensor<1xi64>
@@ -98,8 +98,8 @@ module @scatter_update_cache{
   func.func @update_cache(%arg0: tensor<1x8x64x128xbf16>, %arg1: tensor<1xi64>, %arg2: tensor<1x8x1x128xbf16>) -> tensor<1x8x64x128xbf16> {
     // CHECK-NOT: ttir.scatter
     // CHECK-NOT: ttir.fill_cache
-    // CHECK: %[[RET:[0-9]+]] = "ttir.update_cache"(%arg0, %arg2, %arg1) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x1x128xbf16>, tensor<1xi64>) -> tensor<1x8x64x128xbf16>
-    // CHECK: return %[[RET]] : tensor<1x8x64x128xbf16>
+    // CHECK: "ttir.update_cache"(%arg0, %arg2, %arg1) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x1x128xbf16>, tensor<1xi64>) -> ()
+    // CHECK: return %arg0 : tensor<1x8x64x128xbf16>
 
     %0 = stablehlo.constant() <{value = dense<0> : tensor<1xi64>}> : () -> tensor<1xi64>
     %1 = stablehlo.constant() <{value = dense<1> : tensor<1xi64>}> : () -> tensor<1xi64>
@@ -156,8 +156,8 @@ module {
   func.func @main(%arg0: tensor<1x8x64x128xbf16>, %arg1: tensor<14xi64>, %arg2: tensor<1x8x14x128xbf16>) -> tensor<1x8x64x128xbf16> {
     // CHECK-NOT: stablehlo.scatter
     // CHECK-NOT: ttir.update_cache
-    // CHECK: %[[RET:[0-9]+]] = "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x14x128xbf16>) -> tensor<1x8x64x128xbf16>
-    // CHECK: return %[[RET]] : tensor<1x8x64x128xbf16>
+    // CHECK: "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x14x128xbf16>) -> ()
+    // CHECK: return %arg0 : tensor<1x8x64x128xbf16>
     %1 = "stablehlo.scatter"(%arg0, %arg1, %arg2) <{indices_are_sorted = false, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [0, 1, 3], inserted_window_dims = [2], scatter_dims_to_operand_dims = [2], index_vector_dim = 1>, unique_indices = false}> ({
     ^bb0(%arg3: tensor<bf16>, %arg4: tensor<bf16>):
       stablehlo.return %arg4 : tensor<bf16>
