@@ -5679,9 +5679,9 @@ public:
   ///   - %indices can be tracked back to the function's cachePositions input
   ///   that represents the indices of the cache to fill/update.
   /// Output pattern:
-  ///   %result = fillCacheOp(%cache, %updates)
+  ///   fillCacheOp(%cache, %updates)
   ///   or (if S == 1)
-  ///   %result = updateCacheOp(%cache, %updates, %update_index)
+  ///   updateCacheOp(%cache, %updates, %update_index)
   mlir::LogicalResult
   matchAndRewrite(mlir::stablehlo::ScatterOp scatterOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
@@ -5752,20 +5752,18 @@ public:
               rewriter.getI32ArrayAttr(sliceEnds),
               rewriter.getI32ArrayAttr(sliceSteps));
           // create fill cache op for this batch.
-          cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
+          rewriter.create<mlir::tt::ttir::FillCacheOp>(
               scatterOp.getLoc(),
-              scatterOp.getResult(0).getType(), // Result type
-              cache,                            // Cache tensor
-              slicedUpdates,                    // Updates tensor
-              batchOffsetAttr                   // Batch offset
+              cache,          // Cache tensor
+              slicedUpdates,  // Updates tensor
+              batchOffsetAttr // Batch offset
           );
         }
       } else {
-        cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
-            scatterOp.getLoc(), scatterOp.getResult(0).getType(), // Result type
-            cache,   // Cache tensor
-            updates, // Updates tensor
-            0        // Batch offset
+        rewriter.create<mlir::tt::ttir::FillCacheOp>(scatterOp.getLoc(),
+                                                     cache,   // Cache tensor
+                                                     updates, // Updates tensor
+                                                     0        // Batch offset
         );
       }
     } else {
@@ -5786,18 +5784,16 @@ public:
             scatterOp.getLoc(), permutedUpdatesType, updates,
             rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
       }
-      cache = rewriter.create<mlir::tt::ttir::UpdateCacheOp>(
+      rewriter.create<mlir::tt::ttir::UpdateCacheOp>(
           scatterOp.getLoc(),
-          scatterOp.getResult(0).getType(), // Result type
-          cache,                            // Cache tensor
-          updates,                          // Updates tensor
-          *CachePositions,                  // Cache Idx
-          0                                 // Batch offset
+          cache,           // Cache tensor
+          updates,         // Updates tensor
+          *CachePositions, // Cache Idx
+          0                // Batch offset
       );
     }
 
-    rewriter.replaceOp(scatterOp, cache);
-
+    rewriter.replaceOp(scatterOp, {cache});
     return mlir::success();
   }
 
@@ -7234,8 +7230,10 @@ public:
     auto cache = adaptor.getOperands()[0];
     auto input = adaptor.getOperands()[1];
 
-    rewriter.replaceOpWithNewOp<ttir::FillCacheOp>(
-        srcOp, cache.getType(), cache, input, batchOffsetInt);
+    rewriter.create<ttir::FillCacheOp>(srcOp.getLoc(), cache, input,
+                                       batchOffsetInt);
+
+    rewriter.replaceOp(srcOp, {cache});
 
     return success();
   }
@@ -7304,8 +7302,10 @@ public:
     auto input = adaptor.getOperands()[1];
     auto updateIndex = adaptor.getOperands()[2];
 
-    rewriter.replaceOpWithNewOp<ttir::UpdateCacheOp>(
-        srcOp, cache.getType(), cache, input, updateIndex, batchOffsetInt);
+    rewriter.create<ttir::UpdateCacheOp>(srcOp.getLoc(), cache, input,
+                                         updateIndex, batchOffsetInt);
+
+    rewriter.replaceOp(srcOp, {cache});
 
     return success();
   }
@@ -7357,9 +7357,11 @@ public:
       }
     }
 
-    rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
-        srcOp, cache.getType(), cache, input, updateIndex, shareCache,
-        pageTable);
+    // Create the paged update cache op - NO RESULT TYPE
+    rewriter.create<ttir::PagedUpdateCacheOp>(
+        srcOp.getLoc(), cache, input, updateIndex, shareCache, pageTable);
+
+    rewriter.replaceOp(srcOp, {cache});
 
     return success();
   }
@@ -7460,8 +7462,10 @@ public:
     Value batchIdxTensor =
         adaptor.getOperands().size() == 4 ? adaptor.getOperands()[3] : nullptr;
 
-    rewriter.replaceOpWithNewOp<ttir::PagedFillCacheOp>(
-        srcOp, cache.getType(), cache, input, pageTable, batchIdxTensor);
+    rewriter.create<ttir::PagedFillCacheOp>(srcOp.getLoc(), cache, input,
+                                            pageTable, batchIdxTensor);
+
+    rewriter.replaceOp(srcOp, {cache});
 
     return success();
   }

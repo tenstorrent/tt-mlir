@@ -5147,8 +5147,7 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
         }
 
         rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
-            op, op.getType(), op.getCache(), newInput, newUpdateIndex, false,
-            nullptr);
+            op, op.getCache(), newInput, newUpdateIndex, false, nullptr);
 
         return mlir::success();
       });

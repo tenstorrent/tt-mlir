@@ -3423,7 +3423,7 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
     let hasFolder = 1;
 }
 
-def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
+def TTIR_UpdateCacheOp : TTIR_InplaceOp<"update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache update operation.";
   let description = [{
     The `update_cache` operation updates a cache tensor with values from an input tensor at specific indices.
@@ -3438,7 +3438,7 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
     %cache = ... : tensor<2x16x64xf32>  // Batch size 2, sequence length 16, hidden dim 64
     %input = ... : tensor<2x1x64xf32>   // New token embeddings
     %update_index = ... : tensor<1xi32> // Update at position [15]
-    %result = ttir.update_cache(%cache, %input, %update_index) {batch_offset = 0 : i32} :
+    ttir.update_cache(%cache, %input, %update_index) {batch_offset = 0 : i32} :
         tensor<2x16x64xf32>, tensor<2x1x64xf32>, tensor<1xi32> -> tensor<2x16x64xf32>
     // The cache tensor is updated at position 15 for both batches with the values from input
     ```
@@ -3452,7 +3452,7 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
     - `batch_offset` (Integer): Offset in the batch dimension.
 
     Output:
-    - `result` (Tensor): The updated cache tensor.
+    - No output tensor is returned as the cache is updated in place.
   }];
 
   let arguments = (ins AnyRankedTensor:$cache,
@@ -3460,17 +3460,11 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache", [TTIR_CacheOpInterface]> {
                        AnyRankedTensor:$update_index,
                        I32Attr:$batch_offset);
 
-  let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
-
   let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 
-def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache", [TTIR_CacheOpInterface]> {
+def TTIR_PagedUpdateCacheOp : TTIR_InplaceOp<"paged_update_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged update cache op.";
   let description = [{
       Inputs:
@@ -3481,7 +3475,7 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache", [TTIR_CacheOpIn
         - `page_table`: The page table for managing memory regions during updates. [num_users, max_num_blocks_per_seq]
 
       Outputs:
-        - `result`: The updated cache tensor.
+        - No output tensor is returned as the cache is updated in place.
   }];
 
   let arguments = (ins AnyRankedTensor:$cache,
@@ -3490,16 +3484,10 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache", [TTIR_CacheOpIn
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
                        Optional<AnyRankedTensor>:$page_table);
 
-  let results = (outs AnyRankedTensor:$result);
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
-
   let hasVerifier = 1;
 }
 
-def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache", [TTIR_CacheOpInterface]> {
+def TTIR_FillCacheOp : TTIR_InplaceOp<"fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Cache filling operation.";
   let description = [{
       The `fill_cache` operation fills a cache tensor with values from an input tensor.
@@ -3520,7 +3508,7 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache", [TTIR_CacheOpInterface]> {
     // Fill a portion of the cache
     %cache = ... : tensor<2x16x64xf32>  // Batch size 2, sequence length 16, hidden dim 64
     %input = ... : tensor<2x8x64xf32>   // Values for half of the cache
-    %result = ttir.fill_cache(%cache, %input) {batch_offset = 0 : i32} :
+    ttir.fill_cache(%cache, %input) {batch_offset = 0 : i32} :
         tensor<2x16x64xf32>, tensor<2x8x64xf32> -> tensor<2x16x64xf32>
     // The first 8 positions of the cache are filled with values from input
     ```
@@ -3533,23 +3521,17 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache", [TTIR_CacheOpInterface]> {
     - `batch_offset` (Integer): Offset in the batch dimension.
 
     Output:
-    - `result` (Tensor): The filled cache tensor.
+    - No output tensor is returned as the cache is updated in place.
   }];
 
   let arguments = (ins AnyRankedTensor:$cache,
                        AnyRankedTensor:$input,
                        I32Attr:$batch_offset);
 
-  let results = (outs AnyRankedTensor:$result);
-
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
 }
 
-def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache", [TTIR_CacheOpInterface]> {
+def TTIR_PagedFillCacheOp : TTIR_InplaceOp<"paged_fill_cache", [TTIR_CacheOpInterface]> {
   let summary = "Paged fill cache op.";
   let description = [{
     Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.
@@ -3559,13 +3541,6 @@ def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache", [TTIR_CacheOpInterf
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$page_table,
                        Optional<AnyRankedTensor>:$batch_idx_tensor);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  // The cache tensor is modified in place by this operation, thus it acts as the DPS output of this operation.
-  let extraClassDeclaration = [{
-      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
-  }];
 
   let hasVerifier = 1;
 }
