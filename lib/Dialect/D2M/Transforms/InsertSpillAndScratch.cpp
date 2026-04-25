@@ -17,9 +17,15 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTSPILLANDSCRATCH
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
+#include <algorithm>
+
 namespace {
 
-/// Information about a loop nest with d2m.scratch_space_loop
+/// Information about one scratch_space_loop "region of compute".
+/// Records enough structural information to:
+///   1. decide whether one loop nest produces a value used by another,
+///   2. size the compiler-inserted scratch buffer, and
+///   3. build the affine indexing used to spill into scratch and reload later.
 struct ScratchLoopInfo {
   affine::AffineForOp scratchLoop; // The loop with d2m.scratch_space_loop attr
   affine::AffineForOp linalgRoot;  // The nested loop with d2m.linalg_root attr
@@ -30,21 +36,38 @@ struct ScratchLoopInfo {
 };
 
 /// A single consumer loop and the loads it contains for a given intermediate.
+/// Keep the whole list of loads because the same intermediate allocation may
+/// be read multiple times inside a later scratch_space_loop and all of those
+/// loads must be redirected to the same scratch slot once spilling is inserted.
 struct ConsumerLoopLoads {
   ScratchLoopInfo *loop;
   SmallVector<affine::AffineLoadOp> loads;
 };
 
-/// Information about an intermediate allocation that needs to become scratch
+/// Information about one intermediate allocation that should be materialized
+/// through compiler-managed scratch instead of a local memref.alloc.
+///
+/// "producer" here is intentionally the loop nest that first defines the value
+/// that must survive into a later scratch_space_loop. A later loop may both
+/// read and then update the same allocation in place, but that later write does
+/// not replace the original producer for cross-loop lifetime purposes.
 struct IntermediateAllocInfo {
   memref::AllocOp allocOp;
   ScratchLoopInfo *producer; // Loop nest that writes to this alloc
+  // Loads are only rewritten while the producer's definition still reaches.
+  // If a later loop writes the same allocation, that loop is the last consumer
+  // we can safely redirect to this producer's scratch slot.
+  size_t lastConsumerIndex;
   SmallVector<ConsumerLoopLoads>
       consumers; // all consumer loop nests that read from it
   SmallVector<affine::AffineStoreOp> stores; // Stores to this alloc
 };
 
 /// Find the innermost affine.for loop with d2m.linalg_root attribute.
+///
+/// This identifies the loop where the actual elementwise/tilewise linalg-style
+/// compute begins. Scratch indexing is built from the enclosing
+/// scratch_space_loop plus this linalg_root subtree.
 static affine::AffineForOp findLinalgRootLoop(affine::AffineForOp scratchLoop) {
   affine::AffineForOp result = nullptr;
   scratchLoop.getBody()->walk([&](affine::AffineForOp forOp) {
@@ -98,8 +121,10 @@ static bool computeScratchShape(ScratchLoopInfo &info) {
   return true;
 }
 
-/// Check if a memref is an intermediate allocation (not an input/output of the
-/// generic op, but created inside the generic region)
+/// Check whether an allocation is a compiler-local intermediate of this
+/// d2m.generic.
+/// Inputs/outputs of the generic already have externally visible storage and
+/// should never be replaced by scratch slots.
 static bool isIntermediateAlloc(memref::AllocOp allocOp, GenericOp genericOp) {
   // Check if alloc is inside the generic op's region
   if (!genericOp->isProperAncestor(allocOp)) {
@@ -117,8 +142,11 @@ static bool isIntermediateAlloc(memref::AllocOp allocOp, GenericOp genericOp) {
   return true;
 }
 
-/// Check if a memref value traces back to the target allocation through
-/// subviews
+/// Check whether a memref SSA value ultimately aliases the target allocation.
+///
+/// Loads/stores often use subviews rather than the alloc result directly.
+/// Spill insertion cares about the underlying storage object, so walk
+/// through subviews and treat them as accesses to the same intermediate.
 static bool tracesToAlloc(Value memref, Value targetAlloc) {
   Value current = memref;
   while (current) {
@@ -134,7 +162,8 @@ static bool tracesToAlloc(Value memref, Value targetAlloc) {
   return false;
 }
 
-/// Collect all affine stores to a given memref within a loop nest
+/// Collect all affine stores to a given intermediate anywhere inside one
+/// scratch_space_loop nest.
 static void collectStoresInLoop(Value memref, ScratchLoopInfo &loopInfo,
                                 SmallVector<affine::AffineStoreOp> &stores) {
   loopInfo.scratchLoop.walk([&](affine::AffineStoreOp storeOp) {
@@ -144,7 +173,8 @@ static void collectStoresInLoop(Value memref, ScratchLoopInfo &loopInfo,
   });
 }
 
-/// Collect all affine loads from a given memref within a loop nest
+/// Collect all affine loads from a given intermediate anywhere inside one
+/// scratch_space_loop nest.
 static void collectLoadsInLoop(Value memref, ScratchLoopInfo &loopInfo,
                                SmallVector<affine::AffineLoadOp> &loads) {
   loopInfo.scratchLoop.walk([&](affine::AffineLoadOp loadOp) {
@@ -316,15 +346,16 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
 ///     scratch_space_loop_1 { producer }
 ///     scratch_space_loop_2 { consumer }
 ///   }
-static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
+static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
                               IRRewriter &rewriter) {
   if (scratchLoops.size() < 2) {
-    return;
+    return true;
   }
 
   struct ChainInfo {
     affine::AffineForOp scratchLoop;
-    SmallVector<scf::ForOp> chain; // outermost first
+    // The enclosing scf.for chain, ordered from outermost to innermost.
+    SmallVector<scf::ForOp> chain;
   };
 
   SmallVector<ChainInfo> chains;
@@ -340,40 +371,101 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
     chains.push_back(ci);
   }
 
+  // Every candidate must have the same number of enclosing scf.for loops.
   size_t chainLen = chains[0].chain.size();
   if (chainLen == 0) {
-    return;
+    return true;
   }
   for (auto &ci : chains) {
     if (ci.chain.size() != chainLen) {
-      return;
+      return false;
     }
   }
 
-  // Verify matching bounds/steps at each nesting level.
+  // Find the first level where the nests stop sharing the exact same loop op.
+  size_t firstDivergentLevel = chainLen;
   for (size_t level = 0; level < chainLen; ++level) {
-    auto ref = chains[0].chain[level];
+    scf::ForOp ref = chains[0].chain[level];
+    bool allMatch = true;
+    for (size_t i = 1; i < chains.size(); ++i) {
+      if (chains[i].chain[level] != ref) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch) {
+      continue;
+    }
+    firstDivergentLevel = level;
+    break;
+  }
+
+  if (firstDivergentLevel == chainLen) {
+    return true;
+  }
+
+  // Walk linearly through the block and reorder the operations between
+  // consecutive loop nests.
+  Block *outerBlock = chains[0].chain[firstDivergentLevel]->getBlock();
+  for (auto &ci : chains) {
+    if (ci.chain[firstDivergentLevel]->getBlock() != outerBlock) {
+      return false;
+    }
+  }
+
+  // Put chains in source order so "chain i then chain i+1" matches the original
+  // execution order in the parent block.
+  std::sort(chains.begin(), chains.end(),
+            [](const ChainInfo &lhs, const ChainInfo &rhs) -> bool {
+              size_t level = 0;
+              while (level < lhs.chain.size() &&
+                     lhs.chain[level] == rhs.chain[level]) {
+                ++level;
+              }
+              if (level == lhs.chain.size()) {
+                return false;
+              }
+              return lhs.chain[level]->isBeforeInBlock(rhs.chain[level]);
+            });
+
+  // Verify that the divergent loops are structurally identical. Fusion here is
+  // intentionally conservative: only merge loops when they iterate over the
+  // same space with the same step so the shared loop preserves semantics.
+  for (size_t level = firstDivergentLevel; level < chainLen; ++level) {
+    scf::ForOp ref = chains[0].chain[level];
     auto refLb = getConstantIntValue(ref.getLowerBound());
     auto refUb = getConstantIntValue(ref.getUpperBound());
     auto refStep = getConstantIntValue(ref.getStep());
     if (!refLb || !refUb || !refStep) {
-      return;
+      return false;
     }
     for (size_t i = 1; i < chains.size(); ++i) {
-      auto other = chains[i].chain[level];
+      scf::ForOp other = chains[i].chain[level];
       auto lb = getConstantIntValue(other.getLowerBound());
       auto ub = getConstantIntValue(other.getUpperBound());
       auto step = getConstantIntValue(other.getStep());
       if (!lb || !ub || !step) {
-        return;
+        return false;
       }
       if (*refLb != *lb || *refUb != *ub || *refStep != *step) {
-        return;
+        return false;
       }
     }
   }
 
   // Move operations between consecutive loop nests to before the first.
+  //
+  // Source shape before fusion looks roughly like:
+  //   scf.for A
+  //   setup ops for B
+  //   scf.for B
+  //   setup ops for C
+  //   scf.for C
+  //
+  // After we create one shared outer loop, hoist the setup ops in front of the
+  // first fused chain and then splice the old loop bodies into the new shared
+  // chain.
+  //
   // These are setup ops (allocs, remote_loads, etc.) that don't depend on
   // loop IVs and need to dominate the shared loop body.
   //
@@ -382,28 +474,36 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
   // chain[i]'s content, before chain[i+1]'s content). Collect these
   // separately and splice them in at the right position below.
   SmallVector<SmallVector<Operation *>> stallsAfterChain(chains.size());
-  Operation *firstOuter = chains[0].chain[0];
+  Operation *firstOuter = chains[0].chain[firstDivergentLevel];
   for (size_t i = 1; i < chains.size(); ++i) {
-    Operation *thisOuter = chains[i].chain[0];
+    Operation *thisOuter = chains[i].chain[firstDivergentLevel];
     SmallVector<Operation *> toMove;
-    for (auto it = std::next(chains[i - 1].chain[0]->getIterator());
-         &*it != thisOuter; ++it) {
-      if (isa<UnpackStallOnPackOp>(&*it)) {
-        stallsAfterChain[i - 1].push_back(&*it);
+    auto it =
+        std::next(chains[i - 1].chain[firstDivergentLevel]->getIterator());
+    auto end = outerBlock->end();
+    auto thisOuterIt = thisOuter->getIterator();
+    for (; it != end && it != thisOuterIt; ++it) {
+      Operation *op = &*it;
+      if (isa<UnpackStallOnPackOp>(op)) {
+        stallsAfterChain[i - 1].push_back(op);
       } else {
-        toMove.push_back(&*it);
+        toMove.push_back(op);
       }
+    }
+    if (it == end) {
+      return false;
     }
     for (auto *op : toMove) {
       op->moveBefore(firstOuter);
     }
   }
 
-  // Create the shared scf.for chain with matching bounds.
+  // Materialize a fresh scf.for chain with the same iteration space as the
+  // first original chain.
   rewriter.setInsertionPoint(firstOuter);
   SmallVector<scf::ForOp> shared;
-  for (size_t level = 0; level < chainLen; ++level) {
-    auto &ref = chains[0].chain[level];
+  for (size_t level = firstDivergentLevel; level < chainLen; ++level) {
+    scf::ForOp ref = chains[0].chain[level];
     auto newLoop = rewriter.create<scf::ForOp>(
         ref.getLoc(), ref.getLowerBound(), ref.getUpperBound(), ref.getStep());
     shared.push_back(newLoop);
@@ -411,17 +511,29 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
   }
 
   // Move body operations from each old chain into the shared chain.
+  //
+  // Conceptually we are turning:
+  //   outerA { bodyA }
+  //   outerB { bodyB }
+  //
+  // into:
+  //   sharedOuter { bodyA; bodyB; }
+  //
+  // but we must do so level-by-level to keep nested setup/teardown ordering
+  // valid at each depth.
   for (size_t chainIdx = 0; chainIdx < chains.size(); ++chainIdx) {
     auto &ci = chains[chainIdx];
-    // Replace old IVs with shared IVs at every nesting level.
-    for (size_t level = 0; level < chainLen; ++level) {
+    // Rewrite uses of the old induction vars to the new shared IVs before
+    // moving operations.
+    for (size_t level = firstDivergentLevel; level < chainLen; ++level) {
       ci.chain[level].getInductionVar().replaceAllUsesWith(
-          shared[level].getInductionVar());
+          shared[level - firstDivergentLevel].getInductionVar());
     }
 
-    for (size_t level = 0; level < chainLen; ++level) {
+    for (size_t level = firstDivergentLevel; level < chainLen; ++level) {
+      size_t sharedLevel = level - firstDivergentLevel;
       Block *oldBody = ci.chain[level].getBody();
-      Block *sharedBody = shared[level].getBody();
+      Block *sharedBody = shared[sharedLevel].getBody();
       Operation *sharedYield = sharedBody->getTerminator();
 
       if (level + 1 < chainLen) {
@@ -453,7 +565,7 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
             preOps.push_back(&op);
           }
         }
-        Operation *innerSharedLoop = shared[level + 1].getOperation();
+        Operation *innerSharedLoop = shared[sharedLevel + 1].getOperation();
         for (auto *op : preOps) {
           op->moveBefore(innerSharedLoop);
         }
@@ -476,10 +588,12 @@ static void fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
     }
   }
 
-  // Erase old scf.for chains (outermost erases the entire chain).
+  // Erase the old divergent scf.for chains.
   for (auto &ci : chains) {
-    rewriter.eraseOp(ci.chain[0]);
+    rewriter.eraseOp(ci.chain[firstDivergentLevel]);
   }
+
+  return true;
 }
 
 /// Main pass implementation
@@ -504,6 +618,10 @@ private:
     IRRewriter rewriter(&getContext());
 
     // Step 0: Find all scratch_space_loops first (before any modifications).
+    //
+    // Gather the candidate loops up front because later rewriting may erase or
+    // re-parent surrounding structure. Skip loops already marked as processed
+    // so the pass is idempotent if it is run more than once.
     SmallVector<affine::AffineForOp> scratchSpaceLoops;
     genericOp.walk([&](affine::AffineForOp forOp) {
       if (forOp->hasAttr("d2m.scratch_space_loop") &&
@@ -520,9 +638,15 @@ private:
     // This ensures producer/consumer computations share the outer iteration
     // space, allowing the scratch buffer to be reused per outer iteration
     // rather than needing full-shard capacity.
-    fuseOuterScfLoops(scratchSpaceLoops, rewriter);
+    if (!fuseOuterScfLoops(scratchSpaceLoops, rewriter)) {
+      return success();
+    }
 
-    // Step 1: Collect full loop info.
+    // Step 1: Collect structural information for each scratch_space_loop.
+    //
+    // Only keep loops where we can identify a linalg_root and where every
+    // relevant loop bound/step is static enough to build a concrete scratch
+    // shape and affine access map.
     SmallVector<ScratchLoopInfo> scratchLoops;
     for (auto scratchLoop : scratchSpaceLoops) {
       ScratchLoopInfo info;
@@ -542,27 +666,36 @@ private:
       return success();
     }
 
-    // Step 3: Find intermediate allocations that connect the loop nests.
+    // Step 3: Find intermediate allocations that connect loop nests.
+    //
+    // Looking for the pattern:
+    //   scratch_space_loop P writes alloc A
+    //   scratch_space_loop C (later in program order) reads alloc A
     SmallVector<IntermediateAllocInfo> intermediates;
 
     genericOp.walk([&](memref::AllocOp allocOp) {
       if (!isIntermediateAlloc(allocOp, genericOp)) {
         return;
       }
-
       IntermediateAllocInfo allocInfo;
       allocInfo.allocOp = allocOp;
       allocInfo.producer = nullptr;
+      allocInfo.lastConsumerIndex = 0;
 
       Value allocResult = allocOp.getResult();
+      SmallVector<SmallVector<affine::AffineStoreOp>> storesByLoop(
+          scratchLoops.size());
 
       // Find which loop nests write to and read from this allocation.
-      for (auto &loopInfo : scratchLoops) {
+      // Keep per-loop stores in a side table so we can later answer: "which
+      // loop is the earliest writer whose value is consumed by a later loop?"
+      for (auto indexedLoop : llvm::enumerate(scratchLoops)) {
+        size_t loopIdx = indexedLoop.index();
+        auto &loopInfo = indexedLoop.value();
         SmallVector<affine::AffineStoreOp> stores;
         collectStoresInLoop(allocResult, loopInfo, stores);
         if (!stores.empty()) {
-          allocInfo.producer = &loopInfo;
-          allocInfo.stores = stores;
+          storesByLoop[loopIdx] = std::move(stores);
         }
 
         SmallVector<affine::AffineLoadOp> loads;
@@ -576,19 +709,49 @@ private:
       // *subsequent* scratch_space_loop (i.e., consumer index > producer
       // index). A consumer that appears before or at the same loop as the
       // producer does not require cross-loop scratch spilling.
+      // Example:
+      //   loop 0: alloc = sin(...)
+      //   loop 1: tmp = load alloc; alloc = add(tmp, ...)
+      //
+      // loop 1 both reads and writes the same alloc, but loop 0 is still the
+      // true producer of the value that must survive into loop 1. If we chose
+      // loop 1 as the producer just because it is a later writer, we would
+      // lose the real producer->consumer dependency and either spill the wrong
+      // thing or fail to spill at all.
       bool hasSubsequentExternalConsumer = false;
-      if (allocInfo.producer) {
-        size_t producerIdx =
-            static_cast<size_t>(allocInfo.producer - scratchLoops.data());
-        hasSubsequentExternalConsumer =
+      for (auto indexedStores : llvm::enumerate(storesByLoop)) {
+        size_t loopIdx = indexedStores.index();
+        auto &stores = indexedStores.value();
+        if (stores.empty()) {
+          continue;
+        }
+
+        // Pick the earliest writer with a later read so in-place consumer
+        // updates do not replace the true producer for this intermediate.
+        size_t firstLaterWriterIdx = scratchLoops.size();
+        for (size_t laterIdx = loopIdx + 1; laterIdx < storesByLoop.size();
+             ++laterIdx) {
+          if (!storesByLoop[laterIdx].empty()) {
+            firstLaterWriterIdx = laterIdx;
+            break;
+          }
+        }
+
+        bool hasLaterConsumer =
             llvm::any_of(allocInfo.consumers, [&](const ConsumerLoopLoads &c) {
-              if (c.loop == allocInfo.producer) {
-                return false;
-              }
               size_t consIdx =
                   static_cast<size_t>(c.loop - scratchLoops.data());
-              return consIdx > producerIdx;
+              return consIdx > loopIdx && consIdx <= firstLaterWriterIdx;
             });
+        if (!hasLaterConsumer) {
+          continue;
+        }
+
+        allocInfo.producer = &scratchLoops[loopIdx];
+        allocInfo.lastConsumerIndex = firstLaterWriterIdx;
+        allocInfo.stores = std::move(stores);
+        hasSubsequentExternalConsumer = true;
+        break;
       }
       if (hasSubsequentExternalConsumer) {
         intermediates.push_back(allocInfo);
@@ -653,6 +816,12 @@ private:
         if (consumerEntry.loop == allocInfo.producer) {
           continue;
         }
+        size_t consumerIdx =
+            static_cast<size_t>(consumerEntry.loop - scratchLoops.data());
+        if (consumerIdx > allocInfo.lastConsumerIndex) {
+          continue;
+        }
+
         ScratchLoopInfo &consumer = *consumerEntry.loop;
         // Use producer-aware map so that consumers with a different linalgRoot
         // step size correctly address the scratch buffer (which is laid out
@@ -670,7 +839,7 @@ private:
         }
       }
 
-      // Step 7: Clean up - remove subviews and old allocation if unused.
+      // Step 7: Clean up dead pieces of the original local-allocation path.
       SmallVector<memref::SubViewOp> subviews;
       for (Operation *user : allocInfo.allocOp.getResult().getUsers()) {
         if (auto subview = dyn_cast<memref::SubViewOp>(user)) {
@@ -689,7 +858,8 @@ private:
       }
     }
 
-    // Mark all scratch loops as processed.
+    // Mark all scratch loops as processed so a repeated run of this pass does
+    // not try to insert a second layer of scratch for the same loop nests.
     for (auto &info : scratchLoops) {
       info.scratchLoop->setAttr("d2m.scratch_inserted",
                                 UnitAttr::get(&getContext()));
