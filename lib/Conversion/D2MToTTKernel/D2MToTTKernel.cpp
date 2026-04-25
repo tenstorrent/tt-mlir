@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
@@ -2067,6 +2068,110 @@ static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
   return noc_addr_op;
 }
 
+static SmallVector<Value> decomposeLinearIndex(OpBuilder &rewriter,
+                                               Location loc, Value linearIndex,
+                                               ArrayRef<int64_t> shape) {
+  SmallVector<Value> decomposed;
+  decomposed.reserve(shape.size());
+
+  Value remaining = linearIndex;
+  for (uint64_t dim = 0, e = shape.size(); dim < e; ++dim) {
+    if (dim == e - 1) {
+      decomposed.push_back(remaining);
+      break;
+    }
+
+    int64_t suffixVolume = ttmlir::utils::volume(shape.drop_front(dim + 1));
+    if (suffixVolume == 1) {
+      decomposed.push_back(remaining);
+      remaining = index(rewriter, loc, 0);
+      continue;
+    }
+
+    Value divisor = index(rewriter, loc, suffixVolume);
+    Value quotient = rewriter.create<arith::DivSIOp>(loc, remaining, divisor);
+    decomposed.push_back(quotient);
+    Value product = rewriter.create<arith::MulIOp>(loc, quotient, divisor);
+    remaining = rewriter.create<arith::SubIOp>(loc, remaining, product);
+  }
+
+  return decomposed;
+}
+
+static bool hasCollapsed2DShard(MemRefType memrefType) {
+  auto shardLayout =
+      mlir::dyn_cast<ttcore::ShardLayoutAttr>(memrefType.getLayout());
+  return shardLayout && shardLayout.getRank() == 2 && memrefType.getRank() == 4;
+}
+
+static int64_t getCollapsed2DPhysicalRows(MemRefType memrefType) {
+  assert(hasCollapsed2DShard(memrefType) &&
+         "expected 2D sharded memref with explicit grid and shard dims");
+  ArrayRef<int64_t> shape = memrefType.getShape();
+  return shape[0] * shape[2];
+}
+
+static SmallVector<Value> getCollapsed2DElementIndices(OpBuilder &rewriter,
+                                                       Location loc,
+                                                       MemRefType memrefType,
+                                                       Value rowIndex,
+                                                       Value columnIndex) {
+  ArrayRef<int64_t> shape = memrefType.getShape();
+  assert(hasCollapsed2DShard(memrefType) &&
+         "expected 2D sharded memref with explicit grid and shard dims");
+
+  Value shardHeight = index(rewriter, loc, shape[2]);
+  Value shardWidth = index(rewriter, loc, shape[3]);
+  Value gridY = rewriter.create<arith::DivSIOp>(loc, rowIndex, shardHeight);
+  Value rowBase = rewriter.create<arith::MulIOp>(loc, gridY, shardHeight);
+  Value shardY = rewriter.create<arith::SubIOp>(loc, rowIndex, rowBase);
+  Value gridX = rewriter.create<arith::DivSIOp>(loc, columnIndex, shardWidth);
+  Value columnBase = rewriter.create<arith::MulIOp>(loc, gridX, shardWidth);
+  Value shardX = rewriter.create<arith::SubIOp>(loc, columnIndex, columnBase);
+  return {gridY, gridX, shardY, shardX};
+}
+
+static SmallVector<Value> getIndexTensorElementIndices(
+    OpBuilder &rewriter, Location loc, MemRefType memrefType,
+    ArrayRef<int64_t> logicalShape, Value linearIndex) {
+  int64_t logicalColumns = logicalShape.empty() ? 1 : logicalShape.back();
+  Value row = index(rewriter, loc, 0);
+  Value column = linearIndex;
+  if (logicalShape.size() > 1) {
+    Value columnExtent = index(rewriter, loc, logicalColumns);
+    row = rewriter.create<arith::DivSIOp>(loc, linearIndex, columnExtent);
+    Value rowBase = rewriter.create<arith::MulIOp>(loc, row, columnExtent);
+    column = rewriter.create<arith::SubIOp>(loc, linearIndex, rowBase);
+  }
+  return getCollapsed2DElementIndices(rewriter, loc, memrefType, row, column);
+}
+
+static Value getCollapsedOutputRow(OpBuilder &rewriter, Location loc,
+                                   ArrayRef<int64_t> logicalShape,
+                                   Value linearIndex,
+                                   int64_t physicalRowExtent) {
+  SmallVector<Value> logicalIndices =
+      decomposeLinearIndex(rewriter, loc, linearIndex, logicalShape);
+  SmallVector<int64_t> alignedShape(logicalShape);
+  int64_t outerVolume = logicalShape.size() > 1
+                            ? ttmlir::utils::volume(logicalShape.drop_back())
+                            : 1;
+  alignedShape.back() = physicalRowExtent / outerVolume;
+
+  Value row = index(rewriter, loc, 0);
+  for (auto [dim, logicalIndex] : llvm::enumerate(logicalIndices)) {
+    int64_t stride = ttmlir::utils::volume(
+        ArrayRef<int64_t>(alignedShape).drop_front(dim + 1));
+    Value term = logicalIndex;
+    if (stride != 1) {
+      term = rewriter.create<arith::MulIOp>(loc, term,
+                                            index(rewriter, loc, stride));
+    }
+    row = rewriter.create<arith::AddIOp>(loc, row, term);
+  }
+  return row;
+}
+
 template <typename ReadWritePtrOp>
 static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
                             ValueRange index) {
@@ -2282,6 +2387,183 @@ public:
 
 private:
   const d2m::CBProducerConsumer *cbProducerConsumer;
+};
+
+class D2MEmbeddingRewriter : public OpConversionPattern<d2m::EmbeddingOp> {
+public:
+  using OpConversionPattern<d2m::EmbeddingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::EmbeddingOp op, d2m::EmbeddingOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    if (!op.getIndexScratch() || !op.getRowScratch()) {
+      return rewriter.notifyMatchFailure(op,
+                                         "embedding scratch buffers missing");
+    }
+
+    auto indicesType = mlir::cast<MemRefType>(op.getIndices().getType());
+    auto weightType = mlir::cast<MemRefType>(op.getWeight().getType());
+    auto outputType = mlir::cast<MemRefType>(op.getOutput().getType());
+
+    if (ttcore::getMemorySpace(indicesType) != ttcore::MemorySpace::DeviceL1 ||
+        ttcore::getMemorySpace(weightType) != ttcore::MemorySpace::DeviceL1 ||
+        ttcore::getMemorySpace(outputType) != ttcore::MemorySpace::DeviceL1) {
+      return rewriter.notifyMatchFailure(
+          op, "embedding currently supports L1 indices, weight, and output");
+    }
+    if (!hasCollapsed2DShard(indicesType) || !hasCollapsed2DShard(weightType) ||
+        !hasCollapsed2DShard(outputType)) {
+      return rewriter.notifyMatchFailure(
+          op, "embedding currently requires collapsed 2D sharded memrefs");
+    }
+    if (op.getEmbeddingDim() % 4 != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "embedding currently requires f32 embeddingDim to be 16-byte "
+              "aligned");
+    }
+    if (op.getIndicesShape().empty() || op.getIndicesShape().back() % 4 != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "embedding currently requires the innermost index dimension to "
+              "be 16-byte aligned");
+    }
+
+    Location loc = op.getLoc();
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
+    ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+    ArrayRef<int64_t> gridShape = ttcore::getGridShape(op.getOutput());
+    if (gridShape.size() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "embedding currently requires a 2D execution grid");
+    }
+    ArrayRef<int64_t> outputShardShape = ttcore::getShardShape(op.getOutput());
+    if (outputShardShape.size() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "embedding currently requires a 2D output shard");
+    }
+    ArrayRef<int64_t> indicesShape = op.getIndicesShape();
+    AffineMap indicesMemoryMap =
+        d2m::utils::getMemoryMap(device, op.getIndices(), true);
+    AffineMap weightMemoryMap =
+        d2m::utils::getMemoryMap(device, op.getWeight(), true);
+    AffineMap outputMemoryMap =
+        d2m::utils::getMemoryMap(device, op.getOutput(), true);
+
+    Value onePage = i32(rewriter, loc, 1);
+    Value alignedReadSizeBytes = i32(rewriter, loc, 16);
+    Value fourIndex = index(rewriter, loc, 4);
+    Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    Value startIndex = rewriter.create<arith::MulIOp>(
+        loc, myY, index(rewriter, loc, outputShardShape[0]));
+    Value tentativeEnd = rewriter.create<arith::AddIOp>(
+        loc, startIndex, index(rewriter, loc, outputShardShape[0]));
+    Value numIndices = index(rewriter, loc, op.getNumIndices());
+    Value endsBeforeTensorEnd = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::slt, tentativeEnd, numIndices);
+    Value endIndex = rewriter.create<arith::SelectOp>(loc, endsBeforeTensorEnd,
+                                                      tentativeEnd, numIndices);
+    Value startColumn = rewriter.create<arith::MulIOp>(
+        loc, myX, index(rewriter, loc, outputShardShape[1]));
+    Value tentativeEndColumn = rewriter.create<arith::AddIOp>(
+        loc, startColumn, index(rewriter, loc, outputShardShape[1]));
+    Value embeddingDim = index(rewriter, loc, op.getEmbeddingDim());
+    Value columnEndsBeforeTensorEnd = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::slt, tentativeEndColumn, embeddingDim);
+    Value endColumn = rewriter.create<arith::SelectOp>(
+        loc, columnEndsBeforeTensorEnd, tentativeEndColumn, embeddingDim);
+
+    auto buildMappedL1NocAddr = [&](Value base, AffineMap memoryMap,
+                                    ValueRange logicalIndices) -> Value {
+      PatternRewriter &patternRewriter = rewriter;
+      SmallVector<Value> mappedIndices = d2m::utils::applyMap(
+          patternRewriter, loc, memoryMap, logicalIndices, true);
+      return buildNocAddress(rewriter, loc, base, mappedIndices, chipDesc,
+                             ttcore::MemorySpace::DeviceL1);
+    };
+
+    auto loop = rewriter.create<scf::ForOp>(loc, startIndex, endIndex,
+                                            index(rewriter, loc, 1));
+
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(loop.getBody());
+      Value i = loop.getInductionVar();
+      Value indexGroup = rewriter.create<arith::DivSIOp>(loc, i, fourIndex);
+      Value indexGroupStart =
+          rewriter.create<arith::MulIOp>(loc, indexGroup, fourIndex);
+      Value indexLane = rewriter.create<arith::SubIOp>(loc, i, indexGroupStart);
+      Value indexLaneI32 = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), indexLane);
+
+      rewriter.create<ttkernel::CBReserveBackOp>(loc, adaptor.getIndexScratch(),
+                                                 onePage);
+      Value indexWritePtr = rewriter.create<ttkernel::GetWritePtrOp>(
+          loc, adaptor.getIndexScratch());
+      SmallVector<Value> indexLogicalIndices = getIndexTensorElementIndices(
+          rewriter, loc, indicesType, indicesShape, indexGroupStart);
+      Value indexNocAddr = buildMappedL1NocAddr(
+          adaptor.getIndices(), indicesMemoryMap, indexLogicalIndices);
+      rewriter.create<ttkernel::NocAsyncReadOp>(
+          loc, indexNocAddr, indexWritePtr, alignedReadSizeBytes);
+      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+      rewriter.create<ttkernel::CBPushBackOp>(loc, adaptor.getIndexScratch(),
+                                              onePage);
+      rewriter.create<ttkernel::CBWaitFrontOp>(loc, adaptor.getIndexScratch(),
+                                               onePage);
+      Value indexReadPtr = rewriter.create<ttkernel::GetReadPtrOp>(
+          loc, adaptor.getIndexScratch());
+      Value indexL1Ptr =
+          rewriter.create<ttkernel::CastToL1PtrOp>(loc, indexReadPtr);
+      Value indexValue = rewriter.create<ttkernel::LoadFromL1Op>(
+          loc, indexL1Ptr, indexLaneI32);
+      rewriter.create<ttkernel::CBPopFrontOp>(loc, adaptor.getIndexScratch(),
+                                              onePage);
+
+      Value weightRowIndex = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), indexValue);
+      auto columnLoop =
+          rewriter.create<scf::ForOp>(loc, startColumn, endColumn, fourIndex);
+      {
+        OpBuilder::InsertionGuard columnGuard(rewriter);
+        rewriter.setInsertionPointToStart(columnLoop.getBody());
+        Value j = columnLoop.getInductionVar();
+
+        rewriter.create<ttkernel::CBReserveBackOp>(loc, adaptor.getRowScratch(),
+                                                   onePage);
+        Value rowWritePtr = rewriter.create<ttkernel::GetWritePtrOp>(
+            loc, adaptor.getRowScratch());
+        SmallVector<Value> weightLogicalIndices = getCollapsed2DElementIndices(
+            rewriter, loc, weightType, weightRowIndex, j);
+        Value weightNocAddr = buildMappedL1NocAddr(
+            adaptor.getWeight(), weightMemoryMap, weightLogicalIndices);
+        rewriter.create<ttkernel::NocAsyncReadOp>(
+            loc, weightNocAddr, rowWritePtr, alignedReadSizeBytes);
+        rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+        rewriter.create<ttkernel::CBPushBackOp>(loc, adaptor.getRowScratch(),
+                                                onePage);
+        rewriter.create<ttkernel::CBWaitFrontOp>(loc, adaptor.getRowScratch(),
+                                                 onePage);
+
+        Value rowReadPtr = rewriter.create<ttkernel::GetReadPtrOp>(
+            loc, adaptor.getRowScratch());
+        Value outputRow =
+            getCollapsedOutputRow(rewriter, loc, indicesShape, i,
+                                  getCollapsed2DPhysicalRows(outputType));
+        SmallVector<Value> outputLogicalIndices = getCollapsed2DElementIndices(
+            rewriter, loc, outputType, outputRow, j);
+        Value outputNocAddr = buildMappedL1NocAddr(
+            adaptor.getOutput(), outputMemoryMap, outputLogicalIndices);
+        rewriter.create<ttkernel::NocAsyncWriteOp>(
+            loc, rowReadPtr, outputNocAddr, alignedReadSizeBytes);
+        rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+        rewriter.create<ttkernel::CBPopFrontOp>(loc, adaptor.getRowScratch(),
+                                                onePage);
+      }
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
 };
 } // namespace
 
@@ -2948,6 +3230,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MMeshPositionRewriter,
                ttkernel::D2MNullTxRewriter,
+               ttkernel::D2MEmbeddingRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,

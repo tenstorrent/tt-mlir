@@ -221,6 +221,35 @@ public:
 } // namespace
 
 namespace {
+class TTKernelLoadFromL1OpToEmitCOpRewriter
+    : public OpConversionPattern<ttkernel::LoadFromL1Op> {
+
+public:
+  TTKernelLoadFromL1OpToEmitCOpRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<ttkernel::LoadFromL1Op>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(ttkernel::LoadFromL1Op op,
+                  ttkernel::LoadFromL1Op::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto pointerType =
+        mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType());
+    auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+        op->getLoc(),
+        emitc::LValueType::get(op.getContext(), pointerType.getPointee()),
+        adaptor.getL1Ptr(), adaptor.getOffset());
+
+    auto loaded = rewriter.create<emitc::LoadOp>(
+        op->getLoc(), pointerType.getPointee(), subscriptOp);
+    rewriter.replaceOpWithNewOp<emitc::CastOp>(
+        op, getTypeConverter()->convertType(op.getValue().getType()), loaded);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -1590,6 +1619,8 @@ public:
 
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                        funcOp.getContext());
+    patterns.add<TTKernelLoadFromL1OpToEmitCOpRewriter>(typeConverter,
+                                                        funcOp.getContext());
 
     patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
         typeConverter, funcOp.getContext());

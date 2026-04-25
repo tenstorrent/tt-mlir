@@ -11,6 +11,7 @@ collapse-tensors-to-2d pipeline tests, and the rearrange op tests.
 """
 
 import itertools
+import math
 import pytest
 import torch
 import einops
@@ -471,6 +472,51 @@ def test_arange(
         **get_request_kwargs(request),
         atol=1e-6,
         check_atol=True,
+    )
+
+
+# ==================== EMBEDDING TESTS ====================
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "indices_shape, weight_shape",
+    [
+        ((1, 32), (1024, 32)),
+        ((1, 64), (1024, 32)),
+        ((1, 32), (1024, 64)),
+        ((1, 32), (2048, 32)),
+        ((2, 16), (1024, 32)),
+        ((4, 8), (128, 16)),
+        ((1, 128), (40960, 128)),
+    ],
+    ids=lambda shape: shape_str(shape),
+)
+def test_embedding(
+    target: str, request, device, indices_shape: Shape, weight_shape: Shape
+):
+    num_indices = math.prod(indices_shape)
+
+    def embedding_module(builder: TTIRBuilder):
+        @builder.func([indices_shape, weight_shape], [torch.int32, torch.float32])
+        def embedding(
+            indices: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            valid_indices = (
+                torch.arange(num_indices, dtype=torch.int32).reshape(indices_shape) * 97
+            ) % weight_shape[0]
+            builder.set_goldens(inputs={indices: valid_indices})
+            return builder.embedding(indices, weight, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        embedding_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        **get_request_kwargs(request),
     )
 
 

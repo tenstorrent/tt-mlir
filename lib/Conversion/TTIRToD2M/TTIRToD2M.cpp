@@ -257,6 +257,49 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
+  RankedTensorType getOptimalLayoutType(RankedTensorType tensorType,
+                                        ttcore::MemorySpace memSpace,
+                                        bool tiled, bool noCollapse,
+                                        mlir::OpBuilder &builder,
+                                        ttcore::OOBVal oobVal) const {
+    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+
+    Type elementType = tensorType.getElementType();
+    llvm::SmallVector<int64_t> tileShape;
+    if (tiled) {
+      constexpr std::array<int64_t, 2> defaultShape =
+          ttcore::TileType::getDefaultShape();
+      tileShape.assign(defaultShape.begin(), defaultShape.end());
+      elementType = ttcore::TileType::get(elementType, tileShape);
+    }
+
+    ttcore::MetalLayoutAttr layout;
+    if (!collapseTensors || noCollapse) {
+      auto emptyIntervalType = RankedTensorType::get(
+          {0, 2}, IntegerType::get(builder.getContext(), 64));
+
+      DenseIntElementsAttr emptyCollapseIntervals =
+          DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+
+      layout = ttcore::MetalLayoutAttr::get(
+          builder.getContext(), logicalShape, oobVal, memSpace,
+          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
+
+    } else {
+      layout = ttcore::MetalLayoutAttr::get(
+          builder.getContext(), logicalShape, oobVal, memSpace,
+          ttcore::TensorMemoryLayout::Sharded);
+    }
+
+    llvm::SmallVector<int64_t> unshardedShape =
+        layout.getPhysicalShape(tileShape);
+    llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
+    llvm::SmallVector<int64_t> shardedShape =
+        layout.getDeviceShape(simpleGrid, tileShape);
+
+    return mlir::RankedTensorType::get(shardedShape, elementType, layout);
+  }
+
   // Create a ToLayout operation for a value using the provided layout
   // information with a simple 1x1 grid; actual grid optimization and proper
   // dimension alignments are computed later in the D2MGridSelection pass.
@@ -3044,6 +3087,94 @@ public:
   }
 };
 
+class D2MEmbeddingOpRewriter : public OpConversionPattern<ttir::EmbeddingOp>,
+                               D2MNamedRewriterCommon {
+public:
+  D2MEmbeddingOpRewriter(const TypeConverter &typeConverter,
+                         mlir::MLIRContext *ctx,
+                         ttcore::MemorySpace defaultInputMemSpace,
+                         ttcore::MemorySpace defaultOutputMemSpace,
+                         bool ttnnMode, bool collapseTensors,
+                         bool enableMulticastInference)
+      : OpConversionPattern<ttir::EmbeddingOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingOp op, ttir::EmbeddingOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (memorySpaces[0] != ttcore::MemorySpace::DeviceL1 ||
+        memorySpaces[1] != ttcore::MemorySpace::DeviceL1) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding currently supports L1 inputs and outputs only");
+    }
+
+    auto indicesType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    if (!indicesType.getElementType().isInteger(32)) {
+      return rewriter.notifyMatchFailure(op,
+                                         "D2M embedding requires i32 indices");
+    }
+    if (!mlir::isa<Float32Type>(weightType.getElementType()) ||
+        !mlir::isa<Float32Type>(resultType.getElementType())) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding currently supports f32 weight and output only");
+    }
+    if (weightType.getRank() != 2) {
+      return rewriter.notifyMatchFailure(op,
+                                         "D2M embedding requires 2D weight");
+    }
+
+    int64_t numIndices = 1;
+    for (int64_t dim : indicesType.getShape()) {
+      if (ShapedType::isDynamic(dim)) {
+        return rewriter.notifyMatchFailure(
+            op, "D2M embedding requires static index shape");
+      }
+      numIndices *= dim;
+    }
+    if (indicesType.getShape().back() % 4 != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding requires the innermost index dimension to be "
+              "16-byte aligned");
+    }
+
+    int64_t embeddingDim = weightType.getShape().back();
+    if (ShapedType::isDynamic(embeddingDim)) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding requires static embedding dimension");
+    }
+    if (embeddingDim % 4 != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding requires f32 embedding dimension to be 16-byte "
+              "aligned");
+    }
+
+    Location loc = op.getLoc();
+    SmallVector<Value> inputs{
+        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter),
+        createOptimalLayoutOp(op.getWeight(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
+
+    RankedTensorType outputType = getOptimalLayoutType(
+        resultType, memorySpaces[1],
+        /*tiled=*/false, /*noCollapse=*/false, rewriter, ttcore::OOBVal::Undef);
+    auto embedding = rewriter.create<d2m::EmbeddingOp>(
+        loc, outputType, inputs[0], inputs[1],
+        rewriter.getI64IntegerAttr(numIndices),
+        rewriter.getI64IntegerAttr(embeddingDim),
+        rewriter.getDenseI64ArrayAttr(indicesType.getShape()));
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, embedding.getResult(),
+                                          op->getResult(0).getType()));
+    return success();
+  }
+};
+
 class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
 
@@ -3996,6 +4127,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Arange.
   patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
     defaultOutputMemSpace, ttnnMode,
+    collapseTensors, enableMulticastInference);
+
+  // Embedding.
+  patterns.add<D2MEmbeddingOpRewriter>(
+    typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode,
     collapseTensors, enableMulticastInference);
 
   // Rand.

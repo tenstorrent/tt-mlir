@@ -9,6 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/OpImplementation.h"
@@ -192,6 +193,277 @@ void DMAWriteOp::getEffects(
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(), 0,
                        true, mlir::SideEffects::DefaultResource::get());
 }
+
+//===----------------------------------------------------------------------===//
+// EmbeddingOp
+//===----------------------------------------------------------------------===//
+
+static constexpr int64_t kEmbeddingScratchPageElements = 1024;
+
+static MemRefType createEmbeddingScratchType(MLIRContext *ctx,
+                                             ArrayRef<int64_t> shape,
+                                             Type elementType) {
+  auto cbLayout =
+      mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
+  auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
+      ctx, mlir::tt::ttcore::MemorySpace::DeviceL1);
+  return MemRefType::get(shape, elementType, cbLayout, l1MemorySpace);
+}
+
+LogicalResult EmbeddingOp::verify() {
+  auto indicesType = mlir::cast<ShapedType>(getIndices().getType());
+  auto weightType = mlir::cast<ShapedType>(getWeight().getType());
+  Value output = getOutput();
+  Value result = getResult();
+  if (static_cast<bool>(output) == static_cast<bool>(result)) {
+    return emitOpError(
+        "must have exactly one of output operand or tensor result");
+  }
+  auto outputType =
+      mlir::cast<ShapedType>((output ? output : result).getType());
+
+  if (!indicesType.getElementType().isInteger(32)) {
+    return emitOpError("indices must have i32 element type");
+  }
+
+  if (!mlir::isa<Float32Type>(weightType.getElementType()) ||
+      !mlir::isa<Float32Type>(outputType.getElementType())) {
+    return emitOpError("currently supports f32 weight and output only");
+  }
+
+  if (weightType.getElementType() != outputType.getElementType()) {
+    return emitOpError("weight and output element types must match");
+  }
+
+  if (getIndexScratch() && !getRowScratch()) {
+    return emitOpError("index scratch requires row scratch");
+  }
+  if (!getIndexScratch() && getRowScratch()) {
+    return emitOpError("row scratch requires index scratch");
+  }
+  if (result && (getIndexScratch() || getRowScratch())) {
+    return emitOpError("tensor result form must not carry scratch operands");
+  }
+
+  if (getNumIndices() <= 0) {
+    return emitOpError("num_indices must be positive");
+  }
+  if (getEmbeddingDim() <= 0) {
+    return emitOpError("embedding_dim must be positive");
+  }
+  if (getIndicesShape().empty() || ttmlir::utils::volume(getIndicesShape()) !=
+                                       static_cast<int64_t>(getNumIndices())) {
+    return emitOpError("indices_shape must match num_indices");
+  }
+
+  return success();
+}
+
+void EmbeddingOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getWeightMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  if (getOutput()) {
+    auto range = getODSOperandIndexAndLength(2);
+    mlir::OpOperand &outputMutable = getOperation()->getOpOperand(range.first);
+    effects.emplace_back(mlir::MemoryEffects::Write::get(), &outputMutable, 0,
+                         true, mlir::SideEffects::DefaultResource::get());
+  }
+  if (getIndexScratch()) {
+    auto range = getODSOperandIndexAndLength(3);
+    mlir::OpOperand &indexScratchMutable =
+        getOperation()->getOpOperand(range.first);
+    effects.emplace_back(mlir::MemoryEffects::Read::get(), &indexScratchMutable,
+                         0, true, mlir::SideEffects::DefaultResource::get());
+    effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                         &indexScratchMutable, 0, true,
+                         mlir::SideEffects::DefaultResource::get());
+  }
+  if (getRowScratch()) {
+    auto range = getODSOperandIndexAndLength(4);
+    mlir::OpOperand &rowScratchMutable =
+        getOperation()->getOpOperand(range.first);
+    effects.emplace_back(mlir::MemoryEffects::Read::get(), &rowScratchMutable,
+                         0, true, mlir::SideEffects::DefaultResource::get());
+    effects.emplace_back(mlir::MemoryEffects::Write::get(), &rowScratchMutable,
+                         0, true, mlir::SideEffects::DefaultResource::get());
+  }
+}
+
+bool EmbeddingOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getIndices() || operand.get() == getWeight() ||
+         operand.get() == getIndexScratch() || operand.get() == getRowScratch();
+}
+
+bool EmbeddingOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  Value output = getOutput();
+  return (output && operand.get() == output) ||
+         operand.get() == getIndexScratch() || operand.get() == getRowScratch();
+}
+
+mlir::bufferization::AliasingValueList
+EmbeddingOp::getAliasingValues(mlir::OpOperand &,
+                               const mlir::bufferization::AnalysisState &) {
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+EmbeddingOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  if (getResult() && value == getResult()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+bool EmbeddingOp::hasTensorSemantics() {
+  return mlir::isa<RankedTensorType>(getIndices().getType()) ||
+         mlir::isa<RankedTensorType>(getWeight().getType()) ||
+         (getOutput() && mlir::isa<RankedTensorType>(getOutput().getType())) ||
+         (getResult() && mlir::isa<RankedTensorType>(getResult().getType())) ||
+         (getIndexScratch() &&
+          mlir::isa<RankedTensorType>(getIndexScratch().getType())) ||
+         (getRowScratch() &&
+          mlir::isa<RankedTensorType>(getRowScratch().getType()));
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult
+EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  if (!hasTensorSemantics()) {
+    return mlir::failure();
+  }
+
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  auto getBuffer = [&](Value value) -> FailureOr<Value> {
+    if (!mlir::isa<RankedTensorType>(value.getType())) {
+      return value;
+    }
+    return mlir::bufferization::getBuffer(rewriter, value, options, state);
+  };
+
+  FailureOr<Value> indices = getBuffer(getIndices());
+  if (failed(indices)) {
+    return indices;
+  }
+  FailureOr<Value> weight = getBuffer(getWeight());
+  if (failed(weight)) {
+    return weight;
+  }
+
+  Value output;
+  bool resultForm = static_cast<bool>(getResult());
+  if (resultForm) {
+    SmallVector<Value> invocationStack;
+    auto outputType =
+        getBufferType(getResult(), options, state, invocationStack);
+    if (failed(outputType)) {
+      return outputType;
+    }
+    output = rewriter
+                 .create<memref::AllocOp>(getLoc(),
+                                          mlir::cast<MemRefType>(*outputType))
+                 .getResult();
+  } else {
+    FailureOr<Value> maybeOutput = getBuffer(getOutput());
+    if (failed(maybeOutput)) {
+      return maybeOutput;
+    }
+    output = *maybeOutput;
+  }
+
+  Value indexScratch;
+  Value rowScratch;
+  if (!resultForm) {
+    indexScratch = getIndexScratch();
+    if (!indexScratch || mlir::isa<RankedTensorType>(indexScratch.getType())) {
+      MemRefType indexScratchType = createEmbeddingScratchType(
+          getContext(), {1, kEmbeddingScratchPageElements},
+          rewriter.getI32Type());
+      indexScratch =
+          rewriter.create<memref::AllocOp>(getLoc(), indexScratchType)
+              .getResult();
+    } else {
+      FailureOr<Value> maybeIndexScratch = getBuffer(indexScratch);
+      if (failed(maybeIndexScratch)) {
+        return maybeIndexScratch;
+      }
+      indexScratch = *maybeIndexScratch;
+    }
+
+    rowScratch = getRowScratch();
+    if (!rowScratch || mlir::isa<RankedTensorType>(rowScratch.getType())) {
+      int64_t rowScratchElements = static_cast<int64_t>(getEmbeddingDim()) >
+                                           kEmbeddingScratchPageElements
+                                       ? static_cast<int64_t>(getEmbeddingDim())
+                                       : kEmbeddingScratchPageElements;
+      MemRefType rowScratchType = createEmbeddingScratchType(
+          getContext(), {1, rowScratchElements}, rewriter.getF32Type());
+      rowScratch = rewriter.create<memref::AllocOp>(getLoc(), rowScratchType)
+                       .getResult();
+    } else {
+      FailureOr<Value> maybeRowScratch = getBuffer(rowScratch);
+      if (failed(maybeRowScratch)) {
+        return maybeRowScratch;
+      }
+      rowScratch = *maybeRowScratch;
+    }
+  }
+
+  if (!resultForm) {
+    rewriter.create<EmbeddingOp>(getLoc(), *indices, *weight, output,
+                                 indexScratch, rowScratch, getNumIndicesAttr(),
+                                 getEmbeddingDimAttr(), getIndicesShapeAttr());
+    rewriter.eraseOp(*this);
+    return mlir::success();
+  }
+
+  auto grid = ttcore::GridAttr::get(getContext(), ttcore::getGridShape(output));
+  auto threads = rewriter.getArrayAttr(
+      {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement)});
+  SmallVector<Value> genericInputs{*indices, *weight};
+  SmallVector<Value> genericOutputs{output};
+  auto generic = rewriter.create<GenericOp>(
+      getLoc(), TypeRange(), genericInputs, genericOutputs,
+      /*additionalArgs=*/ValueRange(), grid, rewriter.getI64ArrayAttr({}),
+      rewriter.getAffineMapArrayAttr({}), rewriter.getArrayAttr({}), threads,
+      /*fabricConnectionConfig=*/nullptr, /*numRegions=*/1);
+
+  Region &region = generic.getRegion(0);
+  Block *block = rewriter.createBlock(&region);
+  rewriter.setInsertionPointToStart(block);
+  MemRefType indexScratchType = createEmbeddingScratchType(
+      getContext(), {1, kEmbeddingScratchPageElements}, rewriter.getI32Type());
+  indexScratch =
+      rewriter.create<memref::AllocOp>(getLoc(), indexScratchType).getResult();
+  int64_t rowScratchElements =
+      static_cast<int64_t>(getEmbeddingDim()) > kEmbeddingScratchPageElements
+          ? static_cast<int64_t>(getEmbeddingDim())
+          : kEmbeddingScratchPageElements;
+  MemRefType rowScratchType = createEmbeddingScratchType(
+      getContext(), {1, rowScratchElements}, rewriter.getF32Type());
+  rowScratch =
+      rewriter.create<memref::AllocOp>(getLoc(), rowScratchType).getResult();
+  rewriter.create<EmbeddingOp>(getLoc(), *indices, *weight, output,
+                               indexScratch, rowScratch, getNumIndicesAttr(),
+                               getEmbeddingDimAttr(), getIndicesShapeAttr());
+  rewriter.setInsertionPointAfter(generic);
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, output);
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 ::mlir::LogicalResult LocalCopyOp::verify() {
   bool hasDst = static_cast<bool>(getDst());

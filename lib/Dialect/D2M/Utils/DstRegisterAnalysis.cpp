@@ -298,7 +298,7 @@ DstRegisterAnalysis::DstRegisterAnalysis(Operation *op,
                                          unsigned maxDstPhysicalSizeTiles) {
   op->walk([&](d2m::GenericOp generic) {
     if (!generic.isUnifiedForm()) {
-      generic.emitOpError("expected unified form for DST packing analysis");
+      // Non-unified generics do not participate in DST register packing.
       return;
     }
 
