@@ -51,10 +51,11 @@ OutputHints SDPARuleBook::getOutputHints(
 //===----------------------------------------------------------------------===//
 
 LayoutFilterFn SDPADecodeRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
-  // Q (operand 0) is unrestricted; K, V, and cache tensors must be
-  // DRAM-interleaved.
+  // Q (operand 0): kernel asserts "Q tensor buffer type must be DRAM when
+  // not sharded" -- accept DRAM (any) or L1-sharded; reject L1-interleaved.
+  // K, V, and cache tensors (operand >= 1): must be DRAM-interleaved.
   if (operandIdx == 0) {
-    return nullptr;
+    return layout_filter_utils::rejectL1Interleaved;
   }
   return layout_filter_utils::requireDRAMInterleaved;
 }

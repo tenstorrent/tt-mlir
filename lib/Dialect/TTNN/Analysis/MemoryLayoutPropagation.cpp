@@ -566,6 +566,21 @@ MemoryLayoutPropagation::processOp(Operation *op) {
       fallback.configHint = OpConfig(dramLayout);
       fallback.score = LayoutScore(); // Lowest possible score.
       fallback.outputLayouts.assign(op->getNumResults(), dramLayout);
+      // When all tryHint calls fail (e.g. op model unavailable in NO_DISPATCH
+      // mode) we fall through to this synthetic candidate. It carries no
+      // producerCandidateIndices, so downstream phases implicitly assume the
+      // producer's slot-0 output is in use.  Mirror that assumption here:
+      // propagate the slot-0 forced reshard intent from the input filters
+      // (set by applyInputLayoutFilter) so insertReshardOp still emits the
+      // to_memory_config the op requires (e.g. K/V must be DRAM for
+      // paged_sdpa_decode). insertReshardOp's no-op check handles the case
+      // where the producer's actual output already matches.
+      for (size_t i = 0; i < inputCandidateSets.size(); ++i) {
+        if (!inputCandidateSets[i].empty() &&
+            inputCandidateSets[i][0].isReshard) {
+          fallback.reshardLayouts[i] = inputCandidateSets[i][0].layout;
+        }
+      }
       candidates.push_back(std::move(fallback));
     }
 
@@ -668,6 +683,20 @@ void MemoryLayoutPropagation::applyInputLayoutFilter(
                                       return !inputFilter(ic.layout);
                                     }),
                      candidates.end());
+    // Mark surviving candidates as reshards if their layout differs from
+    // currentLayout. This handles multi-consumer scenarios: a producer's beam
+    // may contain the required layout (e.g. DRAM for SDPA decode) as a
+    // non-reshard candidate, but the producer's chosen output (set by its
+    // primary consumer, e.g. paged_update_cache preferring L1) may differ.
+    // Without this mark, insertReshardOp is skipped and the consumer sees the
+    // wrong layout (e.g. V stays L1 when SDPA decode needs DRAM).
+    // insertReshardOp's no-op check handles the case where the producer's
+    // actual output happens to match, avoiding redundant to_memory_config ops.
+    for (auto &ic : candidates) {
+      if (!ic.isReshard && ic.layout != currentLayout) {
+        ic.isReshard = true;
+      }
+    }
     // Guarantee at least one interleaved candidate remains.
     if (candidates.empty()) {
       auto tensorType =
