@@ -182,7 +182,8 @@ struct DecomposeSortBlockPattern : OpRewritePattern<SortBlockOp> {
     bool stable = op.getStable();
     int32_t initialAscDir = descending ? kTopkDescending : kTopkAscending;
     int32_t initialDescDir = descending ? kTopkAscending : kTopkDescending;
-    bool mergeIdir = !descending; // template `idir` for topk_merge.
+    // Match tt-metal sort kernel convention: `dir=true` means ascending.
+    bool ascending = !descending;
 
     // The transposed scratch CBs (Wt tiles each) are passed as additional
     // inputs to the surrounding d2m.generic so the standard CB-binding
@@ -204,9 +205,12 @@ struct DecomposeSortBlockPattern : OpRewritePattern<SortBlockOp> {
                              pairBase + 0, dst, 0);
       emitTransposeTileToDst(rewriter, loc, valueTileTy, op.getInput(),
                              pairBase + 1, dst, 1);
-      // Index slots [2,3] just get zero tiles (we discard the indices output).
-      emitZeroTileToDst(rewriter, loc, valueTileTy, dst, 2);
-      emitZeroTileToDst(rewriter, loc, valueTileTy, dst, 3);
+      // topk_* operates on value+index lanes in DST. Keep companion lanes
+      // non-zero by seeding them with transposed input tiles.
+      emitTransposeTileToDst(rewriter, loc, valueTileTy, op.getInput(),
+                             pairBase + 0, dst, 2);
+      emitTransposeTileToDst(rewriter, loc, valueTileTy, op.getInput(),
+                             pairBase + 1, dst, 3);
 
       emitTopkInit(rewriter, loc);
       emitTopkLocalSort(rewriter, loc, /*idst=*/0, dir, stable);
@@ -231,7 +235,8 @@ struct DecomposeSortBlockPattern : OpRewritePattern<SortBlockOp> {
 
     // Per-pair body: copy values+indices into DST[0,1,2,3], invoke either
     // `topk_merge` or `topk_local_sort` based on `subEqOne`, then pack back.
-    auto emitMergeOrSortPair = [&](int64_t left, int64_t right, bool subEqOne) {
+    auto emitMergeOrSortPair = [&](int64_t left, int64_t right, bool subEqOne,
+                                   bool dir) {
       Value dst = emitAcquireDst(rewriter, loc, valueTileTy);
       emitCopyTileToDst(rewriter, loc, valuesTransposed, left, dst, 0);
       emitCopyTileToDst(rewriter, loc, valuesTransposed, right, dst, 1);
@@ -241,41 +246,49 @@ struct DecomposeSortBlockPattern : OpRewritePattern<SortBlockOp> {
       emitTopkInit(rewriter, loc);
       if (subEqOne) {
         emitTopkLocalSort(rewriter, loc, /*idst=*/0,
-                          descending ? kTopkDescending : kTopkAscending,
-                          stable);
+                          dir ? kTopkAscending : kTopkDescending, stable);
         // Pack values back to (left, right).
         emitPackTileFromDst(rewriter, loc, dst, 0, valuesTransposed, left);
         emitPackTileFromDst(rewriter, loc, dst, 1, valuesTransposed, right);
         emitPackTileFromDst(rewriter, loc, dst, 2, indicesTransposed, left);
         emitPackTileFromDst(rewriter, loc, dst, 3, indicesTransposed, right);
       } else {
-        // `topk_merge`'s `idir` template arg controls which DST slot ends up
-        // with the larger value: idir=false → DST[0]=larger; idir=true →
-        // DST[0]=smaller. We set `mergeIdir = !descending` so that DST[0]
-        // always holds the value that should land at the LEFT tile (the
-        // "first" tile in spatial order):
-        //   - descending: idir=false → DST[0]=larger → larger to left ✓
-        //   - ascending : idir=true  → DST[0]=smaller → smaller to left ✓
-        // No additional pack-side swap is needed.
-        emitTopkMerge(rewriter, loc, /*idst=*/0, /*m_iter=*/1, mergeIdir,
+        // Mirror tt-metal's reference kernel: call topk_merge with default
+        // template idir=false and use a pack-side swap when dir==ascending.
+        emitTopkMerge(rewriter, loc, /*idst=*/0, /*m_iter=*/1, /*idir=*/false,
                       stable);
-        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/0, valuesTransposed,
-                            left);
-        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/1, valuesTransposed,
-                            right);
-        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/2, indicesTransposed,
-                            left);
-        emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/3, indicesTransposed,
-                            right);
+        if (dir) {
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/1,
+                              valuesTransposed, left);
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/0,
+                              valuesTransposed, right);
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/3,
+                              indicesTransposed, left);
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/2,
+                              indicesTransposed, right);
+        } else {
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/0,
+                              valuesTransposed, left);
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/1,
+                              valuesTransposed, right);
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/2,
+                              indicesTransposed, left);
+          emitPackTileFromDst(rewriter, loc, dst, /*dstIdx=*/3,
+                              indicesTransposed, right);
+        }
       }
     };
 
     // sub=2: distance=2, pairs (0,2) and (1,3).
-    emitMergeOrSortPair(/*left=*/0, /*right=*/2, /*subEqOne=*/false);
-    emitMergeOrSortPair(/*left=*/1, /*right=*/3, /*subEqOne=*/false);
+    emitMergeOrSortPair(/*left=*/0, /*right=*/2, /*subEqOne=*/false,
+                        /*dir=*/ascending);
+    emitMergeOrSortPair(/*left=*/1, /*right=*/3, /*subEqOne=*/false,
+                        /*dir=*/ascending);
     // sub=1: distance=1, pairs (0,1) and (2,3).
-    emitMergeOrSortPair(/*left=*/0, /*right=*/1, /*subEqOne=*/true);
-    emitMergeOrSortPair(/*left=*/2, /*right=*/3, /*subEqOne=*/true);
+    emitMergeOrSortPair(/*left=*/0, /*right=*/1, /*subEqOne=*/true,
+                        /*dir=*/ascending);
+    emitMergeOrSortPair(/*left=*/2, /*right=*/3, /*subEqOne=*/true,
+                        /*dir=*/ascending);
 
     // === Final transpose-and-pack: undo the WH transpose for each output
     //     tile, writing into the values_out / indices_out shards. ===

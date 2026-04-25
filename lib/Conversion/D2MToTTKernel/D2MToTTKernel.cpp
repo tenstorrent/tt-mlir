@@ -1942,12 +1942,7 @@ public:
     }
 
     Value outCB = getOutCB(rewriter, op);
-
-    auto insertionPoint = rewriter.getInsertionPoint();
-    setInsertionPointAfterOperands(rewriter, {inCB, outCB},
-                                   /*allowHoisting*/ true);
     rewriter.create<ttkernel::TransposeInitOp>(op->getLoc(), inCB, outCB);
-    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     // Get the tile index from the input operand.
     Value tileIndex = adaptor.getInput();

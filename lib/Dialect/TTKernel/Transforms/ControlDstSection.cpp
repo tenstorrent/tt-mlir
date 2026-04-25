@@ -26,18 +26,20 @@ public:
                                 PatternRewriter &rewriter) const final {
     Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
     Operation *parent = parentOpAtBlock(op, acquireBlock);
+    Operation *firstParent = findFirstContiguousPackParent(parent);
+    Operation *lastParent = findLastContiguousPackParent(parent);
 
     // Guard against re-application: check for an existing commit between the
-    // nearest preceding acquire and `parent` in acquireBlock. If one exists,
-    // this pack has already been handled.
-    if (hasPrecedingCommit(parent)) {
+    // nearest preceding acquire and `firstParent` in acquireBlock. If one
+    // exists, this pack has already been handled.
+    if (hasPrecedingCommit(firstParent)) {
       return failure();
     }
 
-    rewriter.setInsertionPoint(parent);
+    rewriter.setInsertionPoint(firstParent);
     rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
     rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-    rewriter.setInsertionPointAfter(parent);
+    rewriter.setInsertionPointAfter(lastParent);
     rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
 
     return success();
@@ -59,6 +61,39 @@ public:
       assert(parent);
     }
     return parent;
+  }
+
+  static bool containsPackOp(Operation *op) {
+    bool found = false;
+    op->walk([&](PackOp) {
+      found = true;
+      return WalkResult::interrupt();
+    });
+    return found;
+  }
+
+  static Operation *findFirstContiguousPackParent(Operation *parent) {
+    Operation *firstParent = parent;
+    for (Operation *prev = parent->getPrevNode(); prev != nullptr;
+         prev = prev->getPrevNode()) {
+      if (!containsPackOp(prev)) {
+        break;
+      }
+      firstParent = prev;
+    }
+    return firstParent;
+  }
+
+  static Operation *findLastContiguousPackParent(Operation *parent) {
+    Operation *lastParent = parent;
+    for (Operation *next = parent->getNextNode(); next != nullptr;
+         next = next->getNextNode()) {
+      if (!containsPackOp(next)) {
+        break;
+      }
+      lastParent = next;
+    }
+    return lastParent;
   }
 
   // Returns true if a TileRegsCommitOp exists between the most recent
