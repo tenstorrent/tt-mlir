@@ -101,7 +101,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(NLPConcatHeadsDecodeOp::getOperationName(), &sdpa);
     reg(ScaledDotProductAttentionOp::getOperationName(), &sdpa);
     reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
-    reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
+    reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(),
+        &sdpaDecode);
     reg(EmbeddingOp::getOperationName(), &embedding);
     reg(TypecastOp::getOperationName(), &typecast);
     reg(WhereOp::getOperationName(), &typecast);
