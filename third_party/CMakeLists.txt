@@ -9,6 +9,16 @@ if (TTMLIR_TTMETAL_SOURCE_DIR)
   get_filename_component(TTMETAL_SOURCE_DIR "${TTMLIR_TTMETAL_SOURCE_DIR}" ABSOLUTE)
   message(STATUS "Using user-managed tt-metal source: ${TTMETAL_SOURCE_DIR}")
   message(STATUS "  TT_METAL_VERSION (${TT_METAL_VERSION}) is NOT enforced for user-managed checkouts")
+
+  # Many scripts (env/activate, tools/ttrt, tools/profiler, alchemist, CI workflows,
+  # BUILD_RPATH in lib/CMakeLists.txt) hardcode third_party/tt-metal/src/tt-metal.
+  # Symlink the canonical location to the override so those continue to work.
+  set(TTMETAL_CANONICAL_LINK "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src/tt-metal")
+  if(NOT EXISTS "${TTMETAL_CANONICAL_LINK}")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/tt-metal/src")
+    file(CREATE_LINK "${TTMETAL_SOURCE_DIR}" "${TTMETAL_CANONICAL_LINK}" SYMBOLIC)
+    message(STATUS "Symlinked ${TTMETAL_CANONICAL_LINK} -> ${TTMETAL_SOURCE_DIR}")
+  endif()
 else()
   set(TTMETAL_SOURCE_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal)
 endif()
