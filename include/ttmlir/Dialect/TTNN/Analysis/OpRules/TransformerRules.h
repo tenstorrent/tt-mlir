@@ -45,6 +45,17 @@ struct SDPARuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// ScaledDotProductAttentionDecodeOp / PagedScaledDotProductAttentionDecodeOp:
+/// Like SDPARuleBook, but also rejects sharded inputs.
+/// tt-metal sdpa_decode_device_operation validates that K and V (and all
+/// inputs after Q) reside in DRAM.  The OpModel bypasses this check because
+/// mock tensors in NO_DISPATCH mode lack real device buffers, so without an
+/// explicit input layout filter the optimizer can assign V=L1-block-sharded,
+/// which then fails the TTNN verifier (keyType != valueType).
+struct SDPADecodeRuleBook : SDPARuleBook {
+  LayoutFilterFn getInputLayoutFilter() const override;
+};
+
 /// RotaryEmbedding / RotaryEmbeddingLlama:
 /// NULL hint only, no reshards. Rejects width-sharded and block-sharded
 /// inputs (only height-sharded or interleaved accepted).

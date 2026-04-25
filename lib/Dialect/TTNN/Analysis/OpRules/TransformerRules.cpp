@@ -47,6 +47,15 @@ OutputHints SDPARuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// SDPADecodeRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn SDPADecodeRuleBook::getInputLayoutFilter() const {
+  // K, V, and cache tensors must be DRAM-interleaved.
+  return layout_filter_utils::requireDRAMInterleaved;
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingRuleBook
 //===----------------------------------------------------------------------===//
 
