@@ -31,8 +31,9 @@ namespace mlir::tt {
 //===----------------------------------------------------------------------===//
 
 static void addTTIRToSMTTypeConversions(TypeConverter &converter) {
-  // tensor<1xiN> -> smt::BitVectorType(N)
-  // tensor<KxiN> -> smt::ArrayType(bv<ceil_log2(K)>, bv<N>)
+  // tensor<1xiN>            -> smt::BitVectorType(N)
+  // tensor<KxiN> (rank 1)   -> smt::ArrayType(bv<ceil_log2(K)>, bv<N>)
+  // tensor<AxBx...xiN>      -> flatten to tensor<(A*B*...)xiN> -> array
   converter.addConversion([](RankedTensorType t) -> std::optional<Type> {
     auto intTy = dyn_cast<IntegerType>(t.getElementType());
     if (!intTy)
@@ -41,7 +42,7 @@ static void addTTIRToSMTTypeConversions(TypeConverter &converter) {
     int64_t numElems = t.getNumElements();
     if (numElems == 1)
       return smt::BitVectorType::get(t.getContext(), width);
-    // Multi-element tensor -> SMT array
+    // Multi-element tensor (any rank) -> SMT array indexed by total size.
     unsigned idxBits = llvm::Log2_64_Ceil(numElems);
     if (idxBits == 0)
       idxBits = 1;
@@ -142,7 +143,9 @@ struct SubtractOpConversion
   }
 };
 
-/// ttir.constant -> smt.bv.constant
+/// ttir.constant -> smt.bv.constant (scalar) or array build (multi-element).
+/// For splat arrays we use smt.array.broadcast; otherwise a chain of
+/// smt.array.store starting from an array_broadcast(0).
 struct ConstantOpConversion
     : OpConversionPattern<ttir::ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -154,55 +157,141 @@ struct ConstantOpConversion
     if (!resultTy)
       return failure();
 
-    auto bvTy = dyn_cast<smt::BitVectorType>(resultTy);
-    if (!bvTy)
-      return failure(); // TODO: handle array constants
-
     auto denseAttr = dyn_cast<DenseElementsAttr>(op.getValue());
-    if (!denseAttr || !denseAttr.isSplat())
+    if (!denseAttr)
       return failure();
 
-    APInt val = denseAttr.getSplatValue<APInt>();
-    // Ensure the APInt width matches the BV width
-    if (val.getBitWidth() != bvTy.getWidth())
-      val = val.zextOrTrunc(bvTy.getWidth());
+    Location loc = op.getLoc();
 
-    rewriter.replaceOpWithNewOp<smt::BVConstantOp>(op, val);
+    // Scalar (single-element tensor) case.
+    if (auto bvTy = dyn_cast<smt::BitVectorType>(resultTy)) {
+      APInt val = denseAttr.isSplat() ? denseAttr.getSplatValue<APInt>()
+                                      : *denseAttr.value_begin<APInt>();
+      if (val.getBitWidth() != bvTy.getWidth())
+        val = val.zextOrTrunc(bvTy.getWidth());
+      rewriter.replaceOpWithNewOp<smt::BVConstantOp>(op, val);
+      return success();
+    }
+
+    // Multi-element array case.
+    auto arrTy = dyn_cast<smt::ArrayType>(resultTy);
+    if (!arrTy)
+      return failure();
+    auto elemBvTy = cast<smt::BitVectorType>(arrTy.getRangeType());
+    auto idxBvTy = cast<smt::BitVectorType>(arrTy.getDomainType());
+    unsigned elemWidth = elemBvTy.getWidth();
+
+    if (denseAttr.isSplat()) {
+      APInt val = denseAttr.getSplatValue<APInt>();
+      if (val.getBitWidth() != elemWidth)
+        val = val.zextOrTrunc(elemWidth);
+      auto elemConst = smt::BVConstantOp::create(rewriter, loc, val);
+      rewriter.replaceOpWithNewOp<smt::ArrayBroadcastOp>(op, resultTy,
+                                                         elemConst);
+      return success();
+    }
+
+    // Non-splat: build with broadcast(0) base + N stores.
+    auto zero = smt::BVConstantOp::create(rewriter, loc, 0, elemWidth);
+    Value arr = smt::ArrayBroadcastOp::create(rewriter, loc, resultTy, zero);
+    auto values = denseAttr.getValues<APInt>();
+    unsigned i = 0;
+    for (APInt val : values) {
+      if (val.getBitWidth() != elemWidth)
+        val = val.zextOrTrunc(elemWidth);
+      auto idx = smt::BVConstantOp::create(rewriter, loc, i, idxBvTy.getWidth());
+      auto elemConst = smt::BVConstantOp::create(rewriter, loc, val);
+      arr = smt::ArrayStoreOp::create(rewriter, loc, arr, idx, elemConst);
+      ++i;
+    }
+    rewriter.replaceOp(op, arr);
     return success();
   }
 };
 
-/// ttir.eq -> smt.eq (produces bool) -> materialize to bv<1>
+/// ttir.full -> smt.bv.constant (scalar) or smt.array.broadcast (multi-elem).
+/// fill_value is an attribute (I32 or F32), not a dense tensor.
+struct FullOpConversion : OpConversionPattern<ttir::FullOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FullOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultTy = getTypeConverter()->convertType(op.getType());
+    if (!resultTy)
+      return failure();
+
+    auto intAttr = dyn_cast<IntegerAttr>(op.getFillValue());
+    if (!intAttr)
+      return failure(); // skip f32 fills
+
+    APInt val = intAttr.getValue();
+
+    if (auto bvTy = dyn_cast<smt::BitVectorType>(resultTy)) {
+      if (val.getBitWidth() != bvTy.getWidth())
+        val = val.zextOrTrunc(bvTy.getWidth());
+      rewriter.replaceOpWithNewOp<smt::BVConstantOp>(op, val);
+      return success();
+    }
+
+    auto arrTy = dyn_cast<smt::ArrayType>(resultTy);
+    if (!arrTy)
+      return failure();
+    auto elemBvTy = cast<smt::BitVectorType>(arrTy.getRangeType());
+    if (val.getBitWidth() != elemBvTy.getWidth())
+      val = val.zextOrTrunc(elemBvTy.getWidth());
+    auto elemConst = smt::BVConstantOp::create(rewriter, op.getLoc(), val);
+    rewriter.replaceOpWithNewOp<smt::ArrayBroadcastOp>(op, resultTy, elemConst);
+    return success();
+  }
+};
+
+/// Materialize an SMT bool as a bitvector of `width` bits: 0 for false,
+/// 1 for true. Used by comparison op lowerings.
+static Value boolToBitVector(OpBuilder &b, Location loc, Value boolVal,
+                             unsigned width) {
+  auto bvTy = smt::BitVectorType::get(b.getContext(), width);
+  auto one = smt::BVConstantOp::create(b, loc, 1, width);
+  auto zero = smt::BVConstantOp::create(b, loc, 0, width);
+  return smt::IteOp::create(b, loc, bvTy, boolVal, one, zero);
+}
+
+/// ttir.eq -> smt.eq (bool) -> bitvector of result width.
 struct EqOpConversion : OpConversionPattern<ttir::EqualOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(ttir::EqualOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto resultTy = dyn_cast_or_null<smt::BitVectorType>(
+        getTypeConverter()->convertType(op.getType()));
+    if (!resultTy)
+      return failure();
     auto boolResult = smt::EqOp::create(rewriter, op.getLoc(),
                                         adaptor.getLhs(), adaptor.getRhs());
-    // Materialize bool -> bv<1>
-    auto bv1Ty = smt::BitVectorType::get(op.getContext(), 1);
-    auto one = smt::BVConstantOp::create(rewriter, op.getLoc(), 1, 1);
-    auto zero = smt::BVConstantOp::create(rewriter, op.getLoc(), 0, 1);
-    rewriter.replaceOpWithNewOp<smt::IteOp>(op, bv1Ty, boolResult, one, zero);
+    rewriter.replaceOp(
+        op, boolToBitVector(rewriter, op.getLoc(), boolResult,
+                            resultTy.getWidth()));
     return success();
   }
 };
 
-/// ttir.ne -> smt.distinct (produces bool) -> materialize to bv<1>
+/// ttir.ne -> smt.distinct (bool) -> bitvector of result width.
 struct NeOpConversion : OpConversionPattern<ttir::NotEqualOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(ttir::NotEqualOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto boolResult = smt::DistinctOp::create(rewriter, op.getLoc(),
-                                              adaptor.getLhs(), adaptor.getRhs());
-    auto bv1Ty = smt::BitVectorType::get(op.getContext(), 1);
-    auto one = smt::BVConstantOp::create(rewriter, op.getLoc(), 1, 1);
-    auto zero = smt::BVConstantOp::create(rewriter, op.getLoc(), 0, 1);
-    rewriter.replaceOpWithNewOp<smt::IteOp>(op, bv1Ty, boolResult, one, zero);
+    auto resultTy = dyn_cast_or_null<smt::BitVectorType>(
+        getTypeConverter()->convertType(op.getType()));
+    if (!resultTy)
+      return failure();
+    auto boolResult = smt::DistinctOp::create(
+        rewriter, op.getLoc(), adaptor.getLhs(), adaptor.getRhs());
+    rewriter.replaceOp(
+        op, boolToBitVector(rewriter, op.getLoc(), boolResult,
+                            resultTy.getWidth()));
     return success();
   }
 };
@@ -227,7 +316,9 @@ getTTIRCmpPredicate(Type operandType, bool isLess, bool isStrict) {
   return isUnsigned ? smt::BVCmpPredicate::uge : smt::BVCmpPredicate::sge;
 }
 
-/// Generic comparison op conversion: ttir.lt/le/gt/ge -> smt.bv.cmp
+/// Generic comparison op conversion: ttir.lt/le/gt/ge -> smt.bv.cmp.
+/// Result is a bitvector of the converted result-type width (typically i1
+/// or, after width promotion, i8).
 template <typename SourceOp, bool IsLess, bool IsStrict>
 struct CmpOpConversion : OpConversionPattern<SourceOp> {
   using OpConversionPattern<SourceOp>::OpConversionPattern;
@@ -235,15 +326,16 @@ struct CmpOpConversion : OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto pred =
-        getTTIRCmpPredicate(op.getLhs().getType(), IsLess, IsStrict);
+    auto resultTy = dyn_cast_or_null<smt::BitVectorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    if (!resultTy)
+      return failure();
+    auto pred = getTTIRCmpPredicate(op.getLhs().getType(), IsLess, IsStrict);
     auto boolResult = smt::BVCmpOp::create(rewriter, op.getLoc(), pred,
                                            adaptor.getLhs(), adaptor.getRhs());
-    // Materialize bool -> bv<1>
-    auto bv1Ty = smt::BitVectorType::get(op.getContext(), 1);
-    auto one = smt::BVConstantOp::create(rewriter, op.getLoc(), 1, 1);
-    auto zero = smt::BVConstantOp::create(rewriter, op.getLoc(), 0, 1);
-    rewriter.replaceOpWithNewOp<smt::IteOp>(op, bv1Ty, boolResult, one, zero);
+    rewriter.replaceOp(
+        op, boolToBitVector(rewriter, op.getLoc(), boolResult,
+                            resultTy.getWidth()));
     return success();
   }
 };
@@ -364,6 +456,78 @@ struct ConcatOpConversion : OpConversionPattern<ttir::ConcatOp> {
   }
 };
 
+/// ttir.slice_static -> smt.array.select (single element) or array build
+/// (multi-element). Only handles 1-D slices with stride 1.
+struct SliceStaticOpConversion
+    : OpConversionPattern<ttir::SliceStaticOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceStaticOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultTy = getTypeConverter()->convertType(op.getType());
+    if (!resultTy)
+      return failure();
+
+    ArrayAttr beginsAttr = op.getBeginsAttr();
+    ArrayAttr endsAttr = op.getEndsAttr();
+    ArrayAttr stepAttr = op.getStepAttr();
+    if (beginsAttr.size() != 1 || endsAttr.size() != 1 || stepAttr.size() != 1)
+      return rewriter.notifyMatchFailure(op, "only 1-D slices supported");
+
+    int64_t begin = cast<IntegerAttr>(beginsAttr[0]).getInt();
+    int64_t end = cast<IntegerAttr>(endsAttr[0]).getInt();
+    int64_t step = cast<IntegerAttr>(stepAttr[0]).getInt();
+    if (step != 1)
+      return rewriter.notifyMatchFailure(op, "only stride-1 slices supported");
+    int64_t numElems = end - begin;
+    if (numElems <= 0)
+      return failure();
+
+    Value inArr = adaptor.getInput();
+    Location loc = op.getLoc();
+
+    // Single-element slice: smt.array.select at begin index.
+    if (auto bvTy = dyn_cast<smt::BitVectorType>(resultTy)) {
+      auto inArrTy = dyn_cast<smt::ArrayType>(inArr.getType());
+      if (!inArrTy)
+        return failure();
+      unsigned idxBits =
+          cast<smt::BitVectorType>(inArrTy.getDomainType()).getWidth();
+      auto idx = smt::BVConstantOp::create(rewriter, loc, begin, idxBits);
+      rewriter.replaceOpWithNewOp<smt::ArraySelectOp>(op, bvTy, inArr, idx);
+      return success();
+    }
+
+    // Multi-element slice: build a new array by stores.
+    auto outArrTy = dyn_cast<smt::ArrayType>(resultTy);
+    if (!outArrTy)
+      return failure();
+    auto inArrTy = dyn_cast<smt::ArrayType>(inArr.getType());
+    if (!inArrTy)
+      return failure();
+    unsigned inIdxBits =
+        cast<smt::BitVectorType>(inArrTy.getDomainType()).getWidth();
+    unsigned outIdxBits =
+        cast<smt::BitVectorType>(outArrTy.getDomainType()).getWidth();
+    auto elemBvTy = cast<smt::BitVectorType>(outArrTy.getRangeType());
+    auto zeroElem = smt::BVConstantOp::create(rewriter, loc, 0,
+                                              elemBvTy.getWidth());
+    Value outArr =
+        smt::ArrayBroadcastOp::create(rewriter, loc, outArrTy, zeroElem);
+    for (int64_t i = 0; i < numElems; ++i) {
+      auto inIdx = smt::BVConstantOp::create(rewriter, loc, begin + i, inIdxBits);
+      auto outIdx = smt::BVConstantOp::create(rewriter, loc, i, outIdxBits);
+      auto elem = smt::ArraySelectOp::create(rewriter, loc, elemBvTy, inArr,
+                                             inIdx);
+      outArr =
+          smt::ArrayStoreOp::create(rewriter, loc, outArr, outIdx, elem);
+    }
+    rewriter.replaceOp(op, outArr);
+    return success();
+  }
+};
+
 /// ttir.empty -> removed (dead code in SMT context)
 struct EmptyOpConversion : OpConversionPattern<ttir::EmptyOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -398,6 +562,7 @@ void mlir::tt::populateTTIRToSMTConversionPatterns(
   patterns.add<
     // Constants
     ConstantOpConversion,
+    FullOpConversion,
     EmptyOpConversion,
     // Bitwise
     BinaryOpConversion<ttir::BitwiseAndOp, smt::BVAndOp>,
@@ -428,7 +593,8 @@ void mlir::tt::populateTTIRToSMTConversionPatterns(
     TypecastOpConversion,
     ReshapeOpConversion,
     // Tensor manipulation
-    ConcatOpConversion
+    ConcatOpConversion,
+    SliceStaticOpConversion
   >(converter, ctx);
   // clang-format on
 }

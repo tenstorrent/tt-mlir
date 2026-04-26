@@ -12,13 +12,17 @@
 // On non-equivalence, prints the counterexample input/output values.
 
 #include "ttmlir/Conversion/ConstructTTIRLEC/ConstructTTIRLEC.h"
+#include "ttmlir/Conversion/TTIRPruneToOutput/TTIRPruneToOutput.h"
 #include "ttmlir/Conversion/TTIRToSMT/TTIRToSMT.h"
 #include "ttmlir/RegisterAll.h"
+
+#include "mlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SMT/IR/SMTDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
@@ -83,11 +87,69 @@ static cl::opt<bool>
               cl::desc("Print full Z3 model when non-equivalent"),
               cl::init(true), cl::cat(mainCategory));
 
+static cl::opt<unsigned>
+    z3Timeout("z3-timeout",
+              cl::desc("Z3 timeout in milliseconds (0 = no timeout)"),
+              cl::init(0), cl::cat(mainCategory));
+
+static cl::opt<bool> setLogicQFBV(
+    "set-logic-qfbv",
+    cl::desc("Emit (set-logic QF_BV) — speeds up Z3 on bitvector-only problems"),
+    cl::init(false), cl::cat(mainCategory));
+
+static cl::opt<bool> setLogicQFABV(
+    "set-logic-qfabv",
+    cl::desc("Emit (set-logic QF_ABV) — bitvectors + arrays"),
+    cl::init(false), cl::cat(mainCategory));
+
+static cl::opt<std::string> checkOutput(
+    "check-output",
+    cl::desc("Compare only the output port with this hw.port_name "
+             "(default: compare all)"),
+    cl::init(""), cl::cat(mainCategory));
+
+static cl::opt<int> checkOutputIdx(
+    "check-output-idx",
+    cl::desc("Compare only the output at this index (overrides check-output)"),
+    cl::init(-1), cl::cat(mainCategory));
+
 //===----------------------------------------------------------------------===//
 // Module merging: combine two input modules into one.
 //===----------------------------------------------------------------------===//
 
-static LogicalResult mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src) {
+/// Merge `src` into `dest`. If any symbol in `src` collides with one in
+/// `dest`, rename the source symbol to a unique name. If a protected-name
+/// (LEC target) collides, the source's copy is dropped — the destination
+/// (typically the SMT reference) takes precedence.
+static LogicalResult
+mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src,
+            ArrayRef<StringRef> protectedNames) {
+  SymbolTable destTable(dest), srcTable(*src);
+  SmallVector<Operation *> toErase;
+  for (auto &op : src->getOps()) {
+    auto symbol = dyn_cast<SymbolOpInterface>(op);
+    if (!symbol)
+      continue;
+    StringAttr origName = symbol.getNameAttr();
+    Operation *clash = destTable.lookup(origName);
+    if (!clash)
+      continue; // no collision
+
+    bool isProtected = llvm::is_contained(protectedNames, origName.getValue());
+    if (isProtected) {
+      // Both modules have a protected symbol of this name. Drop the source
+      // copy so the destination (e.g. the SMT reference) wins.
+      toErase.push_back(&op);
+      continue;
+    }
+    // Rename to avoid collision.
+    if (failed(srcTable.renameToUnique(&op, {&destTable})))
+      return src->emitError() << "failed to rename '" << origName.getValue()
+                              << "'";
+  }
+  for (Operation *op : toErase)
+    op->erase();
+
   Block *destBlock = dest.getBody();
   Block *srcBlock = src->getBody();
   destBlock->getOperations().splice(destBlock->end(),
@@ -115,16 +177,34 @@ static LogicalResult runLEC(MLIRContext &context) {
     auto second = parseSourceFile<ModuleOp>(inputFilenames[1], &context);
     if (!second)
       return failure();
-    if (failed(mergeModule(module.get(), std::move(second))))
+    SmallVector<StringRef> protectedNames = {firstFunc, secondFunc};
+    if (failed(mergeModule(module.get(), std::move(second), protectedNames)))
       return failure();
   }
 
-  // Run conversion pipeline: TTIR -> SMT, then construct LEC.
+  // Run conversion pipeline: optionally prune to one output, TTIR -> SMT,
+  // then construct LEC. Pruning before lowering means we never have to
+  // lower ops that don't feed the selected output.
   PassManager pm(&context);
+  if (failed(applyPassManagerCLOptions(pm)))
+    return failure();
+  if (!checkOutput.empty()) {
+    TTIRPruneToOutputOptions pruneOpts;
+    pruneOpts.keepOutput = checkOutput;
+    pm.addPass(createTTIRPruneToOutputPass(pruneOpts));
+    pm.addPass(createCanonicalizerPass());
+    // Drop arguments that are now unused. This is critical for LEC because
+    // both circuits must have matching input signatures, and the HW->SMT
+    // reference may carry multi-dim array inputs that don't appear in the
+    // TTIR side's cone-of-influence for the selected output.
+    pm.addPass(createFuncDropUnusedArgsPass());
+  }
   pm.addPass(createConvertTTIRToSMTPass());
   ConstructTTIRLECOptions opts;
   opts.firstFunc = firstFunc;
   opts.secondFunc = secondFunc;
+  opts.checkOutput = checkOutput;
+  opts.checkOutputIdx = checkOutputIdx;
   pm.addPass(createConstructTTIRLECPass(opts));
 
   if (failed(pm.run(module.get())))
@@ -167,6 +247,12 @@ static LogicalResult runLEC(MLIRContext &context) {
   }
   {
     llvm::raw_fd_ostream tmpOut(tmpFd, /*shouldClose=*/true);
+    if (setLogicQFABV)
+      tmpOut << "(set-logic QF_ABV)\n";
+    else if (setLogicQFBV)
+      tmpOut << "(set-logic QF_BV)\n";
+    if (z3Timeout > 0)
+      tmpOut << "(set-option :timeout " << z3Timeout << ")\n";
     tmpOut << "(set-option :produce-models true)\n";
     // Splice in (get-model) right after (check-sat).
     size_t checkPos = smtlib.find("(check-sat)");
@@ -193,7 +279,17 @@ static LogicalResult runLEC(MLIRContext &context) {
   }
   ::close(z3OutFd);
 
-  std::vector<llvm::StringRef> args = {z3Path, tmpPath.str()};
+  // Build z3 args. Pass -T:<seconds> as a CLI-level timeout in addition to the
+  // SMT-LIB :timeout option, since some Z3 versions only honor one or the
+  // other.
+  std::string z3TimeoutArg;
+  std::vector<llvm::StringRef> args = {z3Path};
+  if (z3Timeout > 0) {
+    unsigned secs = (z3Timeout + 999) / 1000;
+    z3TimeoutArg = "-T:" + std::to_string(secs);
+    args.push_back(z3TimeoutArg);
+  }
+  args.push_back(tmpPath.str());
   std::optional<llvm::StringRef> redirects[3] = {
       std::nullopt, llvm::StringRef(z3OutPath), std::nullopt};
   std::string execErr;
@@ -236,6 +332,12 @@ static LogicalResult runLEC(MLIRContext &context) {
     return success();
   }
 
+  if (firstLine == "unknown" || firstLine == "timeout") {
+    outputFile->os() << "TIMEOUT or UNKNOWN (z3 could not decide)\n";
+    outputFile->keep();
+    return failure();
+  }
+
   outputFile->os() << "z3 returned UNKNOWN or error:\n" << z3Output;
   outputFile->keep();
   return failure();
@@ -243,7 +345,9 @@ static LogicalResult runLEC(MLIRContext &context) {
 
 int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
-  cl::HideUnrelatedOptions(mainCategory);
+  registerMLIRContextCLOptions();
+  registerPassManagerCLOptions();
+  registerAsmPrinterCLOptions();
   cl::ParseCommandLineOptions(
       argc, argv,
       "ttmlir-lec - logical equivalence checker for TTIR functions\n");

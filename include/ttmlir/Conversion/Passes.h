@@ -22,6 +22,7 @@
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
 #include "ttmlir/Conversion/ConstructTTIRLEC/ConstructTTIRLEC.h"
+#include "ttmlir/Conversion/TTIRPruneToOutput/TTIRPruneToOutput.h"
 #include "ttmlir/Conversion/TTIRToSMT/TTIRToSMT.h"
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
