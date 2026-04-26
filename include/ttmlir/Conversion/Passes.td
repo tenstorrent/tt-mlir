@@ -428,6 +428,34 @@ def ConvertTTIRToSMT : Pass<"convert-ttir-to-smt", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::smt::SMTDialect"];
 }
 
+def FuncDropUnusedArgs : Pass<"func-drop-unused-args", "::mlir::ModuleOp"> {
+  let summary = "Drop func.func arguments that have no uses in the body.";
+  let description = [{
+    For each func.func in the module, erase any block argument whose value
+    is unused. Use after canonicalize/DCE to clean up arguments that became
+    unreferenced. Unlike --remove-dead-values, this does not eliminate
+    private functions with no callers.
+  }];
+  let constructor = "createFuncDropUnusedArgsPass()";
+  let dependentDialects = ["mlir::func::FuncDialect"];
+}
+
+def TTIRPruneToOutput : Pass<"ttir-prune-to-output", "::mlir::ModuleOp"> {
+  let summary = "Prune all func.func results except the one with the given hw.port_name.";
+  let description = [{
+    For each func.func in the module that has at least one result with
+    hw.port_name attribute matching keepOutput, erase all other results
+    (and update the func.return). This works in concert with --canonicalize
+    to eliminate dead logic, shrinking the SMT problem for per-output LEC.
+  }];
+  let constructor = "createTTIRPruneToOutputPass()";
+  let dependentDialects = ["mlir::func::FuncDialect"];
+  let options = [
+    Option<"keepOutput", "keep-output", "std::string", /*default=*/"\"\"",
+           "hw.port_name of the result to keep">
+  ];
+}
+
 def ConstructTTIRLEC : Pass<"construct-ttir-lec", "::mlir::ModuleOp"> {
   let summary = "Construct an LEC (logical equivalence check) from two SMT functions.";
   let description = [{
@@ -441,7 +469,11 @@ def ConstructTTIRLEC : Pass<"construct-ttir-lec", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::smt::SMTDialect", "mlir::func::FuncDialect"];
   let options = [
     Option<"firstFunc", "c1", "std::string", /*default=*/"", "Name of first function to compare">,
-    Option<"secondFunc", "c2", "std::string", /*default=*/"", "Name of second function to compare">
+    Option<"secondFunc", "c2", "std::string", /*default=*/"", "Name of second function to compare">,
+    Option<"checkOutput", "check-output", "std::string", /*default=*/"\"\"",
+           "Compare only the output port with this hw.port_name (default: compare all)">,
+    Option<"checkOutputIdx", "check-output-idx", "int", /*default=*/"-1",
+           "Compare only the output at this index (overrides check-output)">
   ];
 }
 

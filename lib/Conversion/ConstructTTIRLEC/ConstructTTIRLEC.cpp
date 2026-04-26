@@ -79,6 +79,8 @@ struct ConstructTTIRLECPass
       : Base() {
     this->firstFunc = options.firstFunc;
     this->secondFunc = options.secondFunc;
+    this->checkOutput = options.checkOutput;
+    this->checkOutputIdx = options.checkOutputIdx;
   }
 
   ConstructTTIRLECPass(const ConstructTTIRLECPass &rhs) : Base(rhs) {
@@ -86,6 +88,8 @@ struct ConstructTTIRLECPass
     // base class copy constructors ignore Pass option fields.
     this->firstFunc = rhs.firstFunc;
     this->secondFunc = rhs.secondFunc;
+    this->checkOutput = rhs.checkOutput;
+    this->checkOutputIdx = rhs.checkOutputIdx;
   }
 
   void runOnOperation() override {
@@ -121,20 +125,75 @@ struct ConstructTTIRLECPass
       return signalPassFailure();
     }
 
+    // Determine which output indices to compare. Default: all of them.
+    SmallVector<size_t> selectedIndices;
+    if (checkOutputIdx >= 0) {
+      if (static_cast<size_t>(checkOutputIdx) >= fty1.getNumResults()) {
+        module.emitError() << "check-output-idx " << checkOutputIdx
+                           << " is out of range (function has "
+                           << fty1.getNumResults() << " results)";
+        return signalPassFailure();
+      }
+      selectedIndices.push_back(static_cast<size_t>(checkOutputIdx));
+    } else if (!checkOutput.empty()) {
+      // Search both functions' result attributes for hw.port_name ==
+      // checkOutput. The HW->SMT pipeline can strip port_name attrs from the
+      // reference side, so we accept finding the port in either function.
+      auto findInFunc = [&](func::FuncOp fn) -> ssize_t {
+        ArrayAttr resAttrs = fn.getAllResultAttrs();
+        if (!resAttrs)
+          return -1;
+        for (size_t i = 0; i < resAttrs.size(); ++i) {
+          auto dict = dyn_cast<DictionaryAttr>(resAttrs[i]);
+          if (!dict)
+            continue;
+          if (auto nameAttr = dict.getAs<StringAttr>("hw.port_name")) {
+            if (nameAttr.getValue() == checkOutput)
+              return static_cast<ssize_t>(i);
+          }
+        }
+        return -1;
+      };
+      ssize_t foundIdx = findInFunc(fn1);
+      if (foundIdx < 0)
+        foundIdx = findInFunc(fn2);
+      if (foundIdx < 0) {
+        module.emitError() << "check-output: no result port named '"
+                           << checkOutput << "' in either '" << firstFunc
+                           << "' or '" << secondFunc << "'";
+        return signalPassFailure();
+      }
+      selectedIndices.push_back(static_cast<size_t>(foundIdx));
+    } else {
+      for (size_t i = 0; i < fty1.getNumResults(); ++i)
+        selectedIndices.push_back(i);
+    }
+
     // Compute per-input/output widths and the "common" (min) widths.
+    // Width-adapter logic only applies to bitvector ports. Array ports must
+    // have identical types between the two functions and are passed through
+    // directly (no extension/truncation).
     SmallVector<unsigned> inWidths1, inWidths2, inCommonWidths;
     for (auto [t1, t2] :
          llvm::zip(fty1.getInputs(), fty2.getInputs())) {
       auto bv1 = dyn_cast<smt::BitVectorType>(t1);
       auto bv2 = dyn_cast<smt::BitVectorType>(t2);
-      if (!bv1 || !bv2) {
-        module.emitError() << "input types must be smt.bv (run "
-                              "--convert-ttir-to-smt first)";
+      if (bv1 && bv2) {
+        inWidths1.push_back(bv1.getWidth());
+        inWidths2.push_back(bv2.getWidth());
+        inCommonWidths.push_back(std::min(bv1.getWidth(), bv2.getWidth()));
+        continue;
+      }
+      // Non-bv (e.g. smt.array): must match exactly. Encode width as 0 to
+      // mean "passthrough"; adaptWidth treats 0->0 as identity.
+      if (t1 != t2) {
+        module.emitError() << "non-bitvector input types differ: " << t1
+                           << " vs " << t2 << " (no width adapter possible)";
         return signalPassFailure();
       }
-      inWidths1.push_back(bv1.getWidth());
-      inWidths2.push_back(bv2.getWidth());
-      inCommonWidths.push_back(std::min(bv1.getWidth(), bv2.getWidth()));
+      inWidths1.push_back(0);
+      inWidths2.push_back(0);
+      inCommonWidths.push_back(0);
     }
 
     SmallVector<unsigned> outWidths1, outWidths2, outCommonWidths;
@@ -142,13 +201,20 @@ struct ConstructTTIRLECPass
          llvm::zip(fty1.getResults(), fty2.getResults())) {
       auto bv1 = dyn_cast<smt::BitVectorType>(t1);
       auto bv2 = dyn_cast<smt::BitVectorType>(t2);
-      if (!bv1 || !bv2) {
-        module.emitError() << "result types must be smt.bv";
+      if (bv1 && bv2) {
+        outWidths1.push_back(bv1.getWidth());
+        outWidths2.push_back(bv2.getWidth());
+        outCommonWidths.push_back(std::min(bv1.getWidth(), bv2.getWidth()));
+        continue;
+      }
+      if (t1 != t2) {
+        module.emitError() << "non-bitvector result types differ: " << t1
+                           << " vs " << t2;
         return signalPassFailure();
       }
-      outWidths1.push_back(bv1.getWidth());
-      outWidths2.push_back(bv2.getWidth());
-      outCommonWidths.push_back(std::min(bv1.getWidth(), bv2.getWidth()));
+      outWidths1.push_back(0);
+      outWidths2.push_back(0);
+      outCommonWidths.push_back(0);
     }
 
     // Create the LEC entry function: func.func @lec_main()
@@ -167,38 +233,55 @@ struct ConstructTTIRLECPass
     Block *solverBlock = builder.createBlock(&solver.getBodyRegion());
     builder.setInsertionPointToStart(solverBlock);
 
-    // Declare a fresh symbolic input for each function arg, at the common
-    // (min) width. Then build per-circuit arg lists with width adapters.
+    // Declare a fresh symbolic input for each function arg. Bitvector args
+    // are declared at the common (min) width and adapted per-circuit.
+    // Non-bitvector args (e.g. smt.array) are declared with their original
+    // type and shared between both circuits unchanged.
     SmallVector<Value> commonInputs;
     SmallVector<Value> args1, args2;
+    auto inTypes = fty1.getInputs();
     for (size_t i = 0; i < inCommonWidths.size(); ++i) {
-      auto bvTy = smt::BitVectorType::get(builder.getContext(),
-                                          inCommonWidths[i]);
       std::string name = "arg" + std::to_string(i);
-      auto declared =
-          smt::DeclareFunOp::create(builder, loc, bvTy,
-                                    builder.getStringAttr(name));
-      commonInputs.push_back(declared);
-      args1.push_back(adaptWidth(builder, loc, declared, inCommonWidths[i],
-                                 inWidths1[i]));
-      args2.push_back(adaptWidth(builder, loc, declared, inCommonWidths[i],
-                                 inWidths2[i]));
+      Value declared;
+      if (inCommonWidths[i] > 0) {
+        auto bvTy = smt::BitVectorType::get(builder.getContext(),
+                                            inCommonWidths[i]);
+        declared = smt::DeclareFunOp::create(builder, loc, bvTy,
+                                             builder.getStringAttr(name));
+        commonInputs.push_back(declared);
+        args1.push_back(adaptWidth(builder, loc, declared, inCommonWidths[i],
+                                   inWidths1[i]));
+        args2.push_back(adaptWidth(builder, loc, declared, inCommonWidths[i],
+                                   inWidths2[i]));
+      } else {
+        // Non-bv (array) — declare with the matching type, no adapter.
+        declared = smt::DeclareFunOp::create(builder, loc, inTypes[i],
+                                             builder.getStringAttr(name));
+        commonInputs.push_back(declared);
+        args1.push_back(declared);
+        args2.push_back(declared);
+      }
     }
 
     // Inline both circuits.
     SmallVector<Value> outs1 = inlineFuncBody(builder, loc, fn1, args1);
     SmallVector<Value> outs2 = inlineFuncBody(builder, loc, fn2, args2);
 
-    // For each output: adapt to common width, then assert distinct.
-    // We OR the per-output distinct predicates: any mismatched output counts.
+    // For each selected output: adapt to common width (if bv), then assert
+    // distinct. Non-bv outputs (arrays) are compared directly. We OR the
+    // per-output distinct predicates: any mismatched output counts.
     Value anyDiff = smt::BoolConstantOp::create(builder, loc, false);
-    bool first = true;
-    (void)first;
-    for (size_t i = 0; i < outCommonWidths.size(); ++i) {
-      Value o1 = adaptWidth(builder, loc, outs1[i], outWidths1[i],
-                            outCommonWidths[i]);
-      Value o2 = adaptWidth(builder, loc, outs2[i], outWidths2[i],
-                            outCommonWidths[i]);
+    for (size_t i : selectedIndices) {
+      Value o1, o2;
+      if (outCommonWidths[i] > 0) {
+        o1 = adaptWidth(builder, loc, outs1[i], outWidths1[i],
+                        outCommonWidths[i]);
+        o2 = adaptWidth(builder, loc, outs2[i], outWidths2[i],
+                        outCommonWidths[i]);
+      } else {
+        o1 = outs1[i];
+        o2 = outs2[i];
+      }
       Value diffI = smt::DistinctOp::create(builder, loc, o1, o2);
       anyDiff = smt::OrOp::create(builder, loc, ValueRange{anyDiff, diffI});
     }
