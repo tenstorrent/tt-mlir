@@ -75,6 +75,17 @@ struct PadRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// MeshPartitionOp: DRAM-interleaved output only, no reshards.
+/// Downstream consumers (paged_update_cache, paged_sdpa_decode, mesh_shard)
+/// all require DRAM-interleaved input; allowing the optimizer to pick L1
+/// for the producer leaves multi-consumer reshards in inconsistent states.
+struct MeshPartitionRuleBook : OpRuleBook {
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_DATAMOVEMENTRULES_H

@@ -251,4 +251,20 @@ PadRuleBook::getOutputHints(Operation * /*op*/,
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
 }
 
+//===----------------------------------------------------------------------===//
+// MeshPartitionRuleBook
+//===----------------------------------------------------------------------===//
+
+bool MeshPartitionRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints MeshPartitionRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
+  // mesh_partition: feed downstream KV-cache and paged-SDPA-decode consumers
+  // with DRAM-interleaved tensors only. Letting the optimizer pick L1 here
+  // produces an L1-block-sharded output that the SDPA-decode kernel rejects;
+  // when the multi-consumer reshard logic does not insert a DRAM reshard for
+  // every consumer, the verifier fires `keyType != valueType`.
+  return layout_filter_utils::dramInterleavedOnlyOutputHints(legalConfigs);
+}
+
 } // namespace mlir::tt::ttnn
