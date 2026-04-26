@@ -88,6 +88,28 @@ inline OutputHints nullHintOnly() {
   return OutputHints{{OpConfig(TTNNLayoutAttr())}, {}};
 }
 
+/// DRAM-interleaved output configs only (drops sharded and L1-interleaved
+/// configs). Useful for ops whose downstream consumers require DRAM input.
+inline OutputHints
+dramInterleavedOnlyOutputHints(const std::vector<OpConfig> &legalConfigs) {
+  std::vector<OpConfig> result;
+  for (const auto &cfg : legalConfigs) {
+    if (!cfg.outputLayout) {
+      result.push_back(cfg);
+      continue;
+    }
+    if (!isDRAMBufferType(cfg.outputLayout.getBufferType())) {
+      continue;
+    }
+    auto memLayout = cfg.outputLayout.getMemLayout();
+    if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+      continue;
+    }
+    result.push_back(cfg);
+  }
+  return OutputHints{result, {}};
+}
+
 } // namespace mlir::tt::ttnn::layout_filter_utils
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_LAYOUTFILTERUTILS_H
