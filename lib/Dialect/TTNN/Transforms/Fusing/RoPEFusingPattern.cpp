@@ -791,6 +791,16 @@ bool matchExpandedRope(ExpandedRoPEComponents &c) {
     return false;
   }
 
+  // Kernel cannot broadcast cos/sin's dim -2 from 1 to >1; combined with
+  // the seq_len padding workaround in RotaryEmbeddingOpRewritePattern this
+  // silently produces wrong outputs.
+  auto cosType = mlir::cast<RankedTensorType>(cosValue.getType());
+  auto resultType = mlir::cast<RankedTensorType>(c.concatOp.getType());
+  if (cosType.getShape()[cosType.getRank() - 2] !=
+      resultType.getShape()[resultType.getRank() - 2]) {
+    return false;
+  }
+
   // Cross-validate with the add branch: one add multiply should pair
   // second_half with cos_h, the other should pair first_half with sin_h.
   auto matchesEmbedding = [](Value mulEmb, Value expected) {

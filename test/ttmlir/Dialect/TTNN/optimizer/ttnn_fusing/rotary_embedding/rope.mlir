@@ -401,4 +401,33 @@ module {
     %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<16x8x1x32xbf16>, tensor<16x8x1x32xbf16>) -> tensor<16x8x1x64xbf16>
     return %result : tensor<16x8x1x64xbf16>
   }
+
+  // Negative: cos/sin dim -2 is 1 but result dim -2 is 8 (heads, not seq).
+  // Kernel cannot broadcast dim -2 from 1; fusing would silently produce
+  // wrong outputs once the seq_len padding workaround inflates the heads
+  // dim to a tile multiple. Pattern observed in tt-xla vLLM TTRotaryEmbedding.
+  // CHECK-LABEL: @rope_expanded_dim_minus_2_mismatch_no_fuse
+  // CHECK-NOT: ttnn.rotary_embedding"
+  // CHECK: ttnn.concat"
+  func.func @rope_expanded_dim_minus_2_mismatch_no_fuse(
+      %x: tensor<1x1x8x64xbf16>,
+      %cos_h: tensor<1x1x1x32xbf16>,
+      %sin_h: tensor<1x1x1x32xbf16>) -> tensor<1x1x8x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 1, 1, 8, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 1, 1, 8, 1>}> : (tensor<1x1x1x32xbf16>) -> tensor<1x1x8x32xbf16>
+
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [1:i32, 1:i32, 8:i32, 32:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x1x8x64xbf16>) -> tensor<1x1x8x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32, 32:i32], ends = [1:i32, 1:i32, 8:i32, 64:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<1x1x8x64xbf16>) -> tensor<1x1x8x32xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_bc) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %ss = "ttir.multiply"(%second, %sin_bc) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %sub = "ttir.subtract"(%fc, %ss) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+
+    %sc = "ttir.multiply"(%second, %cos_bc) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %fs = "ttir.multiply"(%first, %sin_bc) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+    %add = "ttir.add"(%sc, %fs) : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 3 : si32}> : (tensor<1x1x8x32xbf16>, tensor<1x1x8x32xbf16>) -> tensor<1x1x8x64xbf16>
+    return %result : tensor<1x1x8x64xbf16>
+  }
 }
