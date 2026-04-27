@@ -42,3 +42,12 @@ table TypecastOp {
   memcfg: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
+
+// Host-side dtype conversion. 1:1 with `::ttnn::to_dtype`. Input must be a
+// host tensor; for BFLOAT4_B / BFLOAT8_B targets it dispatches to tt-metal's
+// host packer (`pack_as_bfp_tiles`).
+table ToDtypeOp {
+  in: tt.target.ttnn.TensorRef;
+  dtype: tt.target.DataType;
+  out: tt.target.ttnn.TensorRef;
+}

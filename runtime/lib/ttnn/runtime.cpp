@@ -1034,6 +1034,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_FromDeviceOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ToDtypeOp: {
+    tensorRef = opContext.type_as_ToDtypeOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     tensorRef = opContext.type_as_EmptyOp()->out();
     break;
@@ -1474,6 +1478,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::FromDeviceOp: {
     tensorRefs = {opContext.type_as_FromDeviceOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ToDtypeOp: {
+    tensorRefs = {opContext.type_as_ToDtypeOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryOp: {

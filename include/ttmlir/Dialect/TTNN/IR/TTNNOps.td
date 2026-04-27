@@ -144,6 +144,27 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device", [OpModelExempt]> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_ToDtypeOp : TTNN_Op<"to_dtype", [OpModelExempt]> {
+    let summary = "ToDtype op.";
+    let description = [{
+      Host-side conversion of the input tensor's dtype.
+
+      This op is 1:1 with `::ttnn::to_dtype`. The input must be a host
+      tensor (typically the output of `ttnn.from_device`); the op runs
+      on the host CPU. For BFLOAT4_B / BFLOAT8_B targets it dispatches
+      to tt-metal's host packer (`pack_as_bfp_tiles`) via
+      `tt::tt_metal::tensor_impl::to_dtype`, producing higher-precision
+      output than the device-kernel `ttnn.typecast` for the same input.
+
+      Typical usage for weight conversion is the chain
+      `ttnn.from_device → ttnn.to_dtype → ttnn.to_device`.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         TTCore_DataTypeAttr:$dtype);
+    let results = (outs AnyRankedTensor:$result);
+}
+
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface, TTNN_ElementwiseUnary] # traits> {
     let summary = "Eltwise unary op.";

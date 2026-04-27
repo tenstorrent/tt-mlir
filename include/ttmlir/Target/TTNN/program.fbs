@@ -130,6 +130,7 @@ union OpType {
   SortOp,
   SplitQueryKeyValueAndSplitHeadsOp,
   ToDeviceOp,
+  ToDtypeOp,
   ToLayoutOp,
   ToMemoryConfigOp,
   TransposeOp,
