@@ -5,7 +5,7 @@
 
 # arg $1: path to pytest test files
 # arg $2: pytest marker expression to select tests to run
-# arg $3: "run-ttrt" or predefined additional flags for pytest
+# arg $3+: flags for pytest (e.g. run-ttrt, require-opmodel, split=m/n)
 
 set -e -o pipefail
 
@@ -15,7 +15,7 @@ FLATBUFFER=""
 
 [[ "$RUNS_ON" != "n150" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-exact-mesh"
 
-for flag in $3; do
+for flag in "${@:3}"; do
     [[ "$flag" == "run-ttrt" ]] && runttrt=1
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
     if [[ "$flag" == split=*/* ]]; then
