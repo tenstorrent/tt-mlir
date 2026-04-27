@@ -151,10 +151,7 @@ def TTNN_ToDtypeOp : TTNN_Op<"to_dtype", [OpModelExempt]> {
 
       This op is 1:1 with `::ttnn::to_dtype`. The input must be a host
       tensor (typically the output of `ttnn.from_device`); the op runs
-      on the host CPU. For BFLOAT4_B / BFLOAT8_B targets it dispatches
-      to tt-metal's host packer (`pack_as_bfp_tiles`) via
-      `tt::tt_metal::tensor_impl::to_dtype`, producing higher-precision
-      output than the device-kernel `ttnn.typecast` for the same input.
+      on the host CPU.
 
       Typical usage for weight conversion is the chain
       `ttnn.from_device → ttnn.to_dtype → ttnn.to_device`.
