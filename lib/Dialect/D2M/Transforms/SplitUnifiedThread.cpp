@@ -28,6 +28,38 @@ namespace {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// TODO: move into some DMA utils place alongside load/store aliasing logic
+// which should be separated out to separate function after
+// inferOperandAliasing inferOperandAliasing needs to be run prior to
+// assigning memory to actually benefit from reduced mem usage from aliasing
+// TODO: add specific checks for load/store (mcast load, fabric store)
+// can infer aliasing and do the conversion
+static bool needsDMA(Value memref) {
+  // View ops need datamovement, except for reinterpret view_layout ops
+  // which are just type casts.
+  if (auto *defOp = memref.getDefiningOp()) {
+    if (auto viewOp = mlir::dyn_cast<ViewLayoutOp>(defOp)) {
+      return !viewOp.getReinterpretLayout();
+    }
+    if (mlir::isa<ViewOpInterface>(defOp)) {
+      return true;
+    }
+  }
+  if (auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType())) {
+    if (ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceDRAM) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool isAliasedLoad(RemoteLoadOp loadOp) { return needsDMA(loadOp.getMemref()); }
+
+bool isAliasedStore(RemoteStoreOp storeOp) {
+  return needsDMA(storeOp.getMemref());
+}
+
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
   llvm::errs() << "tracing value: " << value << "\n";
   while (value) {
@@ -228,7 +260,8 @@ static LogicalResult processSharedBufferPairs(
     // Insert compute-side CB ops for the aliased half of the pair.
     // The streaming half stays as a remote_load/store for DMA.
     if (mlir::isa<RemoteLoadOp>(producer) &&
-        mlir::isa<AliasedStoreOp>(consumer)) {
+        mlir::isa<RemoteStoreOp>(consumer) &&
+        isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
       Location loc = producer->getLoc();
       unsigned cbOperandIdx =
           getCBOperandIdx(producer->getParentOfType<GenericOp>(), localBuffer);
@@ -240,12 +273,15 @@ static LogicalResult processSharedBufferPairs(
                   producer->getLoc(),
                   CBType::get(producer->getContext(),
                               mlir::cast<ShapedType>(localBuffer.getType())),
-                  cbOperandIdx)
+                  cbOperandIdx,
+                  ResolutionStageAttr::get(rewriter.getContext(),
+                                           ResolutionStage::Compile))
               .getResult();
       rewriter.create<WaitOp>(loc, cb);
       rewriter.create<PopOp>(loc, cb);
-    } else if (mlir::isa<AliasedLoadOp>(producer) &&
-               mlir::isa<RemoteStoreOp>(consumer)) {
+    } else if (mlir::isa<RemoteLoadOp>(producer) &&
+               mlir::isa<RemoteStoreOp>(consumer) &&
+               isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
       Location loc = consumer->getLoc();
       unsigned cbOperandIdx =
           getCBOperandIdx(consumer->getParentOfType<GenericOp>(), localBuffer);
@@ -258,7 +294,9 @@ static LogicalResult processSharedBufferPairs(
                   consumer->getLoc(),
                   CBType::get(consumer->getContext(),
                               mlir::cast<ShapedType>(localBuffer.getType())),
-                  cbOperandIdx)
+                  cbOperandIdx,
+                  ResolutionStageAttr::get(rewriter.getContext(),
+                                           ResolutionStage::Compile))
               .getResult();
       rewriter.create<ReserveOp>(loc, cb);
       rewriter.create<PushOp>(loc, cb);
@@ -292,16 +330,19 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           // Assumes only one producer for this local buffer
           auto associatedProducer = cbUsageInfo[localBuffer].producers.front();
           rewriter.setInsertionPoint(synchronizedOp);
-          auto cb =
-              rewriter
-                  .create<GetCBOp>(loc,
-                                   CBType::get(synchronizedOp.getContext(),
-                                               mlir::cast<ShapedType>(
-                                                   localBuffer.getType())),
-                                   cbOperandIdx)
-                  .getResult();
+          auto cb = rewriter
+                        .create<GetCBOp>(
+                            loc,
+                            CBType::get(
+                                synchronizedOp.getContext(),
+                                mlir::cast<ShapedType>(localBuffer.getType())),
+                            cbOperandIdx,
+                            ResolutionStageAttr::get(rewriter.getContext(),
+                                                     ResolutionStage::Compile))
+                        .getResult();
 
-          if (mlir::isa<AliasedLoadOp>(associatedProducer)) {
+          if (mlir::isa<RemoteLoadOp>(associatedProducer) &&
+              isAliasedLoad(mlir::cast<RemoteLoadOp>(associatedProducer))) {
             rewriter.create<ReserveOp>(loc, cb);
             rewriter.create<PushOp>(loc, cb);
           }
@@ -328,19 +369,22 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           // Assumes only one consumer for this local buffer
           auto associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
           rewriter.setInsertionPoint(synchronizedOp);
-          auto cb =
-              rewriter
-                  .create<GetCBOp>(loc,
-                                   CBType::get(synchronizedOp.getContext(),
-                                               mlir::cast<ShapedType>(
-                                                   localBuffer.getType())),
-                                   cbOperandIdx)
-                  .getResult();
+          auto cb = rewriter
+                        .create<GetCBOp>(
+                            loc,
+                            CBType::get(
+                                synchronizedOp.getContext(),
+                                mlir::cast<ShapedType>(localBuffer.getType())),
+                            cbOperandIdx,
+                            ResolutionStageAttr::get(rewriter.getContext(),
+                                                     ResolutionStage::Compile))
+                        .getResult();
 
           auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
           rewriter.setInsertionPointAfter(synchronizedOp);
           rewriter.create<PushOp>(loc, cb);
-          if (mlir::isa<AliasedStoreOp>(associatedConsumer)) {
+          if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
+              isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
             rewriter.create<WaitOp>(loc, cb);
             rewriter.create<PopOp>(loc, cb);
           }
@@ -407,7 +451,9 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
                 loadOp.getLoc(),
                 CBType::get(loadOp.getContext(),
                             mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx)
+                cbOperandIdx,
+                ResolutionStageAttr::get(rewriter.getContext(),
+                                         ResolutionStage::Compile))
             .getResult();
     auto newLoad = rewriter.create<RemoteLoadOp>(
         loadOp.getLoc(), loadOp.getMemref(), loadOp.getIndices(), cb,
@@ -445,7 +491,9 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
                 storeOp.getLoc(),
                 CBType::get(storeOp.getContext(),
                             mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx)
+                cbOperandIdx,
+                ResolutionStageAttr::get(rewriter.getContext(),
+                                         ResolutionStage::Compile))
             .getResult();
     rewriter.create<RemoteStoreOp>(
         storeOp.getLoc(), storeOp.getMemref(), storeOp.getIndices(), cb,

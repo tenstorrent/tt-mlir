@@ -419,7 +419,7 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
 
 ::mlir::LogicalResult LocalCopyOp::verify() {
   bool hasDst = static_cast<bool>(getDst());
-  bool hasCb = static_cast<bool>(getCb());
+  bool hasCb = static_cast<bool>(getDstCb());
   if (hasDst == hasCb) {
     return emitOpError(
         "must have exactly one of dst or cb (not both, not neither)");
@@ -514,7 +514,7 @@ mlir::LogicalResult
 LocalCopyOp::bufferize(mlir::RewriterBase &rewriter,
                        const mlir::bufferization::BufferizationOptions &options,
                        mlir::bufferization::BufferizationState &state) {
-  if (getCb()) {
+  if (getDstCb()) {
     return emitOpError(
         "LocalCopyOp with CB should not exist during bufferization");
   }
@@ -544,7 +544,7 @@ LocalCopyOp::bufferize(mlir::RewriterBase &rewriter,
 }
 
 bool LocalCopyOp::hasTensorSemantics() {
-  if (getCb()) {
+  if (getDstCb()) {
     return false;
   }
   return mlir::isa<RankedTensorType>(getSrc().getType()) ||

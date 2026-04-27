@@ -729,7 +729,7 @@ private:
               remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
-    } else if (kernelArg.getType() == ttkernel::ArgType::CBPort) {
+    } else if (kernelArg.getType() == ttkernel::ArgType::CB) {
       operandIndex += mergedCbSlotBase;
     }
     return builder.getAttr<KernelArgAttr>(kernelArg.getType(), operandIndex);

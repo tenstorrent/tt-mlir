@@ -43,9 +43,9 @@ static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op) {
   Value sem0 = genericOp.getOperands()[sem0AbsIdx];
   Value sem1 = genericOp.getOperands()[sem1AbsIdx];
 
-  TT_assertv(sem0 != nullptr && mlir::isa<LocalSemaphoreType>(sem0.getType()),
+  TT_assertv((sem0 != nullptr && mlir::isa<LocalSemaphoreType>(sem0.getType())),
              "Could not find receiversReady semaphore in generic args");
-  TT_assertv(sem1 != nullptr && mlir::isa<LocalSemaphoreType>(sem1.getType()),
+  TT_assertv((sem1 != nullptr && mlir::isa<LocalSemaphoreType>(sem1.getType())),
              "Could not find senderFinished semaphore in generic args");
 
   return {sem0, sem1};
