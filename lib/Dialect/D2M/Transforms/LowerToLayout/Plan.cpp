@@ -442,8 +442,8 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
   // Materialize into a fresh buffer when VGM changes or when we need to clear
   // an existing remapping before applying a different downstream view.
   // Do not clear virtual-grid/remapping metadata on the way back to host here.
-  // If the grid is still virtual, the host-transfer path below must collapse it
-  // using that mapping; an early identity rebuffer would scramble the data.
+  // If the grid is still virtual, the host-transfer path consumes that mapping;
+  // an early identity rebuffer would scramble the data.
   bool canMaterializeMetadataChange = !tgt.isSystem();
   bool needsVgmChange =
       canMaterializeMetadataChange && (current.vgmForward != tgt.vgmForward ||
