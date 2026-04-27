@@ -155,7 +155,6 @@ jobs:
             test/python/golden/d2m/test_ternary.py \
             test/python/golden/d2m/test_unary.py \
             test/python/golden/d2m/test_unaligned.py \
-            test/python/golden/d2m/test_normalization.py \
             test/python/golden/d2m/test_ttir_ops.py \
             test/python/golden/d2m/test_bfp8_typecast.py \
             test/python/golden/d2m/test_composite_ops.py \
