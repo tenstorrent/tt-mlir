@@ -47,8 +47,8 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
 // relying on SynchronizableOpInterface, such as in SplitUnifiedThread pass to
 // identify CBs and insert correct CB ops on producer/consumer side).
 //
-// PRECONDITION: No op in [start, end) may produce SSA results that are used
-// outside of [start, end).
+// PRECONDITION: No op in [start, end) with a side effect (i.e. not pure) may
+// produce SSA results that are used outside of [start, end).
 Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                                     Block::iterator start, Block::iterator end,
                                     const SmallVector<Value> &consumers,
@@ -61,28 +61,40 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
     opsInRange.insert(&op);
   }
 
+  SmallVector<Operation *> opsToClone;
+  SmallVector<Operation *> opsToWrap;
   for (Operation &op : llvm::make_range(start, end)) {
     for (Value result : op.getResults()) {
-      for (Operation *user : result.getUsers()) {
-        if (!opsInRange.contains(user)) {
-          llvm::errs() << "Found use of op result outside the range of ops "
-                          "being wrapped: \n"
-                       << *user;
-          llvm_unreachable(
-              "Results of ops being wrapped in SynchronizedRegionOp cannot be "
-              "used outside the range.");
+      if (mlir::isPure(&op)) {
+        opsToClone.push_back(&op);
+      } else {
+        for (auto user : result.getUsers()) {
+          if (!llvm::any_of(opsInRange, [&](Operation *op) {
+                return op->isAncestor(user);
+              })) {
+            llvm::errs()
+                << "Found use of non-pure op result outside the range of ops "
+                   "being wrapped: \n"
+                << *user;
+            llvm_unreachable("Results of ops being wrapped in "
+                             "SynchronizedRegionOp cannot be "
+                             "used outside the range.");
+          }
         }
+        opsToWrap.push_back(&op);
       }
     }
   }
 
   rewriter.setInsertionPoint(&*start);
+  IRMapping mapping;
+  for (Operation *op : opsToClone) {
+    rewriter.clone(*op, mapping);
+  }
   auto newSynchronizedRegionOp = rewriter.create<d2m::SynchronizedRegionOp>(
       start->getLoc(), TypeRange(), consumers, producers,
       [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
           mlir::ValueRange bbArgs) {
-        IRMapping mapping;
-
         for (size_t i = 0; i < consumers.size(); i++) {
           mapping.map(consumers[i], bbArgs[i]);
         }
@@ -90,16 +102,12 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
           mapping.map(producers[i], bbArgs[i + consumers.size()]);
         }
 
-        for (Operation &op : llvm::make_range(start, end)) {
-          bbBuilder.clone(op, mapping);
+        for (Operation *op : opsToWrap) {
+          bbBuilder.clone(*op, mapping);
         }
       });
 
-  SmallVector<Operation *> opsToErase;
-  for (Operation &op : llvm::make_range(start, end)) {
-    opsToErase.push_back(&op);
-  }
-  for (Operation *op : llvm::reverse(opsToErase)) {
+  for (Operation *op : llvm::reverse(opsToWrap)) {
     rewriter.eraseOp(op);
   }
 

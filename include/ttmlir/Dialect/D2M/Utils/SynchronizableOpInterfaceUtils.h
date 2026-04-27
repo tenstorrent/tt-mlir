@@ -25,9 +25,10 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion);
 
 /// Wraps a range of ops [start, end) in a SynchronizedRegionOp.
 ///
-/// PRECONDITION: No op in [start, end) may produce SSA results that are used
-/// outside of [start, end). Since SynchronizedRegionOp has no results, any such
-/// external uses would become invalid when the original ops are erased.
+/// PRECONDITION: No op in [start, end) with a side effect (i.e. not pure) may
+/// produce SSA results that are used outside of [start, end). Since
+/// SynchronizedRegionOp has no results, any such external uses would become
+/// invalid when the original ops are erased.
 Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                                     Block::iterator start, Block::iterator end,
                                     const SmallVector<Value> &consumers,
