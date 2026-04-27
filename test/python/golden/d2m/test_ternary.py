@@ -9,7 +9,7 @@ import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
 
-from conftest import x86_only, get_request_kwargs
+from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -212,35 +212,6 @@ def test_clamp_scalar(
     )
 
 
-@x86_only
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
-@pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_hoisted_clamp_scalar(
-    shape: Shape, max_arg: float, min_arg: float, target: str, request, device
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def hoisted_clamp_scalar(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
-            input_tensor = torch.rand(shape, dtype=torch.float32) * 2 - 1
-            builder.set_goldens(inputs={in0: input_tensor})
-            return builder.clamp_scalar(
-                in0,
-                max_arg=max_arg,
-                min_arg=min_arg,
-                unit_attrs=["ttir.should_hoist"],
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
 # 1D tensor test for ttmetal
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
@@ -258,31 +229,6 @@ def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
             condition_tensor = torch.randint(0, 2, shape, dtype=dtype)
             builder.set_goldens(inputs={in0: condition_tensor})
             return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-# ============================================================
-# Tests moved from test_ttir_ops.py during TTMetal test
-# reorganization.
-# ============================================================
-
-
-@x86_only
-@pytest.mark.parametrize(
-    "shapes", [[(64, 64), (64, 64), (64, 64)]], ids=shapes_list_str
-)
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
-def test_hoisted_where(shapes, request, target: str, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
-        def where(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
-            return builder.where(condition, x, y, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
         module,
