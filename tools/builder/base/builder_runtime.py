@@ -620,7 +620,7 @@ def convert_golden_input_output_to_torch(
 
 def execute_fb(
     compiled_bin,
-    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]] = None,
     intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]] = None,
     pcc: float = 0.99,
     atol: float = 1e-08,
@@ -690,9 +690,13 @@ def execute_fb(
         )
 
     program_indices = range(fbb.get_num_programs())
-    golden_input_output_tensors = convert_golden_input_output_to_torch(
-        input_output_goldens
-    )
+    golden_input_output_tensors = {}
+    if input_output_goldens is not None:
+        golden_input_output_tensors = convert_golden_input_output_to_torch(
+            input_output_goldens
+        )
+    else:
+        disable_golden = True
 
     golden_intermediate_torch_tensors = {}
     if intermediate_goldens is not None:
@@ -705,8 +709,6 @@ def execute_fb(
     if bypass_ops is None:
         bypass_ops = []
     verify_intermediates = enable_intermediate_verification or len(bypass_ops) > 0
-    if input_output_goldens is None:
-        disable_golden = True
 
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,
@@ -757,7 +759,17 @@ def execute_fb(
                         i_dict["desc"]["layout"]["memory_desc"]["data_type"]
                     ),
                 )
-                golden_inputs_torch.append(torch_tensor)
+                if i_dict["desc"]["shard_status"] == "Unsharded":
+                    golden_inputs_torch.append({0: torch_tensor.clone()})
+                else:
+                    golden_inputs_torch.append(
+                        {
+                            i: torch_tensor.clone()
+                            for i in range(
+                                device.get_mesh_shape()[0] * device.get_mesh_shape()[1]
+                            )
+                        }
+                    )
 
         inputs = []
         for i in golden_inputs_torch:
