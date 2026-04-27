@@ -1752,6 +1752,7 @@ def sdpa_decode_golden(
         Query:  [1, batch, num_heads, head_dim]
         Key:    [batch, num_kv_heads, seq_len, head_dim]
         Value:  [batch, num_kv_heads, seq_len, head_dim]
+        Mask:   [1, batch_or_1, num_heads_or_1, seq_len]
         Output: [1, batch, num_heads, head_dim]
     """
     # Query: [1, B, H, D] -> [B, H, 1, D]
@@ -1774,9 +1775,9 @@ def sdpa_decode_golden(
     qk = torch.matmul(q, k.transpose(-2, -1))
 
     # Add attention mask (before scaling, matching tt-metal)
-    # Mask is in decode layout [B, 1, H, S], permute to [B, H, 1, S] to match qk
+    # Mask is in decode layout [1, B, H, S], permute to [B, H, 1, S] to match qk
     if attention_mask is not None:
-        qk = torch.add(qk, attention_mask.float().transpose(1, 2))
+        qk = torch.add(qk, attention_mask.float().permute(1, 2, 0, 3))
 
     # Scale AFTER masking (tt-metal fuses scale into exp)
     if scale is not None:
@@ -3470,6 +3471,64 @@ def ttir_sqrt_golden(
     return torch.sqrt(input_tensor).to(output_dtype)
 
 
+def ttir_square_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.square(input_tensor).to(output_dtype)
+
+
+def ttir_exp2_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.exp2(input_tensor).to(output_dtype)
+
+
+def ttir_softsign_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.softsign(input_tensor).to(output_dtype)
+
+
+def ttir_signbit_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    """Match TTKernel signbit_tile: 0.0 or 1.0 in the output element type."""
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.signbit(input_tensor).to(output_dtype)
+
+
+def ttir_frac_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.frac(input_tensor).to(output_dtype)
+
+
+def ttir_trunc_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.trunc(input_tensor).to(output_dtype)
+
+
+def ttir_selu_golden(
+    input_tensor: GoldenMapTensor,
+    scale_attr: FloatAttr,
+    alpha_attr: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    scale = unpack_mlir_attr(scale_attr)
+    alpha = unpack_mlir_attr(alpha_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    pos = torch.clamp(input_tensor, min=0)
+    exp_m1 = torch.sub(torch.exp(input_tensor), 1.0)
+    neg = torch.clamp(torch.mul(exp_m1, alpha), max=0)
+    return torch.mul(torch.add(pos, neg), scale).to(output_dtype)
+
+
 def ttir_pow_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -3694,18 +3753,42 @@ def ttir_pad_golden(
 
 
 def ttir_constant_golden(
-    value: DenseElementsAttr, mesh_shape_attr: ArrayAttr
+    value_attr: DenseElementsAttr, mesh_shape_attr: ArrayAttr
 ) -> GoldenMapTensor:
-    shape = list(value.type.shape)
+    shape = list(value_attr.type.shape)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
-    dtype = mlir_type_to_torch_dtype(value.type.element_type)
+    dtype = mlir_type_to_torch_dtype(value_attr.type.element_type)
 
-    if value.is_splat:
-        value = value.get_splat_value()
-        torch_tensor = torch.full(shape, value.value, dtype=dtype)
+    if value_attr.is_splat:
+        value_attr = value_attr.get_splat_value()
+        torch_tensor = torch.full(shape, value_attr.value, dtype=dtype)
     else:
-        flat_values = [elem for elem in value]
-        torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
+        # PyTorch bfloat16 is packed as uint16 bits in DenseElementsAttr
+        # MLIR's Python bindings don't support np.array() on bf16 DenseElementsAttr
+        # Extract the hex-encoded data instead
+        if dtype == torch.bfloat16:
+            attr_str = str(value_attr)
+            # MLIR uses hex encoding for large tensors: dense<"0xHEXDATA"> : tensor<...xbf16>
+            match = re.search(r'"0x([0-9A-F]+)"', attr_str, re.IGNORECASE)
+            if match:
+                hex_str = match.group(1)
+                byte_data = bytes.fromhex(hex_str)
+                u16_array = np.frombuffer(byte_data, dtype=np.uint16)
+                torch_tensor = (
+                    torch.from_numpy(u16_array.astype(np.int16))
+                    .view(torch.bfloat16)
+                    .reshape(shape)
+                )
+            else:
+                # Small tensors might use dense<[[value_attr, ...]]> format
+                # Parse the float values and convert to bfloat16
+                raise NotImplementedError(
+                    f"Non-hex bfloat16 constant not yet supported: {attr_str[:100]}"
+                )
+        else:
+            torch_tensor = torch.tensor(np.array(value_attr), dtype=dtype).reshape(
+                shape
+            )
 
     result = torch_tensor.reshape(shape)
     return GoldenMapTensor(
@@ -4328,7 +4411,7 @@ def ttir_scatter_golden(
     return out_tensor.to(output_dtype)
 
 
-def ttir_gather_dim_golden(
+def ttir_gather_golden(
     input_tensor: GoldenMapTensor,
     index: GoldenMapTensor,
     dim: IntegerAttr,
@@ -4845,6 +4928,33 @@ def ttir_topk_router_gpt_golden(
     expert_weights = expert_weights.to(output_dtype)
 
     return expert_indices, expert_weights
+
+
+def ttnn_sampling_golden(
+    input_values: GoldenMapTensor,
+    input_indices: GoldenMapTensor,
+    _k: GoldenMapTensor,
+    _p: GoldenMapTensor,
+    temp: GoldenMapTensor,
+    _seed: Optional[IntegerAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """CPU golden for ttnn.sampling (fused top-k/p + multinomial).
+
+    Inputs are already pre-filtered candidates, so k/p are unused on the
+    CPU side. The device kernel is stochastic with hardware RNG that
+    cannot be mirrored on CPU, so callers should disable PCC comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    temperature = temp.float().clamp(min=1e-6).unsqueeze(-1)
+    scaled = torch.div(input_values.float(), temperature)
+    probs = torch.softmax(scaled, dim=-1)
+    sampled_local = torch.multinomial(probs, num_samples=1).squeeze(-1)
+    return (
+        torch.gather(input_indices, 1, sampled_local.unsqueeze(-1))
+        .squeeze(-1)
+        .to(output_dtype)
+    )
 
 
 ################ StableHLO Op Golden Functions ###############
@@ -6591,6 +6701,76 @@ def ttnn_repeat_interleave_golden(
     return torch.repeat_interleave(input_tensor, repeats, dim=dim).to(output_dtype)
 
 
+def ttnn_full_golden(
+    shape_attr: Attribute,
+    fill_value_attr: Union[IntegerAttr, FloatAttr],
+    mesh_shape_attr: DenseI32ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = ttnn.ir.ShapeAttr.maybe_downcast(shape_attr).shape
+    fill_value = unpack_mlir_attr(fill_value_attr)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    tensor = torch.full(shape, fill_value).to(output_dtype)
+    return GoldenMapTensor(
+        {i: tensor.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
+
+
+def ttnn_constant_golden(
+    value_attr: DenseElementsAttr,
+    mesh_shape_attr: DenseI32ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = list(value_attr.type.shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    dtype = mlir_type_to_torch_dtype(value_attr.type.element_type)
+
+    if value_attr.is_splat:
+        value_attr = value_attr.get_splat_value()
+        torch_tensor = torch.full(shape, value_attr.value, dtype=dtype)
+    else:
+        # PyTorch bfloat16 is packed as uint16 bits in DenseElementsAttr
+        # MLIR's Python bindings don't support np.array() on bf16 DenseElementsAttr
+        # Extract the hex-encoded data instead
+        if dtype == torch.bfloat16:
+            attr_str = str(value_attr)
+            # MLIR uses hex encoding for large tensors: dense<"0xHEXDATA"> : tensor<...xbf16>
+            match = re.search(r'"0x([0-9A-F]+)"', attr_str, re.IGNORECASE)
+            if match:
+                hex_str = match.group(1)
+                byte_data = bytes.fromhex(hex_str)
+                u16_array = np.frombuffer(byte_data, dtype=np.uint16)
+                torch_tensor = (
+                    torch.from_numpy(u16_array.astype(np.int16))
+                    .view(torch.bfloat16)
+                    .reshape(shape)
+                )
+            else:
+                # Small tensors might use dense<[[value_attr, ...]]> format
+                # Parse the float values and convert to bfloat16
+                raise NotImplementedError(
+                    f"Non-hex bfloat16 constant not yet supported: {attr_str[:100]}"
+                )
+        else:
+            torch_tensor = torch.tensor(np.array(value_attr), dtype=dtype).reshape(
+                shape
+            )
+
+    result = torch_tensor.reshape(shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
+
+
+def ttnn_reshape_golden(
+    input_tensor: GoldenMapTensor, shape_attr: Attribute, output_type_mlir: Type
+) -> GoldenMapTensor:
+    new_shape = unpack_mlir_attr(shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reshape(input_tensor, new_shape).to(output_dtype)
+
+
 def ttnn_leaky_relu_golden(
     input_tensor: GoldenMapTensor,
     parameter_attr: FloatAttr,
@@ -6914,8 +7094,9 @@ def ttir_sdpa_golden(
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float())
 
-    if scale is not None:
-        qk = torch.mul(qk, scale)
+    if scale is None:
+        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+    qk = torch.mul(qk, scale)
 
     attn_weights = torch.softmax(qk, dim=-1)
     output = torch.matmul(attn_weights, value.float())
@@ -7147,10 +7328,17 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AsinOp: ttir_asin_golden,
     ttir.AsinhOp: ttir_asinh_golden,
     ttir.SqrtOp: ttir_sqrt_golden,
+    ttir.SquareOp: ttir_square_golden,
     ttir.LogOp: ttir_log_golden,
     ttir.Log1pOp: ttir_log1p_golden,
     ttir.Expm1Op: torch.expm1,
     ttir.ExpOp: ttir_exp_golden,
+    ttir.Exp2Op: ttir_exp2_golden,
+    ttir.SoftsignOp: ttir_softsign_golden,
+    ttir.SignbitOp: ttir_signbit_golden,
+    ttir.SeluOp: ttir_selu_golden,
+    ttir.FracOp: ttir_frac_golden,
+    ttir.TruncOp: ttir_trunc_golden,
     # Elementwise binary operations
     ttir.AddOp: ttir_add_golden,
     ttir.Atan2Op: torch.atan2,
@@ -7256,7 +7444,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
-    ttir.GatherDimOp: ttir_gather_dim_golden,
+    ttir.GatherOp: ttir_gather_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
@@ -7443,6 +7631,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    ttnn.ReshapeOp: ttnn_reshape_golden,
+    # Tensor creation
+    ttnn.FullOp: ttnn_full_golden,
+    ttnn.ConstantOp: ttnn_constant_golden,
     # Layout/Device operations
     ttnn.ToLayoutOp: ttnn_to_layout_golden,
     ttnn.ToDeviceOp: ttnn_to_device_golden,
@@ -7451,7 +7643,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.DistributeTensorOp: ttnn_distribute_tensor_golden,
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
-    ttnn.GatherOp: ttir_gather_dim_golden,
+    ttnn.GatherOp: ttir_gather_golden,
+    ttnn.SamplingOp: ttnn_sampling_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----

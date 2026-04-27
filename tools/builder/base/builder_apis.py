@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from contextvars import ContextVar
+import gc
 import os
 import inspect
 import time
@@ -19,7 +20,7 @@ from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
-    ttir_to_ttnn_backend_pipeline,
+    ttir_to_ttnn_runtime_pipeline,
     ttir_to_ttmetal_backend_pipeline,
     translate_to_cpp,
     translate_to_python,
@@ -75,20 +76,31 @@ def _compile_and_execute(
         deferred.prepare()
         device = None
 
-    builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
-        target=target,
-        **compile_kwargs,
-    )
+    # Avoid GC while compiling/executing against the runtime so Python does not
+    # finalize wrappers in the middle of backend teardown. Force one collection
+    # only after the deferred device is closed and large references are dropped.
+    gc_was_enabled = gc.isenabled()
+    if gc_was_enabled:
+        gc.disable()
 
-    if skip_exec:
-        raise TTBuilderRuntimeException("Manually skipped execution")
-
-    if is_deferred:
-        device = deferred.open()
-
-    # Execute the flatbuffer, closing deferred devices after execution so that
-    # the next test's compilation can use a mock device without conflict.
+    builder = None
+    compiled_bin = None
+    input_output_goldens = None
+    intermediate_goldens = None
     try:
+        builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
+            target=target,
+            **compile_kwargs,
+        )
+
+        if skip_exec:
+            raise TTBuilderRuntimeException("Manually skipped execution")
+
+        if is_deferred:
+            device = deferred.open()
+
+        # Execute the flatbuffer, closing deferred devices after execution so that
+        # the next test's compilation can use a mock device without conflict.
         if target in ["ttnn", "ttmetal"]:
             execute_fb(
                 compiled_bin,
@@ -145,6 +157,16 @@ def _compile_and_execute(
     finally:
         if is_deferred and device is not None:
             deferred.close(device)
+            device = None
+
+        builder = None
+        compiled_bin = None
+        input_output_goldens = None
+        intermediate_goldens = None
+
+        if gc_was_enabled:
+            gc.enable()
+        gc.collect()
 
 
 def _compile(root_func: Callable, builder: Builder):
@@ -825,7 +847,7 @@ def compile_ttnn_to_flatbuffer(
     Compiles a TTNN function to flatbuffer format.
 
     This helper function generates a TTNN mlir module runs the compilation
-    pipeline using ttir-to-ttnn-backend-pipeline and finally generates a flatbuffer.
+    pipeline using ttir-to-ttnn-runtime-pipeline and finally generates a flatbuffer.
 
     Parameters
     ----------
@@ -1248,7 +1270,7 @@ def compile_ttir_module_to_flatbuffer(
         pipeline_fn = (
             custom_pipeline
             if custom_pipeline
-            else wrap_pipeline_with_print_ir(ttir_to_ttnn_backend_pipeline)
+            else wrap_pipeline_with_print_ir(ttir_to_ttnn_runtime_pipeline)
         )
         to_target = ttnn_to_flatbuffer_bin
         to_file = ttnn_to_flatbuffer_file

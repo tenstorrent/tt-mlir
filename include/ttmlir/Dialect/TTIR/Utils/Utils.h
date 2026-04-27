@@ -242,6 +242,15 @@ mlir::LogicalResult broadcastValue(mlir::PatternRewriter &rewriter,
                                    mlir::Value &output, mlir::Location loc,
                                    bool frontUnsqueeze);
 
+// Given a "from" shape and a "to" shape with the same total element count,
+// find the dimension in `toShape` whose size and trailing-stride (product of
+// all dimensions to its right) match the dimension at position `dim` in
+// `fromShape`. This identifies the dimension preserved by a reshape between
+// the two shapes (i.e. neither split nor merged). Returns -1 if no such
+// dimension exists. `dim` uses LTR (left-to-right) indexing.
+int64_t findMatchingDim(llvm::ArrayRef<int64_t> fromShape,
+                        llvm::ArrayRef<int64_t> toShape, int64_t dim);
+
 // Given a reshape operation and an input dimension position (RTL - right to
 // left, 0 = rightmost), finds the corresponding output dimension position where
 // that dimension maps to. Returns -1 if no matching dimension is found.
@@ -451,28 +460,6 @@ inline mlir::Attribute splatToFillValue(mlir::OpBuilder &builder,
     return builder.getF32FloatAttr(fillValue.convertToDouble());
   }
   return nullptr;
-}
-
-/// True when the reduction touches a dim before the last two (tile C/R).
-/// Those go through the D2M outer-reduction path and must not be decomposed.
-template <typename TTIRReductionOp>
-bool isOuterReduction(TTIRReductionOp op) {
-  auto inputType = mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
-  int64_t rank = inputType.getRank();
-  std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
-  if (rank < 2 || !maybeDimArg.has_value()) {
-    return false;
-  }
-  for (auto dimAttr : *maybeDimArg) {
-    int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
-    if (dim < 0) {
-      dim += rank;
-    }
-    if (dim < rank - 2) {
-      return true;
-    }
-  }
-  return false;
 }
 
 } // namespace mlir::tt::ttir::utils

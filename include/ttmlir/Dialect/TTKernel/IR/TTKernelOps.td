@@ -654,6 +654,59 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTra
     }];
 }
 
+def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
+    let summary = "Init for sfpu_reduce.";
+    let description = [{
+      Initializes the SFPU reduce kernel. Must be called before sfpu_reduce.
+      Unlike reduce_init this call carries no CB/DST operands: it only
+      configures the SFPU for the given PoolType and DataFormat.
+
+      Only Sum/Max reductions over Int32 tiles are supported today; the
+      verifier enforces this.
+
+      Lowers to: sfpu_reduce_init<PoolType, DataFormat>().
+    }];
+
+    let arguments = (ins TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTCore_DataTypeAttr:$data_format);
+
+    let assemblyFormat = [{
+      `(` $reduce_type `,` $data_format `)` attr-dict `:` functional-type(operands, results)
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
+    let summary = "SFPU reduce operation on a tile in DST.";
+    let description = [{
+      Performs an intra-tile reduction on the tile at index `dst_index` in the
+      DST register using the SFPU path. The input tile must already be loaded
+      into DST (e.g. via copy_tile). The reduction is performed in-place on
+      that DST slot, writing the result into the first row (REDUCE_COL) or
+      first column (REDUCE_ROW) of the same tile.
+
+      Only 32x32 tile dimensions are supported.
+
+      Only Sum/Max reductions over Int32 tiles are supported today, and
+      reduce_dim must be Row or Col (Scalar must be decomposed into Col + Row
+      by the caller); the verifier enforces these constraints.
+
+      Lowers to: sfpu_reduce<PoolType, DataFormat, ReduceDim>(dst_index).
+    }];
+
+    let arguments = (ins IndexLike:$dst_index,
+                         TTKernel_ReduceTypeAttr:$reduce_type,
+                         TTCore_DataTypeAttr:$data_format,
+                         TTKernel_ReduceDimAttr:$reduce_dim);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $reduce_type `,` $data_format `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
+    }];
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel SFPU operations
 //===----------------------------------------------------------------------===//
@@ -2412,6 +2465,40 @@ def TTKernel_FillTileIntOp : TTKernel_SFPUOp<"fill_tile_int", [TTKernel_UnaryOpT
     }];
 }
 
+def TTKernel_RandTileInitOp : TTKernel_InitOp<"rand_tile_init"> {
+    let summary = "Init function for rand_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Initializes the PRNG seed for the SFPU. Must be run before rand_tile.
+    }];
+
+    let arguments = (ins IndexLike:$seed);
+
+    let assemblyFormat = [{
+      `(` $seed `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_RandTileOp : TTKernel_SFPUOp<"rand_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Rand tile operation";
+    let description = [{
+      Performs element-wise rand on each element of a tile in DST register at
+      index tile_index. That is each element is overwritten with a randomly
+      generated float in the range [from, from + scale).
+
+      `from` and `scale` are passed as the uint32_t bit pattern of their
+      corresponding f32 values. The DST register buffer must be in acquired
+      state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index,
+                         IndexLike:$from,
+                         IndexLike:$scale);
+
+    let assemblyFormat = [{
+      `(` $tile_index `,` $from `,` $scale `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SigmoidTileInitOp : TTKernel_InitOp<"sigmoid_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of sigmoid_tile.";
     let description = [{
@@ -3457,7 +3544,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 // TTKernel Compile and runtime arguments operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr]>;
+def TTKernel_ArgResultType : AnyTypeOf<[I32, UI32, TTKernel_CB, TTKernel_L1Addr]>;
 
 def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
@@ -3509,6 +3596,23 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
 //===----------------------------------------------------------------------===//
 // TTKernel Helper functions
 //===----------------------------------------------------------------------===//
+
+def TTKernel_BitcastOp : TTKernel_Op<"bitcast", [Pure]> {
+    let summary = "Reinterpret a ui32 compile-time arg value as a scalar type.";
+    let description = [{
+      Reinterprets the bits of a ui32 compile-time arg as the given type.
+      Used to recover typed scalar kernel arguments after reading them from
+      the compile-time arg slot (which always stores ui32).
+    }];
+
+    let arguments = (ins UI32:$input);
+
+    let results = (outs AnyType:$result);
+
+    let assemblyFormat = [{
+      $input `:` type($input) `to` type($result) attr-dict
+    }];
+}
 
 def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<volatile tt_l1_ptr uint32_t*>"> {
     let summary = "CastToL1Ptr";

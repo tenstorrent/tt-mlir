@@ -887,14 +887,33 @@ def test_sdpa_with_mask_no_workaround(
     [
         # Decode with mask num_heads=1 (broadcast needed)
         # Q: [1, batch, num_heads, head_dim], K/V: [batch, kv_heads, kv_seq, head_dim]
-        # Mask: [batch, 1, 1, kv_seq] - heads=1 needs broadcast to num_heads
-        [
-            (1, 32, 32, 64),  # query (decode shape)
-            (32, 32, 128, 64),  # key
-            (32, 32, 128, 64),  # value
-            (32,),  # cur_pos_tensor
-            (32, 1, 1, 128),  # attention mask with heads=1
-        ],
+        # Mask: [1, batch, 1, kv_seq] - heads=1 needs broadcast to num_heads
+        pytest.param(
+            [
+                (1, 32, 32, 64),  # query (decode shape)
+                (32, 32, 128, 64),  # key
+                (32, 32, 128, 64),  # value
+                (32,),  # cur_pos_tensor
+                (1, 32, 1, 128),  # attention mask with heads=1
+            ],
+            marks=pytest.mark.xfail(
+                reason="SDPA decode requires mask[2] == num_heads. Metal issue: https://github.com/tenstorrent/tt-metal/issues/39910"
+            ),
+        ),
+        # Decode with mask batch=1 (broadcast needed)
+        # Mask: [1, 1, num_heads, kv_seq] - batch=1 needs broadcast to query batch
+        pytest.param(
+            [
+                (1, 32, 32, 64),  # query (decode shape)
+                (32, 32, 128, 64),  # key
+                (32, 32, 128, 64),  # value
+                (32,),  # cur_pos_tensor
+                (1, 1, 32, 128),  # attention mask with batch=1
+            ],
+            marks=pytest.mark.xfail(
+                reason="SDPA decode requires mask[1] == query batch. Metal issue: https://github.com/tenstorrent/tt-metal/issues/39910"
+            ),
+        ),
     ],
     ids=shapes_list_str,
 )
@@ -903,16 +922,12 @@ def test_sdpa_with_mask_no_workaround(
     [[torch.bfloat16, torch.bfloat16, torch.bfloat16, torch.int32, torch.bfloat16]],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="SDPA decode with mask num_heads=1 fails without workaround. "
-    "tt-metal requires mask[2] == num_heads and does not support implicit broadcast."
-)
 def test_sdpa_decode_mask_broadcast_no_workaround(
     shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
 ):
     """
-    Test that SDPA decode with mask num_heads=1 fails without the workaround.
-    tt-metal requires mask[2] == num_heads for decode.
+    Test that SDPA decode with a mask requiring batch or num_heads broadcast
+    fails without the workaround.
     """
     batch = shapes[0][1]
     kv_seq = shapes[1][2]
@@ -982,4 +997,61 @@ def test_prod_last_dim_padding_no_workaround(
         device=device,
         target=target,
         pipeline_options=["disable-workarounds=true"],
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,begins,ends,step,output_shape",
+    [
+        # output last dim 258112: row_bytes * 2 = 258112 * 4 * 2 = 2064896 > ~1498112 (WH usable L1)
+        # Without the workaround, the circular buffer allocation exceeds L1 and crashes.
+        (
+            (6, 3, 258112),
+            [0, 2, 0],
+            [6, 3, 258112],
+            [1, 1, 1],
+            (6, 1, 258112),
+        ),
+    ],
+    ids=["3d_last_dim_258112"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="SliceStaticOpL1CBRewritePattern: output last dim 258112 causes circular "
+    "buffer allocation to exceed L1. Metal issue: https://github.com/tenstorrent/tt-metal/issues/42882"
+)
+def test_slice_l1_cb_workaround_disabled(
+    input_shape: Shape,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    output_shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Test slice with the L1 circular buffer workaround disabled.
+    Workaround: SliceStaticOpL1CBRewritePattern - decomposes into
+    permute -> slice_static -> permute when output last dim exceeds L1.
+    Trigger condition: output_last_dim * sizeof(dtype) * 2 > usable_l1.
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [dtype])
+        def slice_l1_cb_no_workaround(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-decomposition-workaround-pass=false"],
     )

@@ -2908,6 +2908,7 @@ public:
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(/* optional_output_tensor= */ std::nullopt),
         emitter.emit(srcOp.getNumLinks()),
         emitter.emit(srcOp.getTopology()),
     };
@@ -3638,6 +3639,82 @@ public:
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getUse_2dCoreGrid()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// DistributedRMSNormOp conversion pattern
+//
+namespace {
+class DistributedRMSNormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::DistributedRMSNormOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.distributed_rms_norm";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "::ttnn::fused_rms_minimal";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DistributedRMSNormOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DistributedRMSNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    mlir::Value globalSemaphore =
+        rewriter
+            .create<emitc::CallOpaqueOp>(
+                srcOp.getLoc(),
+                emitc::OpaqueType::get(rewriter.getContext(),
+                                       "::ttnn::GlobalSemaphore"),
+                ttnn_to_emitc::kCreateGlobalSemaphoreFunctionName,
+                /*args=*/nullptr,
+                /*template_args=*/nullptr, adaptor.getInput())
+            .getResult(0);
+
+    // Emit SSA operands in ODS order to maintain correct index mapping, then
+    // arrange the returned attributes in the C++ API call order.
+    auto inputIndexAttr = emitter.emit(srcOp.getInput());
+    auto weightIndexAttr = emitter.emit(srcOp.getWeight());
+    auto residualIndexAttr = emitter.emit(srcOp.getResidual());
+    auto statsIndexAttr = emitter.emit(srcOp.getStats());
+    auto deviceIndexAttr =
+        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice());
+    auto semaphoreIndexAttr =
+        emitter.emit(globalSemaphore, srcOp->getNumOperands());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        inputIndexAttr,
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getClusterAxis()),
+        deviceIndexAttr,
+        semaphoreIndexAttr,
+        emitter.emit(/* persistent_output_tensor= */ std::nullopt),
+        emitter.emit(srcOp.getNumLinks()),
+        srcOp.getTopology() ? emitter.emit(srcOp.getTopology())
+                            : rewriter.getAttr<emitc::OpaqueAttr>(
+                                  "::tt::tt_fabric::Topology::Linear"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(/* dtype= */ std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+        residualIndexAttr,
+        emitter.emit(srcOp.getEpsilon()),
+        weightIndexAttr,
+        statsIndexAttr,
     };
 
     emitter.replaceOp(*this, args);
@@ -5109,6 +5186,33 @@ public:
     return success();
   }
 };
+
+class TTNNToEmitCSamplingOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SamplingOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SamplingOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SamplingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SamplingOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputValues()),
+        emitter.emit(srcOp.getInputIndices()),
+        emitter.emit(srcOp.getK()),
+        emitter.emit(srcOp.getP()),
+        emitter.emit(srcOp.getTemp()),
+        emitter.emit(srcOp.getSeed()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5182,8 +5286,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                mlir::tt::ttnn::ExpOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::ErfOp>,
-           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-               mlir::tt::ttnn::ErfcOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ErfcOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CeilOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AsinOp>,
@@ -5248,7 +5351,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
            SliceDynamicOpConversionPattern, SortOpConversionPattern,
            PermuteOpConversionPattern, PadOpConversionPattern,
-           TTNNToEmitCTopKOpConversionPattern, GatherOpConversionPattern>(
+           TTNNToEmitCTopKOpConversionPattern,
+           TTNNToEmitCSamplingOpConversionPattern, GatherOpConversionPattern>(
           typeConverter, ctx);
 
   // Quantization ops.
@@ -5298,7 +5402,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
            CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern,
+           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
            LayerNormPostAllGatherOpConversionPattern,
            GroupNormOpConversionPattern>(typeConverter, ctx);

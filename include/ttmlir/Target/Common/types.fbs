@@ -93,6 +93,7 @@ table ChipDesc {
   num_cbs: uint32;
   num_compute_threads: uint32;
   num_datamovement_threads: uint32;
+  dram_grid_size: Dim2d;
 }
 
 struct ChipCoord {

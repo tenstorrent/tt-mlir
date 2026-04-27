@@ -156,6 +156,11 @@ public:
           return emitc::OpaqueType::get(
               ctx, "experimental::FabricConnectionManager");
         });
+    addConversion(
+        [ctx](IndexType type) -> Type { return emitc::SizeTType::get(ctx); });
+    addConversion([ctx](Float16Type type) -> Type {
+      return IntegerType::get(ctx, 16, IntegerType::Unsigned);
+    });
   }
 };
 } // namespace
@@ -288,6 +293,24 @@ public:
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), op.getFullFp32() ? "true" : "false"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceInitOp>) {
+      // sfpu_reduce_init<PoolType, DataFormat>()
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getReduceType(op.getReduceType())));
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDataFormat()));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceTileOp>) {
+      // sfpu_reduce<PoolType, DataFormat, ReduceDim>(dst_index)
+      SmallVector<Attribute, 3> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getReduceType(op.getReduceType())));
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDataFormat()));
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getReduceDim(op.getReduceDim())));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
                          std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
@@ -423,6 +446,89 @@ public:
 
 private:
   std::string opName;
+};
+} // namespace
+
+namespace {
+class TTKernelBitcastOpRewriter
+    : public OpConversionPattern<ttkernel::BitcastOp> {
+public:
+  using OpConversionPattern<ttkernel::BitcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::BitcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = op.getResult().getType();
+    Value input = adaptor.getInput();
+
+    // Integer and index types: static_cast handles reinterpretation correctly.
+    // IndexType lowers to emitc::SizeTType (size_t) via the type converter.
+    if (mlir::isa<IntegerType, IndexType>(resultType)) {
+      Type convertedType = getTypeConverter()->convertType(resultType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(
+            op, "unsupported integer/index result type");
+      }
+      rewriter.replaceOpWithNewOp<emitc::CastOp>(op, convertedType, input);
+      return success();
+    }
+
+    // Float types: bit-cast via __builtin_memcpy (well-defined, avoids UB).
+    // Derive a unique variable name from the SSA result number.
+    std::string ssaName;
+    {
+      llvm::raw_string_ostream os(ssaName);
+      mlir::OpPrintingFlags flags;
+      op.getResult().printAsOperand(os, flags);
+      os.flush();
+    }
+    std::string varName = "_rc" + ssaName.substr(1);
+
+    // Emits: uint32_t <var>_src = <srcInit>; float <var>;
+    //        __builtin_memcpy(&<var>, &<var>_src, sizeof(<var>));
+    // then replaces op with a LiteralOp referencing <var>.
+    auto emitMemcpyBitcast = [&](std::string srcInit) -> LogicalResult {
+      std::string code = "uint32_t " + varName + "_src = " + srcInit +
+                         "; float " + varName + "; __builtin_memcpy(&" +
+                         varName + ", &" + varName + "_src, sizeof(" + varName +
+                         "));";
+      rewriter.create<emitc::VerbatimOp>(
+          op.getLoc(), rewriter.getStringAttr(code), ValueRange{input});
+      rewriter.replaceOp(
+          op, rewriter
+                  .create<emitc::LiteralOp>(
+                      op.getLoc(), Float32Type::get(op.getContext()), varName)
+                  .getResult());
+      return success();
+    };
+
+    if (mlir::isa<Float32Type>(resultType)) {
+      // uint32 -> float: store input in an addressable temporary, then memcpy.
+      // "{{" escapes to "{" in EmitC verbatim; "}" needs no escaping.
+      return emitMemcpyBitcast("{}");
+    }
+
+    if (mlir::isa<BFloat16Type>(resultType)) {
+      // BFloat16 arg is packed in the lower 16 bits of the uint32.
+      // BFloat16 == upper 16 bits of float32, so shift left by 16 to get the
+      // correct float32 bit pattern. The type converter maps bf16 -> float.
+      return emitMemcpyBitcast("static_cast<uint32_t>({}) << 16");
+    }
+
+    if (mlir::isa<Float16Type>(resultType)) {
+      // Float16 arg is packed in the lower 16 bits of the uint32.
+      // Truncate to uint16_t to preserve the bit pattern.
+      // Type converter maps Float16Type -> ui16 consistently.
+      Type convertedType = getTypeConverter()->convertType(resultType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(op, "unsupported f16 result type");
+      }
+      rewriter.replaceOpWithNewOp<emitc::CastOp>(op, convertedType, input);
+      return success();
+    }
+
+    return rewriter.notifyMatchFailure(op, "unsupported float type");
+  }
 };
 } // namespace
 
@@ -1178,7 +1284,8 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<
-        TTKernelToEmitCGetCompileArgValRewriter, TTKernelToEmitCDPrintRewriter,
+        TTKernelBitcastOpRewriter, TTKernelToEmitCGetCompileArgValRewriter,
+        TTKernelToEmitCDPrintRewriter,
         TTKernelToEmitCGetDeviceIdFromLogicalMeshPositionOpRewriter,
         TTKernelToEmitCGetMyLogicalMeshPositionOpRewriter,
         TTKernelMacroOpToEmitCOpRewriter<ttkernel::MemZerosBaseOp>,
@@ -1361,12 +1468,16 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReduceUninitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SFPUReduceInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SFPUReduceTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ReluTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RoundingTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SeluTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RandTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::RandTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::RsqrtTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SqrtTileInitOp>,

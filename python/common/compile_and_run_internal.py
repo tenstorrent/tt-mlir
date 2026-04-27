@@ -11,7 +11,7 @@ from ttmlir.ir import Module
 from ttmlir.passes import (
     stablehlo_to_ttir_pipeline,
     ttir_to_ttmetal_backend_pipeline,
-    ttir_to_ttnn_backend_pipeline,
+    ttir_to_ttnn_runtime_pipeline,
     ttmetal_to_flatbuffer_file,
     ttnn_to_flatbuffer_file,
 )
@@ -42,11 +42,11 @@ def stablehlo_to_ttir_pipeline_worker(
         result_queue.put(CompilationProcessResult.error(str(e)))
 
 
-def ttir_to_ttnn_backend_pipeline_worker(
+def ttir_to_ttnn_runtime_pipeline_worker(
     module_str: str, system_desc: str, result_queue: queues.Queue
 ) -> None:
     """
-    Wrapper around `ttir_to_ttnn_backend_pipeline` pybound pass.
+    Wrapper around `ttir_to_ttnn_runtime_pipeline` pybound pass.
 
     It is not resistant to segfaults, i.e. some unpredictable errors that can happen
     inside the pybound call. Thus it is meant to be used as a worker for a Process
@@ -55,7 +55,7 @@ def ttir_to_ttnn_backend_pipeline_worker(
     try:
         module = create_mlir_module_from_string(module_str)
 
-        ttir_to_ttnn_backend_pipeline(module, f"system-desc-path={system_desc}")
+        ttir_to_ttnn_runtime_pipeline(module, f"system-desc-path={system_desc}")
 
         result_queue.put(CompilationProcessResult.success(str(module)))
     except Exception as e:

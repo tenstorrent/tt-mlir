@@ -89,8 +89,9 @@ public:
     auto workerGrid = ttcore::GridAttr::get(
         &context, gridShapeHwN300, virtToPhysicalMap, physicalToVirtMap);
 
-    return ttcore::DeviceAttr::get(&context, workerGrid, map4, map4, {1}, {0},
-                                   {});
+    auto dramGrid = ttcore::GridAttr::get(&context, {1, 1});
+    return ttcore::DeviceAttr::get(&context, workerGrid, dramGrid, map4, map4,
+                                   {1}, {0}, {});
   }
 
   mlir::RankedTensorType
@@ -1951,6 +1952,92 @@ TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
 
 TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   int64_t batchSize = 1;
+  int64_t numHeads = 1;
+  int64_t kvLen = 128;
+  int64_t headSize = 32;
+
+  llvm::SmallVector<int64_t> queryShape{1, batchSize, numHeads, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{batchSize, numHeads, kvLen,
+                                           headSize};
+
+  llvm::SmallVector<int64_t> curPosShape{batchSize};
+  // Provide an attention mask to satisfy optional-arg handling in the
+  // interface. Use broadcastable mask shape [B, 1, nH, T].
+  llvm::SmallVector<int64_t> maskShape{batchSize, 1, numHeads, kvLen};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  auto tiledCurPosType = ttcore::TileType::get(builder.getI32Type());
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto queryLayout =
+      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto keyValueLayout =
+      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto curPosLayout =
+      TTNNLayoutAttr::get(&context, curPosShape, tiledCurPosType,
+                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+  auto maskLayout =
+      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto curPos = createEmptyTensor(curPosShape, tiledCurPosType, curPosLayout);
+  auto attentionMask = createEmptyTensor(maskShape, tiledElemType, maskLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto sdpAttentionDecode = builder.create<ScaledDotProductAttentionDecodeOp>(
+      builder.getUnknownLoc(), outputType, query, key, value,
+      /*is_causal=*/false,
+      /*attention_mask=*/attentionMask,
+      /*cur_pos_tensor=*/curPos,
+      /*attention_sink=*/nullptr,
+      /*scale=*/nullptr,
+      /*memory_config=*/nullptr,
+      /*program_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(sdpAttentionDecode), OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_FALSE(outputLayouts.empty());
+    EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayouts[0].hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for ScaledDotProductAttentionDecodeOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(sdpAttentionDecode.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL()
+        << "Runtime test failed for ScaledDotProductAttentionDecodeOp; Error="
+        << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase,
+       ScaledDotProductAttentionDecodeOpInterfaceWithMultipleHeads) {
+  int64_t batchSize = 1;
   int64_t numHeads = 2;
   int64_t kvLen = 128;
   int64_t headSize = 32;
@@ -2092,7 +2179,8 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
           /*cur_pos_tensor=*/curPos,
           /*attention_sink=*/nullptr,
           /*scale=*/builder.getF32FloatAttr(0.125f),
-          /*memory_config=*/nullptr);
+          /*memory_config=*/nullptr,
+          /*core_grid=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -6391,6 +6479,87 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
                 "PagedFlashMultiLatentAttentionDecodeOp; Error="
              << llvm::toString(runtimeExp.takeError());
     }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, SamplingOp) {
+  // Typical vLLM non-greedy sampling shapes: batch=32, candidates=128
+  const int64_t batch = 32;
+  const int64_t candidates = 128;
+
+  llvm::SmallVector<int64_t> valuesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> indicesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> paramShape = {batch}; // k, p, temp
+  llvm::SmallVector<int64_t> outputShape = {batch};
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  // Build TTNNLayoutAttrs matching the kernel's expected tensor contracts
+  // post-workaround: input_values is TILE, index/param/result tensors are
+  // ROW_MAJOR (the sampling kernel rejects TILE for indices/k/p/temp).
+  auto bf16TileType = ttcore::TileType::get(builder.getBF16Type());
+  auto bf16Type = builder.getBF16Type();
+  auto si32Type = builder.getIntegerType(32, true);
+  auto ui32Type = builder.getIntegerType(32, false);
+
+  auto valuesLayout =
+      TTNNLayoutAttr::get(&context, valuesShape, bf16TileType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto indicesLayout =
+      TTNNLayoutAttr::get(&context, indicesShape, si32Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto kLayout =
+      TTNNLayoutAttr::get(&context, paramShape, ui32Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto paramLayout =
+      TTNNLayoutAttr::get(&context, paramShape, bf16Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto outputLayout =
+      TTNNLayoutAttr::get(&context, outputShape, si32Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto inputValues = createEmptyTensor(valuesShape, bf16TileType, valuesLayout);
+  auto inputIndices = createEmptyTensor(indicesShape, si32Type, indicesLayout);
+  auto k = createEmptyTensor(paramShape, ui32Type, kLayout);
+  auto p = createEmptyTensor(paramShape, bf16Type, paramLayout);
+  auto temp = createEmptyTensor(paramShape, bf16Type, paramLayout);
+
+  auto outputType = createRankedTensorType(outputShape, si32Type, outputLayout);
+
+  auto samplingOp =
+      builder.create<SamplingOp>(builder.getUnknownLoc(), outputType,
+                                 inputValues, inputIndices, k, p, temp,
+                                 /*seed=*/mlir::IntegerAttr{});
+
+  samplingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(samplingOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    // outputSize is l1_output_buffer_per_core; ttnn::sampling's signature
+    // has no memory_config parameter, so we can't place output in L1 and
+    // this is expected to be 0.
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for SamplingOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(samplingOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0u);
+  } else {
+    FAIL() << "Runtime test failed for SamplingOp; Error="
+           << llvm::toString(runtimeExp.takeError());
   }
 }
 

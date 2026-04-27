@@ -141,9 +141,8 @@ void d2m::EmptyOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
     auto gridShape = llvm::to_vector(metalLayout.getGridShape(resultType));
     if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
                                                        targetGridShape)) {
-      auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
       auto physGrid = utils::findLegalPhysicalGridForVolume(
-          ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
+          ttmlir::utils::volume<int64_t>(gridShape), targetGridShape);
       TT_assertv(!physGrid.empty(),
                  "Virtual grid required but no legal physical grid found for "
                  "volume {}; target grid [{},{}]",
@@ -2507,10 +2506,13 @@ FailureOr<d2m::ParallelizedGeneric> d2m::GenericOp::withParallelization(
 
   // If the derived grid shape is different from the requested newGrid,
   // compute the reblocked types again with the adjusted grid.
+  //
+  // Skip this adjustment when only block factors are changing (no explicit
+  // new grid): the output grid already incorporates the new blocking and
+  // feeding it back would double-apply the block factors.
   const std::size_t numInputs = getInputs().size();
   const std::size_t numOutputs = getOutputs().size();
-  if (numOutputs > 0) {
-    // derive grid from first output index
+  if (numOutputs > 0 && newGrid.has_value()) {
     auto [derivedGridShape, _] = getGridAndShardFromShapedType(
         mlir::cast<ShapedType>((*reblockedTypes)[numInputs]));
     if (derivedGridShape.size() == normalizedGrid.getShape().size() &&

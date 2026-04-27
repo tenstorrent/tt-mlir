@@ -42,11 +42,12 @@ MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned dramUnreservedEnd, MlirAttribute *supportedDataTypes,
     MlirAttribute *supportedTileSizes, unsigned dstPhysicalSizeTiles,
     unsigned numCBs, unsigned numComputeThreads,
-    unsigned numDatamovementThreads) {
+    unsigned numDatamovementThreads, int64_t *dramGrid, size_t dramGridSize) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   std::vector<int64_t> coordTranslationOffsetsVec(
       coordTranslationOffsets,
       coordTranslationOffsets + coordTranslationOffsetsSize);
+  std::vector<int64_t> dramGridVec(dramGrid, dramGrid + dramGridSize);
   return wrap(ChipDescAttr::get(
       unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec,
       coordTranslationOffsetsVec, l1Size, numDramChannels, dramChannelSize,
@@ -55,7 +56,8 @@ MlirAttribute ttmlirTTChipDescAttrGet(
       dramUnreservedEnd,
       mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
       mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)),
-      dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads));
+      dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads,
+      dramGridVec));
 }
 
 MlirAttribute ttmlirTTChipCoordAttrGet(MlirContext ctx, unsigned rack,

@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/DstRegisterAnalysis.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
@@ -21,40 +22,81 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Fixed scratch buffer size in bytes.
-constexpr size_t kScratchSizeBytes = 128 * 1024; // 128KB
+// Fallback scratch buffer size in bytes, used as an upper bound, and when the
+// DST packing analysis does not produce results for a given generic.
+constexpr size_t kFallbackScratchSizeBytes = 128 * 1024; // 128KB
 
 // Get the tile type from a memref type, if it has one.
 static ttcore::TileType getTileType(MemRefType memrefType) {
   return mlir::dyn_cast<ttcore::TileType>(memrefType.getElementType());
 }
 
-// Find a tiled input operand and return its memref type.
-// Returns a null MemRefType if no tiled input is found.
-static MemRefType findTiledInputType(GenericOp genericOp) {
-  for (Value input : genericOp.getInputs()) {
-    auto memrefType = mlir::dyn_cast<MemRefType>(input.getType());
-    if (!memrefType) {
-      continue;
+// Find a tiled memref operand that can serve as the scratch type reference.
+// Prefer tiled inputs when present, but fall back to tiled outputs.
+// TO-DO (ckaravasilis): A better semantic criterion based on intermediate
+// analysis rather than relying on input/output.
+static MemRefType findTiledReferenceType(GenericOp genericOp) {
+  auto findTiledType = [](ValueRange values) -> MemRefType {
+    for (Value value : values) {
+      auto memrefType = mlir::dyn_cast<MemRefType>(value.getType());
+      if (!memrefType) {
+        continue;
+      }
+      if (getTileType(memrefType)) {
+        return memrefType;
+      }
     }
-    if (getTileType(memrefType)) {
-      return memrefType;
-    }
+    return MemRefType();
+  };
+
+  if (MemRefType tiledInputType = findTiledType(genericOp.getInputs())) {
+    return tiledInputType;
   }
-  return MemRefType();
+  return findTiledType(genericOp.getOutputs());
 }
 
-// Check if a d2m.generic needs a scratch buffer. Scratch is needed when the
-// region contains more than one linalg.generic, which means elementwise fusion
-// produced a multi-op kernel whose intermediate results must be spilled to L1.
-static bool needsScratch(GenericOp genericOp) {
+// Count the number of linalg.generic ops in the first region of a
+// d2m.generic. A count greater than one indicates a fused kernel whose
+// intermediate results may need to be spilled to a scratch buffer.
+static unsigned countLinalgGenerics(GenericOp genericOp) {
   if (genericOp.getNumRegions() == 0) {
-    return false;
+    return 0;
   }
 
   unsigned linalgCount = 0;
   genericOp.getRegion(0).walk([&](linalg::GenericOp) { ++linalgCount; });
-  return linalgCount > 1;
+  return linalgCount;
+}
+
+// Compute the number of scratch tiles needed for a d2m.generic. Returns
+// min(linalgCount * numTilesPerResult, kFallbackScratchSizeBytes /
+// tileSizeBytes) when the DST packing analysis produces results for this
+// generic, otherwise falls back to kFallbackScratchSizeBytes / tileSizeBytes.
+static size_t
+computeScratchNumTiles(GenericOp genericOp, unsigned linalgCount,
+                       ttcore::TileType tileType,
+                       const utils::DstRegisterAnalysis &dstAnalysis) {
+  const size_t tileSizeBytes = tileType.getSizeBytes();
+  const size_t fallbackNumTiles =
+      std::max<size_t>(kFallbackScratchSizeBytes / tileSizeBytes, 1);
+
+  const utils::DSTPackingInfo *packingInfo = dstAnalysis.lookup(genericOp);
+  if (!packingInfo) {
+    return fallbackNumTiles;
+  }
+  const utils::DSTPackingRegionInfo *regionInfo =
+      packingInfo->lookup(&genericOp.getRegion(0));
+  if (!regionInfo) {
+    return fallbackNumTiles;
+  }
+
+  const size_t analysisNumTiles =
+      static_cast<size_t>(linalgCount) *
+      static_cast<size_t>(regionInfo->numTilesPerResult);
+  if (analysisNumTiles == 0) {
+    return fallbackNumTiles;
+  }
+  return std::min(analysisNumTiles, fallbackNumTiles);
 }
 
 // Transfer d2m.blocking_map attributes from inner linalg ops (set during
@@ -85,7 +127,8 @@ static void transferBlockingMaps(GenericOp genericOp) {
 // Add a scratch buffer inside a single d2m.generic op's region
 // (post-bufferization). Creates a memref.alloc + scratch_init at the start of
 // the region body.
-static void addScratchToGeneric(GenericOp genericOp) {
+static void addScratchToGeneric(GenericOp genericOp,
+                                const utils::DstRegisterAnalysis &dstAnalysis) {
   // Skip if not in compute-only form.
   if (!genericOp.isComputeOnlyForm()) {
     return;
@@ -94,24 +137,21 @@ static void addScratchToGeneric(GenericOp genericOp) {
   // Only add scratch to fused generics with multiple linalg.generic ops,
   // which indicates elementwise fusion produced a multi-op kernel whose
   // intermediate results must be spilled to L1.
-  if (!needsScratch(genericOp)) {
+  unsigned linalgCount = countLinalgGenerics(genericOp);
+  if (linalgCount <= 1) {
     return;
   }
 
-  // Find a tiled input to derive the tile type.
-  MemRefType refMemRefType = findTiledInputType(genericOp);
+  MemRefType refMemRefType = findTiledReferenceType(genericOp);
   if (!refMemRefType) {
     return;
   }
 
   ttcore::TileType tileType = getTileType(refMemRefType);
 
-  // Calculate number of tiles that fit in the scratch buffer.
-  size_t tileSizeBytes = tileType.getSizeBytes();
-  size_t numTiles = kScratchSizeBytes / tileSizeBytes;
-  if (numTiles == 0) {
-    numTiles = 1; // At least one tile.
-  }
+  // Calculate number of scratch tiles using the DST packing analysis.
+  size_t numTiles =
+      computeScratchNumTiles(genericOp, linalgCount, tileType, dstAnalysis);
 
   // Build scratch shard shape: [1, numTiles].
   SmallVector<int64_t> scratchShardShape = {1, static_cast<int64_t>(numTiles)};
@@ -143,14 +183,17 @@ class D2MInsertScratchBuffers
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
 
-    // Collect generics.
+    // Run DST packing analysis on the module to compute per-generic scratch
+    // size estimates.
+    utils::DstRegisterAnalysis dstAnalysis(moduleOp);
+
     SmallVector<GenericOp> genericsToProcess;
     moduleOp.walk(
         [&](GenericOp genericOp) { genericsToProcess.push_back(genericOp); });
 
     for (GenericOp genericOp : genericsToProcess) {
       transferBlockingMaps(genericOp);
-      addScratchToGeneric(genericOp);
+      addScratchToGeneric(genericOp, dstAnalysis);
     }
   }
 };

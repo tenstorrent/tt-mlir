@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
 #include "ttmlir/Dialect/TTNN/Diagnostics/DecisionTrace.h"
+#include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
@@ -61,6 +62,10 @@ public:
       L1SpillManagement<SumL1MemoryTracker> spill(
           func, deviceGrid, l1BudgetPerCore, std::move(observer));
       spill.run();
+
+      // Sync D2M subgraph function types to match dispatch op's current inputs
+      // (e.g. after spill, operand types may have changed to DRAM).
+      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
 
       // Merge spill management data into the existing decision trace JSON.
       if (enableDecisionTrace) {

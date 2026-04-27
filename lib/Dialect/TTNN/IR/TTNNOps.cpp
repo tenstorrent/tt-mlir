@@ -1387,12 +1387,15 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   // and check that all input tensors have the same rank
   // and that all dimensions except `dim` are the same.
   int64_t dimSizeSum = firstTensor.getDimSize(dim);
-  for (auto input : inputs.drop_front()) {
+  for (auto [idx, input] : llvm::enumerate(llvm::drop_begin(inputs, /*N=*/1))) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
 
     // Check if all inputs have the same rank.
     if (inputType.getRank() != firstTensorRank) {
-      return emitOpError("All input tensors must have the same rank.");
+      return emitOpError() << "All input tensors must have the same rank "
+                              "(operand 0 rank "
+                           << firstTensorRank << ", operand " << (idx + 1)
+                           << " rank " << inputType.getRank() << ").";
     }
 
     // Check that dimensions (except `dim`) are the same.
@@ -1402,9 +1405,13 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
         continue;
       }
       if (inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
-        return emitOpError() << "All input tensors must have the same "
-                                "dimensions, except for dimension "
-                             << dim << ".";
+        return emitOpError()
+               << "All input tensors must have the same "
+                  "dimensions, except for dimension "
+               << dim << " (operand 0 shape " << firstTensor.getShape()
+               << ", operand " << (idx + 1) << " shape " << inputType.getShape()
+               << " differ at dim " << i << ": " << firstTensor.getDimSize(i)
+               << " vs " << inputType.getDimSize(i) << ").";
       }
     }
   }
@@ -3590,6 +3597,13 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType resultType = getResult().getType();
 
+  if (!indexType.getElementType().isUnsignedInteger(16) &&
+      !indexType.getElementType().isUnsignedInteger(32)) {
+    return emitOpError() << "Index tensor must have an unsigned integer "
+                         << "type of ui16 or ui32, got "
+                         << indexType.getElementType();
+  }
+
   const int64_t inputRank = inputType.getRank();
   const int64_t indexRank = indexType.getRank();
 
@@ -3831,6 +3845,54 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
           std::to_string(numUsers) + ", got " +
           std::to_string(pageTableShape[0]));
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult SamplingOp::verify() {
+  auto inputValuesType = getInputValues().getType();
+  auto inputIndicesType = getInputIndices().getType();
+  auto kType = getK().getType();
+  auto pType = getP().getType();
+  auto tempType = getTemp().getType();
+  auto resultType = getResult().getType();
+
+  if (inputValuesType.getRank() != 2) {
+    return emitOpError("input_values must be 2D [batch, candidates]");
+  }
+  if (inputIndicesType.getRank() != 2) {
+    return emitOpError("input_indices must be 2D [batch, candidates]");
+  }
+  if (inputValuesType.getShape() != inputIndicesType.getShape()) {
+    return emitOpError(
+        "input_values and input_indices must have the same shape");
+  }
+
+  int64_t batch = inputValuesType.getShape()[0];
+
+  // k, p, temp must be 1D with the same batch dimension.
+  for (auto [tensor, name] :
+       llvm::zip(std::array<mlir::RankedTensorType, 3>{kType, pType, tempType},
+                 std::array<llvm::StringRef, 3>{"k", "p", "temp"})) {
+    if (tensor.getRank() != 1) {
+      return emitOpError() << name << " must be 1D [batch]";
+    }
+    if (tensor.getShape()[0] != batch) {
+      return emitOpError() << name << " batch dimension ("
+                           << tensor.getShape()[0]
+                           << ") must match input_values batch (" << batch
+                           << ")";
+    }
+  }
+
+  // Result must be 1D [batch].
+  if (resultType.getRank() != 1 || resultType.getShape()[0] != batch) {
+    return emitOpError("result must be 1D [batch]");
   }
 
   return success();
@@ -5404,13 +5466,18 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
+    // First 3 dims of the mask must each either be 1 (broadcast) or match the
+    // corresponding query dim. Query layout is [1, batch, nQueryHeads,
+    // headSize].
     if (attentionMaskType.getShape()[0] != 1 &&
-        attentionMaskType.getShape()[0] != batchSize) {
+        attentionMaskType.getShape()[0] != queryType.getShape()[0]) {
+      return emitOpError("Attention mask dim 0 must be 1 (broadcast) or "
+                         "match query dim 0");
+    }
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
-    }
-    if (attentionMaskType.getShape()[1] != 1) {
-      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {

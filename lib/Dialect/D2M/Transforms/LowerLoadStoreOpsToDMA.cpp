@@ -20,11 +20,11 @@ namespace mlir::tt::d2m {
 constexpr StringRef kPreallocatedSemaphoresAttr = "preallocated_semaphores";
 
 // Helper to get pre-allocated semaphores for a multicast RemoteLoadOp.
-// Returns a pair of (receiversReady, senderFinished) semaphores.
-// Asserts if the semaphores were not pre-allocated by
-// D2MPreallocateMcastSemaphores.
-static std::pair<BlockArgument, BlockArgument>
-getPreallocatedSemaphores(Operation *op) {
+// Returns the captured semaphore Values from the enclosing generic's
+// additionalArgs, using the absolute arg indices stored by
+// D2MPreallocateMcastSemaphores. NormalizeThreadArgs will later replace
+// these direct references with d2m.get_arg ops.
+static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op) {
   auto arrayAttr = op->getAttrOfType<ArrayAttr>(kPreallocatedSemaphoresAttr);
   TT_assertv(arrayAttr,
              "Multicast RemoteLoadOp must have preallocated_semaphores "
@@ -33,29 +33,31 @@ getPreallocatedSemaphores(Operation *op) {
   TT_assertv(arrayAttr.size() == 2u,
              "preallocated_semaphores attribute must have exactly 2 elements");
 
+  int64_t sem0AbsIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
+  int64_t sem1AbsIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
+
   auto genericOp = op->getParentOfType<GenericOp>();
   TT_assertv(genericOp, "RemoteLoadOp must be inside a GenericOp");
 
-  // Find which region contains this operation.
-  Region *parentRegion = op->getParentRegion();
-  while (parentRegion && parentRegion->getParentOp() != genericOp) {
-    parentRegion = parentRegion->getParentOp()->getParentRegion();
+  unsigned ioSize = genericOp.getInputsAndOutputs().size();
+  int64_t nonMemrefCount = 0;
+  Value sem0, sem1;
+  for (Value arg : genericOp.getAdditionalArgs()) {
+    if (!mlir::isa<MemRefType>(arg.getType())) {
+      int64_t absIdx = static_cast<int64_t>(ioSize) + nonMemrefCount;
+      if (absIdx == sem0AbsIdx) {
+        sem0 = arg;
+      }
+      if (absIdx == sem1AbsIdx) {
+        sem1 = arg;
+      }
+      nonMemrefCount++;
+    }
   }
-  TT_assertv(parentRegion, "Failed to find parent region for RemoteLoadOp");
-  TT_assertv(!parentRegion->empty(), "Parent region is empty");
+  TT_assertv(sem0, "Could not find receiversReady semaphore in additionalArgs");
+  TT_assertv(sem1, "Could not find senderFinished semaphore in additionalArgs");
 
-  Block &block = parentRegion->front();
-
-  unsigned receiversReadyIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
-  unsigned senderFinishedIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
-
-  TT_assertv(receiversReadyIdx < block.getNumArguments(),
-             "Pre-allocated receiversReady semaphore index is out of bounds");
-  TT_assertv(senderFinishedIdx < block.getNumArguments(),
-             "Pre-allocated senderFinished semaphore index is out of bounds");
-
-  return std::make_pair(block.getArgument(receiversReadyIdx),
-                        block.getArgument(senderFinishedIdx));
+  return {sem0, sem1};
 }
 
 namespace {
@@ -98,8 +100,8 @@ public:
     // Get pre-allocated semaphores for synchronization.
     // These must have been set by D2MPreallocateMcastSemaphores pass.
     auto preallocatedSems = getPreallocatedSemaphores(remoteLoad);
-    BlockArgument receiversReadySemaphore = preallocatedSems.first;
-    BlockArgument senderFinishedSemaphore = preallocatedSems.second;
+    Value receiversReadySemaphore = preallocatedSems.first;
+    Value senderFinishedSemaphore = preallocatedSems.second;
 
     // Number of receivers is mcastVolume - 1 (excluding sender itself).
     // The sender waits for this many semaphore increments before multicasting.
