@@ -668,5 +668,12 @@ const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
         ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
-        ttnn::ScatterOp::getOperationName()};
+        ttnn::ScatterOp::getOperationName(),
+        // TopK requires bf16 (or bf8) input — its workaround inserts the
+        // f32 → bf16 typecast. Without it, topk under enable-optimizer runs
+        // with f32 input which fails tt-metal validation; the optimizer's
+        // reshard exploration cannot recover (reshards don't change dtype),
+        // and the eventual fallback cascades into a host-roundtrip typecast
+        // for `arg1` in the si32 concat that hangs on small DRAM readback.
+        ttnn::TopKOp::getOperationName()};
 } // namespace mlir::tt::ttnn
