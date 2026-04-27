@@ -88,17 +88,19 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
   // Get the input operand type.
   RankedTensorType inputToLayoutOpType = inputValue.getType();
 
+  ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
+
   // Create the new encoding for the output tensor type.
   TTNNLayoutAttr toLayoutOpResultEncoding =
       inputLayoutAttr
           .withElementType(elementType, inputToLayoutOpType.getShape())
-          .withBufferType(targetTensorBufferType)
-          .withMemoryLayout(targetTensorMemoryLayout);
+          .withBufferType(targetTensorBufferType, deviceGrid)
+          .withMemoryLayout(targetTensorMemoryLayout, deviceGrid);
 
   // Override the grid when a custom target grid is specified.
   if (targetGridShape) {
-    toLayoutOpResultEncoding = toLayoutOpResultEncoding.withShardGrid(
-        inputToLayoutOpType.getShape(), *targetGridShape);
+    toLayoutOpResultEncoding = toLayoutOpResultEncoding.withGridShape(
+        inputToLayoutOpType.getShape(), *targetGridShape, deviceGrid);
   }
 
   // Create the output result type with the new data type and encoding.
@@ -109,15 +111,10 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                                                   targetTensorDataType)),
       toLayoutOpResultEncoding);
 
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
-  // Create the output memory config attribute.
+  // Create the output memory config attribute. The encoding's memLayout and
+  // bufferType match the target ones (it was built from them).
   ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
-      rewriter.getContext(), targetTensorMemoryLayout,
-      ttnn::BufferTypeAttr::get(rewriter.getContext(), targetTensorBufferType),
-      utils::createShardSpecIfNeeded(
-          mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()),
-          deviceAttr.getWorkerGrid()));
+      mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()));
 
   Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), locSuffix);
   // Create a ToLayoutOp to convert the input operand to the desired

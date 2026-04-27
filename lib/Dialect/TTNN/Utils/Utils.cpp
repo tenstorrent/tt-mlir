@@ -101,18 +101,23 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                newEncoding);
 }
 
-RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
-                                                 ttnn::BufferType bufferType) {
+RankedTensorType
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ttnn::BufferType bufferType,
+                                mlir::tt::ttcore::GridAttr deviceGrid) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding = oldEncoding.withBufferType(bufferType);
+  TTNNLayoutAttr newEncoding =
+      oldEncoding.withBufferType(bufferType, deviceGrid);
   return create(tensorType, newEncoding);
 }
 
 RankedTensorType
 RankedTensorTypeFactory::create(RankedTensorType tensorType,
-                                ttnn::TensorMemoryLayout memoryLayout) {
+                                ttnn::TensorMemoryLayout memoryLayout,
+                                mlir::tt::ttcore::GridAttr deviceGrid) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding = oldEncoding.withMemoryLayout(memoryLayout);
+  TTNNLayoutAttr newEncoding =
+      oldEncoding.withMemoryLayout(memoryLayout, deviceGrid);
   return create(tensorType, newEncoding);
 }
 
@@ -138,10 +143,11 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
 }
 
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
-                                                 ttcore::GridAttr grid) {
+                                                 ArrayRef<int64_t> gridShape,
+                                                 ttcore::GridAttr deviceGrid) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
-      oldEncoding.withShardGrid(tensorType.getShape(), grid.getShape());
+      oldEncoding.withGridShape(tensorType.getShape(), gridShape, deviceGrid);
   return create(tensorType, newEncoding);
 }
 
@@ -258,20 +264,6 @@ std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op) {
   }
 
   return inputLayouts;
-}
-
-// Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr>
-createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
-                        ttcore::GridAttr deviceGridAttr) {
-  std::optional<ShardSpecAttr> shardSpecAttr = std::nullopt;
-  TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-  if (tensorMemoryLayout &&
-      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
-    shardSpecAttr =
-        ShardSpecAttr::get(layoutAttr.getContext(), layoutAttr, deviceGridAttr);
-  }
-  return shardSpecAttr;
 }
 
 std::optional<NDShardSpecAttr>
@@ -394,9 +386,10 @@ UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
                                  llvm::ArrayRef<FloatAttr>{});
 }
 
-std::pair<int64_t, int64_t>
-getPhysicalGridDimensions(TTNNLayoutAttr layout, ttcore::GridAttr deviceGrid) {
-  auto coreRangeSet = layout.getCoreRangeSet(deviceGrid);
+std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout) {
+  CoreRangeSetAttr coreRangeSet = layout.getCoreRangeSet();
+  assert(coreRangeSet &&
+         "getPhysicalGridDimensions requires a sharded layout with a CRS");
 
   int64_t maxX = 0;
   int64_t maxY = 0;

@@ -1019,8 +1019,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
 
 inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
 ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
-                           ttnn::TTNNLayoutAttr layoutAttr,
-                           ttcore::DeviceAttr deviceAttr) {
+                           ttnn::TTNNLayoutAttr layoutAttr) {
   // TODO (jnie): Memory reference alone is insufficient to determine LayoutDesc
   // uniquely. Using `cache.getOrCreate()` is unsafe because identical memory
   // references can produce different LayoutDesc objects.
@@ -1028,15 +1027,11 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // Ideally, we establish one-to-one mapping between MLIR and FlatBuffer
   // that guarantees identical memrefs will always produce identical
   // flatbuffer LayoutDescs.
-
-  ttnn::CoreRangeSetAttr coreRangeSetAttr =
-      layoutAttr.getCoreRangeSet(deviceAttr.getWorkerGrid());
-
   return ::tt::target::ttnn::CreateLayoutDesc(
       *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
-                   coreRangeSetAttr));
+                   layoutAttr.getCoreRangeSet()));
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc> toFlatbuffer(

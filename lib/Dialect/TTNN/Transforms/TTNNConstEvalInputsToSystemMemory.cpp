@@ -29,16 +29,19 @@ namespace {
 // Helper function to create a system memory layout attribute for the given
 // tensor type.
 //
-static TTNNLayoutAttr createSystemMemoryLayoutAttr(RankedTensorType type) {
+static TTNNLayoutAttr
+createSystemMemoryLayoutAttr(RankedTensorType type,
+                             ttcore::GridAttr deviceGrid) {
   auto currentLayout = mlir::cast<TTNNLayoutAttr>(type.getEncoding());
-  return currentLayout.withBufferType(BufferType::SystemMemory)
+  return currentLayout.withBufferType(BufferType::SystemMemory, deviceGrid)
       .withLayout(Layout::RowMajor, type.getShape());
 }
 
 // Helper function to convert a tensor type to system memory type.
 //
-static RankedTensorType toSystemMemoryType(RankedTensorType ty) {
-  TTNNLayoutAttr newLayout = createSystemMemoryLayoutAttr(ty);
+static RankedTensorType toSystemMemoryType(RankedTensorType ty,
+                                           ttcore::GridAttr deviceGrid) {
+  TTNNLayoutAttr newLayout = createSystemMemoryLayoutAttr(ty, deviceGrid);
   return RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
 }
 
@@ -79,7 +82,8 @@ static bool shouldTransferArgumentToDevice(BlockArgument blockArgument) {
 // An argument is considered to be a const-eval input if it is
 // consumed only by LoadCachedOps.
 //
-static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
+static SmallVector<BlockArgument>
+moveConstEvalArgsToHost(func::FuncOp funcOp, ttcore::GridAttr deviceGrid) {
   SmallVector<Type> argumentTypes;
   SmallVector<BlockArgument> convertedArguments;
 
@@ -114,7 +118,7 @@ static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
 
     // Convert the argument to system memory type.
     //
-    auto systemMemoryTensorType = toSystemMemoryType(tensorType);
+    auto systemMemoryTensorType = toSystemMemoryType(tensorType, deviceGrid);
 
     blockArgument.setType(systemMemoryTensorType);
     argumentTypes.push_back(systemMemoryTensorType);
@@ -180,7 +184,7 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
     auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
         blockArgument.getLoc(), deviceTensorType, blockArgument,
         deviceTensorLayout.getLayout(), originalDataTypeAttr,
-        MemoryConfigAttr::get(deviceTensorLayout, deviceGrid));
+        MemoryConfigAttr::get(deviceTensorLayout));
 
     // Replace the argument usages with the to_layout op result.
     //
@@ -222,7 +226,7 @@ public:
       // const-eval inputs to system memory.
       //
       SmallVector<BlockArgument> convertedArguments =
-          moveConstEvalArgsToHost(funcOp);
+          moveConstEvalArgsToHost(funcOp, device.getWorkerGrid());
 
       // Next, we need to update all const-eval functions accordingly.
       //

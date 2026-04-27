@@ -10,9 +10,9 @@
 #ttnn_layout_dram_tile_ui16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, u16>, #dram>, <interleaved>>
 
 // ROW_MAJOR HEIGHT_SHARDED L1 input: 32x4 bf16 (last dim 4 is NOT tile-aligned).
-#ttnn_layout_l1_hs_rm_bf16_nontile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x4xbf16, #l1>, <height_sharded>>
+#ttnn_layout_l1_hs_rm_bf16_nontile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x4xbf16, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>>
 // TILE HEIGHT_SHARDED L1 output (same shape logically, padded internally to 1x1 tiles).
-#ttnn_layout_l1_hs_tile_bf16_nontile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
+#ttnn_layout_l1_hs_tile_bf16_nontile = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>>
 
 module attributes {} {
 

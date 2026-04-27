@@ -71,11 +71,12 @@ static TTNNLayoutAttr createL1InterleavedLayout(Operation *op,
                                                 TTNNLayoutAttr baseLayout) {
 
   static auto deviceAttr = ttcore::lookupDevice(op);
-  static auto l1InterleavedGrid = deviceAttr.getWorkerGrid().getShape();
+  static auto deviceGrid = deviceAttr.getWorkerGrid();
+  static auto l1InterleavedGrid = deviceGrid.getShape();
 
-  return baseLayout.withBufferType(BufferType::L1)
-      .withMemoryLayout(TensorMemoryLayout::Interleaved)
-      .withShardGrid(outputType, l1InterleavedGrid, {{0, -1}});
+  return baseLayout.withBufferType(BufferType::L1, deviceGrid)
+      .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid)
+      .withGridShape(outputType, l1InterleavedGrid, deviceGrid, {{0, -1}});
 }
 
 // Build a map from Operation* to its resolved output layout within a chain.

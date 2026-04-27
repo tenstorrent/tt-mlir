@@ -110,11 +110,16 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   auto linearMap = AffineMap::getMultiDimIdentityMap(kRank, ctx);
   auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
 
+  // The gridShape is already in physical core coords; emit a single rectangle
+  // at origin via `computeExactCoreRangeSet`. Skipped for non-sharded layouts.
+  ttnn::CoreRangeSetAttr coreRangeSet =
+      memLayout && isShardedMemoryLayout(memLayout.getValue())
+          ? ttnn::TTNNLayoutAttr::computeExactCoreRangeSet(ctx, ttnnGridShape)
+          : nullptr;
   return {ttnn::TTNNLayoutAttr::get(
       ctx, linearMap, ttnnGridShape, shardMemref, memLayout,
       /*tensorMesh=*/nullptr,
-      /*ignorePhysicalLayout=*/false, /*exactGrid=*/true,
-      /*coreRangeSetOverride=*/nullptr)};
+      /*ignorePhysicalLayout=*/false, coreRangeSet)};
 }
 
 static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
@@ -441,8 +446,7 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
     auto emptyLayoutAttr =
         mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-    auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr,
-                                              deviceAttr.getWorkerGrid());
+    auto memcfg = ttnn::MemoryConfigAttr::get(emptyLayoutAttr);
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
@@ -472,13 +476,12 @@ static FailureOr<TensorAllocAttrs>
 getTensorAllocAttrs(Operation *op, RankedTensorType tensorType) {
   MLIRContext *ctx = op->getContext();
   auto encoding = tensorType.getEncoding();
-  auto deviceAttr = ttcore::lookupDevice(op);
 
   if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
     return TensorAllocAttrs{
         ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType()),
         ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout()),
-        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid())};
+        ttnn::MemoryConfigAttr::get(layoutAttr)};
   }
   if (auto ndLayoutAttr = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
     auto bufferType =

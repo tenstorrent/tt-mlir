@@ -53,6 +53,11 @@ public:
                                     builder.getF32FloatAttr(cap));
   }
 
+  mlir::tt::ttcore::GridAttr testDeviceGrid() {
+    return mlir::tt::ttcore::GridAttr::get(&context,
+                                           llvm::ArrayRef<int64_t>{8, 8});
+  }
+
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
                                    BufferType bufferType,
                                    TensorMemoryLayout tensorMemoryLayout,
@@ -60,7 +65,7 @@ public:
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
     return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               gridShape,
+                               gridShape, testDeviceGrid(),
                                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout));
   }

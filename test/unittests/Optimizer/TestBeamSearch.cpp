@@ -67,8 +67,10 @@ public:
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
+    auto deviceGrid = mlir::tt::ttcore::GridAttr::get(
+        &context, llvm::ArrayRef<int64_t>{8, 8});
     return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               gridShape,
+                               gridShape, deviceGrid,
                                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout));
   }

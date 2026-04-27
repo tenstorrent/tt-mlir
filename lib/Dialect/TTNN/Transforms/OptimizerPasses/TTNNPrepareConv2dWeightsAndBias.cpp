@@ -64,10 +64,12 @@ private:
     auto oldType = mlir::cast<mlir::RankedTensorType>(bias.getType());
     auto oldLayout = mlir::cast<ttnn::TTNNLayoutAttr>(oldType.getEncoding());
 
+    ttcore::GridAttr deviceGrid =
+        ttcore::lookupDevice(bias.getDefiningOp()).getWorkerGrid();
     auto newLayout = ttnn::TTNNLayoutAttr::get(
         &getContext(), oldType.getShape(),
         ttcore::TileType::get(newElementType), BufferType::DRAM,
-        oldLayout.getGridShape(),
+        oldLayout.getGridShape(), deviceGrid,
         ttnn::TensorMemoryLayoutAttr::get(
             &getContext(), ttnn::TensorMemoryLayout::Interleaved));
 
@@ -112,10 +114,8 @@ private:
     ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         convOp.getResult().getType().getEncoding());
 
-    ttcore::GridAttr deviceGrid =
-        ttcore::lookupDevice(moduleOp).getWorkerGrid();
     ttnn::MemoryConfigAttr inputMemConfigAttr =
-        ttnn::MemoryConfigAttr::get(inputLayoutAttr, deviceGrid);
+        ttnn::MemoryConfigAttr::get(inputLayoutAttr);
 
     // Input and output dtype attr on prepare api is used to specify
     // input/output dtype for the conv2d operation.

@@ -150,11 +150,10 @@ def _get_physical_grid_shape(tensor_arg):
 
 
 def _create_sharded_tensor_layout(ctx, tensor_arg):
-    grid_shape = _get_physical_grid_shape(tensor_arg)
+    grid_shape = list(reversed(_get_physical_grid_shape(tensor_arg)))
     affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, grid_shape)
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
     # TTNN writes grids as (width, height) but compiler expects (height, width).
-    grid = ttcore.ir.GridAttr.get(ctx, list(reversed(grid_shape)))
 
     shard_spec = tensor_arg.memory_config().shard_spec
     shard_shape = shard_spec.shape
@@ -166,24 +165,28 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
         memref = MemRefType.get(shard_shape_tile, tile_type, None, buffer_type)
 
     tensor_mesh = None
-    exact_grid = True
-
     mem_layout = tensor_arg.memory_config().memory_layout.value
+
+    # ttnn-jit grids are already in physical core coordinates, so build the
+    # CoreRangeSet as a single rectangle at origin sized to `grid_shape`.
+    core_range_set = ttnn.ir.TTNNLayoutAttr.compute_exact_core_range_set(
+        ctx, grid_shape
+    )
 
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,
-        grid,
+        grid_shape,
         memref,
         mem_layout,
         tensor_mesh,
-        exact_grid,
+        core_range_set,
     )
 
 
 def _create_dram_tensor_layout(ctx, tensor_arg):
     affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, DRAM_GRID_SIZE)
-    grid = ttcore.ir.GridAttr.get(ctx, DRAM_GRID_SIZE)
+    grid_shape = DRAM_GRID_SIZE
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
 
     data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
@@ -194,15 +197,13 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
         memref = MemRefType.get(shape, tile_type, None, buffer_type)
 
     tensor_mesh = None
-    exact_grid = True
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,
-        grid,
+        grid_shape,
         memref,
         ttnn.TensorMemoryLayout.Interleaved.value,
         tensor_mesh,
-        exact_grid,
     )
 
 
@@ -367,18 +368,24 @@ def _create_tensor_layout_with_shape(
         memref = MemRefType.get(
             new_shard_shape, base_layout.memref.element_type, None, buffer_type
         )
-    grid = ttcore.ir.GridAttr.get(ctx, new_grid_shape)
 
     tensor_mesh = None
-    exact_grid = True
+    # ttnn-jit grids are physical worker-grid coordinates; emit a single
+    # rectangle at origin for sharded targets. Non-sharded gets null.
+    is_sharded = memory_layout.value != ttnn.TensorMemoryLayout.Interleaved.value
+    core_range_set = (
+        ttnn.ir.TTNNLayoutAttr.compute_exact_core_range_set(ctx, new_grid_shape)
+        if is_sharded
+        else None
+    )
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,
-        grid,
+        new_grid_shape,
         memref,
         memory_layout.value,
         tensor_mesh,
-        exact_grid,
+        core_range_set,
     )
 
 
@@ -476,9 +483,7 @@ def create_default_dram_interleaved_layout(
     memory_layout = ttnn.TensorMemoryLayout.Interleaved.value
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
     tensor_mesh = None
-    exact_grid = True
 
-    grid = ttcore.ir.GridAttr.get(ctx, grid_shape)
     logical_shape = _get_logical_tensor_shape(shape)
     affine_map = _get_collapsed_linear_affine_map(ctx, logical_shape, grid_shape)
     shard_shape = _calculate_tile_shape(logical_shape)
@@ -489,9 +494,8 @@ def create_default_dram_interleaved_layout(
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,
-        grid,
+        grid_shape,
         memref,
         memory_layout,
         tensor_mesh,
-        exact_grid,
     )

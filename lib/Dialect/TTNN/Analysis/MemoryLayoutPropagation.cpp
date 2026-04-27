@@ -583,7 +583,7 @@ bool MemoryLayoutPropagation::validateReshard(
     return false;
   }
 
-  MemoryConfigAttr memConfig = MemoryConfigAttr::get(reshardLayout, deviceGrid);
+  MemoryConfigAttr memConfig = MemoryConfigAttr::get(reshardLayout);
 
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
       consumerOp, /*additionalL1Usage=*/0, deviceGrid, inputShape,
@@ -620,8 +620,8 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
   }
 
   TTNNLayoutAttr l1Interleaved =
-      currentLayout.withBufferType(BufferType::L1)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved);
+      currentLayout.withBufferType(BufferType::L1, deviceGrid)
+          .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid);
   // Add one L1-interleaved candidate per L1-sharded producer beam index.
   for (size_t pIdx = 0; pIdx < producerBeam->size(); ++pIdx) {
     if (candidates.size() >= maxCandidates) {
@@ -671,9 +671,10 @@ void MemoryLayoutPropagation::applyInputLayoutFilter(
       auto tensorType =
           mlir::cast<RankedTensorType>(op->getOperand(operandIdx).getType());
       InputCandidate ic;
-      ic.layout = currentLayout.withBufferType(BufferType::DRAM)
-                      .withMemoryLayout(TensorMemoryLayout::Interleaved)
-                      .withTensorShape(tensorType.getShape());
+      ic.layout =
+          currentLayout.withBufferType(BufferType::DRAM, deviceGrid)
+              .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid)
+              .withTensorShape(tensorType.getShape());
       ic.producerCandidateIndex = 0;
       ic.isReshard = true;
       candidates.push_back(ic);
@@ -1205,8 +1206,8 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
       return currentLayout;
     }
   }
-  return currentLayout.withBufferType(BufferType::DRAM)
-      .withMemoryLayout(TensorMemoryLayout::Interleaved)
+  return currentLayout.withBufferType(BufferType::DRAM, deviceGrid)
+      .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid)
       .withTensorShape(tensorType.getShape());
 }
 
@@ -1234,8 +1235,8 @@ void MemoryLayoutPropagation::insertReturnDramSpills() {
       }
 
       TTNNLayoutAttr dramLayout =
-          layout.withBufferType(BufferType::DRAM)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved)
+          layout.withBufferType(BufferType::DRAM, deviceGrid)
+              .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid)
               .withTensorShape(tensorType.getShape());
       insertReshardOp(returnOp, i, dramLayout);
 
@@ -1357,11 +1358,7 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
   // Handle existing ToLayoutOp memory config alignment.
   if (isa<ttnn::ToLayoutOp>(op)) {
     ttnn::ToLayoutOp toLayoutOp = llvm::cast<ttnn::ToLayoutOp>(op);
-    toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-        op->getContext(), chosenLayout.getMemLayout(),
-        ttnn::BufferTypeAttr::get(op->getContext(),
-                                  chosenLayout.getBufferType()),
-        utils::createShardSpecIfNeeded(chosenLayout, deviceGrid)));
+    toLayoutOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(chosenLayout));
   }
 
   applyOpSpecificAttrs(op, candidate);
@@ -1415,19 +1412,15 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   TTNNLayoutAttr producerLayout =
       utils::getLayoutAttrFromTensor(producerTensorType);
   TTNNLayoutAttr outputLayout =
-      producerLayout.withBufferType(reshardLayout.getBufferType())
-          .withMemoryLayout(reshardLayout.getMemLayout())
-          .withShardGrid(producerTensorType.getShape(),
-                         reshardLayout.getGridShape())
+      producerLayout.withBufferType(reshardLayout.getBufferType(), deviceGrid)
+          .withGridShape(producerTensorType.getShape(),
+                         reshardLayout.getGridShape(), deviceGrid)
+          .withMemoryLayout(reshardLayout.getMemLayout(), deviceGrid)
           .withShardShape(reshardLayout.getScalarShardShape());
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 
-  MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(
-      consumerOp->getContext(), reshardLayout.getMemLayout(),
-      BufferTypeAttr::get(consumerOp->getContext(),
-                          reshardLayout.getBufferType()),
-      utils::createShardSpecIfNeeded(reshardLayout, deviceGrid));
+  MemoryConfigAttr outputMemConfigAttr = MemoryConfigAttr::get(reshardLayout);
 
   OpBuilder builder(consumerOp);
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),

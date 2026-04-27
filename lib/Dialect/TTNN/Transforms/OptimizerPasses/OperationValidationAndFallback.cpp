@@ -74,7 +74,8 @@ struct CombinationCandidate {
 // Forward declarations for helper functions
 std::vector<TTNNLayoutAttr>
 createFallbackTransforms(TTNNLayoutAttr originalLayout,
-                         llvm::ArrayRef<int64_t> tensorShape);
+                         llvm::ArrayRef<int64_t> tensorShape,
+                         ttcore::GridAttr deviceGrid);
 
 double calculateDataTypeDistance(ttcore::DataType from, ttcore::DataType to);
 double calculateLayoutDistance(Layout from, Layout to);
@@ -392,10 +393,11 @@ bool tryFallbacks(Operation *operation,
       operation->getName(), operation->getLoc(), originalInputLayouts.size());
 
   // Create fallback combinations for each operand
+  ttcore::GridAttr deviceGrid = ttcore::lookupDevice(operation).getWorkerGrid();
   std::vector<std::vector<TTNNLayoutAttr>> operandFallbacks;
   for (size_t i = 0; i < originalInputLayouts.size(); ++i) {
-    auto fallbacks =
-        createFallbackTransforms(originalInputLayouts[i], tensorShapes[i]);
+    auto fallbacks = createFallbackTransforms(originalInputLayouts[i],
+                                              tensorShapes[i], deviceGrid);
     fallbacks.push_back(originalInputLayouts[i]);
     operandFallbacks.push_back(fallbacks);
   }
@@ -486,7 +488,8 @@ bool tryFallbacks(Operation *operation,
 // Helper method to create fallback layouts directly
 std::vector<TTNNLayoutAttr>
 createFallbackTransforms(TTNNLayoutAttr originalLayout,
-                         llvm::ArrayRef<int64_t> tensorShape) {
+                         llvm::ArrayRef<int64_t> tensorShape,
+                         ttcore::GridAttr deviceGrid) {
   // Create systematic 2×4 combinations: 2 layouts × 4 data types = 8
   // combinations Layouts: RowMajor, Tile DataTypes: BFloat16, Float32,
   // UInt32, Int32
@@ -562,7 +565,7 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
         }
 
         if (targetBufferType != result.getBufferType()) {
-          result = result.withBufferType(targetBufferType);
+          result = result.withBufferType(targetBufferType, deviceGrid);
           // Recompute memref dimensions for DRAM: withBufferType(DRAM) sets
           // grid to 1x1 but preserves the old per-core shard shape in the
           // memref, producing incorrect dimensions for formerly-sharded
@@ -709,9 +712,10 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
   OpConfig testConfig = originalConfig;
   if (testConfig.outputLayout) {
     auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
     testConfig.outputLayout =
-        testConfig.outputLayout.withBufferType(BufferType::DRAM)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved)
+        testConfig.outputLayout.withBufferType(BufferType::DRAM, deviceGrid)
+            .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid)
             .withTensorShape(tensorType.getShape());
   }
 

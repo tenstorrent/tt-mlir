@@ -11,26 +11,26 @@
 #ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<24x4x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
-#ttnn_layout_8heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#ttnn_layout_8heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 256 + d2, d3), <1x8>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_8heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,7)>]>>
+#ttnn_layout_8heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 256 + d2, d3), <1x8>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>>
 
-#ttnn_layout_16heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 32 + d2, d3), <16x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#ttnn_layout_16heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 512 + d2, d3), <1x16>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_16heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 32 + d2, d3), <16x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,15)>]>>
+#ttnn_layout_16heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 512 + d1 * 512 + d2, d3), <1x16>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (15,0)>]>>
 
-#ttnn_layout_32heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <32x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#ttnn_layout_32heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 4096 + d1 * 4096 + d2, d3), <1x32>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_32heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <32x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,31)>]>>
+#ttnn_layout_32heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 4096 + d1 * 4096 + d2, d3), <1x32>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (31,0)>]>>
 
-#ttnn_layout_12heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 384 + d1 * 32 + d2, d3), <12x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#ttnn_layout_12heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 288 + d1 * 288 + d2, d3), <1x12>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_12heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 384 + d1 * 32 + d2, d3), <12x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,11)>]>>
+#ttnn_layout_12heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 288 + d1 * 288 + d2, d3), <1x12>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (11,0)>]>>
 
-#ttnn_layout_4heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 128 + d1 * 32 + d2, d3), <4x1>, memref<1x8x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#ttnn_layout_4heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 128 + d1 * 128 + d2, d3), <1x4>, memref<1x8x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_4heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 128 + d1 * 32 + d2, d3), <4x1>, memref<1x8x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,3)>]>>
+#ttnn_layout_4heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 128 + d1 * 128 + d2, d3), <1x4>, memref<1x8x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (3,0)>]>>
 
-#ttnn_layout_single_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#ttnn_layout_single_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x8>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_single_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>>
+#ttnn_layout_single_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x8>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>>
 
-#ttnn_layout_24heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 768 + d1 * 32 + d2, d3), <24x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>>
-#ttnn_layout_24heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2304 + d1 * 2304 + d2, d3), <1x24>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#ttnn_layout_24heads_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 768 + d1 * 32 + d2, d3), <24x1>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,23)>]>>
+#ttnn_layout_24heads_out = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 2304 + d1 * 2304 + d2, d3), <1x24>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (23,0)>]>>
 
 module {
   func.func @nlp_concat_heads_decode_8_heads(%arg0: tensor<1x8x32x128xbf16, #ttnn_layout>) -> tensor<1x1x32x1024xbf16, #ttnn_layout_8heads_out> {

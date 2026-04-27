@@ -58,6 +58,11 @@ public:
                                     builder.getF32FloatAttr(cap));
   }
 
+  mlir::tt::ttcore::GridAttr testDeviceGrid() {
+    return mlir::tt::ttcore::GridAttr::get(&context,
+                                           llvm::ArrayRef<int64_t>{8, 8});
+  }
+
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
                                    BufferType bufferType,
                                    TensorMemoryLayout tensorMemoryLayout,
@@ -65,7 +70,7 @@ public:
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
     return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               gridShape,
+                               gridShape, testDeviceGrid(),
                                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout));
   }
@@ -77,7 +82,7 @@ public:
       const llvm::ArrayRef<int64_t> &gridShape = {1, 1}) {
     auto tileType = mlir::tt::ttcore::TileType::get(elementType);
     return TTNNLayoutAttr::get(&context, tensorShape, tileType, bufferType,
-                               gridShape,
+                               gridShape, testDeviceGrid(),
                                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout));
   }
@@ -282,11 +287,11 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
                                     BufferType bufferType,
                                     TensorMemoryLayout tensorMemoryLayout) {
     // Row major uses scalar element type instead of tiled.
-    return TTNNLayoutAttr::get(&context, tensorShape, builder.getBF16Type(),
-                               bufferType,
-                               /*gridShape=*/llvm::ArrayRef<int64_t>{64, 1},
-                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                                   &context, tensorMemoryLayout));
+    return TTNNLayoutAttr::get(
+        &context, tensorShape, builder.getBF16Type(), bufferType,
+        /*gridShape=*/llvm::ArrayRef<int64_t>{64, 1}, testDeviceGrid(),
+        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
+                                                    tensorMemoryLayout));
   };
 
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};

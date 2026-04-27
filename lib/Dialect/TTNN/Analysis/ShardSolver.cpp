@@ -382,8 +382,10 @@ ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  inputLayout = inputLayout.withBufferType(BufferType::DRAM)
-                    .withMemoryLayout(TensorMemoryLayout::Interleaved);
+  ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
+  inputLayout =
+      inputLayout.withBufferType(BufferType::DRAM, deviceGrid)
+          .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid);
 
   if (rowMajorInputOverride) {
     inputLayout = inputLayout.withLayout(Layout::RowMajor, tensorShape);

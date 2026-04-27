@@ -7,7 +7,7 @@
 module @L1InterleavedTestLargeTensorSharded attributes {} {
   func.func @forward(%arg0: tensor<4096x4096xbf16>, %arg1: tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16> {
     // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x128x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
-    // CHECK-DAG: #[[SHARDED_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>>
+    // CHECK-DAG: #[[SHARDED_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>{{(, core_ranges = #ttnn\.core_range_set<\[[^]]*\]>)?}}>
 
     // CHECK: "ttnn.relu"{{.*}}-> tensor<4096x4096xbf16, #[[DRAM_LAYOUT]]>
     %0 = "ttir.relu"(%arg0) : (tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>

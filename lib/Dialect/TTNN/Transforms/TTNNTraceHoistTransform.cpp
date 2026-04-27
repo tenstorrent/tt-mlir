@@ -360,6 +360,7 @@ private:
     // allocation strategy.
     llvm::SmallVector<mlir::Type> inputTypes;
     llvm::SmallVector<mlir::Type> traceInputSlotTypes;
+    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(funcOp).getWorkerGrid();
     for (size_t i = 0; i < traceFunc.getNumArguments(); i++) {
       mlir::Value traceFuncArg = traceFunc.getArgument(i);
 
@@ -384,7 +385,7 @@ private:
       // 1. Host-side type (system memory) for the function signature
       // 2. Device-side slot type (DRAM) for persistent trace storage
       RankedTensorType inputArgType = utils::RankedTensorTypeFactory::create(
-          originalRankedTensorType, BufferType::SystemMemory);
+          originalRankedTensorType, BufferType::SystemMemory, deviceGrid);
 
       inputTypes.push_back(inputArgType);
 
@@ -392,7 +393,7 @@ private:
       // This slot persists on device across trace executions.
       RankedTensorType dramTraceInputSlotType =
           utils::RankedTensorTypeFactory::create(originalRankedTensorType,
-                                                 BufferType::DRAM);
+                                                 BufferType::DRAM, deviceGrid);
 
       traceInputSlotTypes.push_back(dramTraceInputSlotType);
     }
@@ -446,7 +447,6 @@ private:
 
     auto deviceOp =
         utils::getOrInsertDevice(rewriter, runAndCaptureTraceFuncEntryBlock);
-    auto device = ttcore::lookupDevice(deviceOp);
 
     // Create or reuse trace input slots on device.
     // - Device-resident args (constants/parameters/KV cache): use directly
@@ -468,11 +468,8 @@ private:
 
       ttnn::TTNNLayoutAttr ttnnLayoutAttr =
           utils::getLayoutAttrFromTensor(deviceTensorType);
-      ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-          context, ttnnLayoutAttr.getMemLayout(),
-          ttnn::BufferTypeAttr::get(context, ttnnLayoutAttr.getBufferType()),
-          utils::createShardSpecIfNeeded(ttnnLayoutAttr,
-                                         device.getWorkerGrid()));
+      ttnn::MemoryConfigAttr memoryConfigAttr =
+          ttnn::MemoryConfigAttr::get(ttnnLayoutAttr);
 
       // Allocate an empty tensor on the device to serve as the trace input slot
       // for this argument.
@@ -689,8 +686,10 @@ private:
           return funcOp.emitError("ToLayoutOp changed data type for argument ")
                  << argIdx << ", expected only buffer type change";
         }
+        ttcore::GridAttr deviceGrid =
+            ttcore::lookupDevice(funcOp).getWorkerGrid();
         auto newArgType = utils::RankedTensorTypeFactory::create(
-            currentTensorType, targetLayoutAttr.getBufferType());
+            currentTensorType, targetLayoutAttr.getBufferType(), deviceGrid);
         newArgType = utils::RankedTensorTypeFactory::create(
             newArgType, targetLayoutAttr.getLayout());
 
@@ -826,7 +825,7 @@ private:
       }
       // For inputs, convert them to system memory/row major if needed
       else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
-        // Convert to system memory using ToLayoutOp
+        // Convert to system memory using ToLayoutOp.
         RankedTensorType systemMemoryTileType =
             utils::RankedTensorTypeFactory::create(
                 tensorType, ttnn::BufferType::SystemMemory);

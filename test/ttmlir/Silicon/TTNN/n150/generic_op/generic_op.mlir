@@ -88,7 +88,8 @@
 #l1_layout = #ttnn.ttnn_layout<
   (d0, d1) -> (d0, d1),
   <1x1>,
-  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>
+  memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>,
+  core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,0)>]>
   >
 
 // CHECK: module attributes {ttcore.system_desc = #system_desc}

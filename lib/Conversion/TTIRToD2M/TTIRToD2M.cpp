@@ -658,12 +658,20 @@ protected:
       auto memref = mlir::MemRefType::get(
           {1, 1}, tileType, mlir::MemRefLayoutAttrInterface{},
           ttnnLayout.getMemref().getMemorySpace());
+      // gridShape is already in physical core coords; emit a single rectangle
+      // at origin via `computeExactCoreRangeSet`. Skipped for non-sharded.
+      auto memLayout = ttnnLayout.getMemLayout();
+      ttnn::CoreRangeSetAttr coreRangeSet =
+          memLayout && isShardedMemoryLayout(memLayout.getValue())
+              ? ttnn::TTNNLayoutAttr::computeExactCoreRangeSet(
+                    rewriter.getContext(),
+                    /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1})
+              : nullptr;
       encoding = ttnn::TTNNLayoutAttr::get(
           rewriter.getContext(), rewriter.getMultiDimIdentityMap(2),
           /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1}, memref,
           ttnnLayout.getMemLayout(),
-          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false,
-          /*exactGrid=*/true, /*coreRangeSetOverride=*/nullptr);
+          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false, coreRangeSet);
     }
 
     mlir::RankedTensorType scalerType = mlir::RankedTensorType::get(

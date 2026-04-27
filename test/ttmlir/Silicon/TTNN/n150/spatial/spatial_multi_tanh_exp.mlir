@@ -6,7 +6,7 @@
 #ttmetal_layout = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, dram, interleaved>
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #parallel = #ttcore.iterator_type<parallel>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>,memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>,memref<2x4x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 
 #vgm_inv = affine_map<(d0, d1) -> (0, d0 - 2, d1)>
 #vgm_fwd = affine_map<(d0, d1, d2, d3) -> (d0 + 2, d1, d2, d3)>

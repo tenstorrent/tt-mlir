@@ -119,7 +119,7 @@ public:
         bufferType,
         CreateGrid(&context, bufferType, tensorMemoryLayout,
                    virtualGridSelected, physicalGrid),
-        memLayoutAttr);
+        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutInt32(
@@ -148,7 +148,7 @@ public:
         &context, tensorShape, tileType, bufferType,
         CreateGrid(&context, bufferType, tensorMemoryLayout,
                    virtualGridSelected, physicalGrid),
-        memLayoutAttr);
+        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutUInt32(
@@ -187,7 +187,7 @@ public:
         &context, tensorShape, dtypeSelected, bufferType,
         CreateGrid(&context, bufferType, tensorMemoryLayout,
                    virtualGridSelected, physicalGrid),
-        memLayoutAttr);
+        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayoutInt32(
@@ -213,7 +213,7 @@ public:
         &context, tensorShape, int32DataType, bufferType,
         CreateGrid(&context, bufferType, tensorMemoryLayout,
                    virtualGridSelected, physicalGrid),
-        memLayoutAttr);
+        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
   }
 
   llvm::SmallVector<int64_t>

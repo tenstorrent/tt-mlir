@@ -98,16 +98,18 @@ public:
       gridShape = {8, 8};
     }
 
+    auto deviceGrid = mlir::tt::ttcore::GridAttr::get(
+        &context, llvm::ArrayRef<int64_t>{8, 8});
     if (legalConfigs.find(op) == legalConfigs.end()) {
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          gridShape, tensorMemoryLayoutAttr)};
+          gridShape, deviceGrid, tensorMemoryLayoutAttr)};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          gridShape, tensorMemoryLayoutAttr));
+          gridShape, deviceGrid, tensorMemoryLayoutAttr));
     }
   }
 

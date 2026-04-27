@@ -62,6 +62,11 @@ public:
     return ttcore::GridAttr::get(&context, {8, 8});
   }
 
+  mlir::tt::ttcore::GridAttr testDeviceGrid() {
+    return mlir::tt::ttcore::GridAttr::get(&context,
+                                           llvm::ArrayRef<int64_t>{8, 8});
+  }
+
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
                                    BufferType bufferType,
                                    TensorMemoryLayout tensorMemoryLayout,
@@ -69,7 +74,7 @@ public:
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
     return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               gridShape,
+                               gridShape, testDeviceGrid(),
                                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout));
   }
@@ -138,7 +143,7 @@ public:
     for (const auto &[memLayout, gridShape] : shardSpecs) {
       auto layout = TTNNLayoutAttr::get(
           &context, shape, elementType, BufferType::L1, gridShape,
-          TensorMemoryLayoutAttr::get(&context, memLayout));
+          testDeviceGrid(), TensorMemoryLayoutAttr::get(&context, memLayout));
       pageLayoutArr[tiledIdx][shardedIdx].push_back(layout);
     }
 

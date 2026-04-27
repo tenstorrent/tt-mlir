@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttir-to-d2m="ttnn-mode=true" --d2m-grid-selection="ttnn-mode=true" --canonicalize %s | FileCheck %s
 
 #l1 = #ttnn.buffer_type<l1>
-#input_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x1>, memref<16x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, exactGrid = true>
-#output_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, exactGrid = true>
+#input_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x1>, memref<16x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 7)>]>>
+#output_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 7)>]>>
 module {
   func.func @test_redundant_to_layout_canonicalized(
     %arg0: tensor<4096x32xbf16, #input_layout>) -> tensor<4096x32xbf16, #output_layout> {

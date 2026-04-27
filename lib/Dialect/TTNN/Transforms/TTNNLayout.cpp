@@ -99,8 +99,8 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
   return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
-                             tensorGridShape, memoryLayoutAttr, tensorMeshAttr,
-                             collapseDimsRef);
+                             tensorGridShape, deviceGrid, memoryLayoutAttr,
+                             tensorMeshAttr, collapseDimsRef);
 }
 
 static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
@@ -136,6 +136,9 @@ public:
 };
 } // namespace
 
+// This rewriter only emits non-sharded targets (DRAM interleaved /
+// SystemMemory). CRS derivation returns null for those, so deviceGrid is
+// unused and defaults to a null GridAttr.
 static std::optional<RankedTensorType>
 createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
                   BufferType desiredBufferType, bool tiled) {
@@ -178,11 +181,12 @@ createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
   }
 
   // Create a new ttnn layout with the desired buffer type, element type and
-  // memory layout
+  // memory layout. deviceGrid is null because this helper only produces
+  // non-sharded targets.
   TTNNLayoutAttr encoding = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
-      ttnnLayoutAttr.getGridShape(), desiredMemLayoutAttr, desiredTensorMesh,
-      g_defaultCollapseDims);
+      ttnnLayoutAttr.getGridShape(), /*deviceGrid=*/ttcore::GridAttr{},
+      desiredMemLayoutAttr, desiredTensorMesh, g_defaultCollapseDims);
 
   return mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
                                      encoding);
@@ -309,7 +313,8 @@ public:
       return failure();
     }
 
-    // Create a FromDevice operation for each operand.
+    // Create a FromDevice operation for each operand. SystemMemory is
+    // non-sharded — `createToLayoutOp` doesn't touch deviceGrid here.
     SmallVector<Value, 4> fromDeviceOperands;
     size_t locIdx = 0;
     for (auto operand : callOp.getOperands()) {

@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/TensorLayouts.h"
@@ -91,9 +92,10 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
     elementType = ttcore::TileType::get(elementType);
   }
 
+  ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
   TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
       op->getContext(), tensorShape, elementType,
-      layoutOverride.bufferType.value(), gridShape,
+      layoutOverride.bufferType.value(), gridShape, deviceGrid,
       TensorMemoryLayoutAttr::get(op->getContext(),
                                   layoutOverride.tensorMemoryLayout.value()));
 

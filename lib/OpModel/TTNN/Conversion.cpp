@@ -235,16 +235,15 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
 
-::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout,
-                                             ttcore::GridAttr deviceGrid) {
-  CoreRangeSetAttr coreRangeSetAttr = layout.getCoreRangeSet(deviceGrid);
+::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {
+  CoreRangeSetAttr coreRangeSetAttr = layout.getCoreRangeSet();
   assert(coreRangeSetAttr &&
          "sharded TTNNLayoutAttr expected when building a metal CoreRangeSet");
   return getCoreRangeSet(coreRangeSetAttr);
 }
 
 std::optional<::tt::tt_metal::ShardSpec>
-getShardSpec(const TTNNLayoutAttr &layout, ttcore::GridAttr deviceGrid) {
+getShardSpec(const TTNNLayoutAttr &layout) {
   if (layout.getIgnorePhysicalLayout()) {
     return std::nullopt;
   }
@@ -256,7 +255,7 @@ getShardSpec(const TTNNLayoutAttr &layout, ttcore::GridAttr deviceGrid) {
 
   // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
   // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
-  return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout, deviceGrid),
+  return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout),
                                    getShardShape(layout),
                                    ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 }
@@ -353,13 +352,12 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
   return getTensorMemoryLayout(tensorMemoryLayout);
 }
 
-::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout,
-                                             ttcore::GridAttr deviceGrid) {
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
   auto tensorMemoryLayout = getTensorMemoryLayout(
       layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
   auto bufferType = getBufferType(layout);
 
-  auto shardSpec = getShardSpec(layout, deviceGrid);
+  auto shardSpec = getShardSpec(layout);
   return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
                                       shardSpec);
 }
@@ -391,20 +389,17 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
                                       shardSpec);
 }
 
-::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout,
-                                             ttcore::GridAttr deviceGrid) {
+::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout) {
   return ::tt::tt_metal::TensorLayout(getDataType(layout.getDataType()),
                                       getPageLayout(layout),
-                                      getMemoryConfig(layout, deviceGrid));
+                                      getMemoryConfig(layout));
 }
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const TTNNLayoutAttr &layout,
-                                 ttcore::GridAttr deviceGrid) {
+                                 const TTNNLayoutAttr &layout) {
   assert(!layout.getIgnorePhysicalLayout() &&
          "TensorSpecs cannot be created without physical layouts");
-  return ::ttnn::TensorSpec(getShape(shape),
-                            getTensorLayout(layout, deviceGrid));
+  return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
 }
 
 bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
@@ -671,8 +666,12 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
     gridShape = getLogicalGridShape(tensorSpec.memory_config(), deviceGrid);
   }
 
+  // Build a deviceGrid attr from the ArrayRef so the high-level get() can
+  // derive the canonical CoreRangeSet for sharded layouts.
+  ttcore::GridAttr deviceGridAttr = ttcore::GridAttr::get(context, deviceGrid);
+
   return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridShape,
-                             memoryLayoutAttr);
+                             deviceGridAttr, memoryLayoutAttr);
 }
 
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>

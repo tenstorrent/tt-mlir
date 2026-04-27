@@ -2386,16 +2386,8 @@ public:
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
 
-    ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
-        layoutAttr.getContext(), layoutAttr.getBufferType());
-    ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
-
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
-    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
-        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
-                                             deviceAttr.getWorkerGrid()));
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(layoutAttr);
 
     return emit(memoryConfigAttr);
   }
