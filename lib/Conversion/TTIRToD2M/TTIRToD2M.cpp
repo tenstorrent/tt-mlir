@@ -257,49 +257,6 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  RankedTensorType getOptimalLayoutType(RankedTensorType tensorType,
-                                        ttcore::MemorySpace memSpace,
-                                        bool tiled, bool noCollapse,
-                                        mlir::OpBuilder &builder,
-                                        ttcore::OOBVal oobVal) const {
-    ArrayRef<int64_t> logicalShape = tensorType.getShape();
-
-    Type elementType = tensorType.getElementType();
-    llvm::SmallVector<int64_t> tileShape;
-    if (tiled) {
-      constexpr std::array<int64_t, 2> defaultShape =
-          ttcore::TileType::getDefaultShape();
-      tileShape.assign(defaultShape.begin(), defaultShape.end());
-      elementType = ttcore::TileType::get(elementType, tileShape);
-    }
-
-    ttcore::MetalLayoutAttr layout;
-    if (!collapseTensors || noCollapse) {
-      auto emptyIntervalType = RankedTensorType::get(
-          {0, 2}, IntegerType::get(builder.getContext(), 64));
-
-      DenseIntElementsAttr emptyCollapseIntervals =
-          DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
-
-      layout = ttcore::MetalLayoutAttr::get(
-          builder.getContext(), logicalShape, oobVal, memSpace,
-          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
-
-    } else {
-      layout = ttcore::MetalLayoutAttr::get(
-          builder.getContext(), logicalShape, oobVal, memSpace,
-          ttcore::TensorMemoryLayout::Sharded);
-    }
-
-    llvm::SmallVector<int64_t> unshardedShape =
-        layout.getPhysicalShape(tileShape);
-    llvm::SmallVector<int64_t> simpleGrid(unshardedShape.size(), 1);
-    llvm::SmallVector<int64_t> shardedShape =
-        layout.getDeviceShape(simpleGrid, tileShape);
-
-    return mlir::RankedTensorType::get(shardedShape, elementType, layout);
-  }
-
   // Create a ToLayout operation for a value using the provided layout
   // information with a simple 1x1 grid; actual grid optimization and proper
   // dimension alignments are computed later in the D2MGridSelection pass.
@@ -3114,14 +3071,9 @@ public:
     auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
     auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
 
-    if (!indicesType.getElementType().isInteger(32)) {
-      return rewriter.notifyMatchFailure(op,
-                                         "D2M embedding requires i32 indices");
-    }
-    if (!mlir::isa<Float32Type>(weightType.getElementType()) ||
-        !mlir::isa<Float32Type>(resultType.getElementType())) {
+    if (indicesType.getRank() < 2) {
       return rewriter.notifyMatchFailure(
-          op, "D2M embedding currently supports f32 weight and output only");
+          op, "D2M embedding currently requires at least 2D indices");
     }
     if (weightType.getRank() != 2) {
       return rewriter.notifyMatchFailure(op,
@@ -3136,21 +3088,10 @@ public:
       }
       numIndices *= dim;
     }
-    if (indicesType.getShape().back() % 4 != 0) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M embedding requires the innermost index dimension to be "
-              "16-byte aligned");
-    }
-
     int64_t embeddingDim = weightType.getShape().back();
     if (ShapedType::isDynamic(embeddingDim)) {
       return rewriter.notifyMatchFailure(
           op, "D2M embedding requires static embedding dimension");
-    }
-    if (embeddingDim % 4 != 0) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M embedding requires f32 embedding dimension to be 16-byte "
-              "aligned");
     }
 
     Location loc = op.getLoc();
@@ -3160,16 +3101,43 @@ public:
         createOptimalLayoutOp(op.getWeight(), memorySpaces[0],
                               /*tiled=*/false, /*noCollapse=*/false, rewriter)};
 
-    RankedTensorType outputType = getOptimalLayoutType(
-        resultType, memorySpaces[1],
-        /*tiled=*/false, /*noCollapse=*/false, rewriter, ttcore::OOBVal::Undef);
-    auto embedding = rewriter.create<d2m::EmbeddingOp>(
-        loc, outputType, inputs[0], inputs[1],
-        rewriter.getI64IntegerAttr(numIndices),
-        rewriter.getI64IntegerAttr(embeddingDim),
-        rewriter.getDenseI64ArrayAttr(indicesType.getShape()));
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {resultType});
+    SmallVector<Value> outputs{
+        createOptimalLayoutOp(origOutputs[0], memorySpaces[1],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, embedding.getResult(),
+    auto outputTensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
+    auto grid = ttcore::GridAttr::get(
+        rewriter.getContext(), outputLayout.getGridShape(outputTensorType));
+    ArrayAttr threads = rewriter.getArrayAttr(
+        {rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Datamovement)});
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, TypeRange(outputs), inputs, outputs,
+        /*additionalArgs=*/ValueRange(), grid, rewriter.getI64ArrayAttr({}),
+        rewriter.getAffineMapArrayAttr({}), rewriter.getArrayAttr({}), threads,
+        /*fabricConnectionConfig=*/nullptr, /*numRegions=*/1);
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      Region &region = generic->getRegion(0);
+      Block *block = rewriter.createBlock(&region);
+      rewriter.setInsertionPointToStart(block);
+      auto embedding = rewriter.create<d2m::EmbeddingOp>(
+          loc, outputs[0].getType(), inputs[0], inputs[1], outputs[0],
+          rewriter.getI64IntegerAttr(numIndices),
+          rewriter.getI64IntegerAttr(embeddingDim),
+          rewriter.getDenseI64ArrayAttr(indicesType.getShape()));
+      rewriter.create<d2m::YieldOp>(loc, embedding.getResult());
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
     return success();
   }

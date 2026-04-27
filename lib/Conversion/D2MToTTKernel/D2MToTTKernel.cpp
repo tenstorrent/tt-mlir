@@ -2075,7 +2075,7 @@ static SmallVector<Value> decomposeLinearIndex(OpBuilder &rewriter,
   decomposed.reserve(shape.size());
 
   Value remaining = linearIndex;
-  for (uint64_t dim = 0, e = shape.size(); dim < e; ++dim) {
+  for (size_t dim = 0, e = shape.size(); dim < e; ++dim) {
     if (dim == e - 1) {
       decomposed.push_back(remaining);
       break;
@@ -2131,21 +2131,6 @@ static SmallVector<Value> getCollapsed2DElementIndices(OpBuilder &rewriter,
   return {gridY, gridX, shardY, shardX};
 }
 
-static SmallVector<Value> getIndexTensorElementIndices(
-    OpBuilder &rewriter, Location loc, MemRefType memrefType,
-    ArrayRef<int64_t> logicalShape, Value linearIndex) {
-  int64_t logicalColumns = logicalShape.empty() ? 1 : logicalShape.back();
-  Value row = index(rewriter, loc, 0);
-  Value column = linearIndex;
-  if (logicalShape.size() > 1) {
-    Value columnExtent = index(rewriter, loc, logicalColumns);
-    row = rewriter.create<arith::DivSIOp>(loc, linearIndex, columnExtent);
-    Value rowBase = rewriter.create<arith::MulIOp>(loc, row, columnExtent);
-    column = rewriter.create<arith::SubIOp>(loc, linearIndex, rowBase);
-  }
-  return getCollapsed2DElementIndices(rewriter, loc, memrefType, row, column);
-}
-
 static Value getCollapsedOutputRow(OpBuilder &rewriter, Location loc,
                                    ArrayRef<int64_t> logicalShape,
                                    Value linearIndex,
@@ -2170,6 +2155,53 @@ static Value getCollapsedOutputRow(OpBuilder &rewriter, Location loc,
     row = rewriter.create<arith::AddIOp>(loc, row, term);
   }
   return row;
+}
+
+static Value buildMappedL1NocAddr(OpBuilder &rewriter, Location loc, Value base,
+                                  AffineMap memoryMap,
+                                  ValueRange logicalIndices,
+                                  ttcore::ChipDescAttr chipDesc) {
+  SmallVector<Value> mappedIndices =
+      d2m::utils::applyMap(rewriter, loc, memoryMap, logicalIndices, true);
+  return buildNocAddress(rewriter, loc, base, mappedIndices, chipDesc,
+                         ttcore::MemorySpace::DeviceL1);
+}
+
+static Value loadI32FromL1PacketThroughScratch(OpBuilder &rewriter,
+                                               Location loc, Value scratchCb,
+                                               Value srcNocAddr, Value laneI32,
+                                               Value transferSizeBytes,
+                                               Value onePage) {
+  rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
+  Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
+  rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
+                                            transferSizeBytes);
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
+  rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
+  Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
+  Value l1Ptr = rewriter.create<ttkernel::CastToL1PtrOp>(loc, readPtr);
+  Value value = rewriter.create<ttkernel::LoadFromL1Op>(loc, l1Ptr, laneI32);
+  rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
+  return value;
+}
+
+static void copyL1ToL1ThroughScratch(OpBuilder &rewriter, Location loc,
+                                     Value scratchCb, Value srcNocAddr,
+                                     Value dstNocAddr, Value transferSizeBytes,
+                                     Value onePage) {
+  rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
+  Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
+  rewriter.create<ttkernel::NocAsyncReadOp>(loc, srcNocAddr, writePtr,
+                                            transferSizeBytes);
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
+  rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
+  Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
+  rewriter.create<ttkernel::NocAsyncWriteOp>(loc, readPtr, dstNocAddr,
+                                             transferSizeBytes);
+  rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+  rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
 }
 
 template <typename ReadWritePtrOp>
@@ -2416,16 +2448,6 @@ public:
       return rewriter.notifyMatchFailure(
           op, "embedding currently requires collapsed 2D sharded memrefs");
     }
-    if (op.getEmbeddingDim() % 4 != 0) {
-      return rewriter.notifyMatchFailure(
-          op, "embedding currently requires f32 embeddingDim to be 16-byte "
-              "aligned");
-    }
-    if (op.getIndicesShape().empty() || op.getIndicesShape().back() % 4 != 0) {
-      return rewriter.notifyMatchFailure(
-          op, "embedding currently requires the innermost index dimension to "
-              "be 16-byte aligned");
-    }
 
     Location loc = op.getLoc();
     auto chipDesc = ttcore::getOpChipDescAttr(op);
@@ -2448,9 +2470,21 @@ public:
     AffineMap outputMemoryMap =
         d2m::utils::getMemoryMap(device, op.getOutput(), true);
 
+    constexpr int64_t kIndexTransferSizeBytes = 16;
+    constexpr int64_t kMaxRowTransferSizeBytes = 16;
+    int64_t rowElementSizeBytes =
+        ttcore::getElementSizeBytes(weightType.getElementType());
+    int64_t rowElementsPerTransfer =
+        kMaxRowTransferSizeBytes / rowElementSizeBytes;
+
     Value onePage = i32(rewriter, loc, 1);
-    Value alignedReadSizeBytes = i32(rewriter, loc, 16);
+    Value indexTransferSizeBytes = i32(rewriter, loc, kIndexTransferSizeBytes);
+    Value rowElementSizeBytesValue = i32(rewriter, loc, rowElementSizeBytes);
+    Value maxRowElementsPerTransfer =
+        index(rewriter, loc, rowElementsPerTransfer);
     Value fourIndex = index(rewriter, loc, 4);
+    Value rowStep = index(rewriter, loc, rowElementsPerTransfer);
+    Value oneIndex = index(rewriter, loc, 1);
     Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
     Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
     Value startIndex = rewriter.create<arith::MulIOp>(
@@ -2472,92 +2506,77 @@ public:
     Value endColumn = rewriter.create<arith::SelectOp>(
         loc, columnEndsBeforeTensorEnd, tentativeEndColumn, embeddingDim);
 
-    auto buildMappedL1NocAddr = [&](Value base, AffineMap memoryMap,
-                                    ValueRange logicalIndices) -> Value {
-      PatternRewriter &patternRewriter = rewriter;
-      SmallVector<Value> mappedIndices = d2m::utils::applyMap(
-          patternRewriter, loc, memoryMap, logicalIndices, true);
-      return buildNocAddress(rewriter, loc, base, mappedIndices, chipDesc,
-                             ttcore::MemorySpace::DeviceL1);
-    };
-
-    auto loop = rewriter.create<scf::ForOp>(loc, startIndex, endIndex,
-                                            index(rewriter, loc, 1));
+    auto loop =
+        rewriter.create<scf::ForOp>(loc, startIndex, endIndex, oneIndex);
 
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
       Value i = loop.getInductionVar();
-      Value indexGroup = rewriter.create<arith::DivSIOp>(loc, i, fourIndex);
-      Value indexGroupStart =
-          rewriter.create<arith::MulIOp>(loc, indexGroup, fourIndex);
-      Value indexLane = rewriter.create<arith::SubIOp>(loc, i, indexGroupStart);
+      int64_t logicalColumns = indicesShape.back();
+      Value indexRow = index(rewriter, loc, 0);
+      Value indexColumn = i;
+      if (indicesShape.size() > 1) {
+        Value columnExtent = index(rewriter, loc, logicalColumns);
+        indexRow = rewriter.create<arith::DivSIOp>(loc, i, columnExtent);
+        Value rowBase =
+            rewriter.create<arith::MulIOp>(loc, indexRow, columnExtent);
+        indexColumn = rewriter.create<arith::SubIOp>(loc, i, rowBase);
+      }
+      Value indexColumnGroup =
+          rewriter.create<arith::DivSIOp>(loc, indexColumn, fourIndex);
+      Value indexGroupColumn =
+          rewriter.create<arith::MulIOp>(loc, indexColumnGroup, fourIndex);
+      Value indexLane =
+          rewriter.create<arith::SubIOp>(loc, indexColumn, indexGroupColumn);
       Value indexLaneI32 = rewriter.create<arith::IndexCastOp>(
           loc, rewriter.getI32Type(), indexLane);
 
-      rewriter.create<ttkernel::CBReserveBackOp>(loc, adaptor.getIndexScratch(),
-                                                 onePage);
-      Value indexWritePtr = rewriter.create<ttkernel::GetWritePtrOp>(
-          loc, adaptor.getIndexScratch());
-      SmallVector<Value> indexLogicalIndices = getIndexTensorElementIndices(
-          rewriter, loc, indicesType, indicesShape, indexGroupStart);
-      Value indexNocAddr = buildMappedL1NocAddr(
-          adaptor.getIndices(), indicesMemoryMap, indexLogicalIndices);
-      rewriter.create<ttkernel::NocAsyncReadOp>(
-          loc, indexNocAddr, indexWritePtr, alignedReadSizeBytes);
-      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
-      rewriter.create<ttkernel::CBPushBackOp>(loc, adaptor.getIndexScratch(),
-                                              onePage);
-      rewriter.create<ttkernel::CBWaitFrontOp>(loc, adaptor.getIndexScratch(),
-                                               onePage);
-      Value indexReadPtr = rewriter.create<ttkernel::GetReadPtrOp>(
-          loc, adaptor.getIndexScratch());
-      Value indexL1Ptr =
-          rewriter.create<ttkernel::CastToL1PtrOp>(loc, indexReadPtr);
-      Value indexValue = rewriter.create<ttkernel::LoadFromL1Op>(
-          loc, indexL1Ptr, indexLaneI32);
-      rewriter.create<ttkernel::CBPopFrontOp>(loc, adaptor.getIndexScratch(),
-                                              onePage);
+      SmallVector<Value> indexLogicalIndices = getCollapsed2DElementIndices(
+          rewriter, loc, indicesType, indexRow, indexGroupColumn);
+      Value indexNocAddr =
+          buildMappedL1NocAddr(rewriter, loc, adaptor.getIndices(),
+                               indicesMemoryMap, indexLogicalIndices, chipDesc);
+      Value indexValue = loadI32FromL1PacketThroughScratch(
+          rewriter, loc, adaptor.getIndexScratch(), indexNocAddr, indexLaneI32,
+          indexTransferSizeBytes, onePage);
 
       Value weightRowIndex = rewriter.create<arith::IndexCastOp>(
           loc, rewriter.getIndexType(), indexValue);
+      Value outputRow =
+          getCollapsedOutputRow(rewriter, loc, indicesShape, i,
+                                getCollapsed2DPhysicalRows(outputType));
       auto columnLoop =
-          rewriter.create<scf::ForOp>(loc, startColumn, endColumn, fourIndex);
+          rewriter.create<scf::ForOp>(loc, startColumn, endColumn, rowStep);
       {
         OpBuilder::InsertionGuard columnGuard(rewriter);
         rewriter.setInsertionPointToStart(columnLoop.getBody());
         Value j = columnLoop.getInductionVar();
+        Value remainingElements =
+            rewriter.create<arith::SubIOp>(loc, endColumn, j);
+        Value hasTailTransfer = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::slt, remainingElements,
+            maxRowElementsPerTransfer);
+        Value rowElementsThisTransfer = rewriter.create<arith::SelectOp>(
+            loc, hasTailTransfer, remainingElements, maxRowElementsPerTransfer);
+        Value rowElementsThisTransferI32 = rewriter.create<arith::IndexCastOp>(
+            loc, rewriter.getI32Type(), rowElementsThisTransfer);
+        Value rowTransferSizeBytes = rewriter.create<arith::MulIOp>(
+            loc, rowElementsThisTransferI32, rowElementSizeBytesValue);
 
-        rewriter.create<ttkernel::CBReserveBackOp>(loc, adaptor.getRowScratch(),
-                                                   onePage);
-        Value rowWritePtr = rewriter.create<ttkernel::GetWritePtrOp>(
-            loc, adaptor.getRowScratch());
         SmallVector<Value> weightLogicalIndices = getCollapsed2DElementIndices(
             rewriter, loc, weightType, weightRowIndex, j);
         Value weightNocAddr = buildMappedL1NocAddr(
-            adaptor.getWeight(), weightMemoryMap, weightLogicalIndices);
-        rewriter.create<ttkernel::NocAsyncReadOp>(
-            loc, weightNocAddr, rowWritePtr, alignedReadSizeBytes);
-        rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
-        rewriter.create<ttkernel::CBPushBackOp>(loc, adaptor.getRowScratch(),
-                                                onePage);
-        rewriter.create<ttkernel::CBWaitFrontOp>(loc, adaptor.getRowScratch(),
-                                                 onePage);
-
-        Value rowReadPtr = rewriter.create<ttkernel::GetReadPtrOp>(
-            loc, adaptor.getRowScratch());
-        Value outputRow =
-            getCollapsedOutputRow(rewriter, loc, indicesShape, i,
-                                  getCollapsed2DPhysicalRows(outputType));
+            rewriter, loc, adaptor.getWeight(), weightMemoryMap,
+            weightLogicalIndices, chipDesc);
         SmallVector<Value> outputLogicalIndices = getCollapsed2DElementIndices(
             rewriter, loc, outputType, outputRow, j);
         Value outputNocAddr = buildMappedL1NocAddr(
-            adaptor.getOutput(), outputMemoryMap, outputLogicalIndices);
-        rewriter.create<ttkernel::NocAsyncWriteOp>(
-            loc, rowReadPtr, outputNocAddr, alignedReadSizeBytes);
-        rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
-        rewriter.create<ttkernel::CBPopFrontOp>(loc, adaptor.getRowScratch(),
-                                                onePage);
+            rewriter, loc, adaptor.getOutput(), outputMemoryMap,
+            outputLogicalIndices, chipDesc);
+        copyL1ToL1ThroughScratch(rewriter, loc, adaptor.getRowScratch(),
+                                 weightNocAddr, outputNocAddr,
+                                 rowTransferSizeBytes, onePage);
       }
     }
 

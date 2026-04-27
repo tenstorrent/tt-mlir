@@ -1630,16 +1630,16 @@ def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
       Data-movement embedding lookup. The op reads integer indices and a row-major
       embedding table, then writes the selected table rows to the output buffer.
 
-      The tensor form is emitted by TTIRToD2M without scratch operands. During
-      bufferization, scratch circular buffers are allocated for the fetched index
-      and one embedding row. The TTKernel lowering implements the row gather with
-      NoC reads and writes.
+      The tensor form is emitted by TTIRToD2M with an output tensor operand and
+      a tensor result. During bufferization, scratch circular buffers are
+      allocated for the fetched index and one embedding row. The TTKernel
+      lowering implements the row gather with NoC reads and writes.
     }];
 
     let arguments = (ins
       AnyRankedTensorOrMemRef:$indices,
       AnyRankedTensorOrMemRef:$weight,
-      Optional<AnyRankedTensorOrMemRef>:$output,
+      AnyRankedTensorOrMemRef:$output,
       Optional<AnyRankedTensorOrMemRef>:$indexScratch,
       Optional<AnyRankedTensorOrMemRef>:$rowScratch,
       I64Attr:$numIndices,
@@ -1650,11 +1650,12 @@ def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
 
     let builders = [
       OpBuilder<(ins "Type":$resultType, "Value":$indices, "Value":$weight,
+                     "Value":$output,
                      "IntegerAttr":$numIndices, "IntegerAttr":$embeddingDim,
                      "DenseI64ArrayAttr":$indicesShape), [{
         build($_builder, $_state, TypeRange(resultType), indices, weight,
-              /*output=*/Value{}, /*indexScratch=*/Value{},
-              /*rowScratch=*/Value{}, numIndices, embeddingDim, indicesShape);
+              output, /*indexScratch=*/Value{}, /*rowScratch=*/Value{},
+              numIndices, embeddingDim, indicesShape);
       }]>,
       OpBuilder<(ins "Value":$indices, "Value":$weight, "Value":$output,
                      "Value":$indexScratch, "Value":$rowScratch,
@@ -1667,11 +1668,11 @@ def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
     ];
 
     let assemblyFormat = [{
-      $indices `,` $weight (`,` $output^)?
+      $indices `,` $weight `,` $output
       (`scratch` $indexScratch^ `,` $rowScratch)?
       `<` $numIndices `,` $embeddingDim `>`
       attr-dict `:` type($indices) `,` type($weight)
-      (`,` type($output)^)?
+      `,` type($output)
       (`->` type($result)^)?
       (`,` type($indexScratch)^ `,` type($rowScratch))?
     }];
