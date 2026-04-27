@@ -88,20 +88,21 @@ private:
         rewriter.setInsertionPoint(genericOp);
         auto aliasedOperand =
             genericOp.getOperand(aliasForOperandAttr.getInt());
-        auto operandMemRefType =
-            mlir::cast<MemRefType>(aliasedOperand.getType());
-        unsigned numStreamBuffers =
-            ttmlir::utils::volume(operandMemRefType.getShape()) /
-            ttmlir::utils::volume(allocOp.getType().getShape());
-        auto cbLayout = ttcore::CBLayoutAttr::get(
-            &getContext(), allocOp.getType().getShape(),
-            ttcore::getElementSizeBytes(allocOp.getType().getElementType()),
-            numStreamBuffers);
-        auto newMemRefType = MemRefType::get(
-            allocOp.getType().getShape(), allocOp.getType().getElementType(),
-            cbLayout, allocOp.getType().getMemorySpace());
+        // TODO: add back later
+        // auto operandMemRefType =
+        //    mlir::cast<MemRefType>(aliasedOperand.getType());
+        // unsigned numStreamBuffers =
+        //    ttmlir::utils::volume(operandMemRefType.getShape()) /
+        //    ttmlir::utils::volume(allocOp.getType().getShape());
+        // auto cbLayout = ttcore::CBLayoutAttr::get(
+        //    &getContext(), allocOp.getType().getShape(),
+        //    ttcore::getElementSizeBytes(allocOp.getType().getElementType()),
+        //    numStreamBuffers);
+        // auto newMemRefType = MemRefType::get(
+        //    allocOp.getType().getShape(), allocOp.getType().getElementType(),
+        //    cbLayout, allocOp.getType().getMemorySpace());
         auto externalAlias = rewriter.create<d2m::OperandAliasOp>(
-            genericOp.getLoc(), newMemRefType, aliasedOperand);
+            genericOp.getLoc(), allocOp.getType(), aliasedOperand);
         genericOp.getAdditionalArgsMutable().append(externalAlias.getResult());
         rewriter.replaceOp(allocOp, externalAlias.getResult());
       }

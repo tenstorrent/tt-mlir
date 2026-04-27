@@ -53,7 +53,8 @@ public:
   static KernelArgsAttr
   evalKernelArgsFromSpec(Builder &builder, const SymbolTable &symbolTable,
                          SymbolRefAttr kernelSymbol,
-                         const DenseMap<size_t, size_t> &cbOperandIndexToPort) {
+                         const DenseMap<size_t, size_t> &cbOperandIndexToPort,
+                         const DenseMap<uint32_t, uint32_t> &argMapping) {
     auto kernelFunc =
         symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
     ttkernel::ArgSpecAttr kernelSpec =
@@ -65,18 +66,24 @@ public:
       if (arg.getArgType() == ttkernel::ArgType::CB) {
         rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
-      } else {
+      } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
         rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), arg.getOperandIndex()));
+      } else {
+        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), argMapping.at(arg.getOperandIndex())));
       }
     }
     for (ttkernel::ArgAttr arg : kernelSpec.getCtArgs()) {
       if (arg.getArgType() == ttkernel::ArgType::CB) {
         ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
-      } else {
+      } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
         ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), arg.getOperandIndex()));
+      } else {
+        ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), argMapping.at(arg.getOperandIndex())));
       }
     }
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
@@ -86,14 +93,16 @@ public:
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
       CoreRangeAttr coreRange, const SymbolTable &symbolTable,
       ttmetal::MathFidelity mathFidelity,
-      const DenseMap<size_t, size_t> &cbOperandIndexToPort) {
+      const DenseMap<size_t, size_t> &cbOperandIndexToPort,
+      const DenseMap<uint32_t, uint32_t> &argMapping) {
     SmallVector<Attribute> kernelConfigs;
     int unassignedNocCounter = 0;
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
-      KernelArgsAttr kernelArgs = evalKernelArgsFromSpec(
-          builder, symbolTable, thread.getKernelSymbol(), cbOperandIndexToPort);
+      KernelArgsAttr kernelArgs =
+          evalKernelArgsFromSpec(builder, symbolTable, thread.getKernelSymbol(),
+                                 cbOperandIndexToPort, argMapping);
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case d2m::ThreadType::Compute: {
@@ -151,15 +160,18 @@ public:
 
     llvm::SmallVector<Value> remappedBuffers;
     llvm::SmallVector<Value> args;
+    DenseMap<uint32_t, uint32_t> argMapping;
     for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
 
       if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
               operand.getDefiningOp());
           view) {
+        argMapping[i] = args.size();
         args.push_back(view.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
       } else {
+        argMapping[i] = args.size();
         args.push_back(operand);
         remappedBuffers.push_back(rewriter.getRemappedValue(operand));
       }
@@ -168,21 +180,23 @@ public:
     // Add additional args.
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
-    int64_t cbPort = 0;
     DenseMap<size_t, size_t> cbOperandIndexToPort;
     unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operandIndex = ioSize + i;
       auto operand = adaptor.getOperands()[operandIndex];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
+        argMapping[operandIndex] = args.size();
         args.push_back(operand);
       } else if (mlir::isa<ttmetal::LocalSemaphoreType>(operand.getType())) {
+        argMapping[operandIndex] = args.size();
         args.push_back(operand);
       } else if (auto memrefType =
                      mlir::dyn_cast_if_present<MemRefType>(operand.getType());
                  memrefType) {
-        assert(mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
-               "expected cb layout");
+        // TODO: add back later
+        // assert(mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
+        //       "expected cb layout");
         // Hoisted CB buffer (already converted to CreateBufferOp by
         // MemrefAllocRewriter).
         if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
@@ -200,15 +214,17 @@ public:
                   mlir::isa<memref::AllocOp>(aliasedMemref.getDefiningOp())) &&
                  "expected OperandAliasOp input to be a func argument or "
                  "memref::AllocOp");
+          unsigned cbPort = cbs.size();
           cbs.push_back(aliasedMemref);
           cbOperandIndexToPort[operandIndex] = cbPort;
-          cbPorts.push_back(cbPort++);
+          cbPorts.push_back(cbPort);
         } else if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
                        op.getOperands()[operandIndex].getDefiningOp());
                    allocOp) {
+          unsigned cbPort = cbs.size();
           cbs.push_back(operand);
           cbOperandIndexToPort[operandIndex] = cbPort;
-          cbPorts.push_back(cbPort++);
+          cbPorts.push_back(cbPort);
         } else {
           llvm_unreachable("expected alloc or aliad op for cb memref");
         }
@@ -227,7 +243,7 @@ public:
     CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
-        mathFidelity_, cbOperandIndexToPort);
+        mathFidelity_, cbOperandIndexToPort, argMapping);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, args, cbs, cbPorts, kernelConfigs,
         op.getFabricConnectionConfigAttr());
@@ -307,25 +323,13 @@ public:
     auto fwd = op->getAttrOfType<AffineMapAttr>(
         d2m::utils::kVirtualGridForwardMappingAttr);
 
+    assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr,
+                      ttcore::CBLayoutAttr>(memrefType.getLayout())) &&
+           "expected physical device layout (shard or interleaved)");
+
     // Hoisted CB allocs carry CBLayoutAttr (per-core local shape).
     // Keep the original type on CreateBufferOp so the dialect conversion
     // framework doesn't see a type mismatch.
-    if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
-      auto cbForOperandAttr =
-          op->getAttrOfType<IntegerAttr>("d2m.cb_for_operand");
-      auto cbOp = rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
-          op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
-          /*virtualGridForwardMapping=*/fwd);
-      if (cbForOperandAttr) {
-        cbOp->setAttr("d2m.cb_for_operand", cbForOperandAttr);
-      }
-      return success();
-    }
-
-    assert((mlir::isa<ttcore::ShardLayoutAttr, ttcore::InterleavedLayoutAttr>(
-               memrefType.getLayout())) &&
-           "expected physical device layout (shard or interleaved)");
-
     rewriter.replaceOpWithNewOp<ttmetal::CreateBufferOp>(
         op, memrefType, address, /*virtualGridInverseMapping=*/vgm,
         /*virtualGridForwardMapping=*/fwd);

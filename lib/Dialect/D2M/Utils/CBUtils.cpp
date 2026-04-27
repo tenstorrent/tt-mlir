@@ -11,26 +11,4 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
-namespace mlir::tt::d2m {
-
-// TODO: move to common util (used in generic region to funcs too)
-static std::optional<unsigned> getCapturedOperandIndex(GenericOp op,
-                                                       Value operand) {
-  for (OpOperand &opOperand : op->getOpOperands()) {
-    if (opOperand.get() == operand) {
-      return opOperand.getOperandNumber();
-    }
-  }
-  return std::nullopt;
-}
-
-unsigned getCBOperandIdx(GenericOp generic, Value cbGenericOperand) {
-  assert(mlir::isa<ttcore::CBLayoutAttr>(
-             mlir::cast<MemRefType>(cbGenericOperand.getType()).getLayout()) &&
-         "expected cb layout");
-  auto operandIndex = getCapturedOperandIndex(generic, cbGenericOperand);
-  assert(operandIndex && "expected captured operand");
-  return *operandIndex;
-}
-
-} // namespace mlir::tt::d2m
+namespace mlir::tt::d2m {} // namespace mlir::tt::d2m

@@ -309,16 +309,6 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
   return kernelConfigs;
 }
 
-static std::optional<unsigned> getCapturedOperandIndex(d2m::GenericOp op,
-                                                       Value operand) {
-  for (OpOperand &opOperand : op->getOpOperands()) {
-    if (opOperand.get() == operand) {
-      return opOperand.getOperandNumber();
-    }
-  }
-  return std::nullopt;
-}
-
 static std::pair<SmallVector<ttnn::KernelCBAttr>, DenseMap<size_t, size_t>>
 createCBDescriptors(Builder &builder, d2m::GenericOp op,
                     const ttcore::DeviceAttr &device,
@@ -334,7 +324,7 @@ createCBDescriptors(Builder &builder, d2m::GenericOp op,
     auto operand = op.getOperands()[operandIndex];
     // Check for hoisted CB buffer
     auto cbMemref = mlir::dyn_cast_if_present<MemRefType>(operand.getType());
-    if (!cbMemref || !mlir::isa<ttcore::CBLayoutAttr>(cbMemref.getLayout())) {
+    if (!cbMemref /*|| mlir::isa<ttcore::CBLayoutAttr>(cbMemref.getLayout()) TODO: add back later*/) {
       continue;
     }
 
@@ -354,7 +344,7 @@ createCBDescriptors(Builder &builder, d2m::GenericOp op,
       // OperandAliasOp's input is the generic's operand that this CB aliases.
       globalCBIndexOfTensor =
           ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(
-              ctx, *getCapturedOperandIndex(op, aliasOp.getMemref()));
+              ctx, op.getOperandIndex(aliasOp.getMemref()));
     } else {
       assert(mlir::isa<memref::AllocOp>(operand.getDefiningOp()) &&
              "expected alloc or alias op for cb memref");
@@ -679,9 +669,9 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       ttnnGenericAdditionalArgs.push_back(mapped);
     } else if (isa<d2m::LocalSemaphoreType>(arg.getType())) {
       // Local semaphores are described via createSemaphoreDescriptors; skip.
-    } else if (isa<MemRefType>(arg.getType()) &&
+    } else if (isa<MemRefType>(arg.getType()) /*&&
                mlir::isa<ttcore::CBLayoutAttr>(
-                   mlir::cast<MemRefType>(arg.getType()).getLayout())) {
+                   mlir::cast<MemRefType>(arg.getType()).getLayout()) TODO: add back later*/) {
       // CBs are described via createCBDescriptors; skip.
     } else {
       return op.emitOpError(

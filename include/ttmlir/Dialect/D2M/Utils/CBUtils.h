@@ -13,12 +13,6 @@ namespace mlir::tt::d2m {
 
 class GenericOp;
 
-/// Compute the CBType and create a d2m.get_cb op for a given operand of a
-/// generic op.  Results are cached to ensure each (generic, operand) pair gets
-/// exactly one CB value.  Port numbers are assigned sequentially and do NOT
-/// correspond to operand indices.
-unsigned getCBOperandIdx(GenericOp generic, Value cbGenericOperand);
-
 /// Trace a value through view-like operations (subview, expand_shape, etc.)
 /// and return the defining op if it matches OpT.  Returns null otherwise.
 template <typename OpT>

@@ -65,7 +65,10 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
   while (value) {
     // check if its a cb (hoisted generic arg with cb layout attr),
     if (auto memrefType = mlir::dyn_cast<MemRefType>(value.getType())) {
-      if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+      // TODO: add back later
+      // if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
+      if (llvm::find(genericOp.getAdditionalArgs(), value) !=
+          genericOp.getAdditionalArgs().end()) {
         return value;
       }
     }
@@ -264,7 +267,7 @@ static LogicalResult processSharedBufferPairs(
         isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
       Location loc = producer->getLoc();
       unsigned cbOperandIdx =
-          getCBOperandIdx(producer->getParentOfType<GenericOp>(), localBuffer);
+          producer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
       // Set insertion point before consumer so GetCBOp dominates WaitOp/PopOp
       rewriter.setInsertionPoint(consumer);
       auto cb =
@@ -284,7 +287,7 @@ static LogicalResult processSharedBufferPairs(
                isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
       Location loc = consumer->getLoc();
       unsigned cbOperandIdx =
-          getCBOperandIdx(consumer->getParentOfType<GenericOp>(), localBuffer);
+          consumer->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
       // Set insertion point before producer so GetCBOp dominates
       // ReserveOp/PushOp
       rewriter.setInsertionPoint(producer);
@@ -323,8 +326,9 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
         if (synchronizedOp.isConsumer(operand)) {
           Location loc = synchronizedOp.getLoc();
           Value localBuffer = operand.get();
-          unsigned cbOperandIdx = getCBOperandIdx(
-              synchronizedOp->getParentOfType<GenericOp>(), localBuffer);
+          unsigned cbOperandIdx =
+              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
+                  localBuffer);
 
           // get the associated producer for this operand
           // Assumes only one producer for this local buffer
@@ -362,8 +366,9 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
         if (synchronizedOp.isProducer(operand)) {
           Location loc = synchronizedOp.getLoc();
           Value localBuffer = operand.get();
-          unsigned cbOperandIdx = getCBOperandIdx(
-              synchronizedOp->getParentOfType<GenericOp>(), localBuffer);
+          unsigned cbOperandIdx =
+              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
+                  localBuffer);
 
           // get the associated consumer for this operand
           // Assumes only one consumer for this local buffer
@@ -442,7 +447,7 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     Value localBuffer = loadOp.getLocalBuffer();
     // llvm::errs() << "cbMemref: " << localBuffer << "\n";
     unsigned cbOperandIdx =
-        getCBOperandIdx(loadOp->getParentOfType<GenericOp>(), localBuffer);
+        loadOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
 
     rewriter.setInsertionPoint(loadOp);
     auto cb =
@@ -482,7 +487,7 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     Value localBuffer = storeOp.getLocalBuffer();
     assert(localBuffer && "could not find associated local buffer for store");
     unsigned cbOperandIdx =
-        getCBOperandIdx(storeOp->getParentOfType<GenericOp>(), localBuffer);
+        storeOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
 
     rewriter.setInsertionPoint(storeOp);
     auto cb =
