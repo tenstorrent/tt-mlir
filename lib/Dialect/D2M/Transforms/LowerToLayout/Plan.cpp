@@ -105,6 +105,26 @@ bool needsMasking(ttcore::MetalLayoutAttr layout, RankedTensorType tensorType) {
   return false;
 }
 
+// Some layout fields describe how an already-materialized physical buffer
+// should be interpreted. If those fields are the only differences, no data
+// movement is required.
+bool canReinterpretLayout(const PlanState &current, const PlanState &target) {
+  if (!current.hasLayout() || !target.hasLayout()) {
+    return false;
+  }
+  return current.type.getShape() == target.type.getShape() &&
+         current.type.getElementType() == target.type.getElementType() &&
+         current.getGridShape() == target.getGridShape() &&
+         current.getLayout()->getLogicalShape() ==
+             target.getLayout()->getLogicalShape() &&
+         current.getLayout()->getDimAlignments() ==
+             target.getLayout()->getDimAlignments() &&
+         current.getLayout()->getMemorySpace() ==
+             target.getLayout()->getMemorySpace() &&
+         current.getLayout()->getMemoryLayout() ==
+             target.getLayout()->getMemoryLayout();
+}
+
 // Collapse an ND virtual grid into a 2D bounce shape that fits within the
 // device grid. Used when staging data through interleaved DRAM on a unit grid.
 llvm::SmallVector<int64_t>
@@ -372,6 +392,19 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output);
   }
 
+  if (canReinterpretLayout(current, tgt) && current.type != tgt.type) {
+    // Metadata-only changes that do not require data mutation can be erased:
+    // downstream ops may continue to use the existing physical buffer/layout,
+    // which avoids creating type-only views that later lowering does not need.
+    bool needsMaskForOobChange =
+        current.getLayout()->getOobVal() != tgt.getLayout()->getOobVal() &&
+        needsMasking(*tgt.getLayout(), tgt.type);
+    if (needsMaskForOobChange) {
+      plan.push_back(ReinterpretLayoutStep{tgt.type});
+    }
+    current.type = tgt.type;
+  }
+
   // MAPPING CHANGE in L1 (grid / alignments / collapse).
   if (current.hasLayout() && tgt.hasLayout() && current.isL1() &&
       (ttcore::isTiled(current.type) == ttcore::isTiled(tgt.type))) {
@@ -423,33 +456,18 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     }
   }
 
-  // Some layout changes only update metadata (for example OOB fill policy).
-  if (current.hasLayout() && tgt.hasLayout() &&
-      current.type.getShape() == tgt.type.getShape() &&
-      current.type.getElementType() == tgt.type.getElementType() &&
-      current.getGridShape() == tgt.getGridShape() &&
-      current.getLayout()->getLogicalShape() ==
-          tgt.getLayout()->getLogicalShape() &&
-      current.getLayout()->getCollapsedIntervals() ==
-          tgt.getLayout()->getCollapsedIntervals() &&
-      current.getLayout()->getDimAlignments() ==
-          tgt.getLayout()->getDimAlignments() &&
-      current.getLayout()->getMemorySpace() ==
-          tgt.getLayout()->getMemorySpace() &&
-      current.getLayout()->getMemoryLayout() ==
-          tgt.getLayout()->getMemoryLayout() &&
-      current.getLayout()->getOobVal() != tgt.getLayout()->getOobVal()) {
-    plan.push_back(ReinterpretLayoutStep{tgt.type});
-    current.type = tgt.type;
-  }
-
   // Materialize into a fresh buffer when VGM changes or when we need to clear
   // an existing remapping before applying a different downstream view.
-  bool needsVgmChange = current.vgmForward != tgt.vgmForward ||
-                        current.vgmInverse != tgt.vgmInverse;
-  bool needsRemapMaterialization = current.remapping &&
-                                   !current.remapping.isEmpty() &&
-                                   current.remapping != tgt.remapping;
+  // Do not clear virtual-grid/remapping metadata on the way back to host here.
+  // If the grid is still virtual, the host-transfer path below must collapse it
+  // using that mapping; an early identity rebuffer would scramble the data.
+  bool canMaterializeMetadataChange = !tgt.isSystem();
+  bool needsVgmChange =
+      canMaterializeMetadataChange && (current.vgmForward != tgt.vgmForward ||
+                                       current.vgmInverse != tgt.vgmInverse);
+  bool needsRemapMaterialization =
+      canMaterializeMetadataChange && current.remapping &&
+      !current.remapping.isEmpty() && current.remapping != tgt.remapping;
   if (needsVgmChange || needsRemapMaterialization) {
     auto output = makeOutputSpec(current.type, tgt.vgmForward, tgt.vgmInverse);
     plan.push_back(RebufferStep{output});
