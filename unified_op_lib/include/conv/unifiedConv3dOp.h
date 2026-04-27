@@ -22,9 +22,9 @@ namespace unifiedOpLib {
 
 using TensorArg = std::variant<const ::ttnn::Tensor *, ::ttnn::TensorSpec>;
 
-using Conv3dOpResult = std::variant<::ttnn::graph::ConstraintQueryResponse,
-                                    ::ttnn::graph::RuntimeQueryResponse,
-                                    ::ttnn::Tensor>;
+using Conv3dOpResult =
+    std::variant<::ttnn::graph::ConstraintQueryResponse,
+                 ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
 
 struct Conv3dResolvedParams {
   std::array<uint32_t, 3> kernelSize;

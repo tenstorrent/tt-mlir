@@ -38,7 +38,8 @@ struct PrepareConvTranspose2dBiasResolvedParams {
   std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
 };
 
-PrepareConvTranspose2dBiasResolvedParams resolvePrepareConvTranspose2dBiasParams(
+PrepareConvTranspose2dBiasResolvedParams
+resolvePrepareConvTranspose2dBiasParams(
     const ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &opT,
     CallType callType);
 
