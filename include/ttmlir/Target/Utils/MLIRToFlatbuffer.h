@@ -1030,15 +1030,35 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::ttnn::Conv2dSliceConfig::Pack(*cache.fbb, &sliceConfigT);
 }
 
+inline ::tt::target::ttnn::Conv3dConfigT
+toNative(ttnn::Conv3dConfigAttr config) {
+  ::tt::target::ttnn::Conv3dConfigT conv3dConfigT;
+  if (config.getWeightsDtype()) {
+    conv3dConfigT.weights_dtype = toNative(*config.getWeightsDtype());
+  }
+  if (config.getTOutBlock()) {
+    conv3dConfigT.t_out_block = *config.getTOutBlock();
+  }
+  if (config.getWOutBlock()) {
+    conv3dConfigT.w_out_block = *config.getWOutBlock();
+  }
+  if (config.getHOutBlock()) {
+    conv3dConfigT.h_out_block = *config.getHOutBlock();
+  }
+  if (config.getCOutBlock()) {
+    conv3dConfigT.c_out_block = *config.getCOutBlock();
+  }
+  if (config.getCInBlock()) {
+    conv3dConfigT.c_in_block = *config.getCInBlock();
+  }
+  // compute_with_storage_grid_size not set here
+  return conv3dConfigT;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv3dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv3dConfigAttr config) {
-  return ::tt::target::ttnn::CreateConv3dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()),
-      toFlatbuffer(cache, config.getTOutBlock()),
-      toFlatbuffer(cache, config.getWOutBlock()),
-      toFlatbuffer(cache, config.getHOutBlock()),
-      toFlatbuffer(cache, config.getCOutBlock()),
-      toFlatbuffer(cache, config.getCInBlock()));
+  auto t = toNative(config);
+  return ::tt::target::ttnn::Conv3dConfig::Pack(*cache.fbb, &t);
 }
 
 inline ::tt::target::ttnn::DeviceComputeKernelConfigT

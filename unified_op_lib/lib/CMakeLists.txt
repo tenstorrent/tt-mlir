@@ -1,6 +1,7 @@
 add_library(TTUnifiedOpLib STATIC
   utils/utils.cpp
   conv/unifiedConv2dOp.cpp
+  conv/unifiedConv3dOp.cpp
   conv/unifiedConvTranspose2dOp.cpp
   conv/unifiedPrepareConv2dBiasOp.cpp
   conv/unifiedPrepareConv2dWeightsOp.cpp
