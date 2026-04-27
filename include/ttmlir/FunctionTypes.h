@@ -95,6 +95,10 @@ constexpr inline llvm::StringLiteral kImportedDeclarationValue =
 
 /// Attribute name for the source file of an imported declaration.
 constexpr inline llvm::StringLiteral kImportedFromAttrName = "tt.imported_from";
+
+/// Attribute name marking whether a forward device function inputs were
+/// split into activations and weights by TTNNSplitActivationsAndWeights.
+constexpr inline llvm::StringLiteral kSplitInputAttrName = "tt.is_split_input";
 } // namespace detail
 
 /// Returns the string value for the given function type.
@@ -198,13 +202,24 @@ inline void clearFunctionType(mlir::func::FuncOp funcOp) {
   funcOp->removeAttr(detail::kFunctionTypeAttrName);
 }
 
+/// Removes the split input attribute from the given function.
+inline void clearSplitInput(mlir::func::FuncOp funcOp) {
+  funcOp->removeAttr(detail::kSplitInputAttrName);
+}
+
 //===----------------------------------------------------------------------===//
 // Convenience query functions
 //===----------------------------------------------------------------------===//
 
-/// Returns true if the function is marked as a forward device function.
+/// Returns true if the function is a forward device function.
 inline bool isForwardDeviceFunc(mlir::func::FuncOp funcOp) {
   return hasFunctionType(funcOp, FunctionType::ForwardDevice);
+}
+
+/// Returns true if the function's inputs were split into activations and
+/// weights.
+inline bool isSplitInput(mlir::func::FuncOp funcOp) {
+  return funcOp->hasAttr(detail::kSplitInputAttrName);
 }
 
 /// Returns true if the function is marked as a forward CPU function.
@@ -274,6 +289,13 @@ inline void setImportedFrom(mlir::func::FuncOp funcOp,
                             llvm::StringRef fileName) {
   funcOp->setAttr(detail::kImportedFromAttrName,
                   mlir::StringAttr::get(funcOp->getContext(), fileName));
+}
+
+/// Marks a forward device function as having split inputs by
+/// TTNNSplitActivationsAndWeights.
+inline void setSplitInput(mlir::func::FuncOp funcOp) {
+  funcOp->setAttr(detail::kSplitInputAttrName,
+                  mlir::UnitAttr::get(funcOp->getContext()));
 }
 
 /// Gets the source file attribute from an imported declaration function.
