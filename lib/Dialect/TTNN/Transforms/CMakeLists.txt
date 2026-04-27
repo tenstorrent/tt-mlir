@@ -29,6 +29,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Decomposition/TTNNDecompositionPass.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
+        TTNNPostConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
         ${OPMODEL_SRCS}
         TTNNLayout.cpp

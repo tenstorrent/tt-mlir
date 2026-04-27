@@ -398,6 +398,7 @@ void createTTIRToTTNNDevicePipeline(
       // function inputs to system memory.
       if (options.enableConstEvalInputsToSystemMemory) {
         devicePm.addPass(createTTNNConstEvalInputsToSystemMemory());
+        devicePm.addPass(createTTNNPostConstEvalInputsToSystemMemory());
 
         // Clean up any redundant to_layout ops that may have been introduced
         // previously.

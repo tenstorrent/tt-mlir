@@ -449,6 +449,15 @@ def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-me
   }];
 }
 
+def TTNNPostConstEvalInputsToSystemMemory : Pass<"ttnn-post-const-eval-inputs-to-system-memory", "::mlir::ModuleOp"> {
+  let summary = "Placeholder pass after const-eval inputs move to system memory.";
+  let description = [{
+    This is an intentionally empty placeholder pass in the TTIR to TTNN backend
+    pipeline. It runs immediately after TTNNConstEvalInputsToSystemMemory so
+    future post-processing can be added at a stable hook point.
+  }];
+}
+
 def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"> {
   let summary = "Collect and export TTNN operation metrics.";
   let description = [{
