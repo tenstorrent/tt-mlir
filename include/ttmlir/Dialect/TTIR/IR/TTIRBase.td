@@ -49,29 +49,6 @@ def TTIR_Dialect : Dialect {
 class TTIR_Op<string mnemonic, list<Trait> traits = []> :
         Op<TTIR_Dialect, mnemonic, traits>;
 
-class TTIR_InplaceOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_Op<mnemonic, [MemoryEffects<[MemWrite]>] # traits> {
-
-    let description = [{
-      Base class for in-place operations that perform in-place mutations.
-
-      Unlike traditional DPS operations that return a new result tensor.
-      TTIR_InplaceOp represents operations that directly mutate their operand tensors
-      in memory. These operations:
-      - Produce no result tensors (empty `results` list)
-      - Have explicit MemWrite side-effects on mutated operands
-
-      Example:
-      ```mlir
-      %cache = ... : tensor<2x16x64xf32>  // Batch size 2, sequence length 16, hidden dim 64
-      %input = ... : tensor<2x1x64xf32>   // New token embeddings
-      %update_index = ... : tensor<1xi32> // Update at position [15]
-      ttir.update_cache(%cache, %input, %update_index) {batch_offset = 0 : i32} :
-          tensor<2x16x64xf32>, tensor<2x1x64xf32>, tensor<1xi32> -> tensor<2x16x64xf32>
-      ```
-    }];
-}
-
 //===----------------------------------------------------------------------===//
 // TTIR traits definition.
 //===----------------------------------------------------------------------===//
