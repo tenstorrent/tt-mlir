@@ -102,13 +102,6 @@ std::optional<ShardSpecAttr>
 createShardSpecIfNeeded(TTNNLayoutAttr layout,
                         mlir::tt::ttcore::GridAttr deviceGrid);
 
-// Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr>
-createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
-                        ShapeAttr shardShape,
-                        mlir::tt::ttcore::GridAttr shardGrid,
-                        mlir::tt::ttcore::GridAttr deviceGrid);
-
 // Helper method to create a NDShardSpecAttr if needed.
 std::optional<NDShardSpecAttr>
 createNDShardSpecIfNeeded(TTNNNDLayoutAttr layout);
@@ -148,7 +141,9 @@ UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
 
 // Compute the bounding box grid dimensions from a layout's shard grid.
 // Returns {gridX, gridY} representing the physical core grid extent.
-std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout);
+std::pair<int64_t, int64_t>
+getPhysicalGridDimensions(TTNNLayoutAttr layout,
+                          mlir::tt::ttcore::GridAttr deviceGrid);
 
 } // namespace mlir::tt::ttnn::utils
 

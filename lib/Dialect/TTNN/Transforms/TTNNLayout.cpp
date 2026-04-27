@@ -70,7 +70,7 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
                                        BufferType bufferType, bool isTiled) {
 
   // Default to single core grid.
-  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx);
+  llvm::SmallVector<int64_t> tensorGridShape{1, 1};
 
   llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
       g_defaultCollapseDims);
@@ -99,7 +99,7 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
   return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
-                             tensorGrid, memoryLayoutAttr, tensorMeshAttr,
+                             tensorGridShape, memoryLayoutAttr, tensorMeshAttr,
                              collapseDimsRef);
 }
 
@@ -181,7 +181,7 @@ createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
   // memory layout
   TTNNLayoutAttr encoding = rewriter.getAttr<TTNNLayoutAttr>(
       ty.getShape(), desiredElementType, desiredBufferType,
-      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMesh,
+      ttnnLayoutAttr.getGridShape(), desiredMemLayoutAttr, desiredTensorMesh,
       g_defaultCollapseDims);
 
   return mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),

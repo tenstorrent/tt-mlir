@@ -68,9 +68,9 @@ protected:
   // Helper method to create a tensor type with given dimensions
   mlir::RankedTensorType createTensorType(llvm::ArrayRef<int64_t> shape,
                                           mlir::Type elementType) {
-    auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context);
     TTNNLayoutAttr layoutAttr = TTNNLayoutAttr::get(
-        &context, shape, elementType, BufferType::DRAM, gridAttr,
+        &context, shape, elementType, BufferType::DRAM,
+        /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1},
         TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
     return mlir::RankedTensorType::get(shape, elementType, layoutAttr);
   }

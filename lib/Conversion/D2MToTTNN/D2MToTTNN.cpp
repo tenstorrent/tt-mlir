@@ -79,22 +79,22 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
                       AffineMap::getMultiDimIdentityMap(shardShape.size(), ctx),
                       ttnn::BufferTypeAttr::get(ctx, bufferType));
 
-  ttcore::GridAttr grid;
+  llvm::SmallVector<int64_t> ttnnGridShape;
   ttnn::TensorMemoryLayout memLayoutEnum;
   ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
 
   if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
-    grid = ttcore::GridAttr::get(ctx, SmallVector<int64_t>(2, 1));
+    ttnnGridShape = {1, 1};
     memLayoutEnum = ttnn::TensorMemoryLayout::Interleaved;
   } else {
     auto virtMap = d2m::utils::getVirtualGridForwardMapping(memrefValue);
 
     if (!virtMap) {
-      grid = ttcore::GridAttr::get(ctx, gridShape);
+      ttnnGridShape.assign(gridShape.begin(), gridShape.end());
       memLayoutEnum = ttnn::TensorMemoryLayout::BlockSharded;
     } else {
-      grid = ttcore::GridAttr::get(
-          ctx, d2m::utils::getPhysicalGridShape(memrefValue));
+      auto physicalGrid = d2m::utils::getPhysicalGridShape(memrefValue);
+      ttnnGridShape.assign(physicalGrid.begin(), physicalGrid.end());
       TT_assertv(gridShape.size() >= 2u,
                  "Expected at least 2 dimensions in grid shape");
       int64_t gridY = gridShape[gridShape.size() - 2];
@@ -111,7 +111,8 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
 
   return {ttnn::TTNNLayoutAttr::get(
-      ctx, linearMap, grid, shardMemref, memLayout, /*tensorMesh=*/nullptr,
+      ctx, linearMap, ttnnGridShape, shardMemref, memLayout,
+      /*tensorMesh=*/nullptr,
       /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
 }
 
@@ -428,8 +429,8 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
                      convertedLayoutAttr.getShardShape(),
                  "ttnn_metal_layout_cast and converted type must have the same "
                  "shard shape");
-      TT_assertv(castLayoutAttr.getGrid().getShape() ==
-                     convertedLayoutAttr.getGrid().getShape(),
+      TT_assertv(castLayoutAttr.getGridShape() ==
+                     convertedLayoutAttr.getGridShape(),
                  "ttnn_metal_layout_cast and converted type must have the same "
                  "grid shape");
 

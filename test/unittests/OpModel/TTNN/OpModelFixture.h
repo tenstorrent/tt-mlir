@@ -216,23 +216,17 @@ public:
         memLayoutAttr);
   }
 
-  mlir::tt::ttcore::GridAttr
+  llvm::SmallVector<int64_t>
   CreateGrid(::mlir::MLIRContext *context,
              const mlir::tt::ttnn::BufferType bufferType,
              const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout,
              const llvm::ArrayRef<int64_t> virtualGridSize,
              const llvm::ArrayRef<int64_t> physicalGridSize) {
-
-    auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            context, tensorMemoryLayout, physicalGridSize);
-
     llvm::SmallVector<int64_t> gridShape(virtualGridSize);
     if (!mlir::tt::ttnn::isL1BufferType(bufferType)) {
       gridShape = {1, 1};
     }
-    return mlir::tt::ttcore::GridAttr::get(
-        context, gridShape, virtToPhysicalMap, physicalToVirtMap);
+    return gridShape;
   }
 
   mlir::tt::ttcore::GridAttr CreateWorkerGrid(
@@ -248,13 +242,11 @@ public:
     EXPECT_EQ(layoutA.getDataType(), layoutB.getDataType());
     EXPECT_EQ(layoutA.getMemLayout().getValue(),
               layoutB.getMemLayout().getValue());
-    EXPECT_EQ(layoutA.getGrid().getGridVolume(),
-              layoutB.getGrid().getGridVolume());
-    ASSERT_EQ(layoutA.getGrid().getShape().size(),
-              layoutB.getGrid().getShape().size());
-    for (size_t i = 0; i < layoutA.getGrid().getShape().size(); ++i) {
-      EXPECT_EQ(layoutA.getGrid().getShape()[i],
-                layoutB.getGrid().getShape()[i]);
+    EXPECT_EQ(ttmlir::utils::volume(layoutA.getGridShape()),
+              ttmlir::utils::volume(layoutB.getGridShape()));
+    ASSERT_EQ(layoutA.getGridShape().size(), layoutB.getGridShape().size());
+    for (size_t i = 0; i < layoutA.getGridShape().size(); ++i) {
+      EXPECT_EQ(layoutA.getGridShape()[i], layoutB.getGridShape()[i]);
     }
     ASSERT_EQ(layoutA.getShardShape().size(), layoutB.getShardShape().size());
     for (size_t i = 0; i < layoutA.getShardShape().size(); ++i) {

@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -51,7 +52,7 @@ public:
         getTensorShape(), builder.getF32Type(),
         TTNNLayoutAttr::get(&context, getTensorShape(), builder.getF32Type(),
                             BufferType::DRAM,
-                            mlir::tt::ttcore::GridAttr::get(&context, {1, 1}),
+                            /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1},
                             mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                 &context, TensorMemoryLayout::Interleaved)));
   }
@@ -98,20 +99,19 @@ public:
       llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> &legalConfigs,
       BufferType memorySpace, TensorMemoryLayout tensorMemoryLayout,
       int gridWidth, int gridHeight) {
+    llvm::SmallVector<int64_t> gridShape{gridWidth, gridHeight};
     if (legalConfigs.find(op) == legalConfigs.end()) {
-      legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(), builder.getF32Type(),
-          memorySpace,
-          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
-          mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                      tensorMemoryLayout))};
+      legalConfigs[op] = std::vector<OpConfig>{
+          TTNNLayoutAttr::get(&context, getTensorRankedType().getShape(),
+                              builder.getF32Type(), memorySpace, gridShape,
+                              mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                  &context, tensorMemoryLayout))};
     } else {
-      legalConfigs[op].push_back(TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(), builder.getF32Type(),
-          memorySpace,
-          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
-          mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                      tensorMemoryLayout)));
+      legalConfigs[op].push_back(
+          TTNNLayoutAttr::get(&context, getTensorRankedType().getShape(),
+                              builder.getF32Type(), memorySpace, gridShape,
+                              mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                  &context, tensorMemoryLayout)));
     }
   }
 
@@ -296,7 +296,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
       shardSolver.finish().selectedOpConfig;
   float totalCoreUsage = 0;
   for (const auto &opLayout : selectedOpConfig) {
-    totalCoreUsage += opLayout.second.outputLayout.getGrid().getGridVolume();
+    totalCoreUsage +=
+        ttmlir::utils::volume(opLayout.second.outputLayout.getGridShape());
   }
 
   ASSERT_EQ(totalCoreUsage, accMaxCoreUsage[firstOp][0]);

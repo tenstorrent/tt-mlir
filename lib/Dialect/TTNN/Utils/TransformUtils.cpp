@@ -10,6 +10,10 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/ArrayRef.h"
+
+#include <cstdint>
+
 namespace mlir::tt::ttnn::utils {
 static GetDeviceOp insertGetDeviceOp(RewriterBase &rewriter,
                                      ttcore::DeviceAttr deviceAttr,
@@ -66,14 +70,14 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Block *block) {
 
 // Helper method to insert a ToLayoutOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
-ToLayoutOp createToLayoutOp(Operation *op,
-                            mlir::TypedValue<RankedTensorType> inputValue,
-                            RewriterBase &rewriter, Layout targetTensorLayout,
-                            BufferType targetTensorBufferType,
-                            TensorMemoryLayoutAttr targetTensorMemoryLayout,
-                            ttcore::DataType targetTensorDataType,
-                            llvm::StringRef locSuffix,
-                            std::optional<ttcore::GridAttr> targetGrid) {
+ToLayoutOp
+createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
+                 RewriterBase &rewriter, Layout targetTensorLayout,
+                 BufferType targetTensorBufferType,
+                 TensorMemoryLayoutAttr targetTensorMemoryLayout,
+                 ttcore::DataType targetTensorDataType,
+                 llvm::StringRef locSuffix,
+                 std::optional<llvm::ArrayRef<int64_t>> targetGridShape) {
   TTNNLayoutAttr inputLayoutAttr =
       getLayoutAttrFromTensor(inputValue.getType());
 
@@ -92,9 +96,9 @@ ToLayoutOp createToLayoutOp(Operation *op,
           .withMemoryLayout(targetTensorMemoryLayout);
 
   // Override the grid when a custom target grid is specified.
-  if (targetGrid) {
-    toLayoutOpResultEncoding = toLayoutOpResultEncoding.withGrid(
-        inputToLayoutOpType.getShape(), *targetGrid);
+  if (targetGridShape) {
+    toLayoutOpResultEncoding = toLayoutOpResultEncoding.withShardGrid(
+        inputToLayoutOpType.getShape(), *targetGridShape);
   }
 
   // Create the output result type with the new data type and encoding.

@@ -68,18 +68,8 @@ public:
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
-    ttcore::GridAttr grid;
-    if (isShardedMemoryLayout(tensorMemoryLayout)) {
-      llvm::SmallVector<int64_t, 2> devGrid = {8, 8};
-      auto [v2p, p2v] =
-          optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-              &context, tensorMemoryLayout, devGrid);
-      grid = ttcore::GridAttr::get(&context, gridShape, v2p, p2v);
-    } else {
-      grid = ttcore::GridAttr::get(&context, gridShape);
-    }
     return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               grid,
+                               gridShape,
                                mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
                                    &context, tensorMemoryLayout));
   }
@@ -145,23 +135,9 @@ public:
     size_t tiledIdx = static_cast<size_t>(TensorPageLayout::Tiled);
     size_t shardedIdx = static_cast<size_t>(TensorMemoryLayoutIndex::Sharded);
 
-    // Create affine maps for each memory layout type so grids have valid
-    // virtToPhysicalMap (required by backend validation).
-    llvm::SmallVector<int64_t, 2> deviceGridShape = {8, 8};
-    auto [v2pHeight, p2vHeight] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            &context, TensorMemoryLayout::HeightSharded, deviceGridShape);
-    auto [v2pBlock, p2vBlock] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            &context, TensorMemoryLayout::BlockSharded, deviceGridShape);
-
     for (const auto &[memLayout, gridShape] : shardSpecs) {
-      auto [v2p, p2v] = (memLayout == TensorMemoryLayout::HeightSharded)
-                            ? std::make_pair(v2pHeight, p2vHeight)
-                            : std::make_pair(v2pBlock, p2vBlock);
-      auto grid = ttcore::GridAttr::get(&context, gridShape, v2p, p2v);
       auto layout = TTNNLayoutAttr::get(
-          &context, shape, elementType, BufferType::L1, grid,
+          &context, shape, elementType, BufferType::L1, gridShape,
           TensorMemoryLayoutAttr::get(&context, memLayout));
       pageLayoutArr[tiledIdx][shardedIdx].push_back(layout);
     }

@@ -235,21 +235,16 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
 }
 
-::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {
-  std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  assert(layout.getGrid().getVirtToPhysicalMap().isEmpty() == false);
-  for (const auto &[loc, size] :
-       ttcore::utils::toCoreRangeSet(layout.getGrid().getShape(),
-                                     layout.getGrid().getVirtToPhysicalMap())) {
-    coreRangeSet.insert(::tt::tt_metal::CoreRange(
-        ::tt::tt_metal::CoreCoord(loc[0], loc[1]),
-        ::tt::tt_metal::CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
-  }
-  return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
+::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout,
+                                             ttcore::GridAttr deviceGrid) {
+  CoreRangeSetAttr coreRangeSetAttr = layout.getCoreRangeSet(deviceGrid);
+  assert(coreRangeSetAttr &&
+         "sharded TTNNLayoutAttr expected when building a metal CoreRangeSet");
+  return getCoreRangeSet(coreRangeSetAttr);
 }
 
 std::optional<::tt::tt_metal::ShardSpec>
-getShardSpec(const TTNNLayoutAttr &layout) {
+getShardSpec(const TTNNLayoutAttr &layout, ttcore::GridAttr deviceGrid) {
   if (layout.getIgnorePhysicalLayout()) {
     return std::nullopt;
   }
@@ -261,7 +256,7 @@ getShardSpec(const TTNNLayoutAttr &layout) {
 
   // tt_ShardOrientation is not part of ttnn::TTNNLayoutAttr;
   // defaulting to ROW_MAJOR. TODO(jserbedzija): with issue #620
-  return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout),
+  return ::tt::tt_metal::ShardSpec(getCoreRangeSet(layout, deviceGrid),
                                    getShardShape(layout),
                                    ::tt::tt_metal::ShardOrientation::ROW_MAJOR);
 }
@@ -358,12 +353,13 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr) {
   return getTensorMemoryLayout(tensorMemoryLayout);
 }
 
-::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout) {
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout,
+                                             ttcore::GridAttr deviceGrid) {
   auto tensorMemoryLayout = getTensorMemoryLayout(
       layout.getMemLayoutOpt().value_or(TensorMemoryLayout::Interleaved));
   auto bufferType = getBufferType(layout);
 
-  auto shardSpec = getShardSpec(layout);
+  auto shardSpec = getShardSpec(layout, deviceGrid);
   return ::tt::tt_metal::MemoryConfig(tensorMemoryLayout, bufferType,
                                       shardSpec);
 }
@@ -395,17 +391,20 @@ getMemoryConfig(const MemoryConfigAttr &memConfigAttr) {
                                       shardSpec);
 }
 
-::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout) {
+::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout,
+                                             ttcore::GridAttr deviceGrid) {
   return ::tt::tt_metal::TensorLayout(getDataType(layout.getDataType()),
                                       getPageLayout(layout),
-                                      getMemoryConfig(layout));
+                                      getMemoryConfig(layout, deviceGrid));
 }
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const TTNNLayoutAttr &layout) {
+                                 const TTNNLayoutAttr &layout,
+                                 ttcore::GridAttr deviceGrid) {
   assert(!layout.getIgnorePhysicalLayout() &&
          "TensorSpecs cannot be created without physical layouts");
-  return ::ttnn::TensorSpec(getShape(shape), getTensorLayout(layout));
+  return ::ttnn::TensorSpec(getShape(shape),
+                            getTensorLayout(layout, deviceGrid));
 }
 
 bool validateTensorSpec(const ::ttnn::TensorSpec &tensorSpec,
@@ -667,17 +666,12 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
                 context, getTensorMemoryLayout(
                              tensorSpec.memory_config().memory_layout()));
 
-  ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
+  llvm::SmallVector<int64_t> gridShape = {1, 1};
   if (isL1BufferType(bufferType)) {
-    auto [virtToPhysicalMap, physicalToVirtMap] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            context, memoryLayoutAttr.getValue(), deviceGrid);
-    gridAttr = ttcore::GridAttr::get(
-        context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-        virtToPhysicalMap, physicalToVirtMap);
+    gridShape = getLogicalGridShape(tensorSpec.memory_config(), deviceGrid);
   }
 
-  return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,
+  return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridShape,
                              memoryLayoutAttr);
 }
 

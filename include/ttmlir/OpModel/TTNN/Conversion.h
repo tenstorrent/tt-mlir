@@ -28,13 +28,14 @@ const std::array<uint32_t, 2> getShardShape(const TTNNLayoutAttr &layout);
 ::tt::tt_metal::CoreRangeSet
 getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr);
 
-::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout);
+::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout,
+                                             ttcore::GridAttr deviceGrid);
 
 ::tt::tt_metal::ShardOrientation
 getShardOrientation(const ShardOrientationAttr &shardOrientationAttr);
 
 std::optional<::tt::tt_metal::ShardSpec>
-getShardSpec(const TTNNLayoutAttr &layout);
+getShardSpec(const TTNNLayoutAttr &layout, ttcore::GridAttr deviceGrid);
 
 ::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr);
 
@@ -50,17 +51,20 @@ getTensorMemoryLayout(const TensorMemoryLayoutAttr memLayoutAttr);
 TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 
-::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout);
+::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout,
+                                             ttcore::GridAttr deviceGrid);
 
 ::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr);
 
 ::tt::tt_metal::MemoryConfig
 getMemoryConfig(const MemoryConfigAttr &memConfigAttr);
 
-::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout);
+::tt::tt_metal::TensorLayout getTensorLayout(const TTNNLayoutAttr &layout,
+                                             ttcore::GridAttr deviceGrid);
 
 ::ttnn::TensorSpec getTensorSpec(const ::llvm::ArrayRef<int64_t> shape,
-                                 const TTNNLayoutAttr &layout);
+                                 const TTNNLayoutAttr &layout,
+                                 ttcore::GridAttr deviceGrid);
 
 /**
  * @brief Perform various validity checks on a converted TensorSpec

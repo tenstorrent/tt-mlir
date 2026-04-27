@@ -227,9 +227,10 @@ bool ShardSolver::resolveStep() {
                   actualFirstOutputLayout.hasShardedL1TensorMemoryLayout() &&
                   llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(
                       consumerOp)) {
-                int64_t inputCores = inputLayout.getGrid().getGridVolume();
-                int64_t outputCores =
-                    actualFirstOutputLayout.getGrid().getGridVolume();
+                int64_t inputCores =
+                    ttmlir::utils::volume(inputLayout.getGridShape());
+                int64_t outputCores = ttmlir::utils::volume(
+                    actualFirstOutputLayout.getGridShape());
                 if (outputCores < inputCores) {
                   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                                "Rejecting {} config: elementwise binary op "
@@ -966,7 +967,8 @@ ShardSolver::produceMaxCoreUsage() {
     //
     for (size_t i = 0; i < configs.size(); ++i) {
       const OpConfig &config = configs[i];
-      uint64_t coreUsage = config.outputLayout.getGrid().getGridVolume();
+      uint64_t coreUsage =
+          ttmlir::utils::volume(config.outputLayout.getGridShape());
       accCoreUsage[op].push_back(coreUsage);
     }
 

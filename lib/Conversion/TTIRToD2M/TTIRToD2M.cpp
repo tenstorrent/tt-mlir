@@ -159,7 +159,7 @@ protected:
 
   llvm::SmallVector<int64_t>
   getLegacyGrid(ttnn::TTNNLayoutAttr ttnnLayout) const {
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
 
     bool legacyWithVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
                                      ttnn::TensorMemoryLayout::HeightSharded ||
@@ -281,8 +281,7 @@ protected:
         auto memLayout = ttnnLayout.getMemLayout().getValue();
         if (memLayout == ttnn::TensorMemoryLayout::HeightSharded ||
             memLayout == ttnn::TensorMemoryLayout::WidthSharded) {
-          llvm::SmallVector<int64_t> ttnnGridShape(
-              ttnnLayout.getGrid().getShape());
+          llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
           llvm::SmallVector<int64_t> virtualGrid;
           if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
             virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
@@ -654,15 +653,15 @@ protected:
 
     if (auto ttnnLayout = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
             inputType.getEncoding())) {
-      auto grid = ttcore::GridAttr::get(rewriter.getContext(), {1, 1});
       auto tileType = ttcore::TileType::get(
           elementType, ttcore::TileType::getDefaultShape());
       auto memref = mlir::MemRefType::get(
           {1, 1}, tileType, mlir::MemRefLayoutAttrInterface{},
           ttnnLayout.getMemref().getMemorySpace());
       encoding = ttnn::TTNNLayoutAttr::get(
-          rewriter.getContext(), rewriter.getMultiDimIdentityMap(2), grid,
-          memref, ttnnLayout.getMemLayout(),
+          rewriter.getContext(), rewriter.getMultiDimIdentityMap(2),
+          /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1}, memref,
+          ttnnLayout.getMemLayout(),
           /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false,
           /*exactGrid=*/true);
     }
@@ -2564,7 +2563,7 @@ private:
       return std::nullopt;
     }
 
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
     llvm::SmallVector<int64_t> virtualGrid;
     if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
       virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};

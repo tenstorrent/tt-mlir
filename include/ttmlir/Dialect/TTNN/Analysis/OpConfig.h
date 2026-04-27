@@ -79,9 +79,8 @@ struct OpConfig {
     llvm::raw_string_ostream(bufStr) << outputLayout.getBufferType();
     llvm::raw_string_ostream(memStr) << outputLayout.getMemLayout();
     auto memLayout = outputLayout.getMemLayout();
-    if (memLayout && isShardedMemoryLayout(memLayout.getValue()) &&
-        outputLayout.getGrid()) {
-      auto gs = outputLayout.getGrid().getShape();
+    if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+      auto gs = outputLayout.getGridShape();
       std::string gridStr = "[";
       for (size_t i = 0; i < gs.size(); ++i) {
         if (i != 0) {

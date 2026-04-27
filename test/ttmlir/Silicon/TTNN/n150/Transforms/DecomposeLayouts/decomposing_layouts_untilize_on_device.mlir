@@ -3,15 +3,15 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout_device_l1_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
-#ttnn_layout_device_l1_rm_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x2048xbf16, #l1>, <interleaved>>
+#ttnn_layout_device_l1_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x2x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
+#ttnn_layout_device_l1_rm_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x2048xbf16, #l1>, <interleaved>>
 #ttnn_layout_device_dram_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout_device_dram_rm_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x2048xbf16, #dram>, <interleaved>>
 #ttnn_layout_device_dram_tile_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x2x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
 #ttnn_layout_device_dram_rm_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x2048xf32, #dram>, <interleaved>>
-#ttnn_layout_device_l1_tile_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>, <interleaved>>
-#ttnn_layout_device_l1_rm_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x2048xf32, #l1>, <interleaved>>
-#ttnn_layout_device_l1_block_sharded_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <4x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>>
+#ttnn_layout_device_l1_tile_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>, <interleaved>>
+#ttnn_layout_device_l1_rm_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x2048xf32, #l1>, <interleaved>>
+#ttnn_layout_device_l1_block_sharded_tile_bf16 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <4x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>>
 #ttnn_layout_device_dram_rm_bf16_small = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x256xbf16, #dram>, <interleaved>>
 module attributes {} {
 

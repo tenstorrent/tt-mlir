@@ -52,8 +52,19 @@ getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(value.getType());
   ttnn::TTNNLayoutAttr layoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-  std::vector<::tt::target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+  ttnn::CoreRangeSetAttr coreRangeSetAttr =
+      layoutAttr.getCoreRangeSet(deviceAttr.getWorkerGrid());
+  std::vector<::tt::target::Dim2dRange> coreRangeSet;
+  if (coreRangeSetAttr) {
+    for (const ttnn::CoreRangeAttr &range : coreRangeSetAttr.getCoreRanges()) {
+      coreRangeSet.push_back(::tt::target::Dim2dRange(
+          ::tt::target::Dim2d(range.getStartCoord().getY(),
+                              range.getStartCoord().getX()),
+          ::tt::target::Dim2d(
+              range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
+              range.getEndCoord().getX() - range.getStartCoord().getX() + 1)));
+    }
+  }
   return coreRangeSet;
 }
 
@@ -159,7 +170,8 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
     layoutAttr = TTNNLayoutAttr::get(
         ctx, /*shape=*/{},
         ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
-        bufferType, ttcore::GridAttr::get(ctx), /*memoryLayoutAttr=*/nullptr,
+        bufferType, /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1},
+        /*memoryLayoutAttr=*/nullptr,
         /*tensorMeshAttr=*/nullptr);
   } else if (mlir::isa<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding())) {
     return getNDTensor(cache, tensorType, deviceAttr);

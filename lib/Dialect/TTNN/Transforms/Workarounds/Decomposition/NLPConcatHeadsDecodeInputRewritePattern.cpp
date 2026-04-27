@@ -31,17 +31,7 @@ std::optional<ToLayoutOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
     inputElementType = tileType.getElementType();
   }
 
-  auto physicalGrid =
-      ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
-
-  auto [virtToPhysicalMap, physicalToVirtMap] =
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-          rewriter.getContext(), TensorMemoryLayout::HeightSharded,
-          physicalGrid);
-
   SmallVector<int64_t> virtualGridSize = {batchSize, 1};
-  auto grid = ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
-                                    virtToPhysicalMap, physicalToVirtMap);
 
   auto memLayoutAttr = TensorMemoryLayoutAttr::get(
       rewriter.getContext(), TensorMemoryLayout::HeightSharded);
@@ -52,7 +42,7 @@ std::optional<ToLayoutOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
   return utils::createToLayoutOp(
       op, mlir::cast<mlir::TypedValue<RankedTensorType>>(op.getInput()),
       rewriter, Layout::Tile, BufferType::L1, memLayoutAttr, dataType,
-      /*locSuffix=*/"", grid);
+      /*locSuffix=*/"", llvm::ArrayRef<int64_t>(virtualGridSize));
 }
 
 LogicalResult NLPConcatHeadsDecodeInputRewritePattern::matchAndRewrite(

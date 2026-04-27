@@ -67,7 +67,7 @@ private:
     auto newLayout = ttnn::TTNNLayoutAttr::get(
         &getContext(), oldType.getShape(),
         ttcore::TileType::get(newElementType), BufferType::DRAM,
-        oldLayout.getGrid(),
+        oldLayout.getGridShape(),
         ttnn::TensorMemoryLayoutAttr::get(
             &getContext(), ttnn::TensorMemoryLayout::Interleaved));
 

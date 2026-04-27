@@ -80,31 +80,24 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   }
   SmallVector<int64_t> virtualGridSize = {1, numCores};
 
-  // Create an affine map that translates the virtual grid layout to the
-  // physical grid layout.
-  auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-          rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded,
-          physicalGrid);
-  auto grid =
-      mlir::tt::ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
-                                      virtToPhysicalMap, physicalToVirtMap);
   auto memLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
 
   // Create layout attribute for the input tensor with width-sharded L1 config.
-  ttnn::TTNNLayoutAttr desiredInputLayout =
-      ttnn::TTNNLayoutAttr::get(rewriter.getContext(), inputType.getShape(),
-                                ttcore::TileType::get(inputElementType),
-                                ttnn::BufferType::L1, grid, memLayoutAttr);
+  ttnn::TTNNLayoutAttr desiredInputLayout = ttnn::TTNNLayoutAttr::get(
+      rewriter.getContext(), inputType.getShape(),
+      ttcore::TileType::get(inputElementType), ttnn::BufferType::L1,
+      virtualGridSize, memLayoutAttr);
 
   if (currentInputLayout == desiredInputLayout) {
     return failure();
   }
 
   // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
   ttnn::MemoryConfigAttr inputMemoryConfig =
-      ttnn::MemoryConfigAttr::get(desiredInputLayout, grid);
+      ttnn::MemoryConfigAttr::get(desiredInputLayout, deviceGrid);
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
   auto inputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
@@ -222,24 +215,21 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // on core (0,0) in L1. The fused kernel writes partial RMS statistics here
   // and exchanges them across devices via the allgather.
   SmallVector<int64_t> statsGridShape = {1, 1};
-  auto statsGrid =
-      mlir::tt::ttcore::GridAttr::get(rewriter.getContext(), statsGridShape,
-                                      virtToPhysicalMap, physicalToVirtMap);
   auto statsMemLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
 
   SmallVector<int64_t> statsShape = {1, 1, 32, 32};
   ttnn::TTNNLayoutAttr statsLayout = ttnn::TTNNLayoutAttr::get(
       rewriter.getContext(), statsShape,
-      ttcore::TileType::get(statsElementType), ttnn::BufferType::L1, statsGrid,
-      statsMemLayoutAttr);
+      ttcore::TileType::get(statsElementType), ttnn::BufferType::L1,
+      statsGridShape, statsMemLayoutAttr);
 
   auto statsShapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), statsShape);
   auto statsDtypeAttr =
       ttcore::DataTypeAttr::get(rewriter.getContext(), statsDataType);
   auto statsLayoutAttr =
       ttnn::LayoutAttr::get(rewriter.getContext(), ttnn::Layout::Tile);
-  auto statsMemConfig = ttnn::MemoryConfigAttr::get(statsLayout, statsGrid);
+  auto statsMemConfig = ttnn::MemoryConfigAttr::get(statsLayout, deviceGrid);
 
   RankedTensorType statsResultType =
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
@@ -292,8 +282,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   auto originalOutputLayout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
       originalOutputType.getEncoding());
   if (originalOutputLayout && originalOutputLayout != desiredInputLayout) {
-    auto originalMemConfig = ttnn::MemoryConfigAttr::get(
-        originalOutputLayout, originalOutputLayout.getGrid());
+    auto originalMemConfig =
+        ttnn::MemoryConfigAttr::get(originalOutputLayout, deviceGrid);
     auto toMemConfigOp = rewriter.create<ttnn::ToMemoryConfigOp>(
         op.getLoc(), originalOutputType, newOp.getResult(), originalMemConfig);
     rewriter.replaceOp(op, toMemConfigOp.getResult());

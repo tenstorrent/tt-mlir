@@ -34,29 +34,15 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
     inputElementType = inputTileType.getElementType();
   }
 
-  // Retrieve the phyisical grid shape for the device.
-  auto physicalGrid =
-      ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
-  // Create an affine map that translates the virtual grid layout to the
-  // physical grid layout, and generate a grid. For example, with a virtual grid
-  // of [32, 1] and a physical grid of [8, 8], this affine map would produce a
-  // core range of [0, 0] to [7, 3].
-  auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
-      optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-          rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded,
-          physicalGrid);
-  auto grid =
-      mlir::tt::ttcore::GridAttr::get(rewriter.getContext(), virtualGridSize,
-                                      virtToPhysicalMap, physicalToVirtMap);
   auto memLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
       rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded);
 
   // Create layout attribute for the input tensor using the specific memory
   // config with desired grid.
-  ttnn::TTNNLayoutAttr desiredInputLayout =
-      ttnn::TTNNLayoutAttr::get(rewriter.getContext(), inputType.getShape(),
-                                ttcore::TileType::get(inputElementType),
-                                ttnn::BufferType::L1, grid, memLayoutAttr);
+  ttnn::TTNNLayoutAttr desiredInputLayout = ttnn::TTNNLayoutAttr::get(
+      rewriter.getContext(), inputType.getShape(),
+      ttcore::TileType::get(inputElementType), ttnn::BufferType::L1,
+      virtualGridSize, memLayoutAttr);
 
   ttnn::TTNNLayoutAttr currentInputLayout =
       mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
@@ -68,8 +54,10 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
   }
 
   // Apply ToMemoryConfigOp to convert the input tensor to the desired layout.
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
   ttnn::MemoryConfigAttr inputMemoryConfig =
-      ttnn::MemoryConfigAttr::get(desiredInputLayout, grid);
+      ttnn::MemoryConfigAttr::get(desiredInputLayout, deviceGrid);
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
   auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(

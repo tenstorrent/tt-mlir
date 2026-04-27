@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
-#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -15,8 +14,10 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Casting.h"
 
+#include <cstdint>
 #include <optional>
 
 namespace mlir::tt::ttnn::utils {
@@ -140,7 +141,7 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                                  ttcore::GridAttr grid) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
-      oldEncoding.withGrid(tensorType.getShape(), grid);
+      oldEncoding.withShardGrid(tensorType.getShape(), grid.getShape());
   return create(tensorType, newEncoding);
 }
 
@@ -282,20 +283,6 @@ createNDShardSpecIfNeeded(TTNNNDLayoutAttr layoutAttr) {
   return ndShardSpecAttr;
 }
 
-// Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr> createShardSpecIfNeeded(
-    TensorMemoryLayoutAttr tensorMemoryLayoutAttr, ShapeAttr shardShapeAttr,
-    ttcore::GridAttr shardGridAttr, ttcore::GridAttr deviceGridAttr) {
-  std::optional<ShardSpecAttr> shardSpecAttr = std::nullopt;
-  if (tensorMemoryLayoutAttr &&
-      isShardedMemoryLayout(tensorMemoryLayoutAttr.getValue())) {
-    shardSpecAttr =
-        ShardSpecAttr::get(tensorMemoryLayoutAttr.getContext(), shardShapeAttr,
-                           shardGridAttr, deviceGridAttr);
-  }
-  return shardSpecAttr;
-}
-
 bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op) {
   return op->hasAttr(g_TTNNHoistGenericViaD2MAttrName);
 }
@@ -407,21 +394,16 @@ UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
                                  llvm::ArrayRef<FloatAttr>{});
 }
 
-std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout) {
-  ttcore::GridAttr shardGrid = layout.getGrid();
-  AffineMap mapping = shardGrid.getVirtToPhysicalMap();
-
-  auto coreRanges =
-      ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping);
+std::pair<int64_t, int64_t>
+getPhysicalGridDimensions(TTNNLayoutAttr layout, ttcore::GridAttr deviceGrid) {
+  auto coreRangeSet = layout.getCoreRangeSet(deviceGrid);
 
   int64_t maxX = 0;
   int64_t maxY = 0;
-  for (const auto &[loc, size] : coreRanges) {
-    // loc is [x, y] per toCoreRangeSet convention
-    maxX = std::max(maxX, static_cast<int64_t>(loc[0] + size[0]));
-    maxY = std::max(maxY, static_cast<int64_t>(loc[1] + size[1]));
+  for (CoreRangeAttr range : coreRangeSet.getCoreRanges()) {
+    maxX = std::max(maxX, static_cast<int64_t>(range.getEndCoord().getX() + 1));
+    maxY = std::max(maxY, static_cast<int64_t>(range.getEndCoord().getY() + 1));
   }
-
   return {maxX, maxY};
 }
 

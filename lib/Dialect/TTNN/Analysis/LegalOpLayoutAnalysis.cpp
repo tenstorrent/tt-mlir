@@ -78,8 +78,7 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  ttcore::GridAttr grid = ttcore::GridAttr::get(
-      op->getContext(), ArrayRef<int64_t>(layoutOverride.grid.value()));
+  llvm::ArrayRef<int64_t> gridShape = layoutOverride.grid.value();
 
   // Create element type for the new layout.
   Type elementType = layout.getScalarElementType();
@@ -94,7 +93,7 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
 
   TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
       op->getContext(), tensorShape, elementType,
-      layoutOverride.bufferType.value(), grid,
+      layoutOverride.bufferType.value(), gridShape,
       TensorMemoryLayoutAttr::get(op->getContext(),
                                   layoutOverride.tensorMemoryLayout.value()));
 
@@ -111,9 +110,9 @@ bool incompatibleWithOverride(
   }
 
   if (layoutOverride->grid.has_value()) {
-    if (config.outputLayout.getGrid().getShape()[0] !=
+    if (config.outputLayout.getGridShape()[0] !=
             layoutOverride->grid.value()[0] ||
-        config.outputLayout.getGrid().getShape()[1] !=
+        config.outputLayout.getGridShape()[1] !=
             layoutOverride->grid.value()[1]) {
       return true;
     }
@@ -225,11 +224,13 @@ void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
   // sort them again explicitly to be sure
   std::sort(shardedLayoutsRowMajor.begin(), shardedLayoutsRowMajor.end(),
             [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+              return ttmlir::utils::volume(a.getGridShape()) >
+                     ttmlir::utils::volume(b.getGridShape());
             });
   std::sort(shardedLayoutsTile.begin(), shardedLayoutsTile.end(),
             [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+              return ttmlir::utils::volume(a.getGridShape()) >
+                     ttmlir::utils::volume(b.getGridShape());
             });
 
   // Let's take maxShardedConfigs/2 from both row major and tile collections,
@@ -253,7 +254,8 @@ void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
 
   std::sort(shardedLayouts.begin(), shardedLayouts.end(),
             [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+              return ttmlir::utils::volume(a.getGridShape()) >
+                     ttmlir::utils::volume(b.getGridShape());
             });
 
   analysisResult.insert(analysisResult.end(), interleavedLayouts.begin(),

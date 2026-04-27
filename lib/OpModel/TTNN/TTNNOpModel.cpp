@@ -217,6 +217,19 @@ void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
   }
 }
 
+// Build a ttcore::GridAttr for the device's usable worker grid from the
+// singleton-managed MeshDevice. The conversion-layer helpers need a GridAttr
+// to derive physical CoreRangeSets; rather than thread deviceGrid through
+// every detail helper and every callsite, we rebuild it locally from the
+// device context OpModel already owns.
+static ttcore::GridAttr
+getDeviceWorkerGridAttr(::mlir::MLIRContext *ctx,
+                        ::tt::tt_metal::distributed::MeshDevice *device) {
+  auto gridSize = device->compute_with_storage_grid_size();
+  return ttcore::GridAttr::get(ctx, {static_cast<int64_t>(gridSize.y),
+                                     static_cast<int64_t>(gridSize.x)});
+}
+
 /**
  * @brief Convenience wrapper to create and validate a tensor spec
  *
@@ -225,7 +238,10 @@ void checkGrid(const ::tt::tt_metal::CoreCoord &computeGridSize,
 llvm::Expected<::ttnn::TensorSpec>
 convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
                     llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr layout) {
-  const ::ttnn::TensorSpec spec = conversion::getTensorSpec(shape, layout);
+  ttcore::GridAttr deviceGrid =
+      getDeviceWorkerGridAttr(layout.getContext(), device);
+  const ::ttnn::TensorSpec spec =
+      conversion::getTensorSpec(shape, layout, deviceGrid);
   if (conversion::validateTensorSpec(
           spec, device->compute_with_storage_grid_size())) {
     return spec;
@@ -261,7 +277,10 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
   if (!layout) {
     return std::nullopt;
   }
-  return conversion::getMemoryConfig(layout);
+  auto *device = SingletonDeviceContext::getInstance().getDevice();
+  ttcore::GridAttr deviceGrid =
+      getDeviceWorkerGridAttr(layout.getContext(), device);
+  return conversion::getMemoryConfig(layout, deviceGrid);
 }
 
 /**
@@ -549,7 +568,7 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
   // Conversion to TensorSpec may throw if the layout is invalid, in which case
   // we return false.
   try {
-    auto tensorSpec = conversion::getTensorSpec(tensorShape, layout);
+    auto tensorSpec = conversion::getTensorSpec(tensorShape, layout, maxGrid);
     auto computeGridSize = ::tt::tt_metal::CoreCoord{
         static_cast<std::size_t>(maxGrid.getShape()[0]),
         static_cast<std::size_t>(maxGrid.getShape()[1])};
@@ -1698,7 +1717,7 @@ llvm::Expected<OpConstraints> NamedFullOpModel<OpTy>::getOpConstraints(
   }
   std::optional<::ttnn::MemoryConfig> metalMemoryConfig = std::nullopt;
   if (outputLayout) {
-    metalMemoryConfig = conversion::getMemoryConfig(outputLayout);
+    metalMemoryConfig = conversion::getMemoryConfig(outputLayout, deviceGrid);
   } else if (memoryConfig.has_value()) {
     metalMemoryConfig = conversion::getMemoryConfig(memoryConfig.value());
   }
@@ -3698,7 +3717,7 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
   std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
   if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
       isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout, deviceGrid);
     auto ranges = coreRangeSet.ranges();
     if (ranges.size() != 1 ||
         ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
@@ -3740,7 +3759,9 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
   std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
   if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
       isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
+    ttcore::GridAttr deviceGrid =
+        detail::getDeviceWorkerGridAttr(inputLayout.getContext(), device);
+    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout, deviceGrid);
     auto ranges = coreRangeSet.ranges();
     if (ranges.size() != 1 ||
         ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
@@ -4535,8 +4556,8 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
 
   std::optional<::tt::tt_metal::Tensor> biasTensor;
   if (biasShape && biasLayout) {
-    ::ttnn::TensorSpec biasSpec =
-        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    ::ttnn::TensorSpec biasSpec = conversion::getTensorSpec(
+        biasShape.value(), biasLayout.value(), deviceGrid);
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
   }
 
@@ -4602,8 +4623,10 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 
   std::optional<::tt::tt_metal::Tensor> biasTensor;
   if (biasShape && biasLayout) {
-    ::ttnn::TensorSpec biasSpec =
-        conversion::getTensorSpec(biasShape.value(), biasLayout.value());
+    ttcore::GridAttr deviceGrid = detail::getDeviceWorkerGridAttr(
+        biasLayout.value().getContext(), device);
+    ::ttnn::TensorSpec biasSpec = conversion::getTensorSpec(
+        biasShape.value(), biasLayout.value(), deviceGrid);
     biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
   }
 
@@ -7840,7 +7863,7 @@ OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
 
   // Use the output layout if possible:
   ::tt::tt_metal::MemoryConfig memConfig =
-      outputLayout ? conversion::getMemoryConfig(outputLayout)
+      outputLayout ? conversion::getMemoryConfig(outputLayout, deviceGrid)
                    : conversion::getMemoryConfig(memoryConfig);
 
   auto emptyOpQuery = [=]() {
@@ -7893,7 +7916,7 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
   ::ttnn::Layout layout = defaultLayoutInMetal;
   // Prefer the output layout if possible:
   if (outputLayout) {
-    memoryConfig = conversion::getMemoryConfig(outputLayout);
+    memoryConfig = conversion::getMemoryConfig(outputLayout, deviceGrid);
     layout =
         outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
   } else if (memConfig.has_value()) {
@@ -7932,7 +7955,7 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints(
   // Prefer the output layout if possible:
   std::optional<::ttnn::MemoryConfig> metalMemConfig = std::nullopt;
   if (outputLayout) {
-    metalMemConfig = conversion::getMemoryConfig(outputLayout);
+    metalMemConfig = conversion::getMemoryConfig(outputLayout, deviceGrid);
   } else if (memoryConfig.has_value()) {
     metalMemConfig = conversion::getMemoryConfig(memoryConfig.value());
   }
@@ -7997,7 +8020,7 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints(
   // Prefer the output layout if possible:
   ::ttnn::MemoryConfig metalMemConfig = ::ttnn::DRAM_MEMORY_CONFIG;
   if (outputLayout) {
-    metalMemConfig = conversion::getMemoryConfig(outputLayout);
+    metalMemConfig = conversion::getMemoryConfig(outputLayout, deviceGrid);
   } else if (memoryConfig) {
     metalMemConfig = conversion::getMemoryConfig(memoryConfig);
   }

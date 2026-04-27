@@ -61,7 +61,7 @@ TEST_P(ConversionDataType, DataType) {
   auto layout = TTNNLayoutAttr::get(
       &context, tensorShape,
       ttcore::TileType::get(&context, {32, 32}, dataType), BufferType::L1,
-      ttcore::GridAttr::get(&context, {8, 8}),
+      /*gridShape=*/llvm::ArrayRef<int64_t>{8, 8},
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
 
   // MLIR -> TTNN conversion
@@ -184,7 +184,8 @@ TEST_P(ShardedCoreRangeSet, ShardedCoreRangeSet) {
   const auto layout =
       CreateTiledLayout(tensorShape, BufferType::L1, tensorMemoryLayout, grid);
 
-  const auto coreRangeSet = conversion::getCoreRangeSet(layout);
+  const auto coreRangeSet =
+      conversion::getCoreRangeSet(layout, CreateWorkerGrid());
 
   EXPECT_EQ(coreRangeSet.size(), expectedCoreRangeSet.size());
   for (const auto &[v, r] :
@@ -251,7 +252,7 @@ TEST_F(MlirToTtnnConversion, ShardWithInterleaved) {
   {
     const auto layout = CreateTiledLayout(tensorShape, BufferType::DRAM,
                                           TensorMemoryLayout::Interleaved);
-    const auto shardSpec = conversion::getShardSpec(layout);
+    const auto shardSpec = conversion::getShardSpec(layout, CreateWorkerGrid());
     EXPECT_EQ(shardSpec.has_value(), false);
   }
 
@@ -259,7 +260,7 @@ TEST_F(MlirToTtnnConversion, ShardWithInterleaved) {
   {
     const auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
                                           TensorMemoryLayout::Interleaved);
-    const auto shardSpec = conversion::getShardSpec(layout);
+    const auto shardSpec = conversion::getShardSpec(layout, CreateWorkerGrid());
     EXPECT_EQ(shardSpec.has_value(), false);
   }
 }
@@ -287,7 +288,7 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   const auto layout = CreateTiledLayout(
       tensorShape, bufferType, tensorMemoryLayout, virtualGrid, phyGridShape);
 
-  const auto shardSpec = conversion::getShardSpec(layout);
+  const auto shardSpec = conversion::getShardSpec(layout, CreateWorkerGrid());
 
   EXPECT_EQ(shardSpec.has_value(), true);
 
@@ -441,7 +442,8 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
   auto layout =
       CreateTiledLayout(tensorShape, mlirBufferType, mlirTensorMemoryLayout);
 
-  const auto memoryConfig = conversion::getMemoryConfig(layout);
+  const auto memoryConfig =
+      conversion::getMemoryConfig(layout, CreateWorkerGrid());
 
   EXPECT_EQ(memoryConfig.is_l1(), mlirBufferType == BufferType::L1);
   EXPECT_EQ(memoryConfig.is_dram(), mlirBufferType == BufferType::DRAM);
@@ -455,7 +457,8 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
     EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
     EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
 
-    const auto partialConfig = conversion::getMemoryConfig(partialLayout);
+    const auto partialConfig =
+        conversion::getMemoryConfig(partialLayout, CreateWorkerGrid());
     EXPECT_TRUE(partialConfig.is_sharded());
     EXPECT_FALSE(partialConfig.shard_spec().has_value());
   }
@@ -484,7 +487,8 @@ TEST_F(MlirToTtnnConversion, TensorLayout) {
     const auto layout = CreateTiledLayout(tensorShape, BufferType::L1,
                                           TensorMemoryLayout::BlockSharded);
 
-    const auto tensorLayout = conversion::getTensorLayout(layout);
+    const auto tensorLayout =
+        conversion::getTensorLayout(layout, CreateWorkerGrid());
 
     EXPECT_EQ(tensorLayout.get_data_type(), ::tt::tt_metal::DataType::BFLOAT16);
     EXPECT_EQ(tensorLayout.get_layout(), ::tt::tt_metal::Layout::TILE);
@@ -495,7 +499,8 @@ TEST_F(MlirToTtnnConversion, TensorLayout) {
     const auto layout = CreateRowMajorLayout(tensorShape, BufferType::L1,
                                              TensorMemoryLayout::BlockSharded);
 
-    const auto tensorLayout = conversion::getTensorLayout(layout);
+    const auto tensorLayout =
+        conversion::getTensorLayout(layout, CreateWorkerGrid());
 
     EXPECT_EQ(tensorLayout.get_data_type(), ::tt::tt_metal::DataType::BFLOAT16);
     EXPECT_EQ(tensorLayout.get_layout(), ::tt::tt_metal::Layout::ROW_MAJOR);
@@ -513,9 +518,10 @@ TEST_F(Conversion, LayoutToTensorSpec) {
     const auto originalLayout = CreateTiledLayout(
         tensorShape, BufferType::L1, TensorMemoryLayout::BlockSharded);
     const auto ttnnShape = conversion::getShape(tensorShape);
-    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec =
-        conversion::getTensorSpec(tensorShape, originalLayout);
+    const auto ttnnLayout =
+        conversion::getTensorLayout(originalLayout, CreateWorkerGrid());
+    const auto tensorSpec = conversion::getTensorSpec(
+        tensorShape, originalLayout, CreateWorkerGrid());
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
               ::tt::tt_metal::Layout::TILE);
@@ -525,9 +531,10 @@ TEST_F(Conversion, LayoutToTensorSpec) {
     const auto originalLayout = CreateTiledLayout(
         tensorShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
     const auto ttnnShape = conversion::getShape(tensorShape);
-    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec =
-        conversion::getTensorSpec(tensorShape, originalLayout);
+    const auto ttnnLayout =
+        conversion::getTensorLayout(originalLayout, CreateWorkerGrid());
+    const auto tensorSpec = conversion::getTensorSpec(
+        tensorShape, originalLayout, CreateWorkerGrid());
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
               ::tt::tt_metal::Layout::TILE);
@@ -537,9 +544,10 @@ TEST_F(Conversion, LayoutToTensorSpec) {
     const auto originalLayout = CreateTiledLayout(
         tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
     const auto ttnnShape = conversion::getShape(tensorShape);
-    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec =
-        conversion::getTensorSpec(tensorShape, originalLayout);
+    const auto ttnnLayout =
+        conversion::getTensorLayout(originalLayout, CreateWorkerGrid());
+    const auto tensorSpec = conversion::getTensorSpec(
+        tensorShape, originalLayout, CreateWorkerGrid());
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
               ::tt::tt_metal::Layout::TILE);
@@ -550,9 +558,10 @@ TEST_F(Conversion, LayoutToTensorSpec) {
     const auto originalLayout = CreateTiledLayout(
         tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
     const auto ttnnShape = conversion::getShape(tensorShape);
-    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec =
-        conversion::getTensorSpec(tensorShape, originalLayout);
+    const auto ttnnLayout =
+        conversion::getTensorLayout(originalLayout, CreateWorkerGrid());
+    const auto tensorSpec = conversion::getTensorSpec(
+        tensorShape, originalLayout, CreateWorkerGrid());
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
               ::tt::tt_metal::Layout::TILE);
@@ -563,9 +572,10 @@ TEST_F(Conversion, LayoutToTensorSpec) {
     const auto originalLayout = CreateRowMajorLayout(
         tensorShape, BufferType::L1, TensorMemoryLayout::BlockSharded);
     const auto ttnnShape = conversion::getShape(tensorShape);
-    const auto ttnnLayout = conversion::getTensorLayout(originalLayout);
-    const auto tensorSpec =
-        conversion::getTensorSpec(tensorShape, originalLayout);
+    const auto ttnnLayout =
+        conversion::getTensorLayout(originalLayout, CreateWorkerGrid());
+    const auto tensorSpec = conversion::getTensorSpec(
+        tensorShape, originalLayout, CreateWorkerGrid());
     EXPECT_EQ(tensorSpec.logical_shape().volume(), ttnnShape.volume());
     EXPECT_EQ(tensorSpec.page_config().get_layout(),
               ::tt::tt_metal::Layout::ROW_MAJOR);
@@ -590,8 +600,8 @@ TEST_F(Conversion, TensorSpecToLayout) {
       CreateRowMajorLayout(tensorShape, BufferType::L1,
                            TensorMemoryLayout::BlockSharded)};
   for (TTNNLayoutAttr originalLayout : layouts) {
-    const auto tensorSpec =
-        conversion::getTensorSpec(tensorShape, originalLayout);
+    const auto tensorSpec = conversion::getTensorSpec(
+        tensorShape, originalLayout, CreateWorkerGrid());
     EXPECT_TRUE(conversion::validateTensorSpec(tensorSpec, {8, 8}));
 
     const auto reconvertedLayout = conversion::getLayoutAttrFromTensorSpec(
@@ -610,8 +620,8 @@ TEST_F(Conversion, TensorSpecToLayoutSystemMemory) {
       tensorShape, BufferType::SystemMemory, TensorMemoryLayout::Interleaved);
 
   // Create the TensorSpec from the layout
-  const ::tt::tt_metal::TensorSpec tensorSpec =
-      conversion::getTensorSpec(tensorShape, systemMemLayout);
+  const ::tt::tt_metal::TensorSpec tensorSpec = conversion::getTensorSpec(
+      tensorShape, systemMemLayout, CreateWorkerGrid());
 
   // Convert back to layout
   const TTNNLayoutAttr reconvertedLayout =
@@ -701,8 +711,8 @@ TEST_F(Conversion, TensorSpecToLayoutReversed) {
   for (::tt::tt_metal::TensorSpec originalTensorSpec : tensorSpecs) {
     const auto layout = conversion::getLayoutAttrFromTensorSpec(
         &context, originalTensorSpec, /*deviceGrid=*/{8, 8});
-    const auto reconvertedTensorSpec =
-        conversion::getTensorSpec(conversion::getShape(tensorShape), layout);
+    const auto reconvertedTensorSpec = conversion::getTensorSpec(
+        conversion::getShape(tensorShape), layout, CreateWorkerGrid());
     EXPECT_EQ(reconvertedTensorSpec, originalTensorSpec);
     EXPECT_TRUE(conversion::validateTensorSpec(reconvertedTensorSpec, {8, 8}));
   }

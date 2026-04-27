@@ -174,9 +174,9 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
   }
 
   mlir::tt::ttcore::TensorMeshAttr tensorMeshAttr;
-  return wrap(
-      TTNNLayoutAttr::get(unwrap(ctx), affineMap,
-                          mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)),
-                          mlir::cast<mlir::MemRefType>(unwrap(memref)),
-                          memLayoutAttr, tensorMeshAttr));
+  llvm::ArrayRef<int64_t> gridShape =
+      mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)).getShape();
+  return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap, gridShape,
+                                  mlir::cast<mlir::MemRefType>(unwrap(memref)),
+                                  memLayoutAttr, tensorMeshAttr));
 }

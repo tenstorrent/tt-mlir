@@ -64,11 +64,10 @@ public:
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
-    return TTNNLayoutAttr::get(
-        &context, tensorShape, elementType, bufferType,
-        mlir::tt::ttcore::GridAttr::get(&context, gridShape),
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                    tensorMemoryLayout));
+    return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
+                               gridShape,
+                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                   &context, tensorMemoryLayout));
   }
 
   // Helper to create layout with custom element type
@@ -77,11 +76,10 @@ public:
       BufferType bufferType, TensorMemoryLayout tensorMemoryLayout,
       const llvm::ArrayRef<int64_t> &gridShape = {1, 1}) {
     auto tileType = mlir::tt::ttcore::TileType::get(elementType);
-    return TTNNLayoutAttr::get(
-        &context, tensorShape, tileType, bufferType,
-        mlir::tt::ttcore::GridAttr::get(&context, gridShape),
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                    tensorMemoryLayout));
+    return TTNNLayoutAttr::get(&context, tensorShape, tileType, bufferType,
+                               gridShape,
+                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                   &context, tensorMemoryLayout));
   }
 
   // Helper to create a simple AddOp for testing
@@ -283,16 +281,12 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
   auto createRowMajorHSLayout = [&](const llvm::ArrayRef<int64_t> &tensorShape,
                                     BufferType bufferType,
                                     TensorMemoryLayout tensorMemoryLayout) {
-    // Row major uses scalar element type instead of tiled
-    auto [virtToPhysicalMap, physicalToVirtMap] = mlir::tt::ttnn::
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            &context, tensorMemoryLayout);
-    return TTNNLayoutAttr::get(
-        &context, tensorShape, builder.getBF16Type(), bufferType,
-        mlir::tt::ttcore::GridAttr::get(&context, {64, 1}, virtToPhysicalMap,
-                                        physicalToVirtMap),
-        mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                    tensorMemoryLayout));
+    // Row major uses scalar element type instead of tiled.
+    return TTNNLayoutAttr::get(&context, tensorShape, builder.getBF16Type(),
+                               bufferType,
+                               /*gridShape=*/llvm::ArrayRef<int64_t>{64, 1},
+                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+                                   &context, tensorMemoryLayout));
   };
 
   llvm::SmallVector<int64_t> tensorShape = {64, 1024};

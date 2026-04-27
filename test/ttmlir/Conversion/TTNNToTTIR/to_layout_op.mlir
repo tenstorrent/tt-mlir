@@ -5,7 +5,7 @@
 #l1 = #ttnn.buffer_type<l1>
 
 #dram_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
-#l1_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>>
+#l1_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>>
 
 module {
   func.func @test(%arg0: tensor<32x32xbf16, #dram_layout>) -> tensor<32x32xbf16, #l1_layout> {

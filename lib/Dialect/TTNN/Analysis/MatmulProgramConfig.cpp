@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
@@ -94,13 +95,13 @@ static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
 //
 // Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for width/height
 // sharded output.
-static mlir::Attribute
-generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
-                              int64_t Kt, TTNNLayoutAttr outputLayout,
-                              TensorMemoryLayout outputMemLayout,
-                              UnaryWithParamAttr fusedActivation,
-                              int64_t maxSubblockSize, bool fuseBatch) {
-  auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
+static mlir::Attribute generateMatmul1DProgramConfig(
+    MLIRContext *ctx, int64_t Mt, int64_t Nt, int64_t Kt,
+    TTNNLayoutAttr outputLayout, ttcore::GridAttr deviceGrid,
+    TensorMemoryLayout outputMemLayout, UnaryWithParamAttr fusedActivation,
+    int64_t maxSubblockSize, bool fuseBatch) {
+  auto [gridX, gridY] =
+      utils::getPhysicalGridDimensions(outputLayout, deviceGrid);
   int64_t numCores = gridX * gridY;
 
   bool mcastIn0 = (outputMemLayout == TensorMemoryLayout::WidthSharded);
@@ -158,9 +159,11 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 static mlir::Attribute
 generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                               int64_t Kt, TTNNLayoutAttr outputLayout,
+                              ttcore::GridAttr deviceGrid,
                               UnaryWithParamAttr fusedActivation,
                               int64_t maxSubblockSize, bool fuseBatch) {
-  auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
+  auto [gridX, gridY] =
+      utils::getPhysicalGridDimensions(outputLayout, deviceGrid);
 
   int64_t perCoreM = divUp(Mt, gridY);
   int64_t perCoreN = divUp(Nt, gridX);
@@ -277,15 +280,17 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
     return std::nullopt;
   }
 
+  ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
+
   if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
     return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                         fusedActivation, maxSubblockSize,
-                                         fuseBatch);
+                                         deviceGrid, fusedActivation,
+                                         maxSubblockSize, fuseBatch);
   }
 
-  return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
-                                       outputMemLayout, fusedActivation,
-                                       maxSubblockSize, fuseBatch);
+  return generateMatmul1DProgramConfig(
+      ctx, Mt, Nt, Kt, outputLayout, deviceGrid, outputMemLayout,
+      fusedActivation, maxSubblockSize, fuseBatch);
 }
 
 } // namespace mlir::tt::ttnn

@@ -138,8 +138,9 @@ void populateTTNNModule(nb::module_ &m) {
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
       .def_static(
           "get_with_linear",
-          [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
-             MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
+          [](MlirContext ctx, MlirAffineMap linear,
+             std::vector<std::int64_t> gridShape, MlirType memref,
+             std::optional<unsigned> memLayout = std::nullopt,
              std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
                  std::nullopt,
              std::optional<bool> exactGrid = std::nullopt) {
@@ -154,19 +155,18 @@ void populateTTNNModule(nb::module_ &m) {
               tensorMeshAttr = tensorMesh.value();
             }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
-                unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
-                mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
+                unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)), gridShape,
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
-                tensorMeshAttr, /*ignorePhysicalLayout=*/false,
-                exactGrid.value_or(false)));
+                tensorMeshAttr,
+                /*ignorePhysicalLayout=*/false, exactGrid.value_or(false)));
           },
-          nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none(),
-          nb::arg("exactGrid") = nb::none())
+          nb::arg("ctx"), nb::arg("linear"), nb::arg("grid_shape"),
+          nb::arg("memref"), nb::arg("memLayout") = nb::none(),
+          nb::arg("tensorMesh") = nb::none(), nb::arg("exactGrid") = nb::none())
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<std::int64_t> shape, MlirType type,
-             uint32_t bufferType, MlirAttribute gridAttr,
+             uint32_t bufferType, std::vector<std::int64_t> gridShape,
              std::optional<unsigned> memLayout = std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
@@ -176,20 +176,18 @@ void populateTTNNModule(nb::module_ &m) {
             }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), shape, mlir::cast<Type>(unwrap(type)),
-                static_cast<tt::ttnn::BufferType>(bufferType),
-                mlir::cast<tt::ttcore::GridAttr>(unwrap(gridAttr)),
+                static_cast<tt::ttnn::BufferType>(bufferType), gridShape,
                 memLayoutAttr));
           },
-          nb::arg("ctx"), nb::arg("shape"), nb::arg("grid"),
+          nb::arg("ctx"), nb::arg("shape"), nb::arg("grid_shape"),
           nb::arg("memrefType"), nb::arg("memLayout") = nb::none(),
           nb::arg("tensorMesh") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })
-      .def_prop_ro("grid_attr", &tt::ttnn::TTNNLayoutAttr::getGrid)
       .def_prop_ro("grid_shape",
                    [](tt::ttnn::TTNNLayoutAttr self) {
-                     auto shape = self.getGrid().getShape();
+                     auto shape = self.getGridShape();
                      return std::vector<int64_t>(shape.begin(), shape.end());
                    })
       .def_prop_ro(

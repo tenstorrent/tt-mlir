@@ -93,22 +93,21 @@ public:
       BufferType memorySpace, TensorMemoryLayout tensorMemoryLayout) {
     TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
         TensorMemoryLayoutAttr::get(&context, tensorMemoryLayout);
-    mlir::tt::ttcore::GridAttr gridAttr =
-        mlir::tt::ttcore::GridAttr::get(&context);
+    llvm::SmallVector<int64_t> gridShape{1, 1};
     if (isL1BufferType(memorySpace)) {
-      gridAttr = mlir::tt::ttcore::GridAttr::get(&context, {8, 8});
+      gridShape = {8, 8};
     }
 
     if (legalConfigs.find(op) == legalConfigs.end()) {
       legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          gridAttr, tensorMemoryLayoutAttr)};
+          gridShape, tensorMemoryLayoutAttr)};
     } else {
       legalConfigs[op].push_back(TTNNLayoutAttr::get(
           &context, getTensorRankedType().getShape(),
           mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          gridAttr, tensorMemoryLayoutAttr));
+          gridShape, tensorMemoryLayoutAttr));
     }
   }
 

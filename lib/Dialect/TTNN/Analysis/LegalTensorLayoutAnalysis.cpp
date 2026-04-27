@@ -10,9 +10,13 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
+#include "ttmlir/Utils.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/ArrayRef.h"
 
+#include <cstdint>
 #include <unordered_set>
 #include <vector>
 
@@ -44,7 +48,7 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
   if (layout.isTiled()) {
     llvm::SmallVector<int64_t, 2> tiledShape =
         layout.getTiledShape(tensorShape);
-    llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
+    llvm::ArrayRef<int64_t> gridShape = layout.getGridShape();
 
     assert(tiledShape.size() == gridShape.size() &&
            "Tiled tensor shape and grid shape must have the same rank");
@@ -103,14 +107,14 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
       // DRAM
       allPossibleLayouts.push_back(TTNNLayoutAttr::get(
           ctx, tensorShape, elementType, BufferType::DRAM,
-          ttcore::GridAttr::get(ctx),
+          /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1},
           TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
 
       // L1 Interleaved - It must be tiled.
       // TODO(odjuricic): Check that this is always the case.
       if (mlir::isa<ttcore::TileType>(elementType)) {
         allPossibleLayouts.push_back(TTNNLayoutAttr::get(
-            ctx, tensorShape, elementType, BufferType::L1, maxGrid,
+            ctx, tensorShape, elementType, BufferType::L1, maxGrid.getShape(),
             TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
       }
     }
@@ -138,17 +142,12 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     assert(maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");
     // Block Sharded
-    auto [virtToPhysicalMapBlock, physicalToVirtMapBlock] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            ctx, TensorMemoryLayout::BlockSharded, maxGrid.getShape());
     for (int height = 1; height <= maxGrid.getShape()[0]; ++height) {
       for (int width = 1; width <= maxGrid.getShape()[1]; ++width) {
         shardedResults.push_back(
             shardedBase
-                .withGrid(tensorType,
-                          ttcore::GridAttr::get(ctx, {height, width},
-                                                virtToPhysicalMapBlock,
-                                                physicalToVirtMapBlock))
+                .withShardGrid(tensorType,
+                               llvm::ArrayRef<int64_t>{height, width})
                 .withMemoryLayout(TensorMemoryLayout::BlockSharded));
         if (checkIfShardShapeExists(
                 shardedResults.back().getMemref().getShape())) {
@@ -159,19 +158,12 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
 
     shardShapeSet.clear();
 
-    int64_t numCores = maxGrid.getGridVolume();
+    int64_t numCores = ttmlir::utils::volume(maxGrid.getShape());
     // Height Sharded
-    auto [virtToPhysicalMapHeight, physicalToVirtMapHeight] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            ctx, TensorMemoryLayout::HeightSharded, maxGrid.getShape());
-
     for (int height = 1; height <= numCores; ++height) {
       shardedResults.push_back(
           shardedBase
-              .withGrid(tensorType,
-                        ttcore::GridAttr::get(ctx, {height, 1},
-                                              virtToPhysicalMapHeight,
-                                              physicalToVirtMapHeight))
+              .withShardGrid(tensorType, llvm::ArrayRef<int64_t>{height, 1})
               .withMemoryLayout(TensorMemoryLayout::HeightSharded));
 
       if (checkIfShardShapeExists(
@@ -183,15 +175,10 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     shardShapeSet.clear();
 
     // Width Sharded
-    auto [virtToPhysicalMapWidth, physicalToVirtMapWidth] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            ctx, TensorMemoryLayout::WidthSharded, maxGrid.getShape());
     for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(
           shardedBase
-              .withGrid(tensorType, ttcore::GridAttr::get(
-                                        ctx, {1, width}, virtToPhysicalMapWidth,
-                                        physicalToVirtMapWidth))
+              .withShardGrid(tensorType, llvm::ArrayRef<int64_t>{1, width})
               .withMemoryLayout(TensorMemoryLayout::WidthSharded));
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {
@@ -214,7 +201,8 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
   // be sharded onto a 8x8 grid.
   std::sort(shardedResults.begin(), shardedResults.end(),
             [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+              return ttmlir::utils::volume(a.getGridShape()) >
+                     ttmlir::utils::volume(b.getGridShape());
             });
 
   const int64_t numLayoutsToGenerate =

@@ -100,10 +100,8 @@ computeInputDramBytes(const std::vector<TTNNLayoutAttr> &inputLayouts) {
   for (const auto &layout : inputLayouts) {
     if (layout && !layout.hasL1BufferType()) {
       uint64_t tensorBytes = layout.getShardSizeInBytes();
-      if (auto grid = layout.getGrid()) {
-        for (auto dim : grid.getShape()) {
-          tensorBytes *= dim;
-        }
+      for (auto dim : layout.getGridShape()) {
+        tensorBytes *= dim;
       }
       dramBytes += tensorBytes;
     }
@@ -963,8 +961,7 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
         !isShardedMemoryLayout(layout.getMemLayout().getValue())) {
       continue;
     }
-    if (static_cast<int64_t>(layout.getGrid().getGridVolume()) >
-        maxGridVolume) {
+    if (ttmlir::utils::volume(layout.getGridShape()) > maxGridVolume) {
       continue;
     }
     filtered.push_back(layout);
@@ -978,7 +975,7 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
   std::vector<TTNNLayoutAttr> deduped;
   for (const auto &layout : filtered) {
     TensorMemoryLayout memLayout = layout.getMemLayout().getValue();
-    auto gridShape = layout.getGrid().getShape();
+    auto gridShape = layout.getGridShape();
     Key key{memLayout, {gridShape.begin(), gridShape.end()}};
     bool seen = false;
     for (const auto &existing : seenKeys) {
@@ -1005,8 +1002,8 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
   for (auto &[type, layouts] : buckets) {
     std::sort(layouts.begin(), layouts.end(),
               [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
-                return a.getGrid().getGridVolume() >
-                       b.getGrid().getGridVolume();
+                return ttmlir::utils::volume(a.getGridShape()) >
+                       ttmlir::utils::volume(b.getGridShape());
               });
     if (layouts.size() > maxReshardCandidatesPerType) {
       layouts.resize(maxReshardCandidatesPerType);
@@ -1020,7 +1017,8 @@ std::vector<TTNNLayoutAttr> MemoryLayoutPropagation::generateReshardCandidates(
   // Final sort for deterministic ordering.
   std::sort(deduped.begin(), deduped.end(),
             [](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+              return ttmlir::utils::volume(a.getGridShape()) >
+                     ttmlir::utils::volume(b.getGridShape());
             });
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
@@ -1405,7 +1403,8 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
       bool bothSharded =
           isShardedMemoryLayout(producerLayout.getMemLayout().getValue()) &&
           isShardedMemoryLayout(reshardLayout.getMemLayout().getValue());
-      if (!bothSharded || producerLayout.getGrid() == reshardLayout.getGrid()) {
+      if (!bothSharded ||
+          producerLayout.getGridShape() == reshardLayout.getGridShape()) {
         return;
       }
     }
@@ -1418,7 +1417,8 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   TTNNLayoutAttr outputLayout =
       producerLayout.withBufferType(reshardLayout.getBufferType())
           .withMemoryLayout(reshardLayout.getMemLayout())
-          .withGrid(producerTensorType.getShape(), reshardLayout.getGrid())
+          .withShardGrid(producerTensorType.getShape(),
+                         reshardLayout.getGridShape())
           .withShardShape(reshardLayout.getScalarShardShape());
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
