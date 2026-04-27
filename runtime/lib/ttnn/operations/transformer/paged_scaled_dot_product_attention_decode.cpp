@@ -44,7 +44,8 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
   auto computeGrid = query.device()->compute_with_storage_grid_size();
   if (op->core_grid()) {
-    computeGrid = ::tt::runtime::ttnn::utils::toTTNNCoreCoord(*op->core_grid());
+    computeGrid =
+        unifiedOpLib::operations::utils::toTTNNCoreCoord(*op->core_grid());
   }
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
