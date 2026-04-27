@@ -49,9 +49,6 @@ determineClusterAxis(mlir::DenseIntElementsAttr replicaGroups,
 //   Inlined (input was batch-sharded; emitted by UpdateGlobalToLocalShapes
 //   when input_is_fully_replicated == false):
 //     rms_norm → reshape → all_to_all → slice → reshape
-//
-// resultOp is the op to replace with the distributed custom_call result.
-// intermediateOps are additional ops to erase (in reverse) after replacement.
 struct AllSliceMatch {
   mlir::Type resultType;
   mlir::Operation *resultOp;
@@ -70,7 +67,7 @@ static std::optional<AllSliceMatch> tryMatchAllSlice(mlir::Operation *op) {
 
   // Inlined form: reshape → all_to_all → slice → reshape.
   // UpdateGlobalToLocalShapes emits this sequence when the all_slice input
-  // is not fully replicated (e.g. batch-sharded rms_norm output on galaxy).
+  // is not fully replicated across all devices.
   auto reshape1 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(op);
   if (!reshape1 || !reshape1.getResult().hasOneUse()) {
     return std::nullopt;
@@ -92,9 +89,9 @@ static std::optional<AllSliceMatch> tryMatchAllSlice(mlir::Operation *op) {
   }
 
   return AllSliceMatch{
-      reshape2.getResult().getType(), reshape2.getOperation(),
-      {reshape1.getOperation(), allToAll.getOperation(),
-       slice.getOperation()}};
+      reshape2.getResult().getType(),
+      reshape2.getOperation(),
+      {reshape1.getOperation(), allToAll.getOperation(), slice.getOperation()}};
 }
 
 // Fuse all_gather + custom_call @tenstorrent.rms_norm + sdy.all_slice into a
@@ -156,8 +153,9 @@ public:
     auto allSliceMatch = tryMatchAllSlice(soleUser);
     if (!allSliceMatch) {
       return rewriter.notifyMatchFailure(
-          customCallOp, "rms_norm sole user is not an sdy.all_slice composite "
-                        "or reshape -> all_to_all -> slice -> reshape sequence");
+          customCallOp,
+          "rms_norm sole user is not an sdy.all_slice composite "
+          "or reshape -> all_to_all -> slice -> reshape sequence");
     }
 
     // Derive cluster_axis from the input all_gather's replica_groups.
@@ -208,8 +206,8 @@ public:
 
     // Create the distributed custom_call with the local result type.
     auto distributedCall = rewriter.create<mlir::stablehlo::CustomCallOp>(
-        customCallOp.getLoc(),
-        mlir::TypeRange{allSliceMatch->resultType}, localOperands,
+        customCallOp.getLoc(), mlir::TypeRange{allSliceMatch->resultType},
+        localOperands,
         rewriter.getStringAttr(utils::kDistributedRmsNormTargetName),
         /*has_side_effect=*/nullptr,
         /*backend_config=*/nullptr,
