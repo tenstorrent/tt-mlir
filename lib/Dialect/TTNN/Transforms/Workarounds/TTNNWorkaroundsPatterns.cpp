@@ -674,5 +674,14 @@ const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
         ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
-        ttnn::ScatterOp::getOperationName()};
+        ttnn::ScatterOp::getOperationName(),
+        // TopK's operands workaround (TTNNWorkaroundsPass.cpp
+        // createTopKOpOperandsWorkarounds) forces input bf16 + output indices
+        // ui16 alignment. Without this entry the optimizer-side dtype
+        // propagation at opt_level>=1 picks f32 for chunks 1+ of the
+        // chunked-topk pattern (apply_top_k_top_p_fast in tt-xla vLLM
+        // sampler), producing a ttnn.add with mismatched (f32, si32)
+        // operands and silently wrong global vocab indices. See
+        // tt-xla perf_debug/TTMLIR_ISSUE_OPT1_TOPK_INDICES_F32.md.
+        ttnn::TopKOp::getOperationName()};
 } // namespace mlir::tt::ttnn
