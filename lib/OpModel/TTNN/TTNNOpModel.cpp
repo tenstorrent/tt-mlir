@@ -6127,8 +6127,8 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-   // Convert input layout to TensorSpec
-   auto inputSpecExp =
+  // Convert input layout to TensorSpec
+  auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
   if (!inputSpecExp) {
     return inputSpecExp.takeError();

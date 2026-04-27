@@ -39,13 +39,13 @@ struct ConvTranspose2dResolvedParams {
   std::optional<::ttnn::Conv2dSliceConfig> sliceConfig;
 };
 
-ConvTranspose2dResolvedParams resolveConvTranspose2dParams(
-    const ::tt::target::ttnn::ConvTranspose2dOpT &opT, CallType callType);
+ConvTranspose2dResolvedParams
+resolveConvTranspose2dParams(const ::tt::target::ttnn::ConvTranspose2dOpT &opT,
+                             CallType callType);
 
 ConvTranspose2dOpResult callConvTranspose2d(
-    CallType callType,
-    const ::tt::target::ttnn::ConvTranspose2dOpT &opT, TensorArg input,
-    TensorArg weight, std::optional<TensorArg> bias,
+    CallType callType, const ::tt::target::ttnn::ConvTranspose2dOpT &opT,
+    TensorArg input, TensorArg weight, std::optional<TensorArg> bias,
     ::ttnn::MeshDevice &targetDevice);
 
 } // namespace unifiedOpLib

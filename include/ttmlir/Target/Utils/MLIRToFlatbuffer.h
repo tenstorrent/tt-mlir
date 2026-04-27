@@ -1148,7 +1148,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
 
 inline ::tt::target::ttnn::MemoryConfigT
 toNative(::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
-  if(!isDeviceBufferType(memoryConfigAttr.getBufferType().getValue())) {
+  if (!isDeviceBufferType(memoryConfigAttr.getBufferType().getValue())) {
     return {};
   }
   ::tt::target::ttnn::MemoryConfigT memoryConfigT;
