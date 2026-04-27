@@ -1,0 +1,354 @@
+diff --git a/tests/sweep_framework/sweep_utils/memory_utils.py b/tests/sweep_framework/sweep_utils/memory_utils.py
+index db26d8baee..6898065375 100644
+--- a/tests/sweep_framework/sweep_utils/memory_utils.py
++++ b/tests/sweep_framework/sweep_utils/memory_utils.py
+@@ -35,7 +35,6 @@ def capture_peak_memory(test_module, test_vector: dict, device, use_no_dispatch:
+     try:
+         import ttnn
+ 
+-        # Get core count from device
+         grid_size = device.compute_with_storage_grid_size()
+         num_cores = grid_size.x * grid_size.y
+ 
+@@ -51,8 +50,7 @@ def capture_peak_memory(test_module, test_vector: dict, device, use_no_dispatch:
+ 
+         captured_graph = ttnn.graph.end_graph_capture()
+ 
+-        # Use per-core API (new, recommended)
+-        per_core_usage = ttnn.graph.extract_resource_usage_per_core(captured_graph, num_cores)
++        per_core_usage = ttnn.graph.extract_resource_usage_per_core(captured_graph)
+ 
+         # Also get device-level peak memory for comparison
+         peak_l1_memory_device = ttnn.graph.extract_peak_L1_memory_usage(captured_graph)
+diff --git a/tests/ttnn/unit_tests/base_functionality/test_graph_trace_utils.py b/tests/ttnn/unit_tests/base_functionality/test_graph_trace_utils.py
+index 4c80c6ee74..a0a5f03615 100644
+--- a/tests/ttnn/unit_tests/base_functionality/test_graph_trace_utils.py
++++ b/tests/ttnn/unit_tests/base_functionality/test_graph_trace_utils.py
+@@ -295,9 +295,6 @@ def test_normal_mode_shows_real_addresses():
+ def test_extract_resource_usage_per_core():
+     """Test per-core resource usage extraction from graph trace"""
+     with ttnn.manage_device(device_id=0) as device:
+-        grid_size = device.compute_with_storage_grid_size()
+-        interleaved_storage_cores = grid_size.x * grid_size.y
+-
+         ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NO_DISPATCH)
+ 
+         # Create tensors with known sizes
+@@ -319,7 +316,7 @@ def test_extract_resource_usage_per_core():
+         captured_graph = ttnn.graph.end_graph_capture()
+ 
+         # Test the new function
+-        usage = ttnn.graph.extract_resource_usage_per_core(captured_graph, interleaved_storage_cores)
++        usage = ttnn.graph.extract_resource_usage_per_core(captured_graph)
+ 
+         # Verify the struct has correct attributes
+         assert hasattr(usage, "peak_cb"), "PeakMemoryUsagePerCore should have peak_cb attribute"
+@@ -344,7 +341,6 @@ def test_extract_resource_usage_per_core():
+         assert usage.peak_total > 0, "Expected non-zero memory usage for add operation"
+ 
+         print(f"\nPer-core resource usage:")
+-        print(f"  Cores:      {interleaved_storage_cores}")
+         print(f"  Peak CB:    {usage.peak_cb:,} bytes")
+         print(f"  Peak L1:    {usage.peak_l1:,} bytes")
+         print(f"  Peak Total: {usage.peak_total:,} bytes")
+@@ -353,9 +349,6 @@ def test_extract_resource_usage_per_core():
+ def test_extract_resource_usage_per_core_repr():
+     """Test __repr__ and __str__ methods of PeakMemoryUsagePerCore"""
+     with ttnn.manage_device(device_id=0) as device:
+-        grid_size = device.compute_with_storage_grid_size()
+-        interleaved_storage_cores = grid_size.x * grid_size.y
+-
+         ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NO_DISPATCH)
+         input_tensor = ttnn.from_torch(
+             torch.rand(1, 1, 32, 32, dtype=torch.bfloat16),
+@@ -367,7 +360,7 @@ def test_extract_resource_usage_per_core_repr():
+         ttnn.relu(input_tensor)
+         captured_graph = ttnn.graph.end_graph_capture()
+ 
+-        usage = ttnn.graph.extract_resource_usage_per_core(captured_graph, interleaved_storage_cores)
++        usage = ttnn.graph.extract_resource_usage_per_core(captured_graph)
+ 
+         # Test __repr__ - should return a valid Python representation
+         repr_str = repr(usage)
+@@ -390,13 +383,10 @@ def test_extract_resource_usage_per_core_repr():
+ 
+ def test_extract_resource_usage_per_core_empty():
+     """Test per-core resource usage with empty trace"""
+-    grid_size_x, grid_size_y = 8, 7  # Typical grid size
+-    interleaved_storage_cores = grid_size_x * grid_size_y
+-
+     ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NO_DISPATCH)
+     captured_graph = ttnn.graph.end_graph_capture()
+ 
+-    usage = ttnn.graph.extract_resource_usage_per_core(captured_graph, interleaved_storage_cores)
++    usage = ttnn.graph.extract_resource_usage_per_core(captured_graph)
+ 
+     # Empty trace should have zero usage
+     assert usage.peak_cb == 0, "Empty trace should have zero CB usage"
+diff --git a/tests/ttnn/unit_tests/gtests/test_graph_add.cpp b/tests/ttnn/unit_tests/gtests/test_graph_add.cpp
+index e680ac745c..7539c9f909 100644
+--- a/tests/ttnn/unit_tests/gtests/test_graph_add.cpp
++++ b/tests/ttnn/unit_tests/gtests/test_graph_add.cpp
+@@ -86,11 +86,8 @@ TEST_P(AddOpGraphTestFixture, AddGraphTrace) {
+ 
+         // per core buffer allocation size
+         {
+-            auto compute_with_storage_grid_size = device_->compute_with_storage_grid_size();
+-            size_t interleaved_storage_cores = compute_with_storage_grid_size.x * compute_with_storage_grid_size.y;
+-
+             const auto& [cb_peak_size_per_core, l1_peak_per_core, peak_memory_usage_per_core] =
+-                graph::extract_resource_usage_per_core(json_trace, interleaved_storage_cores);
++                graph::extract_resource_usage_per_core(json_trace);
+ 
+             EXPECT_EQ(cb_peak_size_per_core, params.expected_cb_peak_per_core);
+             EXPECT_EQ(l1_peak_per_core, params.expected_l1_peak_per_core);
+diff --git a/tt-train/sources/ttml/utils/memory_utils.cpp b/tt-train/sources/ttml/utils/memory_utils.cpp
+index 28c2099502..25ea967d61 100644
+--- a/tt-train/sources/ttml/utils/memory_utils.cpp
++++ b/tt-train/sources/ttml/utils/memory_utils.cpp
+@@ -87,7 +87,7 @@ L1UsagePerCore get_l1_usage(const std::string& name) {
+     if (it == traces.end()) {
+         throw std::runtime_error(fmt::format("MemoryUsageTracker: Trace '{}' not found", name));
+     }
+-    return ttnn::graph::extract_resource_usage_per_core(it->second, 1);
++    return ttnn::graph::extract_resource_usage_per_core(it->second);
+ }
+ 
+ std::vector<std::pair<std::string, L1UsagePerCore>> get_l1_usage_all() {
+diff --git a/ttnn/api/ttnn/graph/graph_query_op_constraints.hpp b/ttnn/api/ttnn/graph/graph_query_op_constraints.hpp
+index 48645500ce..c4ff42408a 100644
+--- a/ttnn/api/ttnn/graph/graph_query_op_constraints.hpp
++++ b/ttnn/api/ttnn/graph/graph_query_op_constraints.hpp
+@@ -157,15 +157,13 @@ auto query_op_constraints(Op op, tt::tt_metal::distributed::MeshDevice* device,
+     }  // end of outer graph capture
+ 
+     // extract memory footprint from the trace
+-    auto interleaved_storage_cores = device->allocator()->get_num_banks(tt::tt_metal::BufferType::L1);
+     const auto& [cb_peak_size_per_core, l1_buffers_peak_per_core, peak_memory_usage_per_core] =
+-        extract_resource_usage_per_core(op_trace, interleaved_storage_cores);
++        extract_resource_usage_per_core(op_trace);
+ 
+     size_t l1_output_buffer_per_core = 0;
+     for (const auto& output : outputs) {
+         if (!output.buffer()->is_dram()) {
+-            l1_output_buffer_per_core +=
+-                extract_l1_output_buffer_allocation_size_per_core(output, interleaved_storage_cores);
++            l1_output_buffer_per_core += extract_l1_output_buffer_allocation_size_per_core(output);
+         }
+     }
+ 
+diff --git a/ttnn/api/ttnn/graph/graph_trace_utils.hpp b/ttnn/api/ttnn/graph/graph_trace_utils.hpp
+index 858fcc9a13..c61d29da35 100644
+--- a/ttnn/api/ttnn/graph/graph_trace_utils.hpp
++++ b/ttnn/api/ttnn/graph/graph_trace_utils.hpp
+@@ -36,13 +36,12 @@ enum class ExecutionStatus { Success, Error };
+ 
+ uint32_t extract_peak_L1_memory_usage(const nlohmann::json& trace);
+ 
+-// Returns the worst-case memory allocation per core for the output L1 buffer. Throws for DRAM buffers.
+-uint32_t extract_l1_output_buffer_allocation_size_per_core(
+-    const ttnn::Tensor& output_tensor, size_t interleaved_storage_cores);
++// Returns the actual per-bank L1 allocation size for the output buffer. Throws for DRAM buffers.
++uint32_t extract_l1_output_buffer_allocation_size_per_core(const ttnn::Tensor& output_tensor);
+ 
+ // Returns the worst-case memory allocation per core for the peak L1 usage. Ignores DRAM buffers.
+ [[deprecated("Use extract_resource_usage_per_core instead")]]
+-uint32_t extract_l1_buffer_allocation_peak_size_per_core(const nlohmann::json& trace, size_t interleaved_storage_cores);
++uint32_t extract_l1_buffer_allocation_peak_size_per_core(const nlohmann::json& trace);
+ 
+ // Returns peak size of circular buffer allocations for a given trace
+ [[deprecated("Use extract_resource_usage_per_core instead")]]
+@@ -50,9 +49,9 @@ uint32_t extract_circular_buffers_peak_size_per_core(const nlohmann::json& trace
+ 
+ // Returns peak size of memory (circular buffers + L1) allocated per core for a given trace
+ [[deprecated("Use extract_resource_usage_per_core instead")]]
+-uint32_t extract_peak_memory_usage(const nlohmann::json& trace, size_t interleaved_storage_cores);
++uint32_t extract_peak_memory_usage(const nlohmann::json& trace);
+ 
+-PeakMemoryUsagePerCore extract_resource_usage_per_core(const nlohmann::json& trace, size_t interleaved_storage_cores);
++PeakMemoryUsagePerCore extract_resource_usage_per_core(const nlohmann::json& trace);
+ 
+ DRAMUsage extract_dram_usage(const nlohmann::json& trace);
+ 
+diff --git a/ttnn/core/graph/graph_nanobind.cpp b/ttnn/core/graph/graph_nanobind.cpp
+index e8c1c10f25..8f0663b336 100644
+--- a/ttnn/core/graph/graph_nanobind.cpp
++++ b/ttnn/core/graph/graph_nanobind.cpp
+@@ -258,23 +258,20 @@ void py_graph_module(nb::module_& m) {
+ 
+     m.def(
+         "extract_resource_usage_per_core",
+-        [](const nb::object& py_trace, size_t interleaved_storage_cores) {
++        [](const nb::object& py_trace) {
+             auto json_module = nb::module_::import_("json");
+             auto trace_str = std::string{nb::str(json_module.attr("dumps")(py_trace)).c_str()};
+             nlohmann::json trace = nlohmann::json::parse(trace_str);
+-            return extract_resource_usage_per_core(trace, interleaved_storage_cores);
++            return extract_resource_usage_per_core(trace);
+         },
+         R"doc(
+         Extract resource usage per core from graph trace.
+ 
+-        This function calculates the worst-case peak memory usage per core, accounting for
+-        how buffers are distributed across cores. This is more accurate than total memory
+-        usage for devices with distributed memory architectures.
++        This function calculates the worst-case peak memory usage per core by reading
++        the per-bank allocation size recorded in the trace at capture time.
+ 
+         Args:
+             trace: Captured graph trace from end_graph_capture()
+-            interleaved_storage_cores: Number of cores used for interleaved storage.
+-                                       Typically grid_size.x * grid_size.y
+ 
+         Returns:
+             PeakMemoryUsagePerCore: Object with three fields:
+@@ -283,15 +280,12 @@ void py_graph_module(nb::module_& m) {
+                 - peak_total: Peak total memory (CB + L1) per core (bytes)
+ 
+         Example:
+-            >>> grid_size = device.compute_with_storage_grid_size()
+-            >>> cores = grid_size.x * grid_size.y
+-            >>> usage = ttnn.graph.extract_resource_usage_per_core(graph, cores)
++            >>> usage = ttnn.graph.extract_resource_usage_per_core(graph)
+             >>> print(f"Peak per core: {usage.peak_total:,} bytes")
+             >>> if usage.peak_total > 256 * 1024:
+             ...     print("Warning: Exceeds 256KB L1 per core!")
+         )doc",
+-        nb::arg("trace"),
+-        nb::arg("interleaved_storage_cores"));
++        nb::arg("trace"));
+ 
+     m.def(
+         "is_graph_capture_active",
+diff --git a/ttnn/core/graph/graph_processor.cpp b/ttnn/core/graph/graph_processor.cpp
+index c4abd5e2b2..d286d4d220 100644
+--- a/ttnn/core/graph/graph_processor.cpp
++++ b/ttnn/core/graph/graph_processor.cpp
+@@ -231,23 +231,7 @@ void GraphProcessor::track_allocate(const tt::tt_metal::Buffer* buffer) {
+     node_id counter = graph.size();
+     int stacking_level = static_cast<int>(current_op_id.size()) - 1;
+ 
+-    // Compute max_size_per_bank: the maximum allocation footprint per bank for this
+-    // buffer.  For interleaved layouts we use the real bank count from the allocator
+-    // (important for L1_SMALL which has fewer banks than L1).  For sharded layouts
+-    // we use the per-core page spread which matches the allocator's distribution for
+-    // all standard shard specs.
+-    uint32_t num_pages = buffer->num_pages();
+-    uint32_t page_sz = buffer->page_size();
+-    uint32_t max_size_per_bank;
+-    if (tt::tt_metal::is_sharded(buffer->buffer_layout())) {
+-        uint32_t nc = buffer->num_cores().value_or(1);
+-        uint32_t pages_per_core = nc > 0 ? (num_pages + nc - 1) / nc : num_pages;
+-        max_size_per_bank = pages_per_core * page_sz;
+-    } else {
+-        uint32_t num_banks = buffer->device()->allocator()->get_num_banks(buffer->buffer_type());
+-        uint32_t pages_per_bank = num_banks > 0 ? (num_pages + num_banks - 1) / num_banks : num_pages;
+-        max_size_per_bank = pages_per_bank * page_sz;
+-    }
++    uint32_t max_size_per_bank = buffer->aligned_size_per_bank();
+ 
+     std::unordered_map<std::string, std::string> params = {
+         {kSize, std::to_string(buffer->size())},
+@@ -307,7 +291,8 @@ void GraphProcessor::track_deallocate(tt::tt_metal::Buffer* buffer) {
+         {kLayout, tensorMemoryLayoutToString(buffer->buffer_layout())},
+         {kPageSize, std::to_string(buffer->page_size())},
+         {kNumCores, std::to_string(buffer->num_cores().value_or(0))},  // use 0 for interleaved
+-        {kDeviceId, std::to_string(buffer->device()->id())}};
++        {kDeviceId, std::to_string(buffer->device()->id())},
++        {kMaxSizePerBank, std::to_string(buffer->aligned_size_per_bank())}};
+     {
+         graph.push_back(Vertex{
+             .counter = counter,
+diff --git a/ttnn/core/graph/graph_trace_utils.cpp b/ttnn/core/graph/graph_trace_utils.cpp
+index 5dd05749f2..55f7228e79 100644
+--- a/ttnn/core/graph/graph_trace_utils.cpp
++++ b/ttnn/core/graph/graph_trace_utils.cpp
+@@ -275,52 +275,43 @@ size_t worst_case_per_core_allocation(size_t total_size, size_t page_size, size_
+ }
+ }  // namespace detail
+ 
+-uint32_t extract_l1_output_buffer_allocation_size_per_core(
+-    const Tensor& output_tensor, size_t interleaved_storage_cores) {
++uint32_t extract_l1_output_buffer_allocation_size_per_core(const Tensor& output_tensor) {
+     tt::tt_metal::Buffer* buffer = output_tensor.buffer();
+     if (buffer->is_dram()) {
+         TT_THROW("No L1 allocation. Tensor is in DRAM");
+     }
+ 
+-    uint32_t output_buffer_allocate_total_size = buffer->size();
+-    uint32_t page_size = buffer->page_size();
+-    uint32_t num_cores = buffer->num_cores().value_or(interleaved_storage_cores);
+-
+-    return detail::worst_case_per_core_allocation(output_buffer_allocate_total_size, page_size, num_cores);
++    // aligned_size_per_bank() returns the actual padded per-bank allocation,
++    // matching what the runtime allocator reserves. buffer->size() is the
++    // unpadded logical tensor size, which underestimates sharded buffers whose
++    // shard rows are padded to tile boundaries.
++    return buffer->aligned_size_per_bank();
+ }
+ 
+-uint32_t extract_l1_buffer_allocation_peak_size_per_core(
+-    const nlohmann::json& trace, size_t interleaved_storage_cores) {
++uint32_t extract_l1_buffer_allocation_peak_size_per_core(const nlohmann::json& trace) {
+     const auto& [cb_peak_size_per_core, l1_buffers_peak_per_core, peak_memory_usage_per_core] =
+-        extract_resource_usage_per_core(trace, interleaved_storage_cores);
++        extract_resource_usage_per_core(trace);
+     return l1_buffers_peak_per_core;
+ }
+ 
+ uint32_t extract_circular_buffers_peak_size_per_core(const nlohmann::json& trace) {
+     const auto& [cb_peak_size_per_core, l1_buffers_peak_per_core, peak_memory_usage_per_core] =
+-        extract_resource_usage_per_core(trace, 1);
++        extract_resource_usage_per_core(trace);
+     return cb_peak_size_per_core;
+ }
+ 
+ // calculate the size of buffer allocated/deallocated on each core
+-static uint32_t calculate_buffer_allocation_size(const nlohmann::json& node, size_t interleaved_storage_cores) {
+-    uint32_t page_size = json_to_int(node.at(kParams).at(kPageSize));
+-    uint32_t num_of_cores = json_to_int(node.at(kParams).at(kNumCores));
+-    if (num_of_cores == 0) {
+-        num_of_cores = interleaved_storage_cores;
+-    }
+-
+-    uint32_t total_size = json_to_int(node.at(kParams).at(kSize));
+-    return detail::worst_case_per_core_allocation(total_size, page_size, num_of_cores);
++static uint32_t calculate_buffer_allocation_size(const nlohmann::json& node) {
++    return json_to_int(node.at(kParams).at(kMaxSizePerBank));
+ }
+ 
+-uint32_t extract_peak_memory_usage(const nlohmann::json& trace, size_t interleaved_storage_cores) {
++uint32_t extract_peak_memory_usage(const nlohmann::json& trace) {
+     const auto& [cb_peak_size_per_core, l1_buffers_peak_per_core, peak_memory_usage_per_core] =
+-        extract_resource_usage_per_core(trace, interleaved_storage_cores);
++        extract_resource_usage_per_core(trace);
+     return peak_memory_usage_per_core;
+ }
+ 
+-PeakMemoryUsagePerCore extract_resource_usage_per_core(const nlohmann::json& trace, size_t interleaved_storage_cores) {
++PeakMemoryUsagePerCore extract_resource_usage_per_core(const nlohmann::json& trace) {
+     size_t current_cb = 0, peak_cb = 0;
+     size_t current_l1 = 0, peak_l1 = 0;
+     size_t current_total = 0, peak_total = 0;
+@@ -350,7 +341,7 @@ PeakMemoryUsagePerCore extract_resource_usage_per_core(const nlohmann::json& tra
+             if (node.at(kParams).at(kType) == "DRAM") {
+                 continue;
+             }
+-            size_t alloc_size = calculate_buffer_allocation_size(node, interleaved_storage_cores);
++            size_t alloc_size = calculate_buffer_allocation_size(node);
+             if (node.at(kNodeType) == kNodeBufferAllocate) {
+                 current_l1 += alloc_size;
+                 peak_l1 = std::max(peak_l1, current_l1);
+diff --git a/ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow/writer_interleaved_rm_no_bcast.cpp b/ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow/writer_interleaved_rm_no_bcast.cpp
+index 2a987d6c84..ab29c5b182 100644
+--- a/ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow/writer_interleaved_rm_no_bcast.cpp
++++ b/ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow/writer_interleaved_rm_no_bcast.cpp
+@@ -73,7 +73,7 @@ void kernel_main() {
+                             uint32_t l1_read_addr = get_read_ptr(cb_id_out);
+                             for (uint32_t row = 0; row < limit; ++row) {
+                                 const uint32_t row_abs_idx = row_block_base_row + row;
+-                                const uint64_t dst_noc_addr = get_noc_addr(row_abs_idx, dst) + current_chunk_offset;
++                                const uint64_t dst_noc_addr = dst.get_noc_addr(row_abs_idx, current_chunk_offset);
+                                 noc_async_write(l1_read_addr, dst_noc_addr, current_write_len);
+                                 l1_read_addr += current_chunk_bytes;
+                             }
