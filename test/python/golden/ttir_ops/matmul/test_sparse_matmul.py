@@ -43,7 +43,6 @@ def test_sparse_matmul_b_sparse(target: str, request, device):
                 is_input_a_sparse=False,
                 is_input_b_sparse=True,
                 nnz=0,
-                output_shape=(2, 4, 1, 4, 32, 5760),
                 output_type=torch.bfloat16,
                 unit_attrs=unit_attrs,
             )
@@ -85,7 +84,6 @@ def test_sparse_matmul_a_sparse(target: str, request, device):
                 is_input_a_sparse=True,
                 is_input_b_sparse=False,
                 nnz=0,
-                output_shape=(8, 4, 32, 2880),
                 output_type=torch.bfloat16,
                 unit_attrs=unit_attrs,
             )
