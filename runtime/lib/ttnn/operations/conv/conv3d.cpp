@@ -3,15 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/conv/conv3d.h"
+#include "conv/unifiedConv3dOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/types.hpp"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::conv {
+
 void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &input =
@@ -19,86 +18,28 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &weight =
       tensorPool.getTTNNTensorAndValidate(op->weight());
 
-  std::optional<::ttnn::Tensor> bias;
-  if (op->bias()) {
-    bias = tensorPool.getTTNNTensorAndValidate(op->bias());
-  }
+  std::optional<::ttnn::Tensor> bias =
+      op->bias()
+          ? std::make_optional(tensorPool.getTTNNTensorAndValidate(op->bias()))
+          : std::nullopt;
 
-  LOG_ASSERT(op->kernel_size()->size() == 3,
-             "Kernel size expected to have 3 elements");
-  LOG_ASSERT(op->stride()->size() == 3, "Stride expected to have 3 elements");
-  LOG_ASSERT(op->padding()->size() == 3, "Padding expected to have 3 elements");
-
-  std::array<uint32_t, 3> kernelSize, stride, padding;
-  std::copy_n(op->kernel_size()->begin(), 3, kernelSize.begin());
-  std::copy_n(op->stride()->begin(), 3, stride.begin());
-  std::copy_n(op->padding()->begin(), 3, padding.begin());
-
-  ::ttnn::DataType outputDtype = ::ttnn::DataType::BFLOAT16;
-  if (op->output_dtype()) {
-    outputDtype =
-        unifiedOpLib::operations::utils::toTTNNDataType(*(op->output_dtype()));
-  }
+  ::tt::target::ttnn::Conv3dOpT conv3dOpT;
+  op->UnPackTo(&conv3dOpT);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::experimental::prim::Conv3dConfig> conv3dConfig;
-  if (op->conv3d_config()) {
-    const auto *fbConfig = op->conv3d_config();
-    ::ttnn::experimental::prim::Conv3dConfig config;
-    if (fbConfig->weights_dtype()) {
-      conv3dConfig->weights_dtype =
-          unifiedOpLib::operations::utils::toTTNNDataType(
-              *fbConfig->weights_dtype());
-    }
-    if (fbConfig->t_out_block()) {
-      config.T_out_block = *fbConfig->t_out_block();
-    }
-    if (fbConfig->w_out_block()) {
-      config.W_out_block = *fbConfig->w_out_block();
-    }
-    if (fbConfig->h_out_block()) {
-      config.H_out_block = *fbConfig->h_out_block();
-    }
-    if (fbConfig->c_out_block()) {
-      config.C_out_block = *fbConfig->c_out_block();
-    }
-    if (fbConfig->c_in_block()) {
-      config.C_in_block = *fbConfig->c_in_block();
-    }
-    if (const auto *gridCoord = fbConfig->compute_with_storage_grid_size()) {
-      config.compute_with_storage_grid_size =
-          tt::tt_metal::CoreCoord{gridCoord->x(), gridCoord->y()};
-    } else {
-      config.compute_with_storage_grid_size =
-          targetDevice.compute_with_storage_grid_size();
-    }
-    conv3dConfig = config;
-  }
+  unifiedOpLib::Conv3dOpResult result = unifiedOpLib::callConv3d(
+      unifiedOpLib::CallType::EXECUTE, conv3dOpT, &input, &weight,
+      bias.has_value() ? std::optional<unifiedOpLib::TensorArg>(&*bias)
+                       : std::nullopt,
+      targetDevice);
 
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callConv3d execution");
 
-  auto deviceComputeConfig = ::ttnn::init_device_compute_kernel_config(
-      targetDevice.arch(), computeConfig, ::tt::tt_metal::MathFidelity::HiFi4,
-      true, true, false);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
-
-  ::ttnn::Tensor out = ::ttnn::experimental::conv3d(
-      input, weight, &targetDevice, bias, conv3dConfig, outputDtype,
-      op->out_channels(), kernelSize, stride, padding,
-      std::array<uint32_t, 3>{1, 1, 1}, op->padding_mode()->str(), op->groups(),
-      outputMemoryConfig, deviceComputeConfig);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
+
 } // namespace tt::runtime::ttnn::operations::conv
