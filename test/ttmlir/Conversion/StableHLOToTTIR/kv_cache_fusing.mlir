@@ -54,8 +54,8 @@ module @scatter_fill_cache_cumulative_length {
   func.func @fill_cache_cumulative_length(%arg0: tensor<1x8x64x128xbf16>, %arg1: tensor<1xi64>, %arg2: tensor<1x8x15x128xbf16>) -> tensor<1x8x64x128xbf16> {
     // CHECK-NOT: ttir.scatter
     // CHECK-NOT: ttir.update_cache
-    // CHECK: %[[RET:[0-9]+]] = "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x15x128xbf16>) -> tensor<1x8x64x128xbf16>
-    // CHECK: return %[[RET]] : tensor<1x8x64x128xbf16>
+    // CHECK: "ttir.fill_cache"(%arg0, %arg2) <{batch_offset = 0 : i32}> : (tensor<1x8x64x128xbf16>, tensor<1x8x15x128xbf16>) -> ()
+    // CHECK: return %arg0 : tensor<1x8x64x128xbf16>
 
     %0 = stablehlo.constant() <{value = dense<0> : tensor<1xi64>}> : () -> tensor<1xi64>
     %1 = stablehlo.constant() <{value = dense<1> : tensor<1xi64>}> : () -> tensor<1xi64>

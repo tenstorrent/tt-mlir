@@ -29,6 +29,30 @@ class TTIR_DPSOp<string mnemonic, list<Trait> traits = []> :
     }];
 }
 
+
+class TTIR_InplaceOp<string mnemonic, list<Trait> traits = []> :
+    TTIR_Op<mnemonic, [TTIROpInterface, MemoryEffects<[MemWrite]>] # traits> {
+
+    let description = [{
+      Base class for in-place operations that perform in-place mutations.
+
+      Unlike traditional DPS operations that return a new result tensor.
+      TTIR_InplaceOp represents operations that directly mutate their operand tensors
+      in memory. These operations:
+      - Produce no result tensors (empty `results` list)
+      - Have explicit MemWrite side-effects on mutated operands
+
+      Example:
+      ```mlir
+      %cache = ... : tensor<2x16x64xf32>  // Batch size 2, sequence length 16, hidden dim 64
+      %input = ... : tensor<2x1x64xf32>   // New token embeddings
+      %update_index = ... : tensor<1xi32> // Update at position [15]
+      ttir.update_cache(%cache, %input, %update_index) {batch_offset = 0 : i32} :
+          tensor<2x16x64xf32>, tensor<2x1x64xf32>, tensor<1xi32> -> tensor<2x16x64xf32>
+      ```
+    }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
@@ -3455,7 +3479,7 @@ def TTIR_UpdateCacheOp : TTIR_InplaceOp<"update_cache", [TTIR_CacheOpInterface]>
     - No output tensor is returned as the cache is updated in place.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        I32Attr:$batch_offset);
@@ -3478,7 +3502,7 @@ def TTIR_PagedUpdateCacheOp : TTIR_InplaceOp<"paged_update_cache", [TTIR_CacheOp
         - No output tensor is returned as the cache is updated in place.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
@@ -3524,7 +3548,7 @@ def TTIR_FillCacheOp : TTIR_InplaceOp<"fill_cache", [TTIR_CacheOpInterface]> {
     - No output tensor is returned as the cache is updated in place.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        I32Attr:$batch_offset);
 
@@ -3537,7 +3561,7 @@ def TTIR_PagedFillCacheOp : TTIR_InplaceOp<"paged_fill_cache", [TTIR_CacheOpInte
     Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.
   }];
 
-  let arguments = (ins AnyRankedTensor:$cache,
+  let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$page_table,
                        Optional<AnyRankedTensor>:$batch_idx_tensor);
