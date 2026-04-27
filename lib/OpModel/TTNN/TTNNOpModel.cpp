@@ -7,7 +7,6 @@
 #include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
 #include <tuple>
-#include <utils/utils.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "conv/unifiedConv2dOp.h"
@@ -31,6 +30,7 @@
 #include <eltwise/unary/unifiedEltwiseUnaryOp.h>
 #include <matmul/unifiedMatmulOp.h>
 #include <ttnn/graph/graph_query_op_runtime.hpp>
+#include <utils/utils.h>
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
