@@ -7476,60 +7476,122 @@ class StableHLOBuilder(Builder):
             sharding_attr=sharding_attr,
         )
 
+    ############### stablehlo.NotOp ###############
+
+    @tag(stablehlo.NotOp)
     def not_(
         self,
         in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.not``.
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.not_)
 
-        *Elementwise NOT operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Performs elementwise NOT operation on a tensor.
-        For booleans, performs logical NOT.
-        For integers, performs bitwise NOT.
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        Mathematical definition:
-        - Logical: not(x) = NOT x
-        - Bitwise: not(x) = ~x
-
-        .. code-block:: mlir
-
-            // Logical NOT for booleans
-            %result = stablehlo.not(%input) : tensor<3xi1> -> tensor<3xi1>
-            // Input tensor:
-            // input: [true, false, true]
-            // Output tensor:
-            // [false, true, false]
-
-            // Bitwise NOT for integers
-            %result = stablehlo.not(%input) : tensor<3xi32> -> tensor<3xi32>
-            // Input tensor:
-            // input: [0, 1, 2]  // Binary: 000, 001, 010
-            // Output tensor:
-            // [-1, -2, -3]      // Binary (two's complement): 111...111, 111...110, 111...101
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor (boolean or integer type)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise NOT of the input
-        """
-
-        return self._eltwise_proxy(
-            stablehlo.NotOp,
-            [in0],
-            unit_attrs=unit_attrs,
-            sharding_attr=sharding_attr,
+        op = stablehlo_op(
+            in0,
+            loc=loc,
         )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.NotOp)
+    def not_parser(
+        self,
+        old_op: stablehlo.NotOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.not_parser)
+        in0 = global_dict[old_op.operand]
+
+        new_op = stablehlo_op(
+            in0,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, new_op_result.type.element_type)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.NotOp)
+    def not_split(
+        self,
+        old_op: stablehlo.NotOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.not_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+
+        with old_context, old_loc:
+            not_module = Module.create()
+            not_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [old_op.operand.type]
+
+            with InsertionPoint(not_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="not_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+
+                    new_op = stablehlo_op(
+                        in0,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    not_builder._set_golden_tensor(new_op_result, old_op_result)
+                    not_builder._set_golden_tensor(in0, input0)
+                    not_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                not_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return not_module, not_builder
 
     # ----- Reduce Operations -----
 

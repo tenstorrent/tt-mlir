@@ -3212,29 +3212,17 @@ def stablehlo_xor_golden(
         return torch.bitwise_xor(input_tensor, other_tensor)
 
 
-def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for StableHLO not operation.
+def stablehlo_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
-    Supports both logical NOT (for boolean tensors) and bitwise NOT (for integer tensors).
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to invert.
-    **kwargs : dict
-        Keyword arguments (unused for this operation).
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor containing the NOT of input_tensor.
-    """
     if input_tensor.dtype == torch.bool:
-        result_bool = torch.logical_not(input_tensor)
-        return result_bool.to(input_tensor.dtype)
+        result = torch.logical_not(input_tensor)
     else:
-        return torch.bitwise_not(input_tensor)
+        result = torch.bitwise_not(input_tensor)
+
+    return result.to(output_dtype)
 
 
 ################ Golden Utilities ###############
