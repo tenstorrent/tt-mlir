@@ -5186,6 +5186,33 @@ public:
     return success();
   }
 };
+
+class TTNNToEmitCSamplingOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SamplingOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SamplingOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SamplingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SamplingOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputValues()),
+        emitter.emit(srcOp.getInputIndices()),
+        emitter.emit(srcOp.getK()),
+        emitter.emit(srcOp.getP()),
+        emitter.emit(srcOp.getTemp()),
+        emitter.emit(srcOp.getSeed()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5324,7 +5351,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
            SliceDynamicOpConversionPattern, SortOpConversionPattern,
            PermuteOpConversionPattern, PadOpConversionPattern,
-           TTNNToEmitCTopKOpConversionPattern, GatherOpConversionPattern>(
+           TTNNToEmitCTopKOpConversionPattern,
+           TTNNToEmitCSamplingOpConversionPattern, GatherOpConversionPattern>(
           typeConverter, ctx);
 
   // Quantization ops.

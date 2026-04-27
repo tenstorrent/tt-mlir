@@ -467,6 +467,24 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 }
 
 TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
+  // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors
+  // and produces a ROW_MAJOR output. Declare both so the pass inserts
+  // to_layout ops to reconcile with neighbours.
+  TTNNOperandWorkarounds empty;
+  TTNNOperandWorkarounds rowMajor;
+  rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(empty)      // input_values
+      .addInputOperandWorkaround(rowMajor)   // input_indices
+      .addInputOperandWorkaround(rowMajor)   // k
+      .addInputOperandWorkaround(rowMajor)   // p
+      .addInputOperandWorkaround(rowMajor)   // temp
+      .addOutputOperandWorkaround(rowMajor); // result
+}
+
+TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(
     Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;

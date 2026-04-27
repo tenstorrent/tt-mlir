@@ -2420,6 +2420,31 @@ public:
           op.getLoc(), rewriter.getI32Type(), static_cast<int32_t>(ctArgIdx));
       rewriter.replaceOpWithNewOp<ttkernel::GetSemaphoreOp>(op, semaphoreIndex);
       return success();
+    } else if (mlir::isa<IndexType, IntegerType, FloatType>(
+                   op.getResult().getType())) {
+      // Scalar additional args are always stored as ui32 in the CT arg slot.
+      // If the declared type differs from ui32, a ReinterpretCastOp recovers
+      // the correct type.
+      Type scalarType = op.getResult().getType();
+      Type ui32Type =
+          IntegerType::get(op.getContext(), 32, IntegerType::Unsigned);
+
+      ArgAttr scalarArg =
+          rewriter.getAttr<ArgAttr>(ArgType::Scalar, op.getOperandIndex());
+      size_t ctArgIdx;
+      rewriter.modifyOpInPlace(entry, [&]() {
+        ctArgIdx = ArgSpecAttr::appendCompileTimeArg(entry, scalarArg);
+      });
+
+      Value ctArg = rewriter.create<ttkernel::GetCompileArgValOp>(
+          op.getLoc(), ui32Type, static_cast<int32_t>(ctArgIdx));
+
+      if (scalarType == ui32Type) {
+        rewriter.replaceOp(op, ctArg);
+      } else {
+        rewriter.replaceOpWithNewOp<ttkernel::BitcastOp>(op, scalarType, ctArg);
+      }
+      return success();
     } else {
       llvm_unreachable("unexpected arg type to GetArgOp");
     }

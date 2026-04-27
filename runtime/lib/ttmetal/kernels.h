@@ -49,7 +49,8 @@ createKernelConfig(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
-    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn);
+    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn,
+    const std::unordered_map<std::uint32_t, Tensor> &hostBuffers);
 
 } // namespace tt::runtime::ttmetal
 

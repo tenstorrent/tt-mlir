@@ -142,3 +142,45 @@ func.func @single_add_no_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   }
   return
 }
+
+// Generator-style fused generic with no tiled inputs should still get scratch,
+// using the tiled output type as the reference type.
+//
+// CHECK-LABEL: func.func @generator_fused_generic_gets_scratch
+// CHECK: d2m.generic
+// CHECK: memref.alloc() : memref<1x{{[0-9]+}}x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<{{[0-9]+}}x4096, 1>, #l1>
+// CHECK-NEXT: d2m.scratch_init
+func.func @generator_fused_generic_gets_scratch() {
+  %out = memref.alloc() : !memref_tiled
+  d2m.generic {
+    block_factors = [1, 1], grid = #ttcore.grid<1x1>,
+    indexing_maps = [#map],
+    iterator_types = [#parallel, #parallel],
+    threads = [#d2m.thread<unified>]
+  }
+  ins()
+  outs(%out : !memref_tiled) {
+  ^unified0:
+    %block0 = d2m.block_index(0) : index
+    %block1 = d2m.block_index(1) : index
+    %tmp = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
+    linalg.generic {
+      indexing_maps = [#map],
+      iterator_types = ["parallel", "parallel"]
+    } outs(%tmp : memref<4x4x!tile_f32>) {
+    ^bb0(%unused: !tile_f32):
+      linalg.yield %unused : !tile_f32
+    }
+    %result = memref.alloc() {alignment = 64 : i64} : memref<4x4x!tile_f32>
+    linalg.generic {
+      indexing_maps = [#map, #map],
+      iterator_types = ["parallel", "parallel"]
+    } ins(%tmp : memref<4x4x!tile_f32>) outs(%result : memref<4x4x!tile_f32>) {
+    ^bb0(%in: !tile_f32, %unused: !tile_f32):
+      %sum = "d2m.tile_add"(%in, %in) : (!tile_f32, !tile_f32) -> !tile_f32
+      linalg.yield %sum : !tile_f32
+    }
+    %stored = d2m.remote_store %out[%block0, %block1] %result : !memref_tiled, memref<4x4x!tile_f32> -> !memref_tiled
+  }
+  return
+}

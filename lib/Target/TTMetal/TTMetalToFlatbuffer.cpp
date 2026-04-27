@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Target/TTMetal/TTMetalToFlatbuffer.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
@@ -537,6 +538,28 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
 }
 
 static flatbuffers::Offset<target::metal::BufferRef>
+scalarValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
+  Type scalarType = value.getType();
+  ttcore::DataType dtype = ttcore::elementTypeToDataType(scalarType);
+
+  std::vector<int32_t> shape = {1};
+  std::vector<int32_t> hostStrides = {1};
+  uint64_t hostVolume = 1;
+
+  std::vector<int32_t> stride = {};
+  auto bufferDetail =
+      target::metal::CreateSystemBufferDirect(*cache.fbb, &stride).Union();
+
+  auto bufferDesc = target::metal::CreateBufferDescDirect(
+      *cache.fbb, &shape, &hostStrides, hostVolume, toFlatbuffer(cache, dtype),
+      nullptr, target::metal::BufferDetail::SystemBuffer, bufferDetail,
+      nullptr);
+
+  return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(), 0,
+                                        bufferDesc);
+}
+
+static flatbuffers::Offset<target::metal::BufferRef>
 bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
                         ttcore::SystemDescAttr systemDesc, uint64_t address) {
   auto device = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
@@ -648,6 +671,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     argType = target::metal::KernelArgType::KernelArgGlobalSemaphore;
     arg = target::metal::CreateKernelArgGlobalSemaphore(
               *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Scalar: {
+    argType = target::metal::KernelArgType::KernelArgScalar;
+    arg = target::metal::CreateKernelArgScalar(*cache.fbb,
+                                               kernelArg.getOperandIndex())
               .Union();
     break;
   }
@@ -863,9 +893,27 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
 
     cqBuilder.inputs.reserve(entry.getBody().getArguments().size());
     for (auto &input : entry.getBody().getArguments()) {
-      cqBuilder.inputs.push_back(
-          cache.getOrCreate(input, bufferValueToFlatbuffer, systemDesc, 0));
-      tensorInputs.push_back(tensorValueToFlatbuffer(cache, input));
+      if (isSupportedScalarType(input.getType())) {
+        cqBuilder.inputs.push_back(
+            cache.getOrCreate(input, scalarValueToFlatbuffer));
+        Type scalarType = input.getType();
+        ttcore::DataType dtype = ttcore::elementTypeToDataType(scalarType);
+        std::vector<int32_t> scalarShape = {1};
+        std::vector<int32_t> emptyMeshShape;
+        int32_t elementSize = getElementSizeBytes(dtype);
+        auto memoryDesc = target::metal::CreateMemoryDesc(
+            *cache.fbb, toFlatbuffer(cache, dtype));
+        auto layoutDesc =
+            target::metal::CreateLayoutDesc(*cache.fbb, memoryDesc);
+        auto tensorDesc = target::metal::CreateTensorDescDirect(
+            *cache.fbb, &scalarShape, &emptyMeshShape, layoutDesc);
+        tensorInputs.push_back(target::metal::CreateTensorRef(
+            *cache.fbb, elementSize, tensorDesc));
+      } else {
+        cqBuilder.inputs.push_back(
+            cache.getOrCreate(input, bufferValueToFlatbuffer, systemDesc, 0));
+        tensorInputs.push_back(tensorValueToFlatbuffer(cache, input));
+      }
     }
 
     cqBuilder.commands.reserve(entry.getBody().front().getOperations().size());
@@ -895,6 +943,9 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
             argTypes.push_back(target::metal::ArgRef::LocalSemaphoreRef);
             args.push_back(
                 cache.at<target::metal::LocalSemaphoreRef>(arg).Union());
+          } else if (isSupportedScalarType(arg.getType())) {
+            argTypes.push_back(target::metal::ArgRef::BufferRef);
+            args.push_back(cache.at<target::metal::BufferRef>(arg).Union());
           }
         }
 
