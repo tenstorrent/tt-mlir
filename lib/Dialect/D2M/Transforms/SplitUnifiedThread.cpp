@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -206,7 +207,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     llvm::errs() << "wrapping in synchronized region\n";
     llvm::errs() << "start: " << *start << "\n";
     llvm::errs() << "end: " << *end << "\n";
-    wrapInSynchronizedRegion(
+    utils::wrapInSynchronizedRegion(
         rewriter, start, end,
         SmallVector<Value>(loadedCBOperands.begin(), loadedCBOperands.end()),
         SmallVector<Value>(storedCBOperands.begin(), storedCBOperands.end()));
@@ -215,25 +216,11 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   return success();
 }
 
-// local buffer; cb ops may already have been inserted so need to handle that
-// case
-// TODO: cleanup
-Value getCBGenericOperand(GenericOp genericOp, Value cbGenericOperand) {
-  if (auto reserveOp = cbGenericOperand.getDefiningOp<ReserveOp>()) {
-    return genericOp.getOperands()
-        [reserveOp.getCb().getDefiningOp<GetCBOp>().getCbOperandIdx()];
-  } else if (auto waitOp = cbGenericOperand.getDefiningOp<WaitOp>()) {
-    return genericOp.getOperands()
-        [waitOp.getCb().getDefiningOp<GetCBOp>().getCbOperandIdx()];
-  }
-  return cbGenericOperand;
-}
-
 // from cb usage info, check for load-store pairs and insert aliased cb ops for
 // alias side
-static LogicalResult
-processSharedBufferPairs(Block *computeBlock, PatternRewriter &rewriter,
-                         llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
+static LogicalResult processSharedBufferPairs(
+    Block *computeBlock, PatternRewriter &rewriter,
+    llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
     auto producer = usageInfo.producers.front();
     auto consumer = usageInfo.consumers.front();
@@ -284,7 +271,7 @@ processSharedBufferPairs(Block *computeBlock, PatternRewriter &rewriter,
 
 static LogicalResult
 insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
-                      llvm::DenseMap<Value, CBUsageInfo> &cbUsageInfo) {
+                      llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   SmallVector<RemoteLoadOp> loads;
 
   computeBlock->walk([&](Operation *op) {
@@ -297,8 +284,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
       for (auto &operand : synchronizedOp->getOpOperands()) {
         if (synchronizedOp.isConsumer(operand)) {
           Location loc = synchronizedOp.getLoc();
-          Value localBuffer = getCBGenericOperand(
-              synchronizedOp->getParentOfType<GenericOp>(), operand.get());
+          Value localBuffer = operand.get();
           unsigned cbOperandIdx = getCBOperandIdx(
               synchronizedOp->getParentOfType<GenericOp>(), localBuffer);
 
@@ -334,8 +320,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
       for (auto &operand : synchronizedOp->getOpOperands()) {
         if (synchronizedOp.isProducer(operand)) {
           Location loc = synchronizedOp.getLoc();
-          Value localBuffer = getCBGenericOperand(
-              synchronizedOp->getParentOfType<GenericOp>(), operand.get());
+          Value localBuffer = operand.get();
           unsigned cbOperandIdx = getCBOperandIdx(
               synchronizedOp->getParentOfType<GenericOp>(), localBuffer);
 
@@ -410,8 +395,7 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     // store, whcih we need to add a case for in allocate where we are currently
     // converting remote loads and stores to aliased load and store
 
-    Value localBuffer = getCBGenericOperand(
-        loadOp->getParentOfType<GenericOp>(), loadOp.getLocalBuffer());
+    Value localBuffer = loadOp.getLocalBuffer();
     // llvm::errs() << "cbMemref: " << localBuffer << "\n";
     unsigned cbOperandIdx =
         getCBOperandIdx(loadOp->getParentOfType<GenericOp>(), localBuffer);
@@ -449,8 +433,7 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     }
 
     // TODO:similar comment as for loadOp (see above)
-    Value localBuffer = getCBGenericOperand(
-        storeOp->getParentOfType<GenericOp>(), storeOp.getLocalBuffer());
+    Value localBuffer = storeOp.getLocalBuffer();
     assert(localBuffer && "could not find associated local buffer for store");
     unsigned cbOperandIdx =
         getCBOperandIdx(storeOp->getParentOfType<GenericOp>(), localBuffer);
@@ -479,29 +462,12 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     // remote_load conversion for both streaming and aliased loads), then
     // fall back to findAssociatedCB (traces to generic operand).
     Value srcCb = localBufferToCB.lookup(copyOp.getSrc());
-    if (!srcCb) {
-      srcCb = findAssociatedCB(copyOp, copyOp.getSrc(), rewriter, cache,
-                               portCounters);
-    }
-    if (!srcCb) {
-      return copyOp.emitError("could not find source CB for DMA local_copy");
-    }
-
-    // Insert wait on the source CB to produce a readable memref.
-    rewriter.setInsertionPoint(copyOp);
-    auto srcWait = rewriter.create<WaitOp>(loc, srcCb);
+    Value dstCb = localBufferToCB.lookup(copyOp.getDst());
 
     // Find the destination CB.
-    Value dstCb = findAssociatedCB(copyOp, copyOp.getDst(), rewriter, cache,
-                                   portCounters);
-    if (!dstCb) {
-      return copyOp.emitError(
-          "could not find destination CB for DMA local_copy");
-    }
-
     // Create explicit CB form: local_copy %src_memref into %dstCb.
-    rewriter.create<LocalCopyOp>(loc, TypeRange{}, srcWait.getResult(),
-                                 /*dst=*/Value{}, dstCb,
+    rewriter.create<LocalCopyOp>(loc, TypeRange{}, /*src=*/Value{},
+                                 /*dst=*/Value{}, srcCb, dstCb,
                                  copyOp.getIndexingMaps());
     toErase.insert(copyOp);
   }
@@ -564,7 +530,7 @@ static void eraseDMAOpsInComputeBlock(PatternRewriter &rewriter,
                                       Block *computeBlock) {
   DenseSet<Operation *> ops;
   computeBlock->walk([&](Operation *op) {
-    if (isa<RemoteLoadOp, RemoteStoreOp, AliasedLoadOp, AliasedStoreOp>(op)) {
+    if (isa<RemoteLoadOp, RemoteStoreOp, LocalCopyOp>(op)) {
       ops.insert(op);
     }
     return WalkResult::advance();
@@ -655,7 +621,7 @@ public:
     }
 
     // Compute thread: insert CB sync ops for implicit-form remote ops.
-    auto cbUsageInfoCompute = getCBUsageInfo(newGeneric.getRegion(1));
+    auto cbUsageInfoCompute = utils::getCBUsageInfo(newGeneric.getRegion(1));
     // processSharedBufferPairs no longer needed since we have explicit alias
     // ops
     // TODO: remove processSharedBufferPairs
@@ -683,6 +649,14 @@ public:
     eraseDMAOpsInComputeBlock(rewriter, computeBlock);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
     eraseDeadOps(rewriter, computeBlock, /*isDatamovementThread=*/false);
+
+    // Remove synchronized region ops, and move its ops to the parent level
+    computeBlock->walk([&](SynchronizedRegionOp synchronizedOp) {
+      if (failed(utils::unwrapSynchronizedRegion(rewriter, synchronizedOp))) {
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
 
     llvm::errs() << "newGeneric: " << *newGeneric << "\n";
 

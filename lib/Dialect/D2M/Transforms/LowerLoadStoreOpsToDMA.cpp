@@ -40,23 +40,13 @@ static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op) {
   auto genericOp = op->getParentOfType<GenericOp>();
   TT_assertv(genericOp, "RemoteLoadOp must be inside a GenericOp");
 
-  unsigned ioSize = genericOp.getInputsAndOutputs().size();
-  int64_t nonMemrefCount = 0;
-  Value sem0, sem1;
-  for (Value arg : genericOp.getAdditionalArgs()) {
-    if (!mlir::isa<MemRefType>(arg.getType())) {
-      int64_t absIdx = static_cast<int64_t>(ioSize) + nonMemrefCount;
-      if (absIdx == sem0AbsIdx) {
-        sem0 = arg;
-      }
-      if (absIdx == sem1AbsIdx) {
-        sem1 = arg;
-      }
-      nonMemrefCount++;
-    }
-  }
-  TT_assertv(sem0, "Could not find receiversReady semaphore in additionalArgs");
-  TT_assertv(sem1, "Could not find senderFinished semaphore in additionalArgs");
+  Value sem0 = genericOp.getOperands()[sem0AbsIdx];
+  Value sem1 = genericOp.getOperands()[sem1AbsIdx];
+
+  TT_assertv(sem0 != nullptr && mlir::isa<LocalSemaphoreType>(sem0.getType()),
+             "Could not find receiversReady semaphore in generic args");
+  TT_assertv(sem1 != nullptr && mlir::isa<LocalSemaphoreType>(sem1.getType()),
+             "Could not find senderFinished semaphore in generic args");
 
   return {sem0, sem1};
 }
@@ -360,26 +350,21 @@ public:
     }
 
     Location loc = dmaCopy.getLoc();
-    Value cb = dmaCopy.getCb();
+    Value srcCb = dmaCopy.getSrcCb();
+    Value dstCb = dmaCopy.getDstCb();
 
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+    Value dstMemref = rewriter.create<ReserveOp>(loc, dstCb).getResult();
+    Value srcMemref = rewriter.create<WaitOp>(loc, srcCb).getResult();
 
-    Value src = dmaCopy.getSrc();
     auto memTxType = rewriter.getType<MemTxType>(DMAType::Read);
     auto newCopy = rewriter.create<LocalCopyOp>(
-        loc, memTxType, src, localMemref, dmaCopy.getIndexingMaps());
-
+        loc, memTxType, srcMemref, dstMemref, dmaCopy.getIndexingMaps());
     rewriter.eraseOp(dmaCopy);
 
     rewriter.create<DMAWaitOp>(loc, newCopy.getResult());
-    rewriter.create<PushOp>(loc, cb);
+    rewriter.create<PushOp>(loc, dstCb);
+    rewriter.create<PopOp>(loc, srcCb);
 
-    // Pop the source CB to signal consumption.  This pop was deferred from
-    // the splitter because local_copy is a DM op — the pop must live on the
-    // DM thread.  Assuption is that exactly one thread consumes from this CB.
-    if (auto srcWait = src.getDefiningOp<WaitOp>()) {
-      rewriter.create<PopOp>(loc, srcWait.getCb());
-    }
     return success();
   }
 };

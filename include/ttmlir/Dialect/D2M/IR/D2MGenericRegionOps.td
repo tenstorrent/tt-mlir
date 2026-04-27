@@ -1468,8 +1468,8 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
 
       Explicit CB form (after LowerLoadStoreOpsToExplicitCBForm):
       ```mlir
-      d2m.local_copy %src into %cb indexing_maps = [#src_map, #dst_map]
-        : memref<...> into !d2m.cb<memref<...>>
+      d2m.local_copy %srcCb into %dstCb indexing_maps = [#src_map, #dst_map]
+        : !d2m.cb<memref<...>> into !d2m.cb<memref<...>>
       ```
 
       Memref form with MemTx result (after LowerLoadStoreOpsToDMA):
@@ -1483,7 +1483,8 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
     let arguments = (ins
       AnyRankedTensorOrMemRef:$src,
       Optional<AnyRankedTensorOrMemRef>:$dst,
-      Optional<D2M_CB>:$cb,
+      Optional<D2M_CB>:$srcCb,
+      Optional<D2M_CB>:$dstCb,
       AffineMapArrayAttr:$indexing_maps
     );
 
@@ -1495,20 +1496,23 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
         Type dstType = dst.getType();
         TypeRange resultTypes = mlir::isa<RankedTensorType>(dstType)
             ? TypeRange(dstType) : TypeRange{};
-        build($_builder, $_state, resultTypes, src, dst, /*cb=*/Value{},
+        build($_builder, $_state, resultTypes, src, dst, /*srcCb=*/Value{}, /*dstCb=*/Value{},
               indexingMaps);
       }]>,
       // MemTx result form (post-LowerLoadStoreOpsToDMA): memref operands, !d2m.mem_tx result.
       OpBuilder<(ins "Type":$resultType, "Value":$src, "Value":$dst, "ArrayAttr":$indexingMaps), [{
         build($_builder, $_state, TypeRange(resultType), src, dst,
-              /*cb=*/Value{}, indexingMaps);
+              /*srcCb=*/Value{}, /*dstCb=*/Value{}, indexingMaps);
       }]>
     ];
 
     let assemblyFormat = [{
-      $src (`,` $dst^)? (`into` $cb^)?
+      ($src `,` $dst^)?
+      ($srcCb `into` $dstCb^)?
       `indexing_maps` `=` $indexing_maps
-      attr-dict `:` type($src) (`,` type($dst)^)? (`into` type($cb)^)?
+      attr-dict `:`
+      (type($src) `,` type($dst)^)?
+      (type($srcCb) `,` type($dstCb)^)?
       (`->` type($result)^)?
     }];
 
