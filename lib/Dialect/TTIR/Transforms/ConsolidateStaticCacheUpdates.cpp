@@ -15,11 +15,8 @@ namespace mlir::tt::ttir {
 namespace {
 
 struct WritebackInfo {
-  unsigned retIdx;
   BlockArgument blockArg;
-  AddOp addOp;
   Value delta;
-  Value retSlotVal; // What is currently in the return slot (may be outer shard)
 };
 
 // Return the scalar integer value of a constant delta operand.
@@ -63,13 +60,11 @@ public:
 
       // Collect write-back candidates.
       // Pattern (with optional mesh_shard wrapper):
-      //   retSlotVal = [mesh_shard(] add(blockArg-or-mesh_shard(blockArg),
-      //                                   constant_delta) [)]
+      //   [mesh_shard(] add(blockArg-or-mesh_shard(blockArg),
+      //                     constant_delta) [)]  →  return operand
       SmallVector<WritebackInfo> candidates;
 
-      for (auto [idx, retVal] : llvm::enumerate(returnOp.getOperands())) {
-        unsigned retIdx = static_cast<unsigned>(idx);
-
+      for (auto retVal : returnOp.getOperands()) {
         // Optionally look through an outer mesh_shard.
         Value addResult = retVal;
         if (auto outerShard = retVal.getDefiningOp<MeshShardOp>()) {
@@ -82,34 +77,21 @@ public:
         if (!addOp || !addResult.hasOneUse())
           continue;
 
-        // Copy the structured binding index to avoid C++17 lambda capture
-        // limitation for structured bindings (C++20 extension).
-        unsigned capturedRetIdx = retIdx;
-        Value capturedRetVal = retVal;
-
         auto tryMatch = [&](Value maybeArgSide, Value maybeDelta) -> bool {
-          // maybeArgSide is either a BlockArgument directly, or
-          // mesh_shard(BlockArgument).
           BlockArgument blockArg;
-          if (auto innerShard = maybeArgSide.getDefiningOp<MeshShardOp>()) {
+          if (auto innerShard = maybeArgSide.getDefiningOp<MeshShardOp>())
             blockArg = llvm::dyn_cast<BlockArgument>(innerShard.getInput());
-          } else {
+          else
             blockArg = llvm::dyn_cast<BlockArgument>(maybeArgSide);
-          }
           if (!blockArg || blockArg.getOwner()->getParentOp() != funcOp)
             return false;
-
-          // Require a recognizable scalar-integer constant delta.
           if (!scalarIntKey(maybeDelta).has_value())
             return false;
-
-          // The blockArg type must match the return slot type so that the
-          // consolidated result can substitute into any slot of the group.
-          if (blockArg.getType() != capturedRetVal.getType())
+          // Guard against broadcasting: block arg type must equal add result
+          // type so that replacing arg uses preserves the result shape.
+          if (blockArg.getType() != addResult.getType())
             return false;
-
-          candidates.push_back(
-              {capturedRetIdx, blockArg, addOp, maybeDelta, capturedRetVal});
+          candidates.push_back({blockArg, maybeDelta});
           return true;
         };
 
@@ -144,36 +126,11 @@ public:
           groups.push_back({key, {wb}});
       }
 
-      // Consolidate each group with more than one write-back.
-      // Keep the last write-back's return-slot value as the canonical result
-      // and redirect all earlier slots to it, erasing the now-dead ops.
-      for (auto &[key, group] : groups) {
-        if (group.size() <= 1)
-          continue;
-
-        Value keptResult = group.back().retSlotVal;
-
-        for (size_t i = 0; i + 1 < group.size(); ++i) {
-          WritebackInfo &wb = group[i];
-          returnOp.setOperand(wb.retIdx, keptResult);
-
-          // Erase in dependency order: outer shard first, then the add.
-          // The inner mesh_shard (if any) may still have other uses; leave it
-          // for dead-code elimination.
-          if (wb.retSlotVal != wb.addOp.getResult() &&
-              wb.retSlotVal.use_empty())
-            wb.retSlotVal.getDefiningOp()->erase();
-
-          if (wb.addOp.getResult().use_empty())
-            wb.addOp.erase();
-        }
-      }
-
-      // Phase 2: Replace all remaining uses of eliminated block args with the
-      // canonical block arg.  All per-layer cumulative_length args are
-      // value-equivalent at function entry (lockstep decode invariant), so
-      // routing every internal use (e.g. update_cache position operands) to a
-      // single arg collapses N-1 ttnn.repeat ops after TTNN lowering.
+      // Replace all uses of eliminated block args with the canonical block arg.
+      // All per-layer cumulative_length args are value-equivalent at function
+      // entry (lockstep decode invariant), so routing every use to a single arg
+      // is value-preserving. The CSE pass that follows will then deduplicate
+      // the now-identical add/repeat/delta ops, collapsing N per-layer ops to 1.
       for (auto &[key, group] : groups) {
         if (group.size() <= 1)
           continue;
