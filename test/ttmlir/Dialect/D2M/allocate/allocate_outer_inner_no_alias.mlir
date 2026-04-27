@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-allocate -o %t %s
 // RUN: FileCheck %s --input-file=%t
-// RUN: %python -c "import re,sys;s=open(sys.argv[1]).read();a=dict(re.findall(r'(%\\S+)\\s*=\\s*memref\\.alloc\\(\\)\\s*\\{[^}]*address\\s*=\\s*([0-9]+)\\s*:\\s*i64',s));l=re.findall(r'd2m\\.remote_load\\s+(%\\S+)\\s+(%\\S+)\\[',s);c=re.findall(r'd2m\\.remote_store\\s+(%\\S+)\\[',s);n=[l[0][1],l[1][1],c[0],l[0][0],l[1][0]];assert len({a[x] for x in n})==5" %t
+// RUN: %python -c "import re,sys;s=open(sys.argv[1]).read();addrs=re.findall(r'memref\\.alloc\\(\\)\\s*\\{[^}]*address\\s*=\\s*([0-9]+)',s);assert len(addrs)==len(set(addrs)),'duplicate addresses found'" %t
 
 // This test covers lifetime and address planning across d2m.spatial.
 // Memrefs allocated outside the spatial region are used inside the region,
@@ -44,7 +44,11 @@ module {
               %r = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
               %y = d2m.remote_load %r %b[%k, %j] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
               %o = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-              "d2m.tile_matmul_block"(%x, %y, %o) : (memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> ()
+              linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%l, %r : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) outs(%o : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+              ^bb0(%lhs: !ttcore.tile<32x32, f32>, %rhs: !ttcore.tile<32x32, f32>, %out_elem: !ttcore.tile<32x32, f32>):
+                %9 = "d2m.tile_matmul"(%lhs, %rhs, %out_elem) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+                linalg.yield %9 : !ttcore.tile<32x32, f32>
+              }
               d2m.remote_store %c[%i, %j] %o : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #s, #l1>
             } {d2m.blocking_loop = 2}
           } {d2m.blocking_loop = 1}

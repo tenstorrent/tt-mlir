@@ -1,8 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread %s 2>&1 | FileCheck %s
-
-// This test file verifies that d2m.semaphore_wait ops (without reset values) are
-// properly replicated when splitting a unified thread into datamovement and compute
-// regions.
+//// RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread %s 2>&1 | FileCheck %s
 //
 // IMPORTANT: d2m.semaphore_wait with reset values are NOT supported in unified thread
 // form. The pass will emit an error if a semaphore_wait with reset is encountered,

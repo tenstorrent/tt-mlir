@@ -1000,16 +1000,7 @@ public:
       if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
         memref = definingOp->getOperand(0);
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
-        Value assocOperand = GenericOp::findAssocOperand(allocOp);
-        if (!assocOperand) {
-          return nullptr;
-        }
-        Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
-                                                   assocOperand);
-        if (cb) {
-          return cb;
-        }
-        return nullptr;
+        return memref;
       }
     }
     if (mlir::isa<CBType>(memref.getType())) {

@@ -1580,9 +1580,9 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
   let extraClassDefinition = [{
     unsigned $cppClass::getCBPort() {
       assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
-      auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+      auto getCBOp = getDstCb().getDefiningOp<GetCBOp>();
       assert(getCBOp && "CB operand must be defined by a GetCBOp");
-      return getCBOp.getPort();
+      return getCBOp.getCbOperandIdx();
     }
   }];
 }
@@ -1918,7 +1918,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
         assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
+        return getCBOp.getCbOperandIdx();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -2133,7 +2133,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
         assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
+        return getCBOp.getCbOperandIdx();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -2921,14 +2921,11 @@ def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
 //===----------------------------------------------------------------------===//
 
 def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
-    let summary = "Get a circular buffer for the given port.";
+    let summary = "Get a circular buffer for the given cb operand index.";
     let description = [{
-      Obtain a CB handle for the specified port number.  Each unique port maps
-      to exactly one physical circular buffer.
+      Obtain a CB handle for the specified cb operand in the generic.
 
-      The port number is a local identifier — it does not correspond to the
-      parent generic op's operand index.  The binding between a CB port and a
-      generic operand is established by `remote_load`/`remote_store` ops.
+      The cb_operand_idx corresponds to the parent generic op's operand index.
 
       ```mlir
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
@@ -2936,12 +2933,11 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
       ```
     }];
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port,
-                         OptionalAttr<I64Attr>:$operand_index,
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$cb_operand_idx,
                          OptionalAttr<D2M_ResolutionStageAttr>:$resolution_stage);
     let results = (outs D2M_CB:$result);
 
-    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `(` $cb_operand_idx `)` (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
 }
 
 def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {

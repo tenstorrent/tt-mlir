@@ -7,6 +7,9 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64, address = 0x1000} : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
     %view = d2m.view_layout %arg0 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x8x24x!ttcore.tile<32x32, f32>, #ttcore.shard<98304x4096, 1>, #l1_> -> memref<8x8x1x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     %view_1 = d2m.view_layout %arg1 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x24x32x!ttcore.tile<32x32, f32>, #ttcore.shard<131072x4096, 1>, #l1_> -> memref<8x8x3x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+    %cb_0 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x3x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<12288x4096, 1>, #l1_>
+    %cb_1 = memref.alloc() {address = 107808 : i64, alignment = 16 : i64} : memref<3x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<49152x4096, 1>, #l1_>
+    %cb_2 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_>
     // CHECK: "ttmetal.enqueue_program"
     // CHECK-SAME: {{.*}}cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, true, false, false, [default]>]
     %0 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore

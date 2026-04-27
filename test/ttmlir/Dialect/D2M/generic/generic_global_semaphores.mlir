@@ -40,8 +40,6 @@ module {
       threads = [#d2m.thread<unified>]
     }> ({
     ^unified0:
-      %cb_in = d2m.get_cb(0) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
-      %cb_out = d2m.get_cb(1) : !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       %c2 = arith.constant 2 : index

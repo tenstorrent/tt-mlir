@@ -39,40 +39,43 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %alloc = memref.alloc() {address = 365856 : i64, alignment = 16 : i64} : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
     %view = d2m.view_layout %cast remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 * 4 + d2 + (d1 * 8 + d3) floordiv 64) mod 32, (d1 * 8 + d3) mod 64)> : memref<1x1x32x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #ttcore.memory_space<dram>> -> memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>
     %view_1 = d2m.view_layout %cast_0 remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 * 4 + d2 + (d1 * 8 + d3) floordiv 64) mod 32, (d1 * 8 + d3) mod 64)> : memref<1x1x32x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #ttcore.memory_space<dram>> -> memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>
-    %alloc_4 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64, d2m.cb_for_operand = 0 : i64} : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>
-    %alloc_5 = memref.alloc() {address = 234784 : i64, alignment = 16 : i64, d2m.cb_for_operand = 1 : i64} : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>
+    %alloc_4 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>
+    %alloc_5 = memref.alloc() {address = 234784 : i64, alignment = 16 : i64} : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>
+    %alias_2 = d2m.operand_alias %alloc : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>> -> memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>
     d2m.generic {block_factors = [], grid = #ttcore.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0, noc = 0>, #d2m.thread<datamovement, @datamovement_kernel1, noc = 1>, #d2m.thread<compute, @compute_kernel2>]}
         ins(%view, %view_1 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>, memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%alloc : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>)
-        additionalArgs(%alloc_4, %alloc_5 : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>)
+        additionalArgs(%alloc_4, %alloc_5, %alias_2 : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>)
 
     %cast_6 = ttir.ttnn_metal_layout_cast %arg0 : tensor<2x512x2048xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 512 + d1, d2), <1x1>, memref<32x64x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>, exactGrid = true>> -> memref<1x1x32x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #ttcore.memory_space<dram>>
     %alloc_7 = memref.alloc() {address = 234784 : i64, alignment = 16 : i64} : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
     %view_2 = d2m.view_layout %cast_6 remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 * 4 + d2 + (d1 * 8 + d3) floordiv 64) mod 32, (d1 * 8 + d3) mod 64)> : memref<1x1x32x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #ttcore.memory_space<dram>> -> memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>
-    %alloc_10 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64, d2m.cb_for_operand = 1 : i64} : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>
+    %alloc_10 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>
+    %alias_1_0 = d2m.operand_alias %alloc : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>> -> memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>
+    %alias_1_2 = d2m.operand_alias %alloc_7 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>> -> memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>
     d2m.generic {block_factors = [], grid = #ttcore.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel3, noc = 0>, #d2m.thread<compute, @compute_kernel4>]}
         ins(%alloc, %view_2 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>, memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%alloc_7 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>)
-        additionalArgs(%alloc_10 : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>)
+        additionalArgs(%alias_1_0, %alloc_10, %alias_1_2 : memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 2>, #ttcore.memory_space<l1>>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<16384x2048, 1>, #l1>)
 
     memref.dealloc %alloc : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
     %cast_11 = ttir.ttnn_metal_layout_cast %alloc_7 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>> -> tensor<2x512x2048xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 512 + d1, d2), <8x8>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
     memref.dealloc %alloc_7 : memref<8x8x4x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>>
     return %cast_11 : tensor<2x512x2048xbf16, #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 512 + d1, d2), <8x8>, memref<4x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
   }
-  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb, operand_index = 4>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 4>, <arg_type = cb, operand_index = 3>, <arg_type = cb, operand_index = 5>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
-  func.func private @datamovement_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb, operand_index = 4>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @compute_kernel4() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel4() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 4>, <arg_type = cb, operand_index = 5>, <arg_type = cb, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
 }

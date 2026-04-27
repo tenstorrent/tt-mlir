@@ -17,7 +17,7 @@ module {
   //===----------------------------------------------------------------------===//
 
   // CHECK-LABEL: func @compute_kernel_hw_startup_unary
-  func.func @compute_kernel_hw_startup_unary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func @compute_kernel_hw_startup_unary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     // CHECK: %[[INCB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
     %icb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
     // CHECK: %[[OCB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -28,7 +28,7 @@ module {
   }
 
   // CHECK-LABEL: func @compute_kernel_hw_startup_binary
-  func.func @compute_kernel_hw_startup_binary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func @compute_kernel_hw_startup_binary() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>, <arg_type = cb, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     // CHECK: %[[INCB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
     %icb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
     // CHECK: %[[INCB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -76,7 +76,7 @@ module {
     }
 
     // CHECK-LABEL: func @pack_tile
-    func.func @pack_tile() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @pack_tile() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
@@ -89,7 +89,7 @@ module {
     }
 
     // CHECK-LABEL: func @pack_tile_block
-    func.func @pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
@@ -111,7 +111,7 @@ module {
     }
 
     // CHECK-LABEL: func @pack_reconfig_data_format
-    func.func @pack_reconfig_data_format() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @pack_reconfig_data_format() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: emitc.call_opaque "pack_reconfig_data_format"(%[[CB]])
@@ -120,7 +120,7 @@ module {
     }
 
     // CHECK-LABEL: func @copy_block_matmul_partials
-    func.func @copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[START_TILE:.*]] = "emitc.constant"
@@ -135,7 +135,7 @@ module {
     }
 
     // CHECK-LABEL: func @copy_tile_init
-    func.func @copy_tile_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @copy_tile_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB]])
@@ -144,7 +144,7 @@ module {
     }
 
     // CHECK-LABEL: func @copy_tile
-    func.func @copy_tile() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @copy_tile() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_INDEX:.*]] = "emitc.constant"
@@ -210,7 +210,7 @@ module {
   module @ttkernel_fpu_operations {
 
     // CHECK-LABEL: func @unary_op_init_common
-    func.func @unary_op_init_common() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @unary_op_init_common() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -221,7 +221,7 @@ module {
     }
 
     // CHECK-LABEL: func @binary_op_init_common
-    func.func @binary_op_init_common() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @binary_op_init_common() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>, <arg_type = cb, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -234,7 +234,7 @@ module {
     }
 
     // CHECK-LABEL: func @add_tiles_init
-    func.func @add_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @add_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -245,7 +245,7 @@ module {
     }
 
     // CHECK-LABEL: func @add_tiles
-    func.func @add_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @add_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -262,7 +262,7 @@ module {
     }
 
     // CHECK-LABEL: func @unary_bcast_init
-    func.func @unary_bcast_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @unary_bcast_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
@@ -279,7 +279,7 @@ module {
     }
 
     // CHECK-LABEL: func @unary_bcast
-    func.func @unary_bcast() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @unary_bcast() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %in_tile_index = arith.constant 1 : index
       %dst_index = arith.constant 3 : index
@@ -298,7 +298,7 @@ module {
     }
 
     // CHECK-LABEL: func @sub_tiles_init
-    func.func @sub_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @sub_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -309,7 +309,7 @@ module {
     }
 
     // CHECK-LABEL: func @sub_tiles
-    func.func @sub_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @sub_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -326,7 +326,7 @@ module {
     }
 
     // CHECK-LABEL: func @mul_tiles_init
-    func.func @mul_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @mul_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -337,7 +337,7 @@ module {
     }
 
     // CHECK-LABEL: func @mul_tiles
-    func.func @mul_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @mul_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB1:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -354,7 +354,7 @@ module {
     }
 
     // CHECK-LABEL: func @mm_init
-    func.func @mm_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @mm_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>, <arg_type = cb, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -369,7 +369,7 @@ module {
     }
 
     // CHECK-LABEL: func @mm_init_short
-    func.func @mm_init_short() -> () attributes {ttkernerl.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @mm_init_short() -> () attributes {ttkernerl.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -382,7 +382,7 @@ module {
     }
 
     // CHECK-LABEL: func @matmul_tiles
-    func.func @matmul_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @matmul_tiles() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -401,7 +401,7 @@ module {
     }
 
     // CHECK-LABEL: func @matmul_block_init
-    func.func @matmul_block_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @matmul_block_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>, <arg_type = cb, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -422,7 +422,7 @@ module {
     }
 
     // CHECK-LABEL: func @matmul_block_init_short
-    func.func @matmul_block_init_short() -> () attributes {ttkernerl.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @matmul_block_init_short() -> () attributes {ttkernerl.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -441,7 +441,7 @@ module {
     }
 
     // CHECK-LABEL: func @matmul_block
-    func.func @matmul_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @matmul_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -466,7 +466,7 @@ module {
     }
 
     // CHECK-LABEL: func @experimental_matmul_block
-    func.func @experimental_matmul_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @experimental_matmul_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB_A:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb_A = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[CB_B:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -493,7 +493,7 @@ module {
     }
 
     // CHECK-LABEL: func @reduce_init
-    func.func @reduce_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @reduce_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>, <arg_type = cb, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[SCALING_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -506,7 +506,7 @@ module {
     }
 
     // CHECK-LABEL: func @reduce_tile
-    func.func @reduce_tile() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @reduce_tile() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[SCALING_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -540,7 +540,7 @@ module {
     }
 
     // CHECK-LABEL: func @reduce_init_avg
-    func.func @reduce_init_avg() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @reduce_init_avg() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>, <arg_type = cb, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
@@ -550,7 +550,7 @@ module {
     }
 
     // CHECK-LABEL: func @reduce_tile_avg
-    func.func @reduce_tile_avg() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @reduce_tile_avg() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       %in_tile_index = arith.constant 0 : i32
@@ -573,7 +573,7 @@ module {
   module @ttkernel_sfpu_operations {
 
     // CHECK-LABEL: func @init_sfpu
-    func.func @init_sfpu() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @init_sfpu() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -1515,7 +1515,7 @@ module {
   module @ttkernel_cb_operations {
 
     // CHECK-LABEL: func @cb_push_back
-    func.func @cb_push_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @cb_push_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
@@ -1526,7 +1526,7 @@ module {
     }
 
     // CHECK-LABEL: func @cb_pop_front
-    func.func @cb_pop_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @cb_pop_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
@@ -1537,7 +1537,7 @@ module {
     }
 
     // CHECK-LABEL: func @cb_reserve_back
-    func.func @cb_reserve_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @cb_reserve_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
@@ -1548,7 +1548,7 @@ module {
     }
 
     // CHECK-LABEL: func @cb_wait_front
-    func.func @cb_wait_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @cb_wait_front() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[NUM_PAGES:.*]] = "emitc.constant"
@@ -1568,7 +1568,7 @@ module {
   module @ttkernel_tile_operations {
 
     // CHECK-LABEL: func @tilize_init
-    func.func @tilize_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @tilize_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_scalar
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -1582,7 +1582,7 @@ module {
 
 
     // CHECK-LABEL: func @tilize_uninit
-    func.func @tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_scalar
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -1593,7 +1593,7 @@ module {
     }
 
     // CHECK-LABEL: func @untilize_init
-    func.func @untilize_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @untilize_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: emitc.call_opaque "untilize_init"(%[[IN_CB]])
@@ -1602,7 +1602,7 @@ module {
     }
 
     // CHECK-LABEL: func @untilize_uninit
-    func.func @untilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @untilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: emitc.call_opaque "untilize_uninit"(%[[IN_CB]])
@@ -1611,7 +1611,7 @@ module {
     }
 
     // CHECK-LABEL: func @tilize_block
-    func.func @tilize_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @tilize_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_scalar
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -1624,7 +1624,7 @@ module {
     }
 
     // CHECK-LABEL: func @untilize_block
-    func.func @untilize_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+    func.func @untilize_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[IN_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
@@ -1847,7 +1847,7 @@ module {
     }
 
     // CHECK-LABEL: func @interleaved_addr_gen_fast_funcs
-    func.func @interleaved_addr_gen_fast_funcs() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+    func.func @interleaved_addr_gen_fast_funcs() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       // CHECK: %[[DATA_FORMAT:.*]]= emitc.call_opaque "get_dataformat"

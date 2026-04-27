@@ -26,6 +26,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include "mlir/IR/Builders.h"
 #include <cstdint>
 #include <mlir-c/IR.h>
 #include <optional>
@@ -49,9 +50,10 @@ public:
   D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
       : OpConversionPattern<d2m::GenericOp>(ctx), mathFidelity_(mathFidelity) {}
 
-  static KernelArgsAttr evalKernelArgsFromSpec(Builder &builder,
-                                               const SymbolTable &symbolTable,
-                                               SymbolRefAttr kernelSymbol) {
+  static KernelArgsAttr
+  evalKernelArgsFromSpec(Builder &builder, const SymbolTable &symbolTable,
+                         SymbolRefAttr kernelSymbol,
+                         const DenseMap<size_t, size_t> &cbOperandIndexToPort) {
     auto kernelFunc =
         symbolTable.lookup<func::FuncOp>(kernelSymbol.getRootReference());
     ttkernel::ArgSpecAttr kernelSpec =
@@ -60,12 +62,22 @@ public:
     SmallVector<ttmetal::KernelArgAttr> rtArgs;
     SmallVector<ttmetal::KernelArgAttr> ctArgs;
     for (ttkernel::ArgAttr arg : kernelSpec.getRtArgs()) {
-      rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
-          arg.getArgType(), arg.getOperandIndex()));
+      if (arg.getArgType() == ttkernel::ArgType::CB) {
+        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
+      } else {
+        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), arg.getOperandIndex()));
+      }
     }
     for (ttkernel::ArgAttr arg : kernelSpec.getCtArgs()) {
-      ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
-          arg.getArgType(), arg.getOperandIndex()));
+      if (arg.getArgType() == ttkernel::ArgType::CB) {
+        ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
+      } else {
+        ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+            arg.getArgType(), arg.getOperandIndex()));
+      }
     }
     return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
   }
@@ -73,14 +85,15 @@ public:
   static ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
       CoreRangeAttr coreRange, const SymbolTable &symbolTable,
-      ttmetal::MathFidelity mathFidelity) {
+      ttmetal::MathFidelity mathFidelity,
+      const DenseMap<size_t, size_t> &cbOperandIndexToPort) {
     SmallVector<Attribute> kernelConfigs;
     int unassignedNocCounter = 0;
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
       KernelArgsAttr kernelArgs = evalKernelArgsFromSpec(
-          builder, symbolTable, thread.getKernelSymbol());
+          builder, symbolTable, thread.getKernelSymbol(), cbOperandIndexToPort);
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case d2m::ThreadType::Compute: {
@@ -137,10 +150,7 @@ public:
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
 
     llvm::SmallVector<Value> remappedBuffers;
-    llvm::SmallVector<Value> cbs;
-    llvm::SmallVector<int64_t> cbPorts;
     llvm::SmallVector<Value> args;
-    int64_t cbPort = 0;
     for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
 
@@ -149,39 +159,58 @@ public:
           view) {
         args.push_back(view.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
-        cbs.push_back(view.getInput());
       } else {
         args.push_back(operand);
         remappedBuffers.push_back(rewriter.getRemappedValue(operand));
-        cbs.push_back(operand);
       }
-
-      cbPorts.push_back(cbPort++);
     }
 
     // Add additional args.
+    llvm::SmallVector<Value> cbs;
+    llvm::SmallVector<int64_t> cbPorts;
+    int64_t cbPort = 0;
+    DenseMap<size_t, size_t> cbOperandIndexToPort;
     unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
-      auto operand = adaptor.getOperands()[ioSize + i];
+      auto operandIndex = ioSize + i;
+      auto operand = adaptor.getOperands()[operandIndex];
       if (mlir::isa<ttmetal::GlobalSemaphoreType>(operand.getType())) {
         args.push_back(operand);
       } else if (mlir::isa<ttmetal::LocalSemaphoreType>(operand.getType())) {
         args.push_back(operand);
-      } else if (mlir::isa<MemRefType>(operand.getType())) {
+      } else if (auto memrefType =
+                     mlir::dyn_cast_if_present<MemRefType>(operand.getType());
+                 memrefType) {
+        assert(mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
+               "expected cb layout");
         // Hoisted CB buffer (already converted to CreateBufferOp by
-        // MemrefAllocRewriter).  If it backs a regular operand, override
-        // that operand's CB; otherwise add as a new CB entry.
-        if (auto cbForOp =
-                operand.getDefiningOp()
-                    ? operand.getDefiningOp()->getAttrOfType<IntegerAttr>(
-                          "d2m.cb_for_operand")
-                    : IntegerAttr()) {
-          unsigned idx = static_cast<unsigned>(cbForOp.getInt());
-          assert(idx < cbs.size() && "d2m.cb_for_operand out of range");
-          cbs[idx] = operand;
-        } else {
-          cbs.push_back(operand);
+        // MemrefAllocRewriter).
+        if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
+                op.getOperands()[operandIndex].getDefiningOp())) {
+          // OperandAliasOp's input is the generic's operand that this CB
+          // aliases. It could be a function argument of the parent func or an
+          // AllocOp.
+          Value aliasedMemref = aliasOp.getMemref();
+          auto parentFunc = op->getParentOfType<func::FuncOp>();
+          bool isFuncArg =
+              mlir::isa<BlockArgument>(aliasedMemref) &&
+              mlir::cast<BlockArgument>(aliasedMemref).getOwner() ==
+                  &parentFunc.getBody().front();
+          assert((isFuncArg ||
+                  mlir::isa<memref::AllocOp>(aliasedMemref.getDefiningOp())) &&
+                 "expected OperandAliasOp input to be a func argument or "
+                 "memref::AllocOp");
+          cbs.push_back(aliasedMemref);
+          cbOperandIndexToPort[operandIndex] = cbPort;
           cbPorts.push_back(cbPort++);
+        } else if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
+                       op.getOperands()[operandIndex].getDefiningOp());
+                   allocOp) {
+          cbs.push_back(operand);
+          cbOperandIndexToPort[operandIndex] = cbPort;
+          cbPorts.push_back(cbPort++);
+        } else {
+          llvm_unreachable("expected alloc or aliad op for cb memref");
         }
       } else if (mlir::isa<IntegerType, IndexType, FloatType>(
                      operand.getType())) {
@@ -198,7 +227,7 @@ public:
     CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
-        mathFidelity_);
+        mathFidelity_, cbOperandIndexToPort);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, args, cbs, cbPorts, kernelConfigs,
         op.getFabricConnectionConfigAttr());
@@ -826,6 +855,22 @@ CoreRangeAttr SpatialOpRewriter::ttCoreSpatialRangeToTtmetalCoreRange(
 
 } // namespace
 
+namespace {
+class D2MOperandAliasRewriter
+    : public OpConversionPattern<d2m::OperandAliasOp> {
+public:
+  using OpConversionPattern<d2m::OperandAliasOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::OperandAliasOp op, d2m::OperandAliasOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<ttmetal::OperandAliasOp>(
+        op, op.getResult().getType(), adaptor.getMemref());
+    return success();
+  }
+};
+} // namespace
+
 } // namespace mlir::tt::ttmetal
 
 namespace mlir::tt {
@@ -841,6 +886,9 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::D2MCreateLocalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
       ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
+
+  // remove alias op after generic conversion
+  patterns.add<ttmetal::D2MOperandAliasRewriter>(ctx);
 }
 
 void populateD2MToTTMetalSpatialOpPattern(MLIRContext *ctx,

@@ -3,6 +3,7 @@
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
+#l1_mem = #ttcore.memory_space<l1>
 
 #core_range = #ttnn.core_range<(0,0), (0,0)>
 #core_ranges = #ttnn.core_range_set<[#core_range]>
@@ -115,8 +116,8 @@ module {
   func.func private @compute_kernel0() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       ct_args = [
-        <arg_type = cb_port, operand_index = 0>,
-        <arg_type = cb_port, operand_index = 1>
+        <arg_type = cb, operand_index = 2>,
+        <arg_type = cb, operand_index = 3>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<compute>
