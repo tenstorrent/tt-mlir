@@ -611,7 +611,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   target::metal::KernelArgType argType;
   flatbuffers::Offset<void> arg;
   switch (kernelArg.getType()) {
-  case ttkernel::ArgType::CBPort: {
+  case ttkernel::ArgType::CB: {
     argType = target::metal::KernelArgType::KernelArgCBPort;
     arg = target::metal::CreateKernelArgCBPort(*cache.fbb,
                                                kernelArg.getOperandIndex())
@@ -1076,6 +1076,11 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
       } else if (auto funcOp = dyn_cast_if_present<func::FuncOp>(op); funcOp) {
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
+        return;
+      } else if (auto operandAliasOp =
+                     dyn_cast_if_present<ttmetal::OperandAliasOp>(op);
+                 operandAliasOp) {
+        // Underlying buffer of alias is correctly taken by enqueue program op
         return;
       } else {
         llvm_unreachable("Encountered unsupported op.");

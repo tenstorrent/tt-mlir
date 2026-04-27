@@ -110,7 +110,7 @@ module {
 
     return %3 : tensor<32x32xf32, #dram_layout>
   }
-  func.func private @read_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @read_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
     %1 = "emitc.constant"() <{value = 4096 : i32}> : () -> i32
 
@@ -129,7 +129,7 @@ module {
     emitc.call_opaque "cb_push_back"(%3, %0) : (!emitc.opaque<"::tt::CB">, i32) -> ()
     return
   }
-  func.func private @compute_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     %0 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
     %1 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
 
@@ -158,7 +158,7 @@ module {
     return
   }
   // Test named arguments by passing page size as a constant
-  func.func private @write_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>, <arg_type = named_argument, argument_name = "page_size", operand_index = 1 >] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @write_kernel() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>, <arg_type = named_argument, argument_name = "page_size", operand_index = 1 >] ct_args = [<arg_type = cb, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     %one = "emitc.constant"() <{value = 1 : i32}> : () -> i32
     %1 = emitc.call_opaque "get_arg_val"(%one) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
 

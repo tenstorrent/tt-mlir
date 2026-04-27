@@ -126,4 +126,14 @@ def TTMetal_FinishOp : TTMetal_Op<"finish", [MemoryEffects<[MemRead, MemWrite]>]
     }];
 }
 
+def TTMetal_OperandAliasOp : TTMetal_Op<"operand_alias", [MemoryEffects<[MemRead, MemWrite]>]> {
+    let summary = "Operand alias op.";
+    let description = [{
+      Operand alias op.
+    }];
+
+    let arguments = (ins AnyNon0RankedMemRef:$memref);
+    let results = (outs AnyNon0RankedMemRef:$result);
+}
+
 #endif

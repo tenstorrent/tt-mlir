@@ -7,32 +7,36 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64, address = 0x1000} : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
     %view = d2m.view_layout %arg0 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x8x24x!ttcore.tile<32x32, f32>, #ttcore.shard<98304x4096, 1>, #l1_> -> memref<8x8x1x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
     %view_1 = d2m.view_layout %arg1 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x24x32x!ttcore.tile<32x32, f32>, #ttcore.shard<131072x4096, 1>, #l1_> -> memref<8x8x3x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>
+    %cb_0 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x3x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<12288x4096, 1>, #l1_>
+    %cb_1 = memref.alloc() {address = 107808 : i64, alignment = 16 : i64} : memref<3x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<49152x4096, 1>, #l1_>
+    %cb_2 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_>
     // CHECK: "ttmetal.enqueue_program"
-    // CHECK-SAME: {{.*}}cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>, <cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>, <cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]>, hifi4, true, false, false, [default]>]
+    // CHECK-SAME: kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>, <cb[0]>, <cb[1]>, <cb[2]>]>, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<semaphore[0]>, <semaphore[1]>, <semaphore[2]>, <semaphore[3]>, <cb[0]>, <cb[1]>, <cb[2]>]>, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args< ct_args = [<cb[0]>, <cb[1]>, <cb[2]>]>, hifi4, true, false, false, [default]>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0>, #d2m.thread<datamovement, @datamovement_kernel1>, #d2m.thread<compute, @compute_kernel2>]}
         ins(%view, %view_1 : memref<8x8x1x3x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>, memref<8x8x3x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1_>)
         outs(%alloc : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+        additionalArgs(%cb_0, %cb_1, %cb_2 : memref<1x3x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<12288x4096, 1>, #l1_>, memref<3x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<49152x4096, 1>, #l1_>, memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_>)
     return %alloc  : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   }
 
   func.func private @datamovement_kernel0(%arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
-    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(3) : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(4) : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb2 = d2m.get_cb(5) : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
     return
   }
 
   func.func private @datamovement_kernel1(%arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<datamovement>} {
-    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(3) : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(4) : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb2 = d2m.get_cb(5) : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
     return
   }
 
   func.func private @compute_kernel2(%arg3: !d2m.semaphore, %arg4: !d2m.semaphore, %arg5: !d2m.semaphore, %arg6: !d2m.semaphore) attributes {d2m.thread = #d2m.thread<compute>} {
-    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb2 = d2m.get_cb(2) operand_index = 2 : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(3) : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(4) : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb2 = d2m.get_cb(5) : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #l1_>>
     return
   }
 }

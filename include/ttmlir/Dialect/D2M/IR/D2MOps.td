@@ -377,15 +377,6 @@ def D2M_GenericOp
           OpBuilder &builder, std::optional<ttcore::GridAttr> newGrid,
           std::optional<ArrayRef<int64_t>> newBlockFactors,
           bool generateReturnView = true);
-      static Value findAssocOperand(memref::AllocOp allocOp);
-      static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
-      static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
-      static Value findAssocCBByOperand(Operation *op, Value operand);
-
-      /// Get the allocation (tensor.empty or memref.alloc) op result at
-      /// position `operandIndex` from the region's first block using
-      /// positional counting.  Returns null if not found.
-      static Value getOperandAlloc(Region &region, unsigned operandIndex);
 
       // Declare methods here - they go in the .h.inc file
       ::mlir::Operation::operand_range getInputsAndOutputs();

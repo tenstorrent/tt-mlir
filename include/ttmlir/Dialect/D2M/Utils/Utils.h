@@ -31,7 +31,8 @@ ShapedType reblockShapedType(ShapedType oldType,
 
 // Clone a local shard type using the shard shape implied by a reference
 // operand's device layout.
-Type cloneWithShardShape(Value referenceOperand, Type typeToRetype);
+Type cloneWithShardShape(Value referenceOperand, Type typeToRetype,
+                         std::optional<uint32_t> numStreamBuffers);
 
 // Get square target grid shape.
 llvm::SmallVector<int64_t>

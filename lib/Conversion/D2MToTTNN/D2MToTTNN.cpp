@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/D2MToTTNN/D2MToTTNN.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -144,16 +145,18 @@ convertMathFidelity(ttmetal::MathFidelity fidelity) {
   llvm_unreachable("Invalid MathFidelity");
 }
 
-static mlir::Attribute convertKernelArg(Builder &builder,
-                                        const ttkernel::ArgAttr &arg) {
+static mlir::Attribute
+convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
+                 const DenseMap<uint32_t, uint32_t> &additionalArgMapping,
+                 const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping) {
   switch (arg.getArgType()) {
   case ttkernel::ArgType::BufferAddress: {
     return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(
         arg.getOperandIndex());
   }
-  case ttkernel::ArgType::CBPort: {
+  case ttkernel::ArgType::CB: {
     return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
-        arg.getOperandIndex());
+        cbOperandIndexToPortMapping.at(arg.getOperandIndex()));
   }
   case ttkernel::ArgType::Semaphore: {
     return builder.getAttr<ttnn::KernelArgSemaphoreAtAttr>(
@@ -165,7 +168,7 @@ static mlir::Attribute convertKernelArg(Builder &builder,
   }
   case ttkernel::ArgType::GlobalSemaphore: {
     return builder.getAttr<ttnn::KernelArgGlobalSemaphoreAttr>(
-        arg.getOperandIndex());
+        additionalArgMapping.at(arg.getOperandIndex()));
   }
   }
   llvm_unreachable("Invalid ArgType");
@@ -216,11 +219,12 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
   return semaphoreDescriptors;
 }
 
-static SmallVector<mlir::Attribute>
-createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
-                        const ttnn::CoreRangeSetAttr &coreRangeSet,
-                        const SymbolTable &symbolTable,
-                        ttmetal::MathFidelity mathFidelity) {
+static SmallVector<mlir::Attribute> createKernelDescriptors(
+    Builder &builder, const ArrayAttr &threads,
+    const ttnn::CoreRangeSetAttr &coreRangeSet, const SymbolTable &symbolTable,
+    ttmetal::MathFidelity mathFidelity,
+    const DenseMap<uint32_t, uint32_t> &additionalArgMapping,
+    const DenseMap<size_t, size_t> &cbOperandIndexToPortMapping) {
   SmallVector<mlir::Attribute> kernelConfigs(threads.size());
   int unassignedNocCounter = 0;
   for (const auto [i, thread] : llvm::enumerate(threads)) {
@@ -242,10 +246,12 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
     llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
     llvm::SmallVector<mlir::Attribute> kernelCRTArgs(crtArgs.size());
     for (const auto [i, arg] : llvm::enumerate(crtArgs)) {
-      kernelCRTArgs[i] = convertKernelArg(builder, arg);
+      kernelCRTArgs[i] = convertKernelArg(builder, arg, additionalArgMapping,
+                                          cbOperandIndexToPortMapping);
     }
     for (const auto [i, arg] : llvm::enumerate(ctArgs)) {
-      kernelCTArgs[i] = convertKernelArg(builder, arg);
+      kernelCTArgs[i] = convertKernelArg(builder, arg, additionalArgMapping,
+                                         cbOperandIndexToPortMapping);
     }
 
     // Create KernelDescriptor.
@@ -289,34 +295,35 @@ createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
   return kernelConfigs;
 }
 
-enum class OperandLocality {
-  L1Local,
-  L1Remote,
-  DRAM,
-};
+static std::optional<unsigned> getCapturedOperandIndex(d2m::GenericOp op,
+                                                       Value operand) {
+  for (OpOperand &opOperand : op->getOpOperands()) {
+    if (opOperand.get() == operand) {
+      return opOperand.getOperandNumber();
+    }
+  }
+  return std::nullopt;
+}
 
-struct GenericOperandInfo {
-  Value ioTensor;
-  Value cbMemref;
-  bool isOutput;
-  OperandLocality locality;
-  unsigned operandIdx;
-};
-
-static SmallVector<ttnn::KernelCBAttr>
-createCBDescriptors(Builder &builder,
-                    const SmallVector<GenericOperandInfo> &infos,
+static std::pair<SmallVector<ttnn::KernelCBAttr>, DenseMap<size_t, size_t>>
+createCBDescriptors(Builder &builder, d2m::GenericOp op,
                     const ttcore::DeviceAttr &device,
                     const ttnn::CoreRangeSetAttr &coreRangeSet) {
-  if (infos.empty()) {
-    llvm_unreachable("Expected circular buffers.");
-  }
-
   MLIRContext *ctx = builder.getContext();
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors(infos.size());
+  SmallVector<ttnn::KernelCBAttr> cbDescriptors;
+  DenseMap<size_t, size_t> cbOperandIndexToPort;
+  size_t cbPorts = 0;
+  // Add additional args.
+  unsigned ioSize = op.getInputsAndOutputs().size();
+  for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
+    auto operandIndex = ioSize + i;
+    auto operand = op.getOperands()[operandIndex];
+    // Check for hoisted CB buffer
+    auto cbMemref = mlir::dyn_cast_if_present<MemRefType>(operand.getType());
+    if (!cbMemref || !mlir::isa<ttcore::CBLayoutAttr>(cbMemref.getLayout())) {
+      continue;
+    }
 
-  for (auto [i, info] : llvm::enumerate(infos)) {
-    auto cbMemref = mlir::cast<MemRefType>(info.cbMemref.getType());
     TT_assertv(mlir::isa<ttcore::TileType>(cbMemref.getElementType()),
                "Only TileType supported.");
     ttcore::DataType dtype =
@@ -325,19 +332,27 @@ createCBDescriptors(Builder &builder,
     size_t totalSize = device.getMemrefSizeBytes(cbMemref, pageSize, true);
 
     ttnn::KernelCBFormatAttr cbFormat =
-        ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
+        ttnn::KernelCBFormatAttr::get(ctx, cbPorts, dtype, pageSize);
 
     ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-    if (info.locality == OperandLocality::L1Local) {
+    if (auto aliasOp =
+            mlir::dyn_cast<d2m::OperandAliasOp>(operand.getDefiningOp())) {
+      // OperandAliasOp's input is the generic's operand that this CB aliases.
       globalCBIndexOfTensor =
-          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+          ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(
+              ctx, *getCapturedOperandIndex(op, aliasOp.getMemref()));
+    } else {
+      assert(mlir::isa<memref::AllocOp>(operand.getDefiningOp()) &&
+             "expected alloc or alias op for cb memref");
     }
 
-    cbDescriptors[i] = ttnn::KernelCBAttr::get(
-        ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor);
+    cbDescriptors.push_back(ttnn::KernelCBAttr::get(
+        ctx, totalSize, coreRangeSet, {cbFormat}, globalCBIndexOfTensor));
+    cbOperandIndexToPort[operandIndex] = cbPorts;
+    cbPorts++;
   }
 
-  return cbDescriptors;
+  return {cbDescriptors, cbOperandIndexToPort};
 }
 
 static LogicalResult
@@ -590,22 +605,19 @@ static LogicalResult convertSemaphores(ModuleOp moduleOp,
   return success();
 }
 
-static std::pair<Value, OperandLocality>
-findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
-             OperandLocality currentLocality = OperandLocality::L1Local) {
+static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
   auto iter = valueMapping.find(operand);
   if (iter != valueMapping.end()) {
     auto tensorType = dyn_cast<RankedTensorType>(iter->second.getType());
     TT_assertv(tensorType, "expected mapped value to be a ranked tensor");
     TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
                "expected mapped value to be a TTNN tensor");
-    return {iter->second, currentLocality};
+    return iter->second;
   }
 
   auto *def = operand.getDefiningOp();
   if (auto view = dyn_cast<d2m::ViewLayoutOp>(def)) {
-    return findIOTensor(view.getInput(), valueMapping,
-                        OperandLocality::L1Remote);
+    return findIOTensor(view.getInput(), valueMapping);
   }
   if (auto cast = dyn_cast<ttir::TTNNMetalLayoutCastOp>(def)) {
     // Input is already a TTNN tensor.
@@ -613,51 +625,10 @@ findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping,
     TT_assertv(tensorType, "expected input to be a ranked tensor");
     TT_assertv(isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding()),
                "expected input to be a ranked tensor");
-    return {cast.getInput(), currentLocality};
+    return cast.getInput();
   }
 
   llvm_unreachable("unexpected operand def chain");
-}
-
-static Value findCBMemref(Value operand) {
-  Operation *def = operand.getDefiningOp();
-  if (!def) {
-    TT_assertv(isa<MemRefType>(operand.getType()),
-               "expected operand to be a memref");
-    return operand;
-  }
-
-  TT_assertv(isa<MemRefType>(operand.getType()),
-             "expected operand to be a memref");
-  return operand;
-}
-
-static SmallVector<GenericOperandInfo>
-analyzeGenericOperands(d2m::GenericOp op,
-                       DenseMap<Value, Value> &valueMapping) {
-  SmallVector<GenericOperandInfo> infos;
-  unsigned idx = 0;
-
-  for (Value input : op.getInputs()) {
-    auto [tensor, locality] = findIOTensor(input, valueMapping);
-    infos.push_back({tensor, findCBMemref(input),
-                     /*isOutput=*/false, locality, idx++});
-  }
-  for (Value output : op.getOutputs()) {
-    auto [tensor, locality] = findIOTensor(output, valueMapping);
-    infos.push_back({tensor, findCBMemref(output),
-                     /*isOutput=*/true, locality, idx++});
-  }
-
-  for (auto &info : infos) {
-    auto ttnnTensor = mlir::cast<RankedTensorType>(info.ioTensor.getType());
-    auto ttnnLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(ttnnTensor.getEncoding());
-    if (ttnnLayout.getBufferType() == ttnn::BufferType::DRAM) {
-      info.locality = OperandLocality::DRAM;
-    }
-  }
-  return infos;
 }
 
 static LogicalResult convertSingleGeneric(d2m::GenericOp op,
@@ -680,27 +651,28 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
           ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
           ttnn::CoreCoordAttr::get(ctx, endCoreRange[0], endCoreRange[1])));
 
-  SmallVector<GenericOperandInfo> infos =
-      analyzeGenericOperands(op, valueMapping);
-
-  SmallVector<Value> additionalArgs;
-  for (Value arg : op.getAdditionalArgs()) {
-    if (auto cbForOp = arg.getDefiningOp()
-                           ? arg.getDefiningOp()->getAttrOfType<IntegerAttr>(
-                                 "d2m.cb_for_operand")
-                           : IntegerAttr()) {
-      unsigned targetIdx = static_cast<unsigned>(cbForOp.getInt());
-      TT_assertv(targetIdx < infos.size(), "d2m.cb_for_operand out of range");
-      infos[targetIdx].cbMemref = arg;
-      // The CB has its own L1 allocation (not backed by the input tensor).
-      infos[targetIdx].locality = OperandLocality::L1Remote;
-    } else if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
-               isa<RankedTensorType>(arg.getType())) {
+  SmallVector<Value> ttnnGenericAdditionalArgs;
+  // Additional args in the d2m.generic don't map 1:1 to the ttnn.generic's
+  // additional args (d2m generic's additional args has cbs whereas ttnn
+  // generic's additional args does not) so we need to create mapping to adjust
+  // the kernel descriptors later.
+  DenseMap<uint32_t, uint32_t> additionalArgMapping;
+  for (const auto [idx, arg] : llvm::enumerate(op.getAdditionalArgs())) {
+    if (isa<ttnn::GlobalSemaphoreType>(arg.getType()) ||
+        isa<RankedTensorType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(mapped);
     } else if (isa<d2m::GlobalSemaphoreType>(arg.getType())) {
       Value mapped = valueMapping.count(arg) ? valueMapping[arg] : arg;
-      additionalArgs.push_back(mapped);
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(mapped);
+    } else if (isa<MemRefType>(arg.getType()) &&
+               mlir::isa<ttcore::CBLayoutAttr>(
+                   mlir::cast<MemRefType>(arg.getType()).getLayout())) {
+      // added to cb descriptors
     } else {
       return op.emitOpError(
                  "unexpected operand type in d2m.generic's additionalArgs: ")
@@ -708,12 +680,13 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
     }
   }
 
-  SmallVector<ttnn::KernelCBAttr> cbDescriptors =
-      createCBDescriptors(rewriter, infos, device, coreRangeSet);
+  auto [cbDescriptors, cbOperandIndexToPortMapping] =
+      createCBDescriptors(rewriter, op, device, coreRangeSet);
 
   SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
   SmallVector<mlir::Attribute> kernelDescriptors = createKernelDescriptors(
-      rewriter, op.getThreads(), coreRangeSet, opSymTable, mathFidelity);
+      rewriter, op.getThreads(), coreRangeSet, opSymTable, mathFidelity,
+      additionalArgMapping, cbOperandIndexToPortMapping);
 
   SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
       createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
@@ -723,8 +696,9 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
 
   SmallVector<Value> ios;
-  for (auto &info : infos) {
-    ios.push_back(info.ioTensor);
+  for (Value input : op.getInputsAndOutputs()) {
+    auto tensor = findIOTensor(input, valueMapping);
+    ios.push_back(tensor);
   }
   // Runtime ttnn::generic_op currently requires at least one input and one
   // output tensor in io_tensors. Some generator-style generics (e.g. fill ->
@@ -736,8 +710,8 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
   }
 
   rewriter.setInsertionPoint(op);
-  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(op, ios, additionalArgs, program,
-                                               ttnn::MemoryConfigAttr());
+  rewriter.replaceOpWithNewOp<ttnn::GenericOp>(
+      op, ios, ttnnGenericAdditionalArgs, program, ttnn::MemoryConfigAttr());
   return success();
 }
 
@@ -1053,7 +1027,7 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
     if (op.use_empty()) {
       return;
     }
-    Value resolved = findIOTensor(op.getOperand(), valueMapping).first;
+    Value resolved = findIOTensor(op.getOperand(), valueMapping);
     op.getResult().replaceAllUsesWith(resolved);
   });
 
@@ -1063,7 +1037,7 @@ static LogicalResult cleanupAndVerify(ModuleOp moduleOp,
   moduleOp.walk([&](Operation *op) {
     if (isa<ttir::TTNNMetalLayoutCastOp, d2m::ViewLayoutOp, d2m::EmptyOp,
             d2m::ResetGlobalSemaphoreOp, d2m::CreateGlobalSemaphoreOp,
-            memref::DeallocOp, memref::AllocOp>(op)) {
+            memref::DeallocOp, memref::AllocOp, d2m::OperandAliasOp>(op)) {
       opsToErase.push_back(op);
     }
   });
