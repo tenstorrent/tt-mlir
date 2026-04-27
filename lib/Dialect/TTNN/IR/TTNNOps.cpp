@@ -5393,6 +5393,12 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+// Enforces the decode SDPA layout:
+//   Q:    [1, B, Hq, D]      (dim 0 must be 1)
+//   K, V: [B, Hkv, Sk, D]    (Hq % Hkv == 0)
+//   Mask: [1|B, 1, 1|Hq, Sk] (dim 1 must be 1; dim 0/dim 2 may broadcast)
+//   cur_pos_tensor: 1D int tensor of length B
+// `is_causal` and `attention_mask` are mutually exclusive.
 ::mlir::LogicalResult
 mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
 
@@ -5644,6 +5650,12 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
+// Enforces the generic SDPA layout:
+//   Q:    [B, Hq, Sq, D]
+//   K, V: [B, Hkv, Sk, D]    (Hq % Hkv == 0)
+//   Mask: [1|B, 1|Hq, Sq, Sk] (dim 0/dim 1 may broadcast)
+// `is_causal` and `attention_mask` are mutually exclusive; `is_causal` also
+// requires Sq == Sk.
 ::mlir::LogicalResult mlir::tt::ttnn::ScaledDotProductAttentionOp::verify() {
 
   RankedTensorType queryType = getQuery().getType();
