@@ -80,14 +80,31 @@ private:
     }
 
     // hoist aliased CBs
-    genericOp->walk([&](d2m::OperandAliasOp aliasOp) {
-      // llvm::errs() << "hoisting aliased CB: " << aliasOp.getMemref() << "\n";
-      rewriter.setInsertionPoint(genericOp);
-      auto externalAlias = rewriter.create<d2m::OperandAliasOp>(
-          genericOp.getLoc(), aliasOp.getResult().getType(),
-          aliasOp.getMemref());
-      genericOp.getAdditionalArgsMutable().append(externalAlias.getResult());
-      rewriter.replaceOp(aliasOp, externalAlias.getResult());
+    genericOp->walk([&](memref::AllocOp allocOp) {
+      if (auto aliasForOperandAttr =
+              allocOp->getAttrOfType<IntegerAttr>("d2m.alias_for_operand")) {
+        // llvm::errs() << "hoisting aliased CB: " <<
+        // genericOp.getOperand(operandIndex) << "\n";
+        rewriter.setInsertionPoint(genericOp);
+        auto aliasedOperand =
+            genericOp.getOperand(aliasForOperandAttr.getInt());
+        auto operandMemRefType =
+            mlir::cast<MemRefType>(aliasedOperand.getType());
+        unsigned numStreamBuffers =
+            ttmlir::utils::volume(operandMemRefType.getShape()) /
+            ttmlir::utils::volume(allocOp.getType().getShape());
+        auto cbLayout = ttcore::CBLayoutAttr::get(
+            &getContext(), allocOp.getType().getShape(),
+            ttcore::getElementSizeBytes(allocOp.getType().getElementType()),
+            numStreamBuffers);
+        auto newMemRefType = MemRefType::get(
+            allocOp.getType().getShape(), allocOp.getType().getElementType(),
+            cbLayout, allocOp.getType().getMemorySpace());
+        auto externalAlias = rewriter.create<d2m::OperandAliasOp>(
+            genericOp.getLoc(), newMemRefType, aliasedOperand);
+        genericOp.getAdditionalArgsMutable().append(externalAlias.getResult());
+        rewriter.replaceOp(allocOp, externalAlias.getResult());
+      }
     });
   }
 };
