@@ -165,7 +165,7 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 /// NOP optimization (is_permute_nop) with different conditions.
 /// TODO(#7988): Split PermuteOp into its own PermuteRuleBook to avoid this
 /// op-kind check.
-static bool canReshapeBeView(Operation *op) {
+bool canReshapeBeView(Operation *op) {
   if (!mlir::isa<ReshapeOp>(op)) {
     return false;
   }

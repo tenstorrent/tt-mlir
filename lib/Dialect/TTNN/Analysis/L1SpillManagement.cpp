@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/L1SpillManagement.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
@@ -119,6 +120,32 @@ void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
   allocateAddress(result, l1SizePerCore);
 }
 
+void SumL1MemoryTracker::allocateAddressAt(Value result,
+                                           Value srcAtSameAddr) {
+  // Mimic tt-metal's view semantics: result inherits src's address slot.
+  // Move src's tensorAddresses entry to result; freeList is not carved a
+  // second time.
+  auto srcIt = tensorAddresses.find(srcAtSameAddr);
+  assert(srcIt != tensorAddresses.end() &&
+         "allocateAddressAt: src must already be in tensorAddresses");
+  tensorAddresses[result] = srcIt->second;
+  tensorAddresses.erase(srcAtSameAddr);
+}
+
+void SumL1MemoryTracker::addTensorAtAddress(Value result,
+                                            uint64_t l1SizePerCore,
+                                            Value srcAtSameAddr) {
+  // Forward pass: address-only inheritance + tensorSizes/currentOccupied
+  // updates so that validate's inputOverlap accounting works for downstream
+  // consumers of `result`. src remains in tensorSizes/liveValues so OOM
+  // accounting and processDeadTensors lifecycle stay unchanged — when
+  // removeTensor(src) later runs, freeAddress(src) is a no-op because
+  // tensorAddresses no longer has src.
+  allocateAddressAt(result, srcAtSameAddr);
+  tensorSizes[result] = l1SizePerCore;
+  currentOccupied += l1SizePerCore;
+}
+
 void SumL1MemoryTracker::freeAddress(Value result) {
   auto addrIt = tensorAddresses.find(result);
   if (addrIt == tensorAddresses.end()) {
@@ -154,14 +181,14 @@ void SumL1MemoryTracker::freeAddress(Value result) {
 
 void SumL1MemoryTracker::logState() const {
   for ([[maybe_unused]] const auto &entry : tensorAddresses) {
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "Tensor {}: address {} - {} (size {})", entry.first,
                  entry.second.first, entry.second.first + entry.second.second,
                  entry.second.second);
   }
 
   for ([[maybe_unused]] const auto &entry : freeList) {
-    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "Free block: address {} - {} (size {})", entry.start,
                  entry.end, entry.size());
   }
@@ -182,6 +209,10 @@ void SumL1MemoryTracker::removeTensor(Value result) {
 
 bool SumL1MemoryTracker::hasTensor(Value result) const {
   return tensorSizes.count(result);
+}
+
+bool SumL1MemoryTracker::hasTensorAddress(Value result) const {
+  return tensorAddresses.count(result);
 }
 
 uint64_t SumL1MemoryTracker::getTensorSize(Value result) const {
@@ -640,8 +671,20 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
     }
     if (l1EventLog[i].kind == L1Event::kAlloc) {
       addressSnapshots[i] = memoryTracker.takeSnapshot();
-      memoryTracker.allocateAddress(l1EventLog[i].tensor,
-                                    l1EventLog[i].sizePerCore);
+      // View-eligible reshape: re-derive view-aliasing from the IR. If src
+      // is still address-tracked (i.e. its kAlloc was not skipped earlier
+      // in this replay), inherit src's slot. Otherwise fall back to fresh
+      // top-down allocation — the right counterfactual when src was
+      // evicted to DRAM.
+      Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
+      if (defOp && canReshapeBeView(defOp) &&
+          memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
+        memoryTracker.allocateAddressAt(l1EventLog[i].tensor,
+                                        defOp->getOperand(0));
+      } else {
+        memoryTracker.allocateAddress(l1EventLog[i].tensor,
+                                      l1EventLog[i].sizePerCore);
+      }
     } else {
       memoryTracker.freeAddress(l1EventLog[i].tensor);
     }
@@ -882,12 +925,16 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
   // from transient internal op allocations (ghost holes).
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "    CB FRAG CHECK: cbPeakUsage={0}, cushion={1}, "
-               "speculativeOutputAddr={2}, lowestExistingAddr={3}, "
-               "effectiveLowest={4}",
-               cbPeakUsage, cbFragCushion, speculativeOutputAddr,
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    CB FRAG CHECK for {0}: cbPeakUsage={1}, cushion={2}, "
+               "speculativeOutputAddr={3}, lowestExistingAddr={4}, "
+               "effectiveLowest={5}",
+               op->getName(), cbPeakUsage, cbFragCushion, speculativeOutputAddr,
                lowestExistingAddr, effectiveLowest);
+  // [DEBUG] Always dump the simulated allocator state at the moment of the
+  // CB FRAG CHECK, so we can compare against the runtime memory state for
+  // the same op (rms_norm CB-vs-L1 collision investigation).
+  memoryTracker.logState();
 
   if (cushionedCBUsage > effectiveLowest) {
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1014,7 +1061,19 @@ void L1SpillManagement<MemoryTracker>::run() {
         addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
         l1EventLog.push_back(
             {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
-        memoryTracker.addTensor(val, perResultL1);
+
+        // View-eligible reshape: tt-metal aliases src's buffer (zero-copy
+        // view), so the simulator inherits src's address slot rather than
+        // carving a fresh one. See `addTensorAtAddress` docs.
+        Operation *defOp = val.getDefiningOp();
+        if (defOp && canReshapeBeView(defOp) &&
+            memoryTracker.hasTensor(defOp->getOperand(0))) {
+          memoryTracker.addTensorAtAddress(val, perResultL1,
+                                           defOp->getOperand(0));
+        } else {
+          memoryTracker.addTensor(val, perResultL1);
+        }
+
         liveValues.insert(val);
         liveSet.push({resultLastUse, val});
       }
