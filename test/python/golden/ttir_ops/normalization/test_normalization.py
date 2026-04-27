@@ -358,7 +358,14 @@ def test_hoisted_layer_norm(
         (1, 1, 32, 128),
         (1, 1, 32, 512),
         (1, 1, 32, 4096),
-        (1, 1, 32, 8192),
+        pytest.param(
+            (1, 1, 32, 8192),
+            marks=pytest.mark.skip(
+                reason="Hangs on n300 after metal uplift to commit 7fb82fd0 "
+                "(Reduce compute and dataflow helpers, tt-metal#41637). "
+                "Tracked in tt-mlir#8129 / tt-metal#43173."
+            ),
+        ),
         (1, 1, 128, 128),
         (1, 1, 32, 68),
         (1, 1, 37, 72),
