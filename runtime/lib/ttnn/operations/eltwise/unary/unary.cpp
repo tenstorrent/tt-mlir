@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 #include "operations/eltwise/unary/unary.h"
+#include "eltwise/unary/unifiedEltwiseUnaryOp.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -10,124 +11,120 @@
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
+#include "utils/utils.h"
 
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
-static void runEltwiseUnaryOp(
-    const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &,
-        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
+template <typename Fn>
+static void runEltwiseUnaryOp(const ::tt::target::ttnn::EltwiseUnaryOp *op,
+                              ProgramTensorPool &tensorPool, Fn ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out =
-      ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
-             /*sub_core_grids=*/std::nullopt);
+  target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
+  op->UnPackTo(&eltwiseUnaryOpT);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  unifiedOpLib::EltwiseUnaryOpResult result = unifiedOpLib::callEltwiseUnary(
+      unifiedOpLib::CallType::EXECUTE, eltwiseUnaryOpT,
+      std::forward<Fn>(ttnnOp), &in);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseUnary execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
-static void runEltwiseUnaryTanhOp(
-    const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
-    const std::function<::ttnn::Tensor(
-        const ::ttnn::Tensor &, const std::optional<::ttnn::MemoryConfig> &,
-        const std::optional<::ttnn::Tensor> &, bool,
-        const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
+template <typename Fn>
+static void runEltwiseUnaryTanhOp(const ::tt::target::ttnn::EltwiseUnaryOp *op,
+                                  ProgramTensorPool &tensorPool, Fn ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out =
-      ttnnOp(in, outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
-             /*approx=*/false, /*sub_core_grids=*/std::nullopt);
+  target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
+  op->UnPackTo(&eltwiseUnaryOpT);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  unifiedOpLib::EltwiseUnaryOpResult result =
+      unifiedOpLib::callEltwiseUnaryTanh(unifiedOpLib::CallType::EXECUTE,
+                                         eltwiseUnaryOpT,
+                                         std::forward<Fn>(ttnnOp), &in);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseUnaryTanh execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
+template <typename Fn>
 static void runEltwiseUnaryWithFastAndApproximateModeOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
-    const std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, const bool,
-                       const std::optional<::ttnn::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &,
-                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
+    Fn ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(in, /*parameter=*/false, outputMemoryConfig,
-                              /*optional_output_tensor=*/std::nullopt,
-                              /*sub_core_grids=*/std::nullopt);
+  target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
+  op->UnPackTo(&eltwiseUnaryOpT);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  unifiedOpLib::EltwiseUnaryOpResult result =
+      unifiedOpLib::callEltwiseUnaryWithFastAndApproximateMode(
+          unifiedOpLib::CallType::EXECUTE, eltwiseUnaryOpT,
+          std::forward<Fn>(ttnnOp), &in);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from "
+             "callEltwiseUnaryWithFastAndApproximateMode execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
-static void runEltwiseUnarySigmoidOp(
-    const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
-    const std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, const int,
-                       const ::ttnn::operations::unary::SigmoidMode,
-                       const std::optional<::ttnn::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &,
-                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
+template <typename Fn>
+static void
+runEltwiseUnarySigmoidOp(const ::tt::target::ttnn::EltwiseUnaryOp *op,
+                         ProgramTensorPool &tensorPool, Fn ttnnOp) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
 
-  auto sigmoidMode = ::ttnn::operations::unary::SigmoidMode::ACCURATE;
-  ::ttnn::Tensor out = ttnnOp(
-      in, static_cast<int>(::ttnn::operations::unary::VecMode::RC), sigmoidMode,
-      outputMemoryConfig, /*optional_output_tensor=*/std::nullopt,
-      /*sub_core_grids=*/std::nullopt);
+  target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
+  op->UnPackTo(&eltwiseUnaryOpT);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  unifiedOpLib::EltwiseUnaryOpResult result =
+      unifiedOpLib::callEltwiseUnarySigmoid(unifiedOpLib::CallType::EXECUTE,
+                                            eltwiseUnaryOpT,
+                                            std::forward<Fn>(ttnnOp), &in);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseUnarySigmoid execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
+template <typename Fn>
 static void runEltwiseUnaryWithFloatParameterOp(
     const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
-    const std::function<
-        ::ttnn::Tensor(const ::ttnn::Tensor &, float,
-                       const std::optional<::ttnn::MemoryConfig> &,
-                       const std::optional<::ttnn::Tensor> &,
-                       const std::optional<::ttnn::CoreRangeSet> &)> &ttnnOp) {
+    Fn ttnnOp) {
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  float parameter = op->params_as_EltwiseOpWithFloatParams()->parameter();
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
+  target::ttnn::EltwiseUnaryOpT eltwiseUnaryOpT;
+  op->UnPackTo(&eltwiseUnaryOpT);
 
-  ::ttnn::Tensor out = ttnnOp(in, parameter, outputMemoryConfig,
-                              /*optional_output_tensor=*/std::nullopt,
-                              /*sub_core_grids=*/std::nullopt);
+  unifiedOpLib::EltwiseUnaryOpResult result =
+      unifiedOpLib::callEltwiseUnaryWithFloatParameter(
+          unifiedOpLib::CallType::EXECUTE, eltwiseUnaryOpT,
+          std::forward<Fn>(ttnnOp), &in);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected output Tensor from callEltwiseUnaryWithFloatParameter execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
@@ -135,81 +132,83 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   case ::tt::target::ttnn::EltwiseUnaryOpType::Abs: {
-    runEltwiseUnaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::abs(std::forward<decltype(args)>(args)...);
-    });
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::abs));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Ceil: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::ceil);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::ceil));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Cos: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::cos);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::cos));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Acos: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::acos);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::acos));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Floor: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::floor);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::floor));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Gelu: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::gelu);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                WRAP_OP(::ttnn::gelu));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::IsFinite: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::isfinite);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::isfinite));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::LogicalNot: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::logical_not);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::logical_not));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Neg: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::neg);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::neg));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Relu: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::relu));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Relu6: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu6);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::relu6));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Hardsigmoid: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::hardsigmoid);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::hardsigmoid));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::sqrt);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                WRAP_OP(::ttnn::sqrt));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::rsqrt);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                WRAP_OP(::ttnn::rsqrt));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid: {
-    runEltwiseUnarySigmoidOp(op, tensorPool, ::ttnn::sigmoid);
+    runEltwiseUnarySigmoidOp(op, tensorPool, WRAP_OP(::ttnn::sigmoid));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Silu: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::silu);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::silu));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Mish: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::mish);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                WRAP_OP(::ttnn::mish));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sin);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::sin));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Asin: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::asin);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::asin));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Asinh: {
@@ -217,53 +216,54 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Reciprocal: {
-    runEltwiseUnaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::reciprocal(std::forward<decltype(args)>(args)...);
-    });
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::reciprocal));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sign: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sign);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::sign));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Tan: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::tan);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::tan));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Tanh: {
-    runEltwiseUnaryTanhOp(op, tensorPool, ::ttnn::tanh);
+    runEltwiseUnaryTanhOp(op, tensorPool, WRAP_OP(::ttnn::tanh));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Atan: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::atan);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::atan));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Exp: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::exp);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                WRAP_OP(::ttnn::exp));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Log: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::log);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                WRAP_OP(::ttnn::log));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Expm1: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::expm1);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::expm1));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::LeakyRelu: {
-    runEltwiseUnaryWithFloatParameterOp(op, tensorPool, ::ttnn::leaky_relu);
+    runEltwiseUnaryWithFloatParameterOp(op, tensorPool, WRAP_OP(::ttnn::leaky_relu));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::BitwiseNot: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::bitwise_not);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::bitwise_not));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Erf: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::erf);
+    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool,
+                                                WRAP_OP(::ttnn::erf));
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Erfc: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::erfc);
+    runEltwiseUnaryOp(op, tensorPool, WRAP_OP(::ttnn::erfc));
     break;
   }
   }
