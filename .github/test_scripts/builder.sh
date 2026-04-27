@@ -18,6 +18,10 @@ FLATBUFFER=""
 for flag in $3; do
     [[ "$flag" == "run-ttrt" ]] && runttrt=1
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
+    if [[ "$flag" == split=*/* ]]; then
+        group="${flag#split=}"
+        PYTEST_ARGS="$PYTEST_ARGS --splits ${group#*/} --group ${group%/*}"
+    fi
 done
 
 # Hacky CI fix: EmitC TTNN tests build `libttnn-dylib.so` and link against `_ttnncpp.so`.

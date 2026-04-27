@@ -8,3 +8,4 @@ black
 pre-commit
 pydantic
 tqdm
+pytest-split
