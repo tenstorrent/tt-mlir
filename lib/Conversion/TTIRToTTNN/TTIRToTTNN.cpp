@@ -2901,8 +2901,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::MeshPartitionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getDim(),
-        rewriter.getUI32IntegerAttr(adaptor.getClusterAxis().value()),
+        adaptor.getInput(), adaptor.getDim(), adaptor.getClusterAxis(),
         /*memory_config=*/nullptr);
 
     return success();
