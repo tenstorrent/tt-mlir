@@ -1838,35 +1838,14 @@ public:
     // tensor to `ttnn.selective_reduce_combine`. The workaround pass forces
     // the tensor to ROW_MAJOR / BF16 / DRAM-INTERLEAVED to match the
     // kernel's expected output layout.
-    //
-    // An additional `ttnn.assign` is inserted between the `ttnn.full` and
-    // the combine. `ttnn.full` maps at runtime to a host std::fill +
-    // host->device copy — not trace-safe. `ttnn.assign` is a regular
-    // device-side op (not a creation op) that copies its input into a
-    // fresh output tensor; consuming the ttnn.full's result through an
-    // assign produces a trace-safe zero buffer that the combine can use.
     mlir::Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     auto zeroOutput = rewriter.create<ttnn::FullOp>(
         op.getLoc(), resultType, rewriter.getF32FloatAttr(0.0f), device);
 
-    auto resultTensorType = mlir::cast<RankedTensorType>(resultType);
-    auto layoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding());
-    ttnn::BufferTypeAttr bufferTypeAttr =
-        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
-                                    bufferTypeAttr, std::nullopt);
-    ttcore::DataTypeAttr dTypeAttr =
-        ttcore::DataTypeAttr::get(op.getContext(), layoutAttr.getDataType());
-    auto assignedZero = rewriter.create<ttnn::AssignOp>(
-        op.getLoc(), resultType, zeroOutput.getResult(), memoryConfigAttr,
-        dTypeAttr);
-
     rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
         op, resultType, adaptor.getDenseInputTensor(),
         adaptor.getDenseActivationsTensor(), adaptor.getDenseTokenMapsTensor(),
-        adaptor.getDenseTokenCountsTensor(), assignedZero.getResult(),
+        adaptor.getDenseTokenCountsTensor(), zeroOutput.getResult(),
         op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
         op.getSelectExpertsKAttr(), op.getExpertsAttr());
     return success();
