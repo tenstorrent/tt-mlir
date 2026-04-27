@@ -918,10 +918,10 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
 
       bool isProducer(mlir::OpOperand &operand) {
-        return llvm::any_of(getOutputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+        return &getOutputMutable() == &operand;
       }
       bool isConsumer(mlir::OpOperand &operand) {
-        return llvm::any_of(getInputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+        return &getInputMutable() == &operand;
       }
     }];
 
@@ -952,10 +952,10 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
 
       bool isProducer(mlir::OpOperand &operand) {
-        return llvm::any_of(getOutputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+        return &getOutputMutable() == &operand;
       }
       bool isConsumer(mlir::OpOperand &operand) {
-        return llvm::any_of(getInputMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+        return &getInputMutable() == &operand;
       }
     }];
 
@@ -1529,7 +1529,7 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       }
 
       bool isConsumer(mlir::OpOperand &operand) {
-        return llvm::any_of(getSrcMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+        return &getSrcMutable() == &operand;
       }
     }];
 
