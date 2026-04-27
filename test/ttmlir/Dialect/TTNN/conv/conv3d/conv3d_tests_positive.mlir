@@ -3,7 +3,7 @@
 module {
   // Test simple 3D convolution
   func.func @conv3d_simple(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<16x4x3x3x3xbf16>) -> tensor<1x6x26x26x16xbf16> {
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.prepare_conv3d_weights"
     // CHECK: "ttnn.conv3d"
     %0 = "ttir.conv3d"(%arg0, %arg1)
             <{
@@ -17,7 +17,7 @@ module {
 
   // Test 3D convolution with stride
   func.func @conv3d_with_stride(%arg0: tensor<1x8x28x28x16xbf16>, %arg1: tensor<32x16x3x3x3xbf16>) -> tensor<1x4x14x14x32xbf16> {
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.prepare_conv3d_weights"
     // CHECK: "ttnn.conv3d"
     %0 = "ttir.conv3d"(%arg0, %arg1)
             <{
@@ -31,7 +31,7 @@ module {
 
   // Test 3D convolution with bias
   func.func @conv3d_with_bias(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<16x4x3x3x3xbf16>, %arg2: tensor<1x1x1x1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.prepare_conv3d_weights"
     // CHECK: "ttnn.conv3d"
     %0 = "ttir.conv3d"(%arg0, %arg1, %arg2)
             <{
@@ -45,7 +45,7 @@ module {
 
   // Test 3D convolution with different padding mode
   func.func @conv3d_padding_replicate(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<16x4x3x3x3xbf16>) -> tensor<1x8x28x28x16xbf16> {
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.prepare_conv3d_weights"
     // CHECK: "ttnn.conv3d"
     // CHECK-SAME: padding_mode = "replicate"
     %0 = "ttir.conv3d"(%arg0, %arg1)
@@ -60,7 +60,7 @@ module {
 
   // Test 3D convolution with larger kernel
   func.func @conv3d_large_kernel(%arg0: tensor<1x16x32x32x8xbf16>, %arg1: tensor<32x8x5x5x5xbf16>) -> tensor<1x12x28x28x32xbf16> {
-    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.prepare_conv3d_weights"
     // CHECK: "ttnn.conv3d"
     %0 = "ttir.conv3d"(%arg0, %arg1)
             <{

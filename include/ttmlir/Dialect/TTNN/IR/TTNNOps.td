@@ -1844,6 +1844,20 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias", [TTNN_ComputeKerne
     let hasVerifier = 1;
 }
 
+def TTNN_PrepareConv3dWeightsOp : TTNN_Op<"prepare_conv3d_weights"> {
+    let summary = "Prepares conv3d weights so that they can be consumed by the conv3d op.";
+
+    let arguments = (ins AnyRankedTensor:$weight_tensor,
+                         I32Attr:$groups,
+                         I32Attr:$c_in_block,
+                         I32Attr:$alignment,
+                         TTNN_Device:$device);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv_transpose2d weights so that they can be consumed by the conv_transpose2d op.";
 
