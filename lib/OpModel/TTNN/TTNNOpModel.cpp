@@ -15,6 +15,8 @@
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
+#include "tt-metalium/graph_tracking.hpp"
+
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
@@ -87,6 +89,16 @@ template <class Callable>
 llvm::Expected<::ttnn::graph::ConstraintQueryResponse>
 executeConstraintQuery(Callable &callable) {
   ::ttnn::graph::ConstraintQueryResponse query;
+  // Snapshot GraphTracker depth before the query so we can drain leaked
+  // processors on the way out. ScopedGraphCapture's destructor swallows
+  // exceptions thrown by `end_capture` — when that happens, `pop_processor`
+  // never runs and the processor stays on the global GraphTracker singleton
+  // forever. Subsequent runtime ops that fire graph hooks (track_function_*,
+  // track_allocate_*) then dereference the leaked processor and either
+  // segfault or double-free in `add_buffer` / `track_function_start`.
+  // Drain unconditionally below regardless of success/failure.
+  const size_t graphTrackerDepthBefore =
+      ::tt::tt_metal::GraphTracker::instance().get_processors().size();
   try {
     auto *device = SingletonDeviceContext::getInstance().getDevice();
     ::ttnn::graph::detail::LogLevelGuard log_guard(
@@ -101,6 +113,19 @@ executeConstraintQuery(Callable &callable) {
     llvm::errs() << "Exception thrown during op constraints query: " << e.what()
                  << "\n";
     assert(false && "Exception thrown during op constraints query");
+  }
+  size_t graphTrackerDepthAfter =
+      ::tt::tt_metal::GraphTracker::instance().get_processors().size();
+  if (graphTrackerDepthAfter > graphTrackerDepthBefore) {
+    llvm::errs() << "GraphTracker leaked "
+                 << (graphTrackerDepthAfter - graphTrackerDepthBefore)
+                 << " processor(s) during constraint query (depth "
+                 << graphTrackerDepthBefore << " -> "
+                 << graphTrackerDepthAfter << "); draining.\n";
+    while (::tt::tt_metal::GraphTracker::instance().get_processors().size() >
+           graphTrackerDepthBefore) {
+      ::tt::tt_metal::GraphTracker::instance().pop_processor();
+    }
   }
 
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
