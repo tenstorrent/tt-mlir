@@ -558,3 +558,86 @@ func.func @outer_scf_loops_get_fused(
   }
   return
 }
+
+// ---------------------------------------------------------------------------
+// Test: dependence-related sibling scratch_space_loop nests with a matching
+//       affine prefix are fused under one shared prefix before spill insertion.
+//       Scratch shapes must omit that shared row dimension, and inter-loop
+//       unpack_stall_on_pack ordering must be preserved inside the fused loop.
+// ---------------------------------------------------------------------------
+
+// CHECK-LABEL: func.func @dependent_sibling_scratch_loops_get_fused
+// CHECK-DAG:   %[[SCRATCH_A:.*]] = d2m.scratch_allocate {slot = 0 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
+// CHECK-DAG:   %[[SCRATCH_B:.*]] = d2m.scratch_allocate {slot = 1 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
+// CHECK-NOT:   memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+// CHECK:       affine.for {{.*}} = 0 to 2
+// CHECK:       "d2m.tile_exp"
+// CHECK:       affine.store {{.*}}, %[[SCRATCH_A]]
+// CHECK:       "d2m.tile_sin"
+// CHECK:       affine.store {{.*}}, %[[SCRATCH_B]]
+// CHECK:       d2m.unpack_stall_on_pack
+// CHECK:       affine.load %[[SCRATCH_A]]
+// CHECK:       affine.load %[[SCRATCH_B]]
+// CHECK:       "d2m.tile_add"
+// CHECK:       } {d2m.scratch_inserted, d2m.scratch_space_loop}
+func.func @dependent_sibling_scratch_loops_get_fused(
+    %in0  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
+    %in1  : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
+    %out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
+  d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>,
+               indexing_maps = [], iterator_types = [],
+               threads = [#d2m.thread<unified>]}
+      ins(%in0, %in1 :
+          memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>,
+          memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
+      outs(%out0 : memref<1x1x2x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
+  ^unified0:
+    %cb0_raw = d2m.get_cb(0) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb1_raw = d2m.get_cb(1) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb2_raw = d2m.get_cb(2) : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+    %cb0 = d2m.wait %cb0_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %cb1 = d2m.wait %cb1_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %cb2 = d2m.reserve %cb2_raw
+        : !d2m.cb<memref<2x1x!ttcore.tile<32x32, bf16>, #l1>>
+        -> memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %tmp_a = memref.alloc() {alignment = 64 : i64}
+        : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    %tmp_b = memref.alloc() {alignment = 64 : i64}
+        : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 1 {
+          %v = affine.load %cb0[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+          %r = "d2m.tile_exp"(%v) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+          affine.store %r, %tmp_a[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        } {d2m.linalg_root}
+      }
+    } {d2m.scratch_space_loop}
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 1 {
+          %v = affine.load %cb1[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+          %r = "d2m.tile_sin"(%v) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+          affine.store %r, %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        } {d2m.linalg_root}
+      }
+    } {d2m.scratch_space_loop}
+    d2m.unpack_stall_on_pack
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 1 {
+        affine.for %k = 0 to 1 {
+          %va = affine.load %tmp_a[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+          %vb = affine.load %tmp_b[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+          %r = "d2m.tile_add"(%va, %vb)
+              : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+          affine.store %r, %cb2[%i, %j] : memref<2x1x!ttcore.tile<32x32, bf16>, #l1>
+        } {d2m.linalg_root}
+      }
+    } {d2m.scratch_space_loop}
+  }
+  return
+}
