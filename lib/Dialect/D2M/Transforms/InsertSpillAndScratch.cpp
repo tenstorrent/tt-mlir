@@ -364,12 +364,6 @@ static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
     ci.scratchLoop = sl;
     Operation *parent = sl->getParentOp();
     while (auto scfFor = dyn_cast<scf::ForOp>(parent)) {
-      // Blocking loops are tiled outer loops that should not be fused — they
-      // are shared across all scratch_space_loops in the same generic body.
-      // Stop here; fusion targets only the non-blocking loops inside them.
-      if (scfFor->hasAttr("d2m.blocking_loop")) {
-        break;
-      }
       ci.chain.push_back(scfFor);
       parent = scfFor->getParentOp();
     }
@@ -456,20 +450,6 @@ static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
       if (*refLb != *lb || *refUb != *ub || *refStep != *step) {
         return false;
       }
-    }
-  }
-
-  // Verify all outermost loops are siblings in the same block and appear in
-  // order. If any chain's outermost loop is nested inside another chain (e.g.,
-  // when scratchLoops are at different depths), the block-iterator walk below
-  // would run off the end of the list and hit the sentinel.
-  Block *parentBlock = chains[0].chain[0]->getBlock();
-  for (size_t i = 1; i < chains.size(); ++i) {
-    if (chains[i].chain[0]->getBlock() != parentBlock) {
-      return;
-    }
-    if (!chains[i - 1].chain[0]->isBeforeInBlock(chains[i].chain[0])) {
-      return;
     }
   }
 
