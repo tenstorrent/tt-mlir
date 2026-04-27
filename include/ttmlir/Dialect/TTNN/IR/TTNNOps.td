@@ -144,7 +144,7 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device", [OpModelExempt]> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTNN_ToDtypeOp : TTNN_Op<"to_dtype", [OpModelExempt]> {
+def TTNN_ToDtypeOp : TTNN_Op<"to_dtype"> {
     let summary = "ToDtype op.";
     let description = [{
       Host-side conversion of the input tensor's dtype.
