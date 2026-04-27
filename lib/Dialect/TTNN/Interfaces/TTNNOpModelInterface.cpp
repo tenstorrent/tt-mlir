@@ -820,18 +820,18 @@ ReciprocalOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// RoundNearestEvenOp - TTNN Op Model Interface
+// RoundOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-RoundNearestEvenOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                     const OpConfig &opConfig) {
+RoundOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
   return detail::getUnaryOpConstraints(*this, inputs, opConfig);
 }
 
 llvm::Expected<size_t>
-RoundNearestEvenOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                                 const OpConfig &opConfig) {
+RoundOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig) {
   return detail::getUnaryOpRuntime(*this, inputs, opConfig);
 }
 
