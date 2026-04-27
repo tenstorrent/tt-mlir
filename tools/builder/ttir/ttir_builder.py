@@ -13290,6 +13290,11 @@ class TTIRBuilder(Builder):
         result = old_op.result.type
         is_causal_attr = old_op.is_causal
         scale_attr = old_op.scale if "scale" in old_op.attributes else None
+        sliding_window_size_attr = (
+            old_op.sliding_window_size
+            if "sliding_window_size" in old_op.attributes
+            else None
+        )
 
         new_op = ttir_op(
             result,
