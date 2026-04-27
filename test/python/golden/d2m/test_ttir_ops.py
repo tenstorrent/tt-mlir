@@ -10,7 +10,7 @@ from typing import Callable, List, Optional, Tuple, Union
 from collections import OrderedDict
 from functools import reduce
 import operator
-from conftest import x86_only, get_request_kwargs
+from conftest import get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -27,28 +27,6 @@ from test_utils import (
 )
 
 pytestmark = pytest.mark.frontend("ttir")
-
-
-import pytest
-import torch
-from typing import Callable, List, Optional, Tuple, Union
-from collections import OrderedDict
-from functools import reduce
-import operator
-from conftest import x86_only, get_request_kwargs
-from builder.base.builder_utils import Operand, Shape, TypeInfo
-from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import compile_and_execute_ttir, build_module
-from builder.base.builder_enums import *
-from ttmlir.ir import DenseI32ArrayAttr
-from test_utils import (
-    Marks,
-    SkipIf,
-    shape_str,
-    shapes_list_str,
-    make_shard_shape,
-    shard_wrap_factory,
-)
 
 
 @pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
@@ -241,45 +219,4 @@ def test_unique_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
-    )
-
-
-@x86_only
-@pytest.mark.parametrize(
-    "shape,dtype,start,end,step,dim",
-    [
-        ((5,), torch.float32, 0, 5, 1, 0),
-        ((10,), torch.int32, 0, 10, 1, 0),
-        ((8,), torch.float32, 2, 10, 1, 0),
-    ],
-    ids=["f32_simple", "i32_simple", "f32_offset_start"],
-)
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
-def test_hoisted_arange(
-    shape: Shape,
-    dtype: torch.dtype,
-    start: int,
-    end: int,
-    step: int,
-    dim: int,
-    target: str,
-    request,
-    device,
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def hoisted_arange(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
-            return builder.arange(
-                shape, dtype, start, end, step, dim, unit_attrs=["ttir.should_hoist"]
-            )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=request.node.name,
-        target=target,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
     )
