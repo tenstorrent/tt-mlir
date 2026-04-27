@@ -821,6 +821,21 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dBiasOp op) {
       computeConfig.value_or(0), sliceConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConv3dWeightsOp>
+createOp(FlatbufferObjectCache &cache, PrepareConv3dWeightsOp op) {
+  auto weightTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeightTensor()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+
+                                  /*local_shape*/ std::nullopt);
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  return ::tt::target::ttnn::CreatePrepareConv3dWeightsOp(
+      *cache.fbb, weightTensor, output, op.getGroups(), op.getCInBlock(),
+      op.getAlignment(), cache.at<::tt::target::DeviceRef>(device));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dWeightsOp>
 createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
   auto weightTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4403,6 +4418,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto prepareConv2dBiasOp = dyn_cast<PrepareConv2dBiasOp>(op);
       prepareConv2dBiasOp) {
     return createOperation(cache, createOp(cache, prepareConv2dBiasOp),
+                           debugString, locInfo);
+  }
+  if (auto prepareConv3dWeightsOp = dyn_cast<PrepareConv3dWeightsOp>(op);
+      prepareConv3dWeightsOp) {
+    return createOperation(cache, createOp(cache, prepareConv3dWeightsOp),
                            debugString, locInfo);
   }
   if (auto prepareConvTranspose2dWeightsOp =

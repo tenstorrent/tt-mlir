@@ -33,6 +33,7 @@
 #include "operations/experimental/ccl/all_reduce_async/all_reduce_async.hpp"
 #include "operations/experimental/ccl/all_to_all_dispatch_metadata/all_to_all_dispatch_metadata.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
+#include "operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
