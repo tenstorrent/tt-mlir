@@ -28,4 +28,5 @@ table CaptureOrExecuteTraceOp {
   execute_program_id: uint32;
   inputs: [tt.target.ttnn.TensorRef];
   outputs: [tt.target.ttnn.TensorRef];
+  semaphore_inputs: [tt.target.ttnn.GlobalSemaphoreRef];
 }
