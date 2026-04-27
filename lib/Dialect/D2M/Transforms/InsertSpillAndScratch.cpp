@@ -403,7 +403,8 @@ getScratchAccessMapAndOperands(ScratchLoopInfo &info, MLIRContext *ctx) {
 static SmallVector<affine::AffineForOp>
 getMissingConsumerPrefixLoops(ScratchLoopInfo &producer,
                               ScratchLoopInfo &consumer) {
-  // Find the shared outer loops the consumer needs to line up with producer scratch.
+  // Find the shared outer loops the consumer needs to line up with producer
+  // scratch.
   size_t consumerRank = 1 + consumer.allLoops.size();
   if (producer.scratchShape.size() <= consumerRank) {
     return {};
@@ -454,7 +455,8 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
     SmallVector<Value> operands;
     unsigned dimIdx = 0;
 
-    // Build the straightforward consumer index including any shared prefix loops.
+    // Build the straightforward consumer index including any shared prefix
+    // loops.
     auto addLoop = [&](affine::AffineForOp loop) {
       operands.push_back(loop.getInductionVar());
       AffineExpr dim = getAffineDimExpr(dimIdx++, ctx);
@@ -953,7 +955,8 @@ fuseScratchLoopSiblings(GenericOp genericOp,
 
     size_t bestBegin = scratchSpaceLoops.size();
     size_t bestEnd = 0;
-    // Pick the widest producer->consumer span so one fusion covers the whole chain.
+    // Pick the widest producer->consumer span so one fusion covers the whole
+    // chain.
     for (auto &intermediate : intermediates) {
       size_t producerIdx =
           static_cast<size_t>(intermediate.producer - loopShells.data());
