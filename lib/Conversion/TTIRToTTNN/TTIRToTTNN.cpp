@@ -3432,7 +3432,8 @@ public:
         adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
         adaptor.getAttentionSink(), adaptor.getScaleAttr(),
         /*memory_config=*/nullptr,
-        /*core_grid=*/nullptr);
+        /*core_grid=*/nullptr,
+        /*compute_config=*/nullptr);
     return success();
   }
 };

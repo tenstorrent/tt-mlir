@@ -4,6 +4,7 @@
 
 #include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::transformer {
@@ -42,6 +43,13 @@ static void runPagedScaledDotProductAttentionDecodeOp(
 
   std::optional<float> scale = op->scale();
   std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   auto computeGrid = query.device()->compute_with_storage_grid_size();
   if (op->core_grid()) {
     computeGrid = ::tt::runtime::ttnn::utils::toTTNNCoreCoord(*op->core_grid());
@@ -75,7 +83,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
           query, key, value, pageTable, isCausal, attentionMask, curPosTensor,
           attentionSink, scale, slidingWindowSize, outputMemoryConfig,
           /*program_config=*/programConfig,
-          /*compute_kernel_config=*/std::nullopt);
+          /*compute_kernel_config=*/computeConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 

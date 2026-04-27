@@ -3288,6 +3288,12 @@ createOp(FlatbufferObjectCache &cache,
     coreGridPtr = &coreGridVal;
   }
 
+  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+      computeConfig = 0;
+  if (op.getComputeConfig().has_value()) {
+    computeConfig = toFlatbuffer(cache, op.getComputeConfig().value());
+  }
+
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
@@ -3295,7 +3301,8 @@ createOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
-      curPosTensor, attentionSink, scale, out, memoryConfig, coreGridPtr);
+      curPosTensor, attentionSink, scale, out, memoryConfig, coreGridPtr,
+      computeConfig);
 }
 
 ::flatbuffers::Offset<
