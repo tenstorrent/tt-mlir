@@ -7127,200 +7127,199 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// AllToAllDispatchOp
+// CompositeOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::AllToAllDispatchOp::verify() {
-  ::mlir::RankedTensorType inputType = getInputTensor().getType();
-  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
-  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
-  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
-  ::mlir::RankedTensorType metadataType = getMetadata().getType();
+namespace {
 
-  // All tensors must be 4D
-  if (inputType.getRank() != 4) {
-    return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
-  }
-  if (indicesType.getRank() != 4) {
-    return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
-  }
-  if (mappingType.getRank() != 4) {
-    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
-  }
-  if (dispatchedType.getRank() != 4) {
-    return emitOpError("dispatched output must be a 4D tensor [1, B*D, S, H]");
-  }
-  if (metadataType.getRank() != 4) {
-    return emitOpError("metadata output must be a 4D tensor [1, B*D, S, K]");
-  }
-
-  // Verify num_devices > 0
-  if (getNumDevices() <= 0) {
-    return emitOpError("num_devices must be positive");
-  }
-
-  // Verify cluster_axis is 0 or 1.
-  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
-  if (clusterAxis < 0 || clusterAxis > 1) {
-    return emitOpError("cluster_axis must be 0 or 1");
-  }
-
-  return success();
+static int64_t rankOf(::mlir::Value v) {
+  return ::mlir::cast<::mlir::RankedTensorType>(v.getType()).getRank();
 }
 
-//===----------------------------------------------------------------------===//
-// AllToAllDispatchMetadataOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::AllToAllDispatchMetadataOp::verify() {
-  ::mlir::RankedTensorType inputType = getInputTensor().getType();
-  ::mlir::RankedTensorType indicesType = getExpertIndices().getType();
-  ::mlir::RankedTensorType scoresType = getExpertScores().getType();
-  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
-  ::mlir::RankedTensorType dispatchedType = getDispatched().getType();
-  ::mlir::RankedTensorType indicesOutType = getIndices().getType();
-  ::mlir::RankedTensorType scoresOutType = getScores().getType();
-
-  // Inputs must be 4D
-  if (inputType.getRank() != 4) {
-    return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
+static ::mlir::LogicalResult requireIntAttr(::mlir::Operation *op,
+                                            ::mlir::DictionaryAttr attrs,
+                                            llvm::StringRef key,
+                                            bool mustBePositive) {
+  auto attr = attrs.getAs<::mlir::IntegerAttr>(key);
+  if (!attr) {
+    return op->emitOpError()
+           << "composite_attributes missing integer '" << key << "'";
   }
-  if (indicesType.getRank() != 4) {
-    return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
+  int64_t out = attr.getInt();
+  if (mustBePositive && out <= 0) {
+    return op->emitOpError() << "'" << key << "' must be positive";
   }
-  if (scoresType.getRank() != 4) {
-    return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
-  }
-  if (mappingType.getRank() != 4) {
-    return emitOpError("expert_mapping must be a 4D tensor [1, 1, D, E]");
-  }
-  // Outputs are 3D matching the metal kernel output shapes
-  if (dispatchedType.getRank() != 3) {
-    return emitOpError(
-        "dispatched output must be a 3D tensor [1, tokens_global, H]");
-  }
-  if (indicesOutType.getRank() != 3) {
-    return emitOpError(
-        "indices output must be a 3D tensor [1, tokens_global, K]");
-  }
-  if (scoresOutType.getRank() != 3) {
-    return emitOpError(
-        "scores output must be a 3D tensor [1, tokens_global, K]");
-  }
-
-  // Verify num_devices > 0
-  if (getNumDevices() <= 0) {
-    return emitOpError("num_devices must be positive");
-  }
-
-  // Verify cluster_axis is 0 or 1.
-  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
-  if (clusterAxis < 0 || clusterAxis > 1) {
-    return emitOpError("cluster_axis must be 0 or 1");
-  }
-
-  return success();
+  return ::mlir::success();
 }
 
-//===----------------------------------------------------------------------===//
-// AllToAllCombineOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::AllToAllCombineOp::verify() {
-  ::mlir::RankedTensorType inputType = getInputTensor().getType();
-  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
-  ::mlir::RankedTensorType mappingType = getExpertMapping().getType();
-  ::mlir::RankedTensorType resultType = getResult().getType();
-
-  // All tensors must be 4D
-  if (inputType.getRank() != 4) {
-    return emitOpError("input_tensor must be a 4D tensor [E_local, B*D, S, H]");
+static ::mlir::LogicalResult verifyClusterAxis(::mlir::Operation *op,
+                                               ::mlir::DictionaryAttr attrs) {
+  auto attr = attrs.getAs<::mlir::IntegerAttr>("cluster_axis");
+  if (!attr) {
+    return op->emitOpError("composite_attributes missing 'cluster_axis'");
   }
-  if (metadataType.getRank() != 4) {
-    return emitOpError("expert_metadata must be a 4D tensor [1, B*D, S, K]");
+  int64_t v = attr.getInt();
+  if (v < 0 || v > 1) {
+    return op->emitOpError("'cluster_axis' must be 0 or 1");
   }
-  if (mappingType.getRank() != 4) {
-    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
-  }
-  if (resultType.getRank() != 4) {
-    return emitOpError("result must be a 4D tensor [K, B, S, H]");
-  }
-
-  // Verify num_devices > 0
-  if (getNumDevices() <= 0) {
-    return emitOpError("num_devices must be positive");
-  }
-
-  // Verify cluster_axis is 0 or 1.
-  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
-  if (clusterAxis < 0 || clusterAxis > 1) {
-    return emitOpError("cluster_axis must be 0 or 1");
-  }
-
-  // Verify num_experts_per_tok > 0
-  if (getNumExpertsPerTok() <= 0) {
-    return emitOpError("num_experts_per_tok must be positive");
-  }
-
-  return success();
+  return ::mlir::success();
 }
 
-//===----------------------------------------------------------------------===//
-// SelectiveReduceCombineOp
-//===----------------------------------------------------------------------===//
+} // namespace
 
-::mlir::LogicalResult mlir::tt::ttir::SelectiveReduceCombineOp::verify() {
-  // Verify select_experts_k > 0
-  if (getSelectExpertsK() == 0) {
-    return emitOpError("select_experts_k must be positive");
+::mlir::LogicalResult mlir::tt::ttir::CompositeOp::verify() {
+  llvm::StringRef name = getName();
+  ::mlir::DictionaryAttr attrs = getCompositeAttributes();
+  auto inputs = getInputs();
+  auto results = getResults();
+
+  if (name == "tt.all_to_all_dispatch") {
+    if (inputs.size() != 3) {
+      return emitOpError("tt.all_to_all_dispatch expects 3 inputs "
+                         "(input_tensor, expert_indices, expert_mapping)");
+    }
+    if (results.size() != 2) {
+      return emitOpError(
+          "tt.all_to_all_dispatch produces 2 results (dispatched, metadata)");
+    }
+    if (rankOf(inputs[0]) != 4) {
+      return emitOpError("input_tensor must be a 4D tensor [B, S, 1, H]");
+    }
+    if (rankOf(inputs[1]) != 4) {
+      return emitOpError("expert_indices must be a 4D tensor [B, S, 1, K]");
+    }
+    if (rankOf(inputs[2]) != 4) {
+      return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+    }
+    if (rankOf(results[0]) != 4) {
+      return emitOpError(
+          "dispatched output must be a 4D tensor [1, B*D, S, H]");
+    }
+    if (rankOf(results[1]) != 4) {
+      return emitOpError("metadata output must be a 4D tensor [1, B*D, S, K]");
+    }
+    if (failed(requireIntAttr(getOperation(), attrs, "num_devices",
+                              /*mustBePositive=*/true))) {
+      return failure();
+    }
+    return verifyClusterAxis(getOperation(), attrs);
   }
 
-  // Verify experts > 0
-  if (getExperts() == 0) {
-    return emitOpError("experts must be positive");
+  if (name == "tt.all_to_all_dispatch_metadata") {
+    if (inputs.size() != 4) {
+      return emitOpError("tt.all_to_all_dispatch_metadata expects 4 inputs");
+    }
+    if (results.size() != 3) {
+      return emitOpError("tt.all_to_all_dispatch_metadata produces 3 results");
+    }
+    if (rankOf(inputs[0]) != 4) {
+      return emitOpError("input_tensor must be a 4D tensor [1, 1, M, H]");
+    }
+    if (rankOf(inputs[1]) != 4) {
+      return emitOpError("expert_indices must be a 4D tensor [1, 1, M, K]");
+    }
+    if (rankOf(inputs[2]) != 4) {
+      return emitOpError("expert_scores must be a 4D tensor [1, 1, M, K]");
+    }
+    if (rankOf(inputs[3]) != 4) {
+      return emitOpError("expert_mapping must be a 4D tensor [1, 1, D, E]");
+    }
+    if (rankOf(results[0]) != 3) {
+      return emitOpError(
+          "dispatched output must be a 3D tensor [1, tokens_global, H]");
+    }
+    if (rankOf(results[1]) != 3) {
+      return emitOpError(
+          "indices output must be a 3D tensor [1, tokens_global, K]");
+    }
+    if (rankOf(results[2]) != 3) {
+      return emitOpError(
+          "scores output must be a 3D tensor [1, tokens_global, K]");
+    }
+    if (failed(requireIntAttr(getOperation(), attrs, "num_devices",
+                              /*mustBePositive=*/true))) {
+      return failure();
+    }
+    return verifyClusterAxis(getOperation(), attrs);
   }
 
-  // Verify hidden_size > 0
-  if (getHiddenSize() == 0) {
-    return emitOpError("hidden_size must be positive");
+  if (name == "tt.all_to_all_combine") {
+    if (inputs.size() != 3) {
+      return emitOpError("tt.all_to_all_combine expects 3 inputs");
+    }
+    if (results.size() != 1) {
+      return emitOpError("tt.all_to_all_combine produces 1 result");
+    }
+    if (rankOf(inputs[0]) != 4) {
+      return emitOpError(
+          "input_tensor must be a 4D tensor [E_local, B*D, S, H]");
+    }
+    if (rankOf(inputs[1]) != 4) {
+      return emitOpError("expert_metadata must be a 4D tensor [1, B*D, S, K]");
+    }
+    if (rankOf(inputs[2]) != 4) {
+      return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+    }
+    if (rankOf(results[0]) != 4) {
+      return emitOpError("result must be a 4D tensor [K, B, S, H]");
+    }
+    if (failed(requireIntAttr(getOperation(), attrs, "num_devices",
+                              /*mustBePositive=*/true))) {
+      return failure();
+    }
+    if (failed(verifyClusterAxis(getOperation(), attrs))) {
+      return failure();
+    }
+    return requireIntAttr(getOperation(), attrs, "num_experts_per_tok",
+                          /*mustBePositive=*/true);
   }
 
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// MoeExpertTokenRemapOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::MoeExpertTokenRemapOp::verify() {
-  ::mlir::RankedTensorType topkType = getTopkTensor().getType();
-  ::mlir::RankedTensorType mappingInputType = getExpertMapping().getType();
-  ::mlir::RankedTensorType metadataType = getExpertMetadata().getType();
-  ::mlir::RankedTensorType mappingOutputType = getMapping().getType();
-  ::mlir::RankedTensorType reducedType = getReduced().getType();
-
-  if (topkType.getRank() != 4) {
-    return emitOpError("topk_tensor must be a 4D tensor [D, B, S, E]");
-  }
-  if (mappingInputType.getRank() != 4) {
-    return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
-  }
-  if (metadataType.getRank() != 4) {
-    return emitOpError("expert_metadata must be a 4D tensor [D, B, S, K]");
-  }
-  if (mappingOutputType.getRank() != 4) {
-    return emitOpError("mapping output must be a 4D tensor [1, B, S, E_local]");
-  }
-  if (reducedType.getRank() != 4) {
-    return emitOpError(
-        "reduced output must be a 4D tensor [1, 1, ceil(B*S/R), E_local]");
+  if (name == "tt.selective_reduce_combine") {
+    if (inputs.size() != 4) {
+      return emitOpError("tt.selective_reduce_combine expects 4 inputs");
+    }
+    if (results.size() != 1) {
+      return emitOpError("tt.selective_reduce_combine produces 1 result");
+    }
+    for (llvm::StringRef key : {"hidden_size", "batch_size", "seq_size",
+                                "select_experts_k", "experts"}) {
+      if (failed(requireIntAttr(getOperation(), attrs, key,
+                                /*mustBePositive=*/true))) {
+        return failure();
+      }
+    }
+    return success();
   }
 
-  if (getReductionSize() <= 0) {
-    return emitOpError("reduction_size must be positive");
+  if (name == "tt.moe_expert_token_remap") {
+    if (inputs.size() != 3) {
+      return emitOpError("tt.moe_expert_token_remap expects 3 inputs");
+    }
+    if (results.size() != 2) {
+      return emitOpError("tt.moe_expert_token_remap produces 2 results");
+    }
+    if (rankOf(inputs[0]) != 4) {
+      return emitOpError("topk_tensor must be a 4D tensor [D, B, S, E]");
+    }
+    if (rankOf(inputs[1]) != 4) {
+      return emitOpError("expert_mapping must be a 4D tensor [1, 1, E, D]");
+    }
+    if (rankOf(inputs[2]) != 4) {
+      return emitOpError("expert_metadata must be a 4D tensor [D, B, S, K]");
+    }
+    if (rankOf(results[0]) != 4) {
+      return emitOpError(
+          "mapping output must be a 4D tensor [1, B, S, E_local]");
+    }
+    if (rankOf(results[1]) != 4) {
+      return emitOpError(
+          "reduced output must be a 4D tensor [1, 1, ceil(B*S/R), E_local]");
+    }
+    return requireIntAttr(getOperation(), attrs, "reduction_size",
+                          /*mustBePositive=*/true);
   }
 
-  return success();
+  return emitOpError() << "unsupported composite name: '" << name << "'";
 }
 
 } // namespace mlir::tt::ttir

@@ -1751,140 +1751,99 @@ public:
 } // namespace
 
 namespace {
-class AllToAllDispatchOpConversionPattern
-    : public OpConversionPattern<ttir::AllToAllDispatchOp> {
+// Dispatches ttir.composite -> matching TTNN op based on the `name` attribute.
+// Each branch pulls the same attributes the old per-op pattern used out of the
+// composite_attributes dictionary and builds the TTNN op directly.
+class CompositeOpConversionPattern
+    : public OpConversionPattern<ttir::CompositeOp> {
 public:
-  using OpConversionPattern<ttir::AllToAllDispatchOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::CompositeOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::AllToAllDispatchOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::CompositeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto dispatchedType = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getDispatched().getType()));
-    auto metadataType = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getMetadata().getType()));
+    llvm::StringRef name = op.getName();
+    mlir::DictionaryAttr attrs = op.getCompositeAttributes();
+    auto inputs = adaptor.getInputs();
 
-    rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchOp>(
-        op, dispatchedType, metadataType, adaptor.getInputTensor(),
-        adaptor.getExpertIndices(), adaptor.getExpertMapping(),
-        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
-        /*memory_config=*/nullptr);
-    return success();
-  }
-};
-} // namespace
+    auto convertedType = [&](mlir::Type t) -> RankedTensorType {
+      return cast<RankedTensorType>(this->getTypeConverter()->convertType(t));
+    };
+    auto getI64 = [&](llvm::StringRef key) -> mlir::IntegerAttr {
+      return attrs.getAs<mlir::IntegerAttr>(key);
+    };
 
-namespace {
-class AllToAllDispatchMetadataOpConversionPattern
-    : public OpConversionPattern<ttir::AllToAllDispatchMetadataOp> {
-public:
-  using OpConversionPattern<
-      ttir::AllToAllDispatchMetadataOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::AllToAllDispatchMetadataOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    // TTIR outputs are 3D [1, tokens_global, C], matching the metal kernel.
-    // No output reshape needed.
-    auto dispatched3D = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getDispatched().getType()));
-    auto indices3D = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getIndices().getType()));
-    auto scores3D = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getScores().getType()));
-
-    // Reshape expert_mapping from 4D [1, 1, D, E] to 2D [D, E].
-    Value expertMapping = adaptor.getExpertMapping();
-    auto mappingType = cast<RankedTensorType>(expertMapping.getType());
-    if (mappingType.getRank() == 4) {
-      int64_t D = mappingType.getShape()[2];
-      int64_t E = mappingType.getShape()[3];
-      SmallVector<int64_t> newShape = {D, E};
-      auto reshapedType =
-          ttnn::utils::RankedTensorTypeFactory::create(mappingType, newShape);
-      auto shapeAttr = rewriter.getI32ArrayAttr(
-          {static_cast<int32_t>(D), static_cast<int32_t>(E)});
-      expertMapping = rewriter.create<ttnn::ReshapeOp>(
-          op.getLoc(), reshapedType, expertMapping, shapeAttr,
+    if (name == "tt.all_to_all_dispatch") {
+      rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchOp>(
+          op, convertedType(op.getResult(0).getType()),
+          convertedType(op.getResult(1).getType()), inputs[0], inputs[1],
+          inputs[2], getI64("num_devices"), getI64("cluster_axis"),
           /*memory_config=*/nullptr);
+      return success();
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
-        op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
-        adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
-        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
-        /*memory_config=*/nullptr,
-        /*drain_core=*/nullptr);
-    return success();
-  }
-};
-} // namespace
+    if (name == "tt.all_to_all_dispatch_metadata") {
+      // Reshape expert_mapping from 4D [1, 1, D, E] to 2D [D, E].
+      Value expertMapping = inputs[3];
+      auto mappingType = cast<RankedTensorType>(expertMapping.getType());
+      if (mappingType.getRank() == 4) {
+        int64_t D = mappingType.getShape()[2];
+        int64_t E = mappingType.getShape()[3];
+        SmallVector<int64_t> newShape = {D, E};
+        auto reshapedType =
+            ttnn::utils::RankedTensorTypeFactory::create(mappingType, newShape);
+        auto shapeAttr = rewriter.getI32ArrayAttr(
+            {static_cast<int32_t>(D), static_cast<int32_t>(E)});
+        expertMapping = rewriter.create<ttnn::ReshapeOp>(
+            op.getLoc(), reshapedType, expertMapping, shapeAttr,
+            /*memory_config=*/nullptr);
+      }
 
-namespace {
-class AllToAllCombineOpConversionPattern
-    : public OpConversionPattern<ttir::AllToAllCombineOp> {
-public:
-  using OpConversionPattern<ttir::AllToAllCombineOp>::OpConversionPattern;
+      rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
+          op, convertedType(op.getResult(0).getType()),
+          convertedType(op.getResult(1).getType()),
+          convertedType(op.getResult(2).getType()), inputs[0], inputs[1],
+          inputs[2], expertMapping, getI64("num_devices"),
+          getI64("cluster_axis"),
+          /*memory_config=*/nullptr,
+          /*drain_core=*/nullptr);
+      return success();
+    }
 
-  LogicalResult
-  matchAndRewrite(ttir::AllToAllCombineOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto outputType = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getResult().getType()));
+    if (name == "tt.all_to_all_combine") {
+      rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
+          op, convertedType(op.getResult(0).getType()), inputs[0], inputs[1],
+          inputs[2], getI64("num_devices"), getI64("cluster_axis"),
+          getI64("num_experts_per_tok"), getI64("output_shard_dim"),
+          /*memory_config=*/nullptr);
+      return success();
+    }
 
-    // Pass through output_shard_dim from TTIR (set by frontend).
-    rewriter.replaceOpWithNewOp<ttnn::AllToAllCombineOp>(
-        op, outputType, adaptor.getInputTensor(), adaptor.getExpertMetadata(),
-        adaptor.getExpertMapping(), op.getNumDevicesAttr(),
-        op.getClusterAxisAttr(), op.getNumExpertsPerTokAttr(),
-        op.getOutputShardDimAttr(),
-        /*memory_config=*/nullptr);
-    return success();
-  }
-};
-} // namespace
+    if (name == "tt.selective_reduce_combine") {
+      auto getUI32 = [&](llvm::StringRef key) -> mlir::IntegerAttr {
+        auto a = attrs.getAs<mlir::IntegerAttr>(key);
+        return a ? rewriter.getUI32IntegerAttr(
+                       static_cast<uint32_t>(a.getInt()))
+                 : mlir::IntegerAttr();
+      };
+      rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
+          op, convertedType(op.getResult(0).getType()), inputs[0], inputs[1],
+          inputs[2], inputs[3], getUI32("hidden_size"), getUI32("batch_size"),
+          getUI32("seq_size"), getUI32("select_experts_k"), getUI32("experts"));
+      return success();
+    }
 
-namespace {
-class SelectiveReduceCombineOpConversionPattern
-    : public OpConversionPattern<ttir::SelectiveReduceCombineOp> {
-public:
-  using OpConversionPattern<
-      ttir::SelectiveReduceCombineOp>::OpConversionPattern;
+    if (name == "tt.moe_expert_token_remap") {
+      rewriter.replaceOpWithNewOp<ttnn::MoeExpertTokenRemapOp>(
+          op, convertedType(op.getResult(0).getType()),
+          convertedType(op.getResult(1).getType()), inputs[0], inputs[1],
+          inputs[2], getI64("reduction_size"),
+          /*memory_config=*/nullptr);
+      return success();
+    }
 
-  LogicalResult
-  matchAndRewrite(ttir::SelectiveReduceCombineOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getDenseInputTensor(), adaptor.getDenseActivationsTensor(),
-        adaptor.getDenseTokenMapsTensor(), adaptor.getDenseTokenCountsTensor(),
-        op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
-        op.getSelectExpertsKAttr(), op.getExpertsAttr());
-    return success();
-  }
-};
-} // namespace
-
-namespace {
-class MoeExpertTokenRemapOpConversionPattern
-    : public OpConversionPattern<ttir::MoeExpertTokenRemapOp> {
-public:
-  using OpConversionPattern<ttir::MoeExpertTokenRemapOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::MoeExpertTokenRemapOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto mappingType = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getMapping().getType()));
-    auto reducedType = cast<RankedTensorType>(
-        this->getTypeConverter()->convertType(op.getReduced().getType()));
-
-    rewriter.replaceOpWithNewOp<ttnn::MoeExpertTokenRemapOp>(
-        op, mappingType, reducedType, adaptor.getTopkTensor(),
-        adaptor.getExpertMapping(), adaptor.getExpertMetadata(),
-        op.getReductionSizeAttr(),
-        /*memory_config=*/nullptr);
-    return success();
+    return rewriter.notifyMatchFailure(op, "unsupported ttir.composite name: " +
+                                               name);
   }
 };
 } // namespace
@@ -3850,11 +3809,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GroupNormOpConversionPattern,
            MatmulOpConversionPattern,
            SparseMatmulOpConversionPattern,
-           AllToAllDispatchOpConversionPattern,
-           AllToAllDispatchMetadataOpConversionPattern,
-           AllToAllCombineOpConversionPattern,
-           SelectiveReduceCombineOpConversionPattern,
-           MoeExpertTokenRemapOpConversionPattern,
+           CompositeOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

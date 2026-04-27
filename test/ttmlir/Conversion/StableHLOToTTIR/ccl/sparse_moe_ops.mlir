@@ -85,11 +85,13 @@ module @sparse_moe_ops attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
   }
 }
 
-// CHECK: "ttir.all_to_all_dispatch"
+// CHECK: "ttir.composite"
+// CHECK-SAME: name = "tt.all_to_all_dispatch"
 // CHECK-SAME: cluster_axis = 0
 // CHECK-SAME: num_devices = 2
 
-// CHECK: "ttir.moe_expert_token_remap"
+// CHECK: "ttir.composite"
+// CHECK-SAME: name = "tt.moe_expert_token_remap"
 // CHECK-SAME: reduction_size = 32
 
 // CHECK: "ttir.sparse_matmul"
@@ -100,7 +102,8 @@ module @sparse_moe_ops attributes {mhlo.num_partitions = 8 : i32, mhlo.num_repli
 // CHECK-SAME: is_input_a_sparse = true
 // CHECK-SAME: is_input_b_sparse = false
 
-// CHECK: "ttir.all_to_all_combine"
+// CHECK: "ttir.composite"
+// CHECK-SAME: name = "tt.all_to_all_combine"
 // CHECK-SAME: cluster_axis = 0
 // CHECK-SAME: num_devices = 2
 // CHECK-SAME: num_experts_per_tok = 4

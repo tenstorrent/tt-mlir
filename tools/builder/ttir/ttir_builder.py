@@ -15567,9 +15567,33 @@ class TTIRBuilder(Builder):
 
         return sparse_matmul_module, sparse_matmul_builder
 
-    ############### ttir.AllToAllDispatchOp ###############
+    ############### ttir.composite (MoE bridge ops) ###############
+    # These helpers emit ttir.composite with a specific `name` and
+    # composite_attributes. Each name maps 1:1 to a TTNN op during the
+    # TTIR->TTNN conversion; no TTIR-level transformation is performed.
 
-    @tag(ttir.AllToAllDispatchOp)
+    def _emit_composite(
+        self,
+        name: str,
+        input_values: List[Operand],
+        result_types: List,
+        attrs: Dict[str, "Attribute"],
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        loc = self._get_location()
+        dict_attr = DictAttr.get(attrs, context=self._ctx)
+        op = ttir.CompositeOp(
+            result_types,
+            name,
+            input_values,
+            dict_attr,
+            loc=loc,
+        )
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+        return op
+
     def all_to_all_dispatch(
         self,
         input_tensor: Operand,
@@ -15599,15 +15623,13 @@ class TTIRBuilder(Builder):
             metadata_type is not None
         ), "metadata_type must be provided for all_to_all_dispatch"
 
-        mlir_dispatched_type = self._get_type_from_torch_dtype(dispatched_type)
-        mlir_metadata_type = self._get_type_from_torch_dtype(metadata_type)
-
         dispatched_result = self._create_ranked_tensor_type(
-            dispatched_shape, mlir_dispatched_type
+            dispatched_shape, self._get_type_from_torch_dtype(dispatched_type)
         )
         metadata_result = self._create_ranked_tensor_type(
-            metadata_shape, mlir_metadata_type
+            metadata_shape, self._get_type_from_torch_dtype(metadata_type)
         )
+        i64 = IntegerType.get_signless(64)
 
         num_devices_attr = IntegerAttr.get(IntegerType.get_signless(64), num_devices)
         cluster_axis_attr = IntegerAttr.get(IntegerType.get_signless(64), cluster_axis)
@@ -15641,10 +15663,7 @@ class TTIRBuilder(Builder):
             cluster_axis_attr,
             loc=loc,
         )
-
-        if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+        dispatched, metadata = op.results[0], op.results[1]
 
         self._set_golden_tensor(op.dispatched, golden_dispatched)
         self._set_golden_tensor(op.metadata, golden_metadata)
@@ -15816,15 +15835,11 @@ class TTIRBuilder(Builder):
             scores_type is not None
         ), "scores_type must be provided for all_to_all_dispatch_metadata"
 
-        mlir_dispatched_type = self._get_type_from_torch_dtype(dispatched_type)
-        mlir_indices_type = self._get_type_from_torch_dtype(indices_type)
-        mlir_scores_type = self._get_type_from_torch_dtype(scores_type)
-
         dispatched_result = self._create_ranked_tensor_type(
-            dispatched_shape, mlir_dispatched_type
+            dispatched_shape, self._get_type_from_torch_dtype(dispatched_type)
         )
         indices_result = self._create_ranked_tensor_type(
-            indices_shape, mlir_indices_type
+            indices_shape, self._get_type_from_torch_dtype(indices_type)
         )
         scores_result = self._create_ranked_tensor_type(scores_shape, mlir_scores_type)
 
@@ -15865,10 +15880,19 @@ class TTIRBuilder(Builder):
             cluster_axis_attr,
             loc=loc,
         )
+        i64 = IntegerType.get_signless(64)
 
-        if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+        op = self._emit_composite(
+            "tt.all_to_all_dispatch_metadata",
+            [input_tensor, expert_indices, expert_scores, expert_mapping],
+            [dispatched_result, indices_result, scores_result],
+            {
+                "num_devices": IntegerAttr.get(i64, num_devices),
+                "cluster_axis": IntegerAttr.get(i64, cluster_axis),
+            },
+            unit_attrs=unit_attrs,
+        )
+        dispatched, indices, scores = op.results[0], op.results[1], op.results[2]
 
         self._set_golden_tensor(op.dispatched, golden_dispatched)
         self._set_golden_tensor(op.indices, golden_indices)
@@ -16060,16 +16084,22 @@ class TTIRBuilder(Builder):
             output_type is not None
         ), "output_type must be provided for all_to_all_combine"
 
-        mlir_output_type = self._get_type_from_torch_dtype(output_type)
-        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
-
-        num_devices_attr = IntegerAttr.get(IntegerType.get_signless(64), num_devices)
-        cluster_axis_attr = IntegerAttr.get(IntegerType.get_signless(64), cluster_axis)
-        num_experts_per_tok_attr = IntegerAttr.get(
-            IntegerType.get_signless(64), num_experts_per_tok
+        result_type = self._create_ranked_tensor_type(
+            output_shape, self._get_type_from_torch_dtype(output_type)
         )
-        output_shard_dim_attr = IntegerAttr.get(
-            IntegerType.get_signless(64), output_shard_dim
+        i64 = IntegerType.get_signless(64)
+
+        op = self._emit_composite(
+            "tt.all_to_all_combine",
+            [input_tensor, expert_metadata, expert_mapping],
+            [result_type],
+            {
+                "num_devices": IntegerAttr.get(i64, num_devices),
+                "cluster_axis": IntegerAttr.get(i64, cluster_axis),
+                "num_experts_per_tok": IntegerAttr.get(i64, num_experts_per_tok),
+                "output_shard_dim": IntegerAttr.get(i64, output_shard_dim),
+            },
+            unit_attrs=unit_attrs,
         )
 
         if loc is None:
@@ -16253,35 +16283,25 @@ class TTIRBuilder(Builder):
             reduced_type is not None
         ), "reduced_type must be provided for moe_expert_token_remap"
 
-        mlir_mapping_type = self._get_type_from_torch_dtype(mapping_type)
-        mlir_reduced_type = self._get_type_from_torch_dtype(reduced_type)
-
         mapping_result = self._create_ranked_tensor_type(
-            mapping_shape, mlir_mapping_type
+            mapping_shape, self._get_type_from_torch_dtype(mapping_type)
         )
         reduced_result = self._create_ranked_tensor_type(
-            reduced_shape, mlir_reduced_type
+            reduced_shape, self._get_type_from_torch_dtype(reduced_type)
         )
 
-        reduction_size_attr = IntegerAttr.get(
-            IntegerType.get_signless(64), reduction_size
+        op = self._emit_composite(
+            "tt.moe_expert_token_remap",
+            [topk_tensor, expert_mapping, expert_metadata],
+            [mapping_result, reduced_result],
+            {
+                "reduction_size": IntegerAttr.get(
+                    IntegerType.get_signless(64), reduction_size
+                ),
+            },
+            unit_attrs=unit_attrs,
         )
-
-        loc = self._get_location()
-
-        op = ttir.MoeExpertTokenRemapOp(
-            mapping_result,
-            reduced_result,
-            topk_tensor,
-            expert_mapping,
-            expert_metadata,
-            reduction_size_attr,
-            loc=loc,
-        )
-
-        if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+        mapping, reduced = op.results[0], op.results[1]
 
         golden_mapping = GoldenMapTensor(
             {0: torch.zeros(mapping_shape, dtype=mapping_type)},
@@ -16291,65 +16311,100 @@ class TTIRBuilder(Builder):
             {0: torch.zeros(reduced_shape, dtype=reduced_type)},
             mesh_shape=self._mesh_shape,
         )
-        self._set_golden_tensor(op.mapping, golden_mapping)
-        self._set_golden_tensor(op.reduced, golden_reduced)
+        self._set_golden_tensor(mapping, golden_mapping)
+        self._set_golden_tensor(reduced, golden_reduced)
+        return mapping, reduced
 
-        return op.mapping, op.reduced
-
-    @parse(ttir.MoeExpertTokenRemapOp)
-    def moe_expert_token_remap_parser(
+    # Generic round-trip parser/splitter for ttir.composite. Dispatches on the
+    # composite `name` to recompute goldens for the supported MoE bridge ops.
+    @parse(ttir.CompositeOp)
+    def composite_parser(
         self,
-        old_op: ttir.MoeExpertTokenRemapOp,
+        old_op: "ttir.CompositeOp",
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.moe_expert_token_remap_parser)
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.composite_parser)
 
-        topk_tensor = global_dict[old_op.topk_tensor]
-        expert_mapping = global_dict[old_op.expert_mapping]
-        expert_metadata = global_dict[old_op.expert_metadata]
-        mapping_type = old_op.mapping.type
-        reduced_type = old_op.reduced.type
-        reduction_size_attr = old_op.reduction_size
+        new_inputs = [global_dict[v] for v in old_op.inputs]
+        result_types = [r.type for r in old_op.results]
 
         new_op = ttir_op(
-            mapping_type,
-            reduced_type,
-            topk_tensor,
-            expert_mapping,
-            expert_metadata,
-            reduction_size_attr,
+            result_types,
+            old_op.name,
+            new_inputs,
+            old_op.composite_attributes,
             loc=old_op.location,
         )
-        new_op_mapping = new_op.mapping
-        new_op_reduced = new_op.reduced
 
-        mapping_shape = tuple(int(dim) for dim in mapping_type.shape)
-        reduced_shape = tuple(int(dim) for dim in reduced_type.shape)
-        mapping_dtype = mlir_type_to_torch_dtype(mapping_type.element_type)
-        reduced_dtype = mlir_type_to_torch_dtype(reduced_type.element_type)
-        golden_mapping = GoldenMapTensor(
-            {0: torch.zeros(mapping_shape, dtype=mapping_dtype)},
-            mesh_shape=self._mesh_shape,
-        )
-        golden_reduced = GoldenMapTensor(
-            {0: torch.zeros(reduced_shape, dtype=reduced_dtype)},
-            mesh_shape=self._mesh_shape,
-        )
-        self._set_golden_tensor(new_op_mapping, golden_mapping)
-        self._set_golden_tensor(new_op_reduced, golden_reduced)
+        # Re-derive goldens by composite name where possible. Unknown names get
+        # zero-filled goldens that preserve the result types.
+        name = str(old_op.name)
+        if isinstance(name, str) and name.startswith('"') and name.endswith('"'):
+            name = name[1:-1]
+
+        attr_dict = old_op.composite_attributes
+
+        def _attr_int(key: str, default: int = 0) -> int:
+            a = attr_dict.get(key) if attr_dict is not None else None
+            return int(unpack_mlir_attr(a)) if a is not None else default
+
+        if name == "tt.all_to_all_dispatch":
+            in0 = self._get_golden_tensor(new_inputs[0])
+            in1 = self._get_golden_tensor(new_inputs[1])
+            gd, gm = self._build_all_to_all_dispatch_golden(
+                in0, in1, _attr_int("num_devices", 1)
+            )
+            self._set_golden_tensor(new_op.results[0], gd)
+            self._set_golden_tensor(new_op.results[1], gm)
+        elif name == "tt.all_to_all_dispatch_metadata":
+            in0 = self._get_golden_tensor(new_inputs[0])
+            in1 = self._get_golden_tensor(new_inputs[1])
+            in2 = self._get_golden_tensor(new_inputs[2])
+            in3 = self._get_golden_tensor(new_inputs[3])
+            gd, gi, gs = self._build_all_to_all_dispatch_metadata_golden(
+                in0,
+                in1,
+                in2,
+                in3,
+                _attr_int("num_devices", 1),
+                _attr_int("cluster_axis", 0),
+            )
+            self._set_golden_tensor(new_op.results[0], gd)
+            self._set_golden_tensor(new_op.results[1], gi)
+            self._set_golden_tensor(new_op.results[2], gs)
+        elif name == "tt.all_to_all_combine":
+            in0 = self._get_golden_tensor(new_inputs[0])
+            in1 = self._get_golden_tensor(new_inputs[1])
+            in2 = self._get_golden_tensor(new_inputs[2])
+            output_shape = tuple(int(dim) for dim in result_types[0].shape)
+            golden = self._build_all_to_all_combine_golden(
+                in0, in1, in2, output_shape, _attr_int("cluster_axis", 0)
+            )
+            self._set_golden_tensor(new_op.results[0], golden)
+        elif name == "tt.moe_expert_token_remap":
+            for i, t in enumerate(result_types):
+                shape = tuple(int(dim) for dim in t.shape)
+                dtype = mlir_type_to_torch_dtype(t.element_type)
+                self._set_golden_tensor(
+                    new_op.results[i],
+                    GoldenMapTensor(
+                        {0: torch.zeros(shape, dtype=dtype)},
+                        mesh_shape=self._mesh_shape,
+                    ),
+                )
+        # Unknown composite names fall through with no golden registered.
 
         op_map_dictionary = {
-            old_op.mapping: new_op_mapping,
-            old_op.reduced: new_op_reduced,
+            old_op.results[i]: new_op.results[i] for i in range(len(result_types))
         }
         return new_op, op_map_dictionary
 
-    @split(ttir.MoeExpertTokenRemapOp)
-    def moe_expert_token_remap_split(
+    @split(ttir.CompositeOp)
+    def composite_split(
         self,
-        old_op: ttir.MoeExpertTokenRemapOp,
+        old_op: "ttir.CompositeOp",
     ) -> Tuple[Module, TTIRBuilder]:
-        ttir_op = self.get_opview_from_split(TTIRBuilder.moe_expert_token_remap_split)
+        ttir_op = self.get_opview_from_split(TTIRBuilder.composite_split)
 
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
@@ -16358,61 +16413,50 @@ class TTIRBuilder(Builder):
             token_remap_builder = TTIRBuilder(
                 old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
-            op_input_types = [
-                old_op.topk_tensor.type,
-                old_op.expert_mapping.type,
-                old_op.expert_metadata.type,
-            ]
+            op_input_types = [v.type for v in old_op.inputs]
+            result_types = [r.type for r in old_op.results]
 
-            with InsertionPoint(token_remap_module.body):
+            # Synthesize a function name from the composite name so split
+            # modules are stable per-op.
+            raw_name = str(old_op.name)
+            if raw_name.startswith('"') and raw_name.endswith('"'):
+                raw_name = raw_name[1:-1]
+            module_name = raw_name.replace(".", "_") + "_module"
+
+            with InsertionPoint(split_module.body):
                 ordered_inputs = []
                 ordered_outputs = []
 
-                @func.func(*op_input_types, name="moe_expert_token_remap_module")
+                @func.func(*op_input_types, name=module_name)
                 def decorated_func(*inputs):
-                    topk_tensor = inputs[0]
-                    expert_mapping = inputs[1]
-                    expert_metadata = inputs[2]
-                    mapping_type = old_op.mapping.type
-                    reduced_type = old_op.reduced.type
-
                     new_op = ttir_op(
-                        mapping_type,
-                        reduced_type,
-                        topk_tensor,
-                        expert_mapping,
-                        expert_metadata,
-                        old_op.reduction_size,
+                        result_types,
+                        old_op.name,
+                        list(inputs),
+                        old_op.composite_attributes,
                         loc=old_op.location,
                     )
-                    new_op_mapping = new_op.mapping
-                    new_op_reduced = new_op.reduced
 
-                    input0 = self._get_golden_tensor(old_op.topk_tensor)
-                    input1 = self._get_golden_tensor(old_op.expert_mapping)
-                    input2 = self._get_golden_tensor(old_op.expert_metadata)
-                    old_mapping = self._get_golden_tensor(old_op.mapping)
-                    old_reduced = self._get_golden_tensor(old_op.reduced)
+                    for old_in, new_in in zip(old_op.inputs, inputs):
+                        split_builder._set_golden_tensor(
+                            new_in, self._get_golden_tensor(old_in)
+                        )
+                    for old_res, new_res in zip(old_op.results, new_op.results):
+                        split_builder._set_golden_tensor(
+                            new_res, self._get_golden_tensor(old_res)
+                        )
 
-                    token_remap_builder._set_golden_tensor(new_op_mapping, old_mapping)
-                    token_remap_builder._set_golden_tensor(new_op_reduced, old_reduced)
-                    token_remap_builder._set_golden_tensor(topk_tensor, input0)
-                    token_remap_builder._set_golden_tensor(expert_mapping, input1)
-                    token_remap_builder._set_golden_tensor(expert_metadata, input2)
-                    ordered_inputs.extend(
-                        [topk_tensor, expert_mapping, expert_metadata]
-                    )
-                    ordered_outputs.extend([new_op_mapping, new_op_reduced])
-
+                    ordered_inputs.extend(list(inputs))
+                    ordered_outputs.extend(list(new_op.results))
                     return new_op
 
                 new_func_op = decorated_func.func_op
-                token_remap_builder._func_ops_generated[new_func_op] = [
+                split_builder._func_ops_generated[new_func_op] = [
                     ordered_inputs,
                     ordered_outputs,
                 ]
 
-        return token_remap_module, token_remap_builder
+        return split_module, split_builder
 
     def upsample2d(
         self,
