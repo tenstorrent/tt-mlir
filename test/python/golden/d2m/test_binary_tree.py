@@ -4,7 +4,7 @@
 
 import pytest
 import torch
-from conftest import get_request_kwargs
+from conftest import get_board_id, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import (
@@ -31,7 +31,9 @@ pytestmark = pytest.mark.frontend("ttir")
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_binary_tree(shape: Shape, dtype: torch.dtype, target: str, request, device):
+def test_binary_tree(
+    shape: Shape, dtype: torch.dtype, target: str, request, device, system_desc
+):
     """Test a binary tree of adds: add(add(arg0, arg1), add(arg2, arg3))"""
 
     def module(builder: TTIRBuilder):
@@ -47,8 +49,12 @@ def test_binary_tree(shape: Shape, dtype: torch.dtype, target: str, request, dev
             right = builder.add(in2, in3)
             return builder.add(left, right)
 
-    if shape == (2048, 2048) and dtype == torch.float32:
-        pytest.xfail("Too big to fit in L1, see issue #7216")
+    if (
+        shape == (2048, 2048)
+        and dtype == torch.bfloat16
+        and get_board_id(system_desc) == "p150"
+    ):
+        pytest.skip("See issue https://github.com/tenstorrent/tt-mlir/issues/8120")
 
     compile_and_execute_ttir(
         module,
