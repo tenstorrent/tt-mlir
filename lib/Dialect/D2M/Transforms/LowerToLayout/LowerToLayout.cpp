@@ -346,10 +346,20 @@ public:
     auto buildConcreteView = [&](Value fromVal, RankedTensorType fromTy,
                                  RankedTensorType toTy) -> Value {
       auto *ctx = rewriter.getContext();
-      AffineMap map = ttmlir::utils::calculateReblockMap(fromTy.getShape(),
-                                                         toTy.getShape(), ctx);
       auto baseLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(fromTy.getEncoding());
+      auto targetLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(toTy.getEncoding());
+
+      AffineMap map;
+      if (ttmlir::utils::volume<int64_t>(fromTy.getShape()) ==
+          ttmlir::utils::volume<int64_t>(toTy.getShape())) {
+        map = ttmlir::utils::calculateReblockMap(fromTy.getShape(),
+                                                 toTy.getShape(), ctx);
+      } else {
+        map = ttcore::utils::buildLayoutTransformMap(baseLayout, fromTy,
+                                                     targetLayout, toTy);
+      }
 
       auto enc = ttcore::MetalLayoutAttr::get(
           ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
