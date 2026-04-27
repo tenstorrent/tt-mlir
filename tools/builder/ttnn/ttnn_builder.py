@@ -220,13 +220,13 @@ class TTNNBuilder(Builder):
             else:
                 tensor_memory_layout = ttnn.TensorMemoryLayout.Interleaved
 
-            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
+            grid = [1, 1]
             return ttnn.ir.TTNNLayoutAttr.get(
                 self._ctx,
                 shape,
                 layout_element_type,
                 buffer_type,
-                grid_attr,
+                grid,
                 tensor_memory_layout,
             )
 
