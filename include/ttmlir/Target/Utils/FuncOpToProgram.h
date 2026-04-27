@@ -9,6 +9,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "flatbuffers/flatbuffers.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
 #include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
@@ -22,6 +23,8 @@ struct Program {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
   std::vector<::flatbuffers::Offset<OpT>> ops;
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      semaphoreInputs;
 };
 
 inline std::string getOpDebugString(mlir::Operation *op,
@@ -72,6 +75,15 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
   program.name = entry.getSymName().data();
 
   for (auto &input : entry.getBody().getArguments()) {
+    if (mlir::isa<mlir::tt::ttnn::GlobalSemaphoreType>(input.getType())) {
+      program.semaphoreInputs.push_back(cache.getOrCreate(
+          input, [](FlatbufferObjectCache &c, mlir::Value) {
+            return ::tt::target::ttnn::CreateGlobalSemaphoreRef(
+                *c.fbb, c.nextGlobalId());
+          }));
+      continue;
+    }
+
     // Get argument encoding to determine sharding status.
     mlir::DictionaryAttr argAttrDict =
         entry.getArgAttrDict(input.getArgNumber());

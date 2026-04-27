@@ -278,12 +278,29 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW, gridH),
           /*subblock_w=*/1, blockH, blockW, /*inplace=*/false);
 
+  // Global semaphore for the fused kernel's all-gather. The core range
+  // mirrors the input's shard grid.
+  auto semaphoreCoreRangeAttr = ttnn::CoreRangeAttr::get(
+      rewriter.getContext(),
+      ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
+      ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW - 1, gridH - 1));
+  ttnn::CreateGlobalSemaphoreOp semaphoreOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(statsEmptyOp);
+    semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        op.getLoc(), ttnn::GlobalSemaphoreType::get(rewriter.getContext()),
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0),
+        semaphoreCoreRangeAttr);
+  }
+
   auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
       op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
-      residual, statsEmptyOp.getResult(), op.getDevice(),
-      static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
-      op.getSubDeviceIdAttr(), inputMemoryConfig, op.getNumLinksAttr(),
-      op.getTopologyAttr(), computeConfigAttr, programConfigAttr);
+      residual, statsEmptyOp.getResult(), semaphoreOp.getResult(),
+      op.getDevice(), static_cast<uint32_t>(op.getClusterAxis()),
+      op.getEpsilon(), op.getSubDeviceIdAttr(), inputMemoryConfig,
+      op.getNumLinksAttr(), op.getTopologyAttr(), computeConfigAttr,
+      programConfigAttr);
 
   // If the original output had a different layout (e.g. interleaved DRAM),
   // insert a to_memory_config to convert back.

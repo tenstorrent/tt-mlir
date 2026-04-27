@@ -44,6 +44,22 @@ static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
   ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
 }
 
+static std::vector<::ttnn::GlobalSemaphore>
+collectSemaphoreInputs(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
+                       ProgramContext &context) {
+  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs;
+  if (!op->semaphore_inputs()) {
+    return semaphoreInputs;
+  }
+  semaphoreInputs.reserve(op->semaphore_inputs()->size());
+  for (const auto *semaphoreRef : *op->semaphore_inputs()) {
+    semaphoreInputs.push_back(
+        context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
+            semaphoreRef));
+  }
+  return semaphoreInputs;
+}
+
 static void runTraceProgramAndCaptureTrace(
     const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
     ProgramContext &context, ::tt::runtime::ttnn::TraceCache &traceCache) {
@@ -58,9 +74,12 @@ static void runTraceProgramAndCaptureTrace(
     inputTensors.push_back(inputTensor);
   }
 
+  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs =
+      collectSemaphoreInputs(op, context);
+
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->capture_program_id(), inputTensors,
-                           /*constEvalProgram=*/false);
+                           /*constEvalProgram=*/false, semaphoreInputs);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
@@ -184,9 +203,13 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
   std::vector<::tt::runtime::Tensor> inputTensors = {
       ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(traceIdTensor)};
 
+  // The execute trace program only invokes ttnn.execute_trace(traceId); the
+  // semaphores were baked into the captured trace at capture time and are not
+  // arguments of the execute program. Passing them here would mismatch
+  // program->semaphore_inputs() (which is empty for the execute program).
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->execute_program_id(), inputTensors,
-                           /*constEvalProgram=*/false);
+                           /*constEvalProgram=*/false, /*programSemaphoreInputs=*/{});
   executor.execute();
 
   for (size_t i = 0; i < op->outputs()->size(); i++) {
