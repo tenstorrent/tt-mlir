@@ -13303,6 +13303,7 @@ class TTIRBuilder(Builder):
             cur_pos_tensor=cur_pos_tensor,
             attention_sink=attention_sink,
             scale=scale_attr,
+            sliding_window_size=sliding_window_size_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -13332,6 +13333,7 @@ class TTIRBuilder(Builder):
                 else None
             ),
             "scale_attr": scale_attr,
+            "sliding_window_size_attr": sliding_window_size_attr,
             "output_type_mlir": result.element_type,
         }
         op_golden_function = get_golden_function(ttir_op)
@@ -13412,6 +13414,11 @@ class TTIRBuilder(Builder):
                     result = old_op.result.type
                     is_causal_attr = old_op.is_causal
                     scale_attr = old_op.scale if "scale" in old_op.attributes else None
+                    sliding_window_size_attr = (
+                        old_op.sliding_window_size
+                        if "sliding_window_size" in old_op.attributes
+                        else None
+                    )
 
                     new_op = ttir_op(
                         result,
@@ -13425,6 +13432,7 @@ class TTIRBuilder(Builder):
                         cur_pos_tensor=cur_pos_tensor,
                         attention_sink=attention_sink,
                         scale=scale_attr,
+                        sliding_window_size=sliding_window_size_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result

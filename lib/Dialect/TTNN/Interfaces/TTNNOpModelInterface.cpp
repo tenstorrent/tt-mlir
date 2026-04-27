@@ -2240,6 +2240,7 @@ struct PagedScaledDotProductAttentionDecodeArgs {
   std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
   std::optional<llvm::APFloat> scale = std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = std::nullopt;
   std::optional<CoreCoordAttr> coreGrid = std::nullopt;
 };
 
@@ -2261,6 +2262,7 @@ unpackPagedScaledDotProductAttentionDecodeArgs(
   ret.pageTableLayout = inputs[3];
   ret.isCausal = op.getIsCausal();
   ret.scale = op.getScale();
+  ret.slidingWindowSize = op.getSlidingWindowSize();
   ret.coreGrid = op.getCoreGrid();
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
@@ -2331,7 +2333,7 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
+      pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2362,7 +2364,7 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
+      pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 

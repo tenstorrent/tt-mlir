@@ -750,7 +750,7 @@ struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
       std::optional<TTNNLayoutAttr> curPosTensorLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
       std::optional<TTNNLayoutAttr> attentionSinkLayout,
-      std::optional<llvm::APFloat> scale, std::optional<CoreCoordAttr> coreGrid,
+      std::optional<llvm::APFloat> scale, std::optional<uint32_t> slidingWindowSize, std::optional<CoreCoordAttr> coreGrid,
       TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(
@@ -764,7 +764,7 @@ struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
       std::optional<TTNNLayoutAttr> curPosTensorLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
       std::optional<TTNNLayoutAttr> attentionSinkLayout,
-      std::optional<llvm::APFloat> scale, std::optional<CoreCoordAttr> coreGrid,
+      std::optional<llvm::APFloat> scale, std::optional<uint32_t> slidingWindowSize, std::optional<CoreCoordAttr> coreGrid,
       TTNNLayoutAttr outputLayout);
 };
 
