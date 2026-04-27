@@ -28,6 +28,8 @@
 #   BISECT_LOG        - Log file path (default: $TT_MLIR_ROOT/bisect_metal.log)
 #   BUILD_TIMEOUT     - Timeout in seconds for the build step (default: 1800 = 30min)
 #   TEST_TIMEOUT      - Timeout in seconds for the test step (default: 300 = 5min)
+#   VERBOSE           - Set to "1" to print build output to terminal (default: 0, log-only)
+#   RESET_DEVICE      - Set to "1" to run "tt-smi -r" after test failures (default: 0)
 
 set -euo pipefail
 
@@ -47,6 +49,8 @@ CLAUDE_AUTO_FIX="${CLAUDE_AUTO_FIX:-0}"
 BISECT_LOG="${BISECT_LOG:-$TT_MLIR_ROOT/bisect_metal.log}"
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-1800}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-300}"
+VERBOSE="${VERBOSE:-0}"
+RESET_DEVICE="${RESET_DEVICE:-0}"
 
 TT_METAL_DIR="$TT_MLIR_ROOT/third_party/tt-metal/src/tt-metal"
 THIRD_PARTY_CMAKE="$TT_MLIR_ROOT/third_party/CMakeLists.txt"
@@ -83,6 +87,8 @@ usage() {
     echo "  CLAUDE_AUTO_FIX=1  - Enable Claude Code to auto-fix build breaks"
     echo "  BUILD_TIMEOUT=1800 - Build timeout in seconds (default: 30min)"
     echo "  TEST_TIMEOUT=300   - Test timeout in seconds (default: 5min)"
+    echo "  VERBOSE=1          - Print build output to terminal (default: log-only)"
+    echo "  RESET_DEVICE=1     - Run 'tt-smi -r' after test failures (default: off)"
     exit 1
 }
 
@@ -117,7 +123,14 @@ build_tt_mlir() {
 
     # Reconfigure to pick up the new tt-metal (skip the download/update steps
     # since we already checked out manually)
-    if ! timeout "$BUILD_TIMEOUT" cmake --build "$BUILD_DIR" -- -j$(nproc) 2>&1 | tee "$build_log"; then
+    local build_ok=0
+    if [ "$VERBOSE" = "1" ]; then
+        timeout "$BUILD_TIMEOUT" cmake --build "$BUILD_DIR" -- -j$(nproc) 2>&1 | tee "$build_log" || build_ok=$?
+    else
+        timeout "$BUILD_TIMEOUT" cmake --build "$BUILD_DIR" -- -j$(nproc) > "$build_log" 2>&1 || build_ok=$?
+    fi
+
+    if [ "$build_ok" -ne 0 ]; then
         log "${RED}Build failed. See: $build_log${NC}"
         return 1
     fi
@@ -191,6 +204,12 @@ run_test() {
         return 0
     else
         log "${RED}Test FAILED${NC}"
+        if [ "$RESET_DEVICE" = "1" ]; then
+            log "${YELLOW}Resetting device with tt-smi -r...${NC}"
+            if ! tt-smi -r 2>&1 | tee -a "$BISECT_LOG"; then
+                log "${RED}tt-smi -r failed${NC}"
+            fi
+        fi
         return 1
     fi
 }
@@ -260,6 +279,16 @@ fi
 
 log "Found $TOTAL commits between good and bad."
 
+# --- Reset device for clean state --------------------------------------------
+
+log ""
+log "Resetting device for clean state before bisect..."
+if tt-smi -r 2>&1 | tee -a "$BISECT_LOG"; then
+    log "${GREEN}Device reset successful.${NC}"
+else
+    log "${YELLOW}tt-smi -r failed, continuing anyway...${NC}"
+fi
+
 # --- Verify the bad commit actually fails ------------------------------------
 
 log ""
@@ -271,6 +300,19 @@ if build_tt_mlir && run_test "$TEST_CMD"; then
 fi
 git -C "$TT_MLIR_ROOT" checkout -- . 2>/dev/null || true
 log "${GREEN}Confirmed: bad commit fails as expected.${NC}"
+
+# --- Verify the good commit actually passes ----------------------------------
+
+log ""
+log "Verifying good commit (${GOOD_COMMIT:0:12}) actually passes the test..."
+checkout_metal "$GOOD_COMMIT"
+if build_tt_mlir && run_test "$TEST_CMD"; then
+    git -C "$TT_MLIR_ROOT" checkout -- . 2>/dev/null || true
+    log "${GREEN}Confirmed: good commit passes as expected.${NC}"
+else
+    git -C "$TT_MLIR_ROOT" checkout -- . 2>/dev/null || true
+    die "Good commit ${GOOD_COMMIT:0:12} failed the test! Check that your good/bad commits are correct."
+fi
 
 # --- Binary search -----------------------------------------------------------
 
