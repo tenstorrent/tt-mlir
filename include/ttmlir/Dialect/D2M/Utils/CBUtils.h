@@ -13,30 +13,11 @@ namespace mlir::tt::d2m {
 
 class GenericOp;
 
-/// Cache for CB values: maps (GenericOp pointer, operand index) -> CB value.
-using CBCache = DenseMap<std::pair<Operation *, unsigned>, Value>;
-
-/// Track the next available CB port number per generic op.
-using PortCounter = DenseMap<Operation *, unsigned>;
-
-/// Find the next available port number for a generic by scanning existing
-/// d2m.get_cb ops in the region.
-unsigned getNextAvailablePort(Region &region, PortCounter &portCounters,
-                              Operation *genericOp);
-
 /// Compute the CBType and create a d2m.get_cb op for a given operand of a
 /// generic op.  Results are cached to ensure each (generic, operand) pair gets
 /// exactly one CB value.  Port numbers are assigned sequentially and do NOT
 /// correspond to operand indices.
-Value getOrCreateCB(GenericOp generic, Region &region, unsigned operandIndex,
-                    RewriterBase &rewriter, CBCache &cache,
-                    PortCounter &portCounters);
-
-/// Find the CB value that corresponds to a memref operand in a generic op.
-/// Creates CB values on demand via d2m.get_cb.
-Value findAssociatedCB(Operation *op, Value memrefOperand,
-                       RewriterBase &rewriter, CBCache &cache,
-                       PortCounter &portCounters);
+unsigned getCBOperandIdx(GenericOp generic, Value cbGenericOperand);
 
 /// Trace a value through view-like operations (subview, expand_shape, etc.)
 /// and return the defining op if it matches OpT.  Returns null otherwise.

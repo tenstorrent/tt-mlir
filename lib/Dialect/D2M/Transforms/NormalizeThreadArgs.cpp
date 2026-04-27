@@ -23,23 +23,6 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Inserts a get_arg op for a single DMA operand that directly references a
-// generic's ins/outs operand, replacing the direct reference with the result.
-static void rewriteOperand(IRRewriter &rewriter, DMAOpInterface dma,
-                           OpOperand &dmaOperand, unsigned operandIndex) {
-  MemRefType memref = mlir::cast<MemRefType>(dmaOperand.get().getType());
-  if (dmaOperand.get().getDefiningOp()) {
-    std::tie(memref, std::ignore) =
-        applyViews(dmaOperand.get().getDefiningOp());
-  }
-  rewriter.setInsertionPoint(dma);
-  Operation *buf = rewriter.create<GetArgOp>(
-      dma.getLoc(), memref, operandIndex,
-      ResolutionStageAttr::get(rewriter.getContext(),
-                               ResolutionStage::Compile));
-  dmaOperand.set(buf->getResult(0));
-}
-
 static void rewriteOperand(IRRewriter &rewriter, Operation *op,
                            OpOperand &operand, unsigned operandIndex) {
   MemRefType memref = mlir::cast<MemRefType>(operand.get().getType());
@@ -64,19 +47,6 @@ static std::optional<unsigned> getCapturedOperandIndex(GenericOp generic,
     }
   }
   return std::nullopt;
-}
-
-static void rewriteCapturedDMAOperands(IRRewriter &rewriter, GenericOp generic,
-                                       DMAOpInterface dma) {
-  auto srcIndex = getCapturedOperandIndex(generic, dma.getSrc());
-  auto dstIndex = getCapturedOperandIndex(generic, dma.getDst());
-
-  if (srcIndex) {
-    rewriteOperand(rewriter, dma, dma.getSrcMutable(), *srcIndex);
-  }
-  if (dstIndex) {
-    rewriteOperand(rewriter, dma, dma.getDstMutable(), *dstIndex);
-  }
 }
 
 static void rewriteCapturedIndexedRowCopyOperands(IRRewriter &rewriter,
@@ -133,32 +103,23 @@ public:
     });
 
     moduleOp->walk([&](GenericOp generic) {
-      // Rewrite DMA ops that directly capture ins/outs operands.
-      generic.walk([&](DMAOpInterface dma) {
-        rewriteCapturedDMAOperands(rewriter, generic, dma);
-      });
       generic.walk([&](IndexedRowCopyOp copyOp) {
         rewriteCapturedIndexedRowCopyOperands(rewriter, generic, copyOp);
       });
 
-      int64_t baseIndex = static_cast<int64_t>(generic.getInputs().size() +
-                                               generic.getOutputs().size());
-
-      // Memref additional args (hoisted CBs) are placed in the enqueue_program
-      // cbs list, not the args list. Track how many precede the current arg so
-      // semaphore operandIndices reflect their actual position in args.
-      int64_t numPrecedingCBArgs = 0;
-
-      for (auto [i, arg] : llvm::enumerate(generic.getAdditionalArgs())) {
+      
+      for (auto [i, arg] : llvm::enumerate(generic.getOperands())) {
         Type argType = arg.getType();
-        // Memref additional args use the full D2M position (baseIndex + i).
-        // Non-memref args (semaphores) use the effective args-list
-        // position, excluding preceding CB memrefs that won't appear in args.
-        int64_t operandIndex =
-            mlir::isa<MemRefType>(argType)
-                ? baseIndex + static_cast<int64_t>(i)
-                : baseIndex + static_cast<int64_t>(i) - numPrecedingCBArgs;
 
+        if (!mlir::isa<MemRefType>(argType) &&
+            !mlir::isa<d2m::LocalSemaphoreType>(argType) &&
+            !mlir::isa<d2m::GlobalSemaphoreType>(argType)) {
+          generic.emitOpError("unsupported argument type in d2m.generic operands: ")
+              << argType << "; only memref and semaphore types are supported";
+          signalPassFailure();
+          return;
+        }
+        
         if (mlir::isa<MemRefType>(argType)) {
           // Buffer additional args: insert get_arg before each in-region use.
           for (OpOperand &use : llvm::make_early_inc_range(arg.getUses())) {
@@ -170,48 +131,10 @@ public:
             }
             rewriter.setInsertionPoint(use.getOwner());
             auto buf = rewriter.create<GetArgOp>(
-                use.getOwner()->getLoc(), argType, operandIndex,
+                use.getOwner()->getLoc(), argType, i,
                 ResolutionStageAttr::get(&getContext(),
                                          ResolutionStage::Compile));
             use.set(buf.getResult());
-          }
-          numPrecedingCBArgs++;
-          continue;
-        }
-
-        if (!mlir::isa<d2m::LocalSemaphoreType, d2m::GlobalSemaphoreType,
-                       IndexType, IntegerType, FloatType>(argType)) {
-          generic.emitOpError("non-memref additionalArg has unsupported type ")
-              << argType << "; only semaphore and scalar types are supported";
-          signalPassFailure();
-          return;
-        }
-
-        for (auto &region : generic.getRegions()) {
-          // Skip this region if the arg is not used anywhere inside it.
-          bool usedInRegion = llvm::any_of(arg.getUses(), [&](OpOperand &use) {
-            Block *ownerBlock = use.getOwner()->getBlock();
-            return ownerBlock &&
-                   region.findAncestorBlockInRegion(*ownerBlock) != nullptr;
-          });
-          if (!usedInRegion) {
-            continue;
-          }
-
-          for (auto &block : region) {
-            rewriter.setInsertionPointToStart(&block);
-
-            auto compileTimeAttr = ResolutionStageAttr::get(
-                &getContext(), ResolutionStage::Compile);
-            Value replacement = rewriter.create<GetArgOp>(
-                arg.getLoc(), argType, operandIndex, compileTimeAttr);
-            rewriter.setInsertionPointAfter(replacement.getDefiningOp());
-
-            rewriter.replaceUsesWithIf(arg, replacement, [&](OpOperand &use) {
-              Block *ownerBlock = use.getOwner()->getBlock();
-              return ownerBlock &&
-                     region.findAncestorBlockInRegion(*ownerBlock) != nullptr;
-            });
           }
         }
       }
