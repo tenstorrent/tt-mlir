@@ -31,16 +31,16 @@ module {
 #l1 = #ttcore.memory_space<l1>
 
 module {
-  // CHECK-LABEL: func.func @memref_embedding_explicit
-  func.func @memref_embedding_explicit(
+  // CHECK-LABEL: func.func @memref_indexed_row_copy_explicit
+  func.func @memref_indexed_row_copy_explicit(
       %indices: memref<1x1x2x4xi32, #l1>,
       %weight: memref<1x1x8x16xf32, #l1>,
       %output: memref<1x1x8x16xf32, #l1>,
       %index_scratch: memref<1x1024xi32, #l1>,
       %row_scratch: memref<1x1024xf32, #l1>) {
-    // CHECK: d2m.embedding {{.*}} scratch {{.*}}<8, 16>
+    // CHECK: d2m.indexed_row_copy {{.*}} scratch {{.*}}<8, 16>
     // CHECK-SAME: {indicesShape = array<i64: 2, 4>}
-    d2m.embedding %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
+    d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<8, 16> {indicesShape = array<i64: 2, 4>} : memref<1x1x2x4xi32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1x8x16xf32, #l1>, memref<1x1024xi32, #l1>, memref<1x1024xf32, #l1>
     return
   }
 }

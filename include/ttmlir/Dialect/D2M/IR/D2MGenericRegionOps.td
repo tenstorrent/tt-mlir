@@ -1613,9 +1613,43 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
     let assemblyFormat = [{ $mem_tx attr-dict `:` qualified(type($mem_tx)) }];
 }
 
+def D2M_IndexedRowCopyOp : D2M_GenericRegionDatamovementOp<"indexed_row_copy",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface> ]> {
+    let summary = "D2M indexed row-copy op";
+    let description = [{
+      Data-movement primitive for copying rows from a source table to an output
+      buffer using a tensor of 32-bit row indices. This is the lower-level
+      operation used by embedding, and is shaped so other indexed
+      datamovement ops can share the same NoC lowering path.
+
+      The op is memref-only. Tensor-level semantic ops should bufferize or
+      decompose to this op after choosing scratch circular buffers.
+    }];
+
+    let arguments = (ins
+      DeviceL1MemRef:$indices,
+      DeviceL1MemRef:$src,
+      DeviceL1MemRef:$dst,
+      DeviceL1MemRef:$indexScratch,
+      DeviceL1MemRef:$rowScratch,
+      I64Attr:$numRows,
+      I64Attr:$rowWidth,
+      DenseI64ArrayAttr:$indicesShape
+    );
+
+    let assemblyFormat = [{
+      $indices `,` $src `,` $dst
+      `scratch` $indexScratch `,` $rowScratch
+      `<` $numRows `,` $rowWidth `>`
+      attr-dict `:` type($indices) `,` type($src)
+      `,` type($dst) `,` type($indexScratch) `,` type($rowScratch)
+    }];
+
+    let hasVerifier = 1;
+}
+
 def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
-  [ AttrSizedOperandSegments
-  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1631,50 +1665,27 @@ def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
       embedding table, then writes the selected table rows to the output buffer.
 
       The tensor form is emitted by TTIRToD2M with an output tensor operand and
-      a tensor result. During bufferization, scratch circular buffers are
-      allocated for the fetched index and one embedding row. The TTKernel
-      lowering implements the row gather with NoC reads and writes.
+      a tensor result. During bufferization, this op allocates scratch circular
+      buffers and lowers to `d2m.indexed_row_copy`, which owns the backend row
+      gather implementation.
     }];
 
     let arguments = (ins
-      AnyRankedTensorOrMemRef:$indices,
-      AnyRankedTensorOrMemRef:$weight,
-      AnyRankedTensorOrMemRef:$output,
-      Optional<AnyRankedTensorOrMemRef>:$indexScratch,
-      Optional<AnyRankedTensorOrMemRef>:$rowScratch,
+      AnyRankedTensor:$indices,
+      AnyRankedTensor:$weight,
+      AnyRankedTensor:$output,
       I64Attr:$numIndices,
       I64Attr:$embeddingDim,
       DenseI64ArrayAttr:$indicesShape
     );
-    let results = (outs Optional<AnyRankedTensor>:$result);
-
-    let builders = [
-      OpBuilder<(ins "Type":$resultType, "Value":$indices, "Value":$weight,
-                     "Value":$output,
-                     "IntegerAttr":$numIndices, "IntegerAttr":$embeddingDim,
-                     "DenseI64ArrayAttr":$indicesShape), [{
-        build($_builder, $_state, TypeRange(resultType), indices, weight,
-              output, /*indexScratch=*/Value{}, /*rowScratch=*/Value{},
-              numIndices, embeddingDim, indicesShape);
-      }]>,
-      OpBuilder<(ins "Value":$indices, "Value":$weight, "Value":$output,
-                     "Value":$indexScratch, "Value":$rowScratch,
-                     "IntegerAttr":$numIndices, "IntegerAttr":$embeddingDim,
-                     "DenseI64ArrayAttr":$indicesShape), [{
-        build($_builder, $_state, TypeRange{}, indices, weight, output,
-              indexScratch, rowScratch, numIndices, embeddingDim,
-              indicesShape);
-      }]>
-    ];
+    let results = (outs AnyRankedTensor:$result);
 
     let assemblyFormat = [{
       $indices `,` $weight `,` $output
-      (`scratch` $indexScratch^ `,` $rowScratch)?
       `<` $numIndices `,` $embeddingDim `>`
       attr-dict `:` type($indices) `,` type($weight)
       `,` type($output)
-      (`->` type($result)^)?
-      (`,` type($indexScratch)^ `,` type($rowScratch))?
+      `->` type($result)
     }];
 
     let hasVerifier = 1;

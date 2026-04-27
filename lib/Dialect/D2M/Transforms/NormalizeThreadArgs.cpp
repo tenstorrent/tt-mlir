@@ -83,14 +83,25 @@ static void rewriteCapturedEmbeddingOperands(IRRewriter &rewriter,
                                              GenericOp generic,
                                              EmbeddingOp embedding) {
   for (OpOperand &operand : embedding->getOpOperands()) {
-    if (operand.get() == embedding.getIndexScratch() ||
-        operand.get() == embedding.getRowScratch()) {
-      continue;
-    }
     auto operandIndex = getCapturedOperandIndex(generic, operand.get());
     if (operandIndex) {
       rewriteOperand(rewriter, embedding.getOperation(), operand,
                      *operandIndex);
+    }
+  }
+}
+
+static void rewriteCapturedIndexedRowCopyOperands(IRRewriter &rewriter,
+                                                  GenericOp generic,
+                                                  IndexedRowCopyOp copyOp) {
+  for (OpOperand &operand : copyOp->getOpOperands()) {
+    if (operand.get() == copyOp.getIndexScratch() ||
+        operand.get() == copyOp.getRowScratch()) {
+      continue;
+    }
+    auto operandIndex = getCapturedOperandIndex(generic, operand.get());
+    if (operandIndex) {
+      rewriteOperand(rewriter, copyOp.getOperation(), operand, *operandIndex);
     }
   }
 }
@@ -140,6 +151,9 @@ public:
       });
       generic.walk([&](EmbeddingOp embedding) {
         rewriteCapturedEmbeddingOperands(rewriter, generic, embedding);
+      });
+      generic.walk([&](IndexedRowCopyOp copyOp) {
+        rewriteCapturedIndexedRowCopyOperands(rewriter, generic, copyOp);
       });
 
       int64_t baseIndex = static_cast<int64_t>(generic.getInputs().size() +

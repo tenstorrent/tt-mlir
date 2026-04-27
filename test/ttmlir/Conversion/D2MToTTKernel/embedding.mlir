@@ -21,7 +21,7 @@ module {
     // CHECK: %[[ROW_BYTES:.*]] = arith.muli %[[ROW_ELEMS_I32]], %[[BF16_BYTES]] : i32
     // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[ROW_BYTES]])
     // CHECK: ttkernel.noc_async_write({{.*}}, {{.*}}, %[[ROW_BYTES]])
-    d2m.embedding %indices, %weight, %output scratch %index_scratch, %row_scratch<6, 5> {indicesShape = array<i64: 2, 3>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<2x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xbf16, #ttcore.cb_layout<2048x2, 1>, #l1>
+    d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<6, 5> {indicesShape = array<i64: 2, 3>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<2x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xbf16, #ttcore.cb_layout<2048x2, 1>, #l1>
     return
   }
 
@@ -43,7 +43,7 @@ module {
     // CHECK: %[[ROW_BYTES:.*]] = arith.muli %[[ROW_ELEMS_I32]], %[[I32_BYTES]] : i32
     // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[ROW_BYTES]])
     // CHECK: ttkernel.noc_async_write({{.*}}, {{.*}}, %[[ROW_BYTES]])
-    d2m.embedding %indices, %weight, %output scratch %index_scratch, %row_scratch<3, 1> {indicesShape = array<i64: 3, 1>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xi32, #ttcore.shard<128x4, 1>, #l1>, memref<3x1x32x32xi32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xi32, #ttcore.cb_layout<4096x4, 1>, #l1>
+    d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<3, 1> {indicesShape = array<i64: 3, 1>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xi32, #ttcore.shard<128x4, 1>, #l1>, memref<3x1x32x32xi32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xi32, #ttcore.cb_layout<4096x4, 1>, #l1>
     return
   }
 }

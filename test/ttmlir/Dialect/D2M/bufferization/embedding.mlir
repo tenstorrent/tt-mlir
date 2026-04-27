@@ -24,7 +24,7 @@ func.func @embedding_result_bufferizes_in_place(
    {
     // CHECK: %[[INDEX_SCRATCH:.*]] = memref.alloc() : memref<1x1024xi32
     // CHECK: %[[ROW_SCRATCH:.*]] = memref.alloc() : memref<1x1024xf32
-    // CHECK: d2m.embedding {{.*}}, {{.*}}, %[[OUTPUT]] scratch %[[INDEX_SCRATCH]], %[[ROW_SCRATCH]]<8, 16>
+    // CHECK: d2m.indexed_row_copy {{.*}}, {{.*}}, %[[OUTPUT]] scratch %[[INDEX_SCRATCH]], %[[ROW_SCRATCH]]<8, 16>
     // CHECK-SAME: {indicesShape = array<i64: 2, 4>}
     // CHECK-SAME: : memref
     %embed = d2m.embedding %indices, %weight, %output<8, 16> {indicesShape = array<i64: 2, 4>} : tensor<1x1x2x4xi32, #indices_layout>, tensor<1x1x8x16xf32, #weight_layout>, tensor<1x1x8x16xf32, #output_layout> -> tensor<1x1x8x16xf32, #output_layout>
@@ -44,7 +44,7 @@ func.func @embedding_bf16_table_ui32_indices(
    {
     // CHECK: memref.alloc() : memref<1x1024xui32
     // CHECK: memref.alloc() : memref<1x1024xbf16
-    // CHECK: d2m.embedding {{.*}} scratch {{.*}}<6, 8>
+    // CHECK: d2m.indexed_row_copy {{.*}} scratch {{.*}}<6, 8>
     %embed = d2m.embedding %indices, %weight, %output<6, 8> {indicesShape = array<i64: 2, 3>} : tensor<1x1x2x3xui32, #indices_ui32_layout>, tensor<1x1x16x8xbf16, #weight_bf16_layout>, tensor<1x1x6x8xbf16, #output_bf16_layout> -> tensor<1x1x6x8xbf16, #output_bf16_layout>
     d2m.yield %embed : (tensor<1x1x6x8xbf16, #output_bf16_layout>)
   } : tensor<1x1x6x8xbf16, #output_bf16_layout>
@@ -62,7 +62,7 @@ func.func @embedding_i32_table_ui32_indices(
    {
     // CHECK: memref.alloc() : memref<1x1024xui32
     // CHECK: memref.alloc() : memref<1x1024xi32
-    // CHECK: d2m.embedding {{.*}} scratch {{.*}}<3, 1>
+    // CHECK: d2m.indexed_row_copy {{.*}} scratch {{.*}}<3, 1>
     %embed = d2m.embedding %indices, %weight, %output<3, 1> {indicesShape = array<i64: 3, 1>} : tensor<1x1x3x1xui32, #indices_i32_layout>, tensor<1x1x16x1xi32, #weight_i32_layout>, tensor<1x1x3x1xi32, #output_i32_layout> -> tensor<1x1x3x1xi32, #output_i32_layout>
     d2m.yield %embed : (tensor<1x1x3x1xi32, #output_i32_layout>)
   } : tensor<1x1x3x1xi32, #output_i32_layout>

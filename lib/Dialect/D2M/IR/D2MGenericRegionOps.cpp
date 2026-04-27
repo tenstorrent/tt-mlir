@@ -196,14 +196,14 @@ void DMAWriteOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// EmbeddingOp
+// Indexed row-copy operations
 //===----------------------------------------------------------------------===//
 
-static constexpr int64_t kEmbeddingScratchPageElements = 1024;
+static constexpr int64_t kIndexedRowCopyScratchPageElements = 1024;
 
-static MemRefType createEmbeddingScratchType(MLIRContext *ctx,
-                                             ArrayRef<int64_t> shape,
-                                             Type elementType) {
+static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
+                                                  ArrayRef<int64_t> shape,
+                                                  Type elementType) {
   auto cbLayout =
       mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
   auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
@@ -215,36 +215,7 @@ static bool hasRankedTensorType(Value value) {
   return mlir::isa<RankedTensorType>(value.getType());
 }
 
-static LogicalResult verifyEmbeddingResultForm(EmbeddingOp op) {
-  Value result = op.getResult();
-  if (!result) {
-    return success();
-  }
-
-  Value output = op.getOutput();
-  if (!hasRankedTensorType(output)) {
-    return op.emitOpError("tensor result form requires tensor output operand");
-  }
-  if (result.getType() != output.getType()) {
-    return op.emitOpError("result type must match output operand type");
-  }
-  if (op.getIndexScratch() || op.getRowScratch()) {
-    return op.emitOpError("tensor result form must not carry scratch operands");
-  }
-
-  return success();
-}
-
-static LogicalResult verifyEmbeddingScratchPair(EmbeddingOp op) {
-  bool hasIndexScratch = static_cast<bool>(op.getIndexScratch());
-  bool hasRowScratch = static_cast<bool>(op.getRowScratch());
-  if (hasIndexScratch != hasRowScratch) {
-    return op.emitOpError("requires either both scratch operands or neither");
-  }
-  return success();
-}
-
-static bool isSupportedEmbeddingTableElementType(Type type) {
+static bool isSupportedIndexedRowCopyElementType(Type type) {
   if (mlir::isa<Float32Type, BFloat16Type>(type)) {
     return true;
   }
@@ -252,48 +223,98 @@ static bool isSupportedEmbeddingTableElementType(Type type) {
   return intType && intType.getWidth() == 32;
 }
 
-LogicalResult EmbeddingOp::verify() {
-  auto indicesType = mlir::cast<ShapedType>(getIndices().getType());
-  auto weightType = mlir::cast<ShapedType>(getWeight().getType());
-  auto outputType = mlir::cast<ShapedType>(getOutput().getType());
-  ArrayRef<int64_t> indicesShape = getIndicesShape();
+static LogicalResult verifyIndexedRowCopyOperands(
+    Operation *op, Value indices, Value src, Value dst, int64_t numRows,
+    int64_t rowWidth, ArrayRef<int64_t> indicesShape, StringRef numRowsName,
+    StringRef rowWidthName, StringRef srcName, StringRef dstName) {
+  auto indicesType = mlir::cast<ShapedType>(indices.getType());
+  auto srcType = mlir::cast<ShapedType>(src.getType());
+  auto dstType = mlir::cast<ShapedType>(dst.getType());
 
   if (!indicesType.getElementType().isInteger(32)) {
-    return emitOpError("indices must have 32-bit integer element type");
+    return op->emitOpError("indices must have 32-bit integer element type");
   }
 
-  if (!isSupportedEmbeddingTableElementType(weightType.getElementType()) ||
-      !isSupportedEmbeddingTableElementType(outputType.getElementType())) {
-    return emitOpError("currently supports f32, bf16, or 32-bit integer weight "
-                       "and output only");
+  if (!isSupportedIndexedRowCopyElementType(srcType.getElementType()) ||
+      !isSupportedIndexedRowCopyElementType(dstType.getElementType())) {
+    return op->emitOpError("currently supports f32, bf16, or 32-bit integer ")
+           << srcName << " and " << dstName << " only";
   }
 
-  if (weightType.getElementType() != outputType.getElementType()) {
-    return emitOpError("weight and output element types must match");
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return op->emitOpError()
+           << srcName << " and " << dstName << " element types must match";
   }
 
-  if (failed(verifyEmbeddingScratchPair(*this)) ||
-      failed(verifyEmbeddingResultForm(*this))) {
-    return failure();
+  if (numRows <= 0) {
+    return op->emitOpError() << numRowsName << " must be positive";
   }
-
-  if (getNumIndices() <= 0) {
-    return emitOpError("num_indices must be positive");
-  }
-  if (getEmbeddingDim() <= 0) {
-    return emitOpError("embedding_dim must be positive");
+  if (rowWidth <= 0) {
+    return op->emitOpError() << rowWidthName << " must be positive";
   }
 
   if (indicesShape.empty()) {
-    return emitOpError("indices_shape must not be empty");
+    return op->emitOpError("indices_shape must not be empty");
   }
 
-  if (ttmlir::utils::volume(indicesShape) !=
-      static_cast<int64_t>(getNumIndices())) {
-    return emitOpError("indices_shape must match num_indices");
+  if (ttmlir::utils::volume(indicesShape) != static_cast<int64_t>(numRows)) {
+    return op->emitOpError() << "indices_shape must match " << numRowsName;
   }
 
   return success();
+}
+
+LogicalResult IndexedRowCopyOp::verify() {
+  return verifyIndexedRowCopyOperands(getOperation(), getIndices(), getSrc(),
+                                      getDst(), getNumRows(), getRowWidth(),
+                                      getIndicesShape(), "num_rows",
+                                      "row_width", "source", "destination");
+}
+
+void IndexedRowCopyOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getSrcMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getDstMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getIndexScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getIndexScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getRowScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getRowScratchMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
+// EmbeddingOp
+//===----------------------------------------------------------------------===//
+
+static LogicalResult verifyEmbeddingResultForm(EmbeddingOp op) {
+  if (op.getResult().getType() != op.getOutput().getType()) {
+    return op.emitOpError("result type must match output operand type");
+  }
+  return success();
+}
+
+LogicalResult EmbeddingOp::verify() {
+  if (failed(verifyEmbeddingResultForm(*this))) {
+    return failure();
+  }
+
+  return verifyIndexedRowCopyOperands(
+      getOperation(), getIndices(), getWeight(), getOutput(), getNumIndices(),
+      getEmbeddingDim(), getIndicesShape(), "num_indices", "embedding_dim",
+      "weight", "output");
 }
 
 void EmbeddingOp::getEffects(
@@ -306,44 +327,23 @@ void EmbeddingOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
-  if (getIndexScratch()) {
-    auto range = getODSOperandIndexAndLength(3);
-    mlir::OpOperand &indexScratchMutable =
-        getOperation()->getOpOperand(range.first);
-    effects.emplace_back(mlir::MemoryEffects::Read::get(), &indexScratchMutable,
-                         0, true, mlir::SideEffects::DefaultResource::get());
-    effects.emplace_back(mlir::MemoryEffects::Write::get(),
-                         &indexScratchMutable, 0, true,
-                         mlir::SideEffects::DefaultResource::get());
-  }
-  if (getRowScratch()) {
-    auto range = getODSOperandIndexAndLength(4);
-    mlir::OpOperand &rowScratchMutable =
-        getOperation()->getOpOperand(range.first);
-    effects.emplace_back(mlir::MemoryEffects::Read::get(), &rowScratchMutable,
-                         0, true, mlir::SideEffects::DefaultResource::get());
-    effects.emplace_back(mlir::MemoryEffects::Write::get(), &rowScratchMutable,
-                         0, true, mlir::SideEffects::DefaultResource::get());
-  }
 }
 
 bool EmbeddingOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getIndices() || operand.get() == getWeight() ||
-         operand.get() == getIndexScratch() || operand.get() == getRowScratch();
+  return operand.get() == getIndices() || operand.get() == getWeight();
 }
 
 bool EmbeddingOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getOutput() || operand.get() == getIndexScratch() ||
-         operand.get() == getRowScratch();
+  return operand.get() == getOutput();
 }
 
 mlir::bufferization::AliasingValueList
 EmbeddingOp::getAliasingValues(mlir::OpOperand &operand,
                                const mlir::bufferization::AnalysisState &) {
   mlir::bufferization::AliasingValueList aliasList;
-  if (getResult() && operand.get() == getOutput()) {
+  if (operand.get() == getOutput()) {
     aliasList.addAlias(
         {getResult(), mlir::bufferization::BufferRelation::Equivalent});
   }
@@ -355,22 +355,13 @@ EmbeddingOp::getBufferType(mlir::Value value,
                            const mlir::bufferization::BufferizationOptions &,
                            const mlir::bufferization::BufferizationState &,
                            ::llvm::SmallVector<mlir::Value> &) {
-  if (getResult() && value == getResult()) {
+  if (value == getResult()) {
     return ttcore::getBufferType(value.getType(), /*isView=*/false);
   }
   return mlir::failure();
 }
 
-bool EmbeddingOp::hasTensorSemantics() {
-  return mlir::isa<RankedTensorType>(getIndices().getType()) ||
-         mlir::isa<RankedTensorType>(getWeight().getType()) ||
-         mlir::isa<RankedTensorType>(getOutput().getType()) ||
-         (getResult() && mlir::isa<RankedTensorType>(getResult().getType())) ||
-         (getIndexScratch() &&
-          mlir::isa<RankedTensorType>(getIndexScratch().getType())) ||
-         (getRowScratch() &&
-          mlir::isa<RankedTensorType>(getRowScratch().getType()));
-}
+bool EmbeddingOp::hasTensorSemantics() { return true; }
 
 static FailureOr<Value>
 getBufferIfTensor(Value value, RewriterBase &rewriter,
@@ -382,16 +373,9 @@ getBufferIfTensor(Value value, RewriterBase &rewriter,
   return bufferization::getBuffer(rewriter, value, options, state);
 }
 
-static FailureOr<Value>
-getOrCreateEmbeddingScratch(EmbeddingOp op, Value scratch,
-                            MemRefType scratchType, RewriterBase &rewriter,
-                            const bufferization::BufferizationOptions &options,
-                            bufferization::BufferizationState &state) {
-  if (!scratch) {
-    return rewriter.create<memref::AllocOp>(op.getLoc(), scratchType)
-        .getResult();
-  }
-  return getBufferIfTensor(scratch, rewriter, options, state);
+static Value createEmbeddingScratch(EmbeddingOp op, MemRefType scratchType,
+                                    RewriterBase &rewriter) {
+  return rewriter.create<memref::AllocOp>(op.getLoc(), scratchType).getResult();
 }
 
 mlir::LogicalResult
@@ -416,7 +400,6 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
     return weight;
   }
 
-  bool resultForm = static_cast<bool>(getResult());
   FailureOr<Value> maybeOutput =
       getBufferIfTensor(getOutput(), rewriter, options, state);
   if (failed(maybeOutput)) {
@@ -426,35 +409,24 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
 
   Type indexScratchElementType =
       mlir::cast<ShapedType>((*indices).getType()).getElementType();
-  MemRefType indexScratchType = createEmbeddingScratchType(
-      getContext(), {1, kEmbeddingScratchPageElements},
+  MemRefType indexScratchType = createIndexedRowCopyScratchType(
+      getContext(), {1, kIndexedRowCopyScratchPageElements},
       indexScratchElementType);
-  FailureOr<Value> indexScratch = getOrCreateEmbeddingScratch(
-      *this, getIndexScratch(), indexScratchType, rewriter, options, state);
-  if (failed(indexScratch)) {
-    return indexScratch;
-  }
+  Value indexScratch =
+      createEmbeddingScratch(*this, indexScratchType, rewriter);
 
   int64_t rowScratchElements = std::max(static_cast<int64_t>(getEmbeddingDim()),
-                                        kEmbeddingScratchPageElements);
+                                        kIndexedRowCopyScratchPageElements);
   Type rowScratchElementType =
       mlir::cast<ShapedType>(output.getType()).getElementType();
-  MemRefType rowScratchType = createEmbeddingScratchType(
+  MemRefType rowScratchType = createIndexedRowCopyScratchType(
       getContext(), {1, rowScratchElements}, rowScratchElementType);
-  FailureOr<Value> rowScratch = getOrCreateEmbeddingScratch(
-      *this, getRowScratch(), rowScratchType, rewriter, options, state);
-  if (failed(rowScratch)) {
-    return rowScratch;
-  }
+  Value rowScratch = createEmbeddingScratch(*this, rowScratchType, rewriter);
 
-  rewriter.create<EmbeddingOp>(getLoc(), *indices, *weight, output,
-                               *indexScratch, *rowScratch, getNumIndicesAttr(),
-                               getEmbeddingDimAttr(), getIndicesShapeAttr());
-  if (resultForm) {
-    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, output);
-  } else {
-    rewriter.eraseOp(*this);
-  }
+  rewriter.create<IndexedRowCopyOp>(
+      getLoc(), *indices, *weight, output, indexScratch, rowScratch,
+      getNumIndicesAttr(), getEmbeddingDimAttr(), getIndicesShapeAttr());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, output);
   return mlir::success();
 }
 

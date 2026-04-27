@@ -23,7 +23,7 @@ module {
     // BUFFER-LABEL: func.func @embedding_grid
     // BUFFER: d2m.generic
     // BUFFER-SAME: grid = #ttcore.grid<8x1>
-    // BUFFER: d2m.embedding {{.*}} scratch {{.*}}<32, 32>
+    // BUFFER: d2m.indexed_row_copy {{.*}} scratch {{.*}}<32, 32>
     // BUFFER-SAME: {indicesShape = array<i64: 8, 4>}
     // BUFFER-SAME: : memref
     %0 = "ttir.embedding"(%indices, %weight) : (tensor<8x4xi32>, tensor<16x32xf32>) -> tensor<8x4x32xf32>
@@ -44,7 +44,7 @@ module {
     // AFTER: d2m.yield %[[EMBED]]
 
     // BUFFER-LABEL: func.func @embedding_single_row
-    // BUFFER: d2m.embedding {{.*}} scratch {{.*}}<4, 16>
+    // BUFFER: d2m.indexed_row_copy {{.*}} scratch {{.*}}<4, 16>
     // BUFFER-SAME: {indicesShape = array<i64: 1, 4>}
     // BUFFER-SAME: : memref
     %0 = "ttir.embedding"(%indices, %weight) : (tensor<1x4xi32>, tensor<16x16xf32>) -> tensor<1x4x16xf32>
