@@ -3297,7 +3297,8 @@ createOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
-      curPosTensor, attentionSink, scale, slidingWindowSize, out, memoryConfig, coreGridPtr);
+      curPosTensor, attentionSink, scale, slidingWindowSize, out, memoryConfig,
+      coreGridPtr);
 }
 
 ::flatbuffers::Offset<

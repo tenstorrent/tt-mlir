@@ -2333,7 +2333,8 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
+      pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize,
+      pagedSdpaArgs.coreGrid, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2364,7 +2365,8 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
+      pagedSdpaArgs.scale, pagedSdpaArgs.slidingWindowSize,
+      pagedSdpaArgs.coreGrid, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 

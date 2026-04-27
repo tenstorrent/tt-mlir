@@ -2871,8 +2871,8 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/slidingWindowSize,
-        detail::getNullableMemoryConfig(outputLayout), sdpaProgramConfig,
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
