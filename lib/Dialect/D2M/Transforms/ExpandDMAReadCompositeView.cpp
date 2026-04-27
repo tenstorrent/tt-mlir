@@ -476,21 +476,10 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
       rewriter.clone(*oldBlock->getTerminator(), mapping);
     }
 
-    // TODO: come back to this, should not need to be addressed now that we have
-    // free CBs but have a nother look
-    //// Shift the affected d2m.get_cb ops.
-    // for (Operation &op : newBlock->getOperations()) {
-    //   auto getCBOp = mlir::dyn_cast<GetCBOp>(&op);
-    //   if (!getCBOp || !getCBOp.getOperandIndexAttr()) {
-    //     continue;
-    //   }
-    //   const int64_t oldIdx = getCBOp.getOperandIndexAttr().getInt();
-    //   if (oldIdx > compositeOperandIdx) {
-    //     const int64_t newIdx = oldIdx + extraNumInputs;
-    //     getCBOp.setOperandIndexAttr(rewriter.getI64IntegerAttr(newIdx));
-    //     getCBOp.setPortAttr(rewriter.getI64IntegerAttr(newIdx));
-    //   }
-    // }
+    // Shift the affected d2m.get_cb ops.
+    newBlock->walk([&](GetCBOp getCBOp) {
+      getCBOp.setCbOperandIdx(getCBOp.getCbOperandIdx() + extraNumInputs);
+    });
   }
 
   // Step 3: lower the composite DMA read in the new GenericOp.
