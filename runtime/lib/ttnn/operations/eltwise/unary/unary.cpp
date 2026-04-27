@@ -266,6 +266,18 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     runEltwiseUnaryOp(op, tensorPool, ::ttnn::erfc);
     break;
   }
+  case ::tt::target::ttnn::EltwiseUnaryOpType::Round: {
+    runEltwiseUnaryOp(
+        op, tensorPool,
+        [](const ::ttnn::Tensor &input,
+           const std::optional<::ttnn::MemoryConfig> &memoryConfig,
+           const std::optional<::ttnn::Tensor> &optionalOutput,
+           const std::optional<::ttnn::CoreRangeSet> &subCoreGrids) {
+          return ::ttnn::round(input, /*parameter=*/std::nullopt, memoryConfig,
+                               optionalOutput, subCoreGrids);
+        });
+    break;
+  }
   }
 }
 

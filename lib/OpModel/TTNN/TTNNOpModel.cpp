@@ -425,11 +425,12 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::sign);
   } else if constexpr (std::is_same_v<OpTy, FloorOp>) {
     return WRAP_OP(::ttnn::floor);
-  } else if constexpr (std::is_same_v<OpTy, RoundNearestEvenOp>) {
-    // TTNN runtime does not expose round_nearest_even query API.
-    // Reuse floor for unary-eltwise op-model estimation until runtime support
-    // lands.
-    return WRAP_OP(::ttnn::floor);
+  } else if constexpr (std::is_same_v<OpTy, RoundOp>) {
+    // Adapt `ttnn::round(input, parameter, memory_config, ...)` to the unary
+    // op-model query signature `(input, memory_config)`.
+    return [](const auto &input, const auto &memoryConfig) {
+      return ::ttnn::round(input, std::nullopt, memoryConfig);
+    };
   } else if constexpr (std::is_same_v<OpTy, IsFiniteOp>) {
     return WRAP_OP(::ttnn::isfinite);
   } else if constexpr (std::is_same_v<OpTy, ExpOp>) {
@@ -986,7 +987,7 @@ template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
 template struct UnaryEltwiseOpModel<ErfcOp>;
-template struct UnaryEltwiseOpModel<RoundNearestEvenOp>;
+template struct UnaryEltwiseOpModel<RoundOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
 

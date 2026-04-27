@@ -154,7 +154,7 @@ template <>
 struct OpModel<ErfcOp> : UnaryEltwiseOpModel<ErfcOp> {};
 
 template <>
-struct OpModel<RoundNearestEvenOp> : UnaryEltwiseOpModel<RoundNearestEvenOp> {};
+struct OpModel<RoundOp> : UnaryEltwiseOpModel<RoundOp> {};
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
