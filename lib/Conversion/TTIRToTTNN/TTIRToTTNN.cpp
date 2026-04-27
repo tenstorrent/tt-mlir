@@ -1781,9 +1781,49 @@ public:
           /*memory_config=*/nullptr);
     }
 
+    // Pre-allocate the dispatched zero-filled output buffer and pass it as the
+    // optional output operand. The dispatch kernel does sparse cross-device
+    // fabric writes for `dispatched` — unrouted destination slots must start
+    // as zero, otherwise uninitialized DRAM contents propagate to downstream
+    // MoE compute. Mirroring `SelectiveReduceCombineOpConversionPattern`, the
+    // zero buffer is built as `ttnn.full(0) -> ttnn.multiply(zero, zero)` so
+    // both ops can be hoisted into a `@main_const_eval_*` function. A later
+    // workaround pass (`AllToAllDispatchMetadataOptionalOutputDuplicatePat-
+    // tern`) then splices an additional `ttnn.multiply(buf, buf)` between the
+    // const-eval'd buffer and the op's optional dispatched operand so that
+    // every invocation gets a fresh DRAM tensor inside `@main` (and therefore
+    // inside the captured trace), without any host alloc.
+    //
+    // For `indices`/`scores` the multiply trick does not work because both
+    // results are L1 height-sharded with non-tile-aligned shard shape (128, 4
+    // for the GPT-OSS configuration) — `ttnn::multiply` for sharded inputs
+    // forces a TILE conversion internally and the resulting `to_layout` call
+    // hits `Physical shard shape must be tile-sized`. Those buffers are
+    // handled in the runtime instead: the runtime caches the result of
+    // `ttnn::zeros` per op-pointer in `ProgramContext` so the host write
+    // happens once during the trace warmup pass and the cached buffer is
+    // reused on every subsequent call. This is safe because the dispatch
+    // kernel's all-gather writes every slot of `indices`/`scores`, so any
+    // residual data from a previous call is overwritten.
+    mlir::Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto buildZeroBufferViaMultiply =
+        [&](RankedTensorType resultType) -> mlir::Value {
+      auto fullOp = rewriter.create<ttnn::FullOp>(
+          op.getLoc(), resultType, rewriter.getF32FloatAttr(0.0f), device,
+          /*nonCseId=*/mlir::IntegerAttr{});
+      auto multiplyOp = rewriter.create<ttnn::MultiplyOp>(
+          op.getLoc(), resultType, fullOp.getResult(), fullOp.getResult());
+      return multiplyOp.getResult();
+    };
+
+    mlir::Value optionalDispatched = buildZeroBufferViaMultiply(dispatched3D);
+    mlir::Value optionalIndices = nullptr;
+    mlir::Value optionalScores = nullptr;
+
     rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
         op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
         adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
+        optionalDispatched, optionalIndices, optionalScores,
         op.getNumDevicesAttr(), op.getClusterAxisAttr(),
         /*memory_config=*/nullptr,
         /*drain_core=*/nullptr);
@@ -1828,6 +1868,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Type resultType =
         this->getTypeConverter()->convertType(op.getResult().getType());
+    auto resultTensorType = mlir::cast<RankedTensorType>(resultType);
 
     // Pre-allocate a zero-filled output buffer for the combine kernel.
     // The kernel performs *sparse writes* into this buffer — only (token,
@@ -1836,28 +1877,53 @@ public:
     // -inf / NaN) propagate into the downstream score-weighted sum and
     // all_reduce and corrupt the final logits. This mirrors tt-metal's
     // fused_decode.py reference which explicitly feeds a zero-filled DRAM
-    // tensor to `ttnn.selective_reduce_combine`. The workaround pass forces
-    // the tensor to ROW_MAJOR / BF16 / DRAM-INTERLEAVED to match the
-    // kernel's expected output layout.
+    // tensor to `ttnn.selective_reduce_combine`. The workaround pass requires
+    // the tensor to be ROW_MAJOR / BF16 / DRAM-INTERLEAVED to match the
+    // kernel's expected output layout — we build the buffer in that exact
+    // layout up front so the workaround does not have to insert a runtime
+    // layout conversion.
     //
-    // Attach a unique `non_cse_id` to the FullOp so MLIR CSE does not merge
-    // zero buffers across call sites. Because the combine kernel writes into
-    // this buffer in place, merging would cause state from one layer's sparse
-    // writes to leak into the next layer's buffer (observed as catastrophic
-    // PCC loss once the model has more than one MoE layer).
+    // The buffer is constructed in two steps so the const-eval hoist pass
+    // can fold the *value* into a single shared constant tensor outside of
+    // @main:
+    //   1. `ttnn.full` produces a row-major DRAM zero template. (Trace cannot
+    //      capture `ttnn::full` — it allocates from host — so it must not
+    //      appear in the traced region.)
+    //   2. `ttnn.multiply` of that template with itself (0 * 0 = 0) is also
+    //      const-evaled here. This op is the placeholder that a later TTNN
+    //      workaround duplicates *after* const-eval has run, producing a
+    //      fresh per-call DRAM buffer inside @main (see
+    //      `MoeSelectiveReduceCombineOutputDuplicate` workaround). Both the
+    //      template `ttnn.full` and this in-place `ttnn.multiply` end up in
+    //      the const-eval subgraph and share a single device-side zero
+    //      buffer.
+    auto resultLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(resultTensorType.getEncoding());
+    auto interleavedAttr = ttnn::TensorMemoryLayoutAttr::get(
+        op.getContext(), ttnn::TensorMemoryLayout::Interleaved);
+    auto rmDramLayoutAttr =
+        resultLayoutAttr.withDataType(ttcore::DataType::BFloat16)
+            .withBufferType(ttnn::BufferType::DRAM)
+            .withMemoryLayout(interleavedAttr)
+            .withLayout(ttnn::Layout::RowMajor, resultTensorType.getShape());
+    auto rmDramResultType =
+        RankedTensorType::get(resultTensorType.getShape(),
+                              resultTensorType.getElementType(),
+                              rmDramLayoutAttr);
+
     mlir::Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    static std::atomic<int64_t> nonCseCounter{0};
-    int64_t nonCseIdValue =
-        nonCseCounter.fetch_add(1, std::memory_order_relaxed);
-    mlir::IntegerAttr nonCseIdAttr = rewriter.getI64IntegerAttr(nonCseIdValue);
-    auto zeroOutput = rewriter.create<ttnn::FullOp>(
-        op.getLoc(), resultType, rewriter.getF32FloatAttr(0.0f), device,
-        nonCseIdAttr);
+    auto zeroTemplate = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), rmDramResultType, rewriter.getF32FloatAttr(0.0f), device,
+        /*nonCseId=*/mlir::IntegerAttr{});
+
+    auto zeroBuffer = rewriter.create<ttnn::MultiplyOp>(
+        op.getLoc(), rmDramResultType, zeroTemplate.getResult(),
+        zeroTemplate.getResult());
 
     rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
         op, resultType, adaptor.getDenseInputTensor(),
         adaptor.getDenseActivationsTensor(), adaptor.getDenseTokenMapsTensor(),
-        adaptor.getDenseTokenCountsTensor(), zeroOutput.getResult(),
+        adaptor.getDenseTokenCountsTensor(), zeroBuffer.getResult(),
         op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
         op.getSelectExpertsKAttr(), op.getExpertsAttr());
     return success();

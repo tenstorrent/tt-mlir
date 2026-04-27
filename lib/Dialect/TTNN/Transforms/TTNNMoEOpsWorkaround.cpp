@@ -575,6 +575,135 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
+// SelectiveReduceCombineOp optional_output_tensor: insert per-call duplicator
+//===----------------------------------------------------------------------===//
+
+// `selective_reduce_combine` consumes a *pre-zeroed* DRAM buffer as its
+// `optional_output_tensor` (see TTIRToTTNN::SelectiveReduceCombineOpConversion-
+// Pattern). The const-eval hoist pass folds the zero-buffer producer chain
+// (`ttnn.full -> ttnn.multiply`) into a single shared device-side tensor
+// outside `@main`. That cached tensor is then handed to *every* invocation of
+// the combine kernel — but the kernel writes into it in place, so reusing the
+// same buffer across calls leaks state from one decode step into the next
+// (and across MoE layers in multi-layer models). Trace replay makes this
+// worse: the in-place writes happen inside the captured trace, so subsequent
+// trace executions start with corrupted, non-zero data.
+//
+// This pattern runs *after* all const-eval hoist passes, so any op it inserts
+// stays in `@main` (and therefore inside the trace, when trace is enabled).
+// We splice an extra `ttnn.multiply(buf, buf)` between the const-eval'd zero
+// buffer and the combine kernel; because `0 * 0 == 0` and the op produces a
+// fresh DRAM tensor each call, the kernel ends up writing into a private
+// per-call buffer instead of mutating the shared constant. This avoids the
+// host alloc that `ttnn.full` would do (incompatible with trace capture)
+// while still giving the combine a freshly zeroed output every iteration.
+class SelectiveReduceCombineOptionalOutputDuplicatePattern
+    : public OpRewritePattern<SelectiveReduceCombineOp> {
+public:
+  using OpRewritePattern<SelectiveReduceCombineOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(SelectiveReduceCombineOp op,
+                                PatternRewriter &rewriter) const override {
+    Value optionalOutput = op.getOptionalOutputTensor();
+    if (!optionalOutput) {
+      return rewriter.notifyMatchFailure(op, "no optional_output_tensor");
+    }
+
+    // Idempotency: skip if the producer is already a `ttnn.multiply` whose
+    // operands are both the same value (i.e. our duplicator). Without this,
+    // the greedy driver would re-match indefinitely after the first rewrite.
+    if (auto producer =
+            optionalOutput.getDefiningOp<MultiplyOp>()) {
+      if (producer.getLhs() == producer.getRhs()) {
+        return rewriter.notifyMatchFailure(
+            op, "duplicator multiply already inserted");
+      }
+    }
+
+    auto outputType = mlir::cast<RankedTensorType>(optionalOutput.getType());
+    auto duplicateOp = rewriter.create<MultiplyOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                            "_src_output_duplicate"),
+        outputType, optionalOutput, optionalOutput);
+
+    rewriter.modifyOpInPlace(op, [&]() {
+      op.getOptionalOutputTensorMutable().assign(duplicateOp.getResult());
+    });
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp optional outputs: insert per-call duplicators
+//===----------------------------------------------------------------------===//
+
+// `all_to_all_dispatch_metadata` consumes three pre-zeroed DRAM/L1 buffers as
+// its optional output operands (see TTIRToTTNN::AllToAllDispatchMetadataOp-
+// ConversionPattern). The const-eval hoist pass folds each
+// `ttnn.full -> ttnn.multiply` chain into a shared device-side tensor outside
+// `@main`. Those cached tensors are then handed to *every* invocation of the
+// dispatch kernel — but the kernel writes into them in place via SPARSE_UNICAST
+// fabric writes, so reusing the same buffers across calls leaks state from one
+// decode step into the next. Trace replay makes this worse: the in-place
+// writes happen inside the captured trace, so subsequent trace executions
+// start with corrupted, non-zero data in unrouted slots.
+//
+// This pattern runs *after* all const-eval hoist passes, so any op it inserts
+// stays in `@main` (and therefore inside the trace, when trace is enabled).
+// For each of the three optional output operands, we splice an extra
+// `ttnn.multiply(buf, buf)` between the const-eval'd zero buffer and the
+// dispatch kernel; because `0 * 0 == 0` and the op produces a fresh
+// DRAM/L1 tensor each call, the kernel ends up writing into private per-call
+// buffers instead of mutating the shared constants. This avoids the host
+// alloc that `ttnn.full` (or the runtime's old `ttnn::zeros` path) would do
+// while still giving the dispatch kernel freshly zeroed outputs every
+// iteration — which is what the kernel needs to leave unrouted destination
+// slots reading as zero.
+class AllToAllDispatchMetadataOptionalOutputDuplicatePattern
+    : public OpRewritePattern<AllToAllDispatchMetadataOp> {
+public:
+  using OpRewritePattern<AllToAllDispatchMetadataOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AllToAllDispatchMetadataOp op,
+                                PatternRewriter &rewriter) const override {
+    bool changed = false;
+    auto duplicateOperand = [&](Value optionalOutput, llvm::StringRef suffix,
+                                std::function<void(Value)> assignFn) {
+      if (!optionalOutput) {
+        return;
+      }
+      // Idempotency: skip if the producer is already a `ttnn.multiply` whose
+      // operands are both the same value (i.e. our duplicator).
+      if (auto producer = optionalOutput.getDefiningOp<MultiplyOp>()) {
+        if (producer.getLhs() == producer.getRhs()) {
+          return;
+        }
+      }
+      auto outputType = mlir::cast<RankedTensorType>(optionalOutput.getType());
+      auto duplicateOp = rewriter.create<MultiplyOp>(
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), suffix), outputType,
+          optionalOutput, optionalOutput);
+      rewriter.modifyOpInPlace(op,
+                               [&]() { assignFn(duplicateOp.getResult()); });
+      changed = true;
+    };
+
+    // Only the `dispatched` operand needs the per-call duplicator. The
+    // `indices`/`scores` operands (when present in older IR variants) are
+    // L1 height-sharded with a non-tile-aligned shard shape, which the
+    // multiply kernel cannot handle. The runtime caches them once and
+    // reuses across calls, which is safe because the kernel all-gathers
+    // them and overwrites every slot.
+    duplicateOperand(op.getOptionalDispatchedOutputTensor(),
+                     "_a2a_dm_dispatched_duplicate", [&](Value v) {
+                       op.getOptionalDispatchedOutputTensorMutable().assign(v);
+                     });
+
+    return success(changed);
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Pass
 //===----------------------------------------------------------------------===//
 
@@ -598,6 +727,17 @@ public:
     // AllToAllDispatchMetadataOp operand 1 -> TopKRouterGptOp result 0
     // (expert_indices). Preserves any slice op in the chain.
     patterns.add<DispatchMetadataOperand1ToTopKRouterGptPattern>(&getContext());
+
+    // SelectiveReduceCombineOp optional_output_tensor: insert per-call
+    // duplicator so the combine kernel writes into a fresh DRAM buffer.
+    patterns.add<SelectiveReduceCombineOptionalOutputDuplicatePattern>(
+        &getContext());
+
+    // AllToAllDispatchMetadataOp optional output operands: insert per-call
+    // duplicators so the dispatch kernel writes into fresh per-call buffers
+    // instead of leaking SPARSE_UNICAST writes from a previous decode step.
+    patterns.add<AllToAllDispatchMetadataOptionalOutputDuplicatePattern>(
+        &getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);

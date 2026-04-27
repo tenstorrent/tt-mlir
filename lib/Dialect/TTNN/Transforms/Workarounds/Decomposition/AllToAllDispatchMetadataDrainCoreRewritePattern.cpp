@@ -23,7 +23,9 @@ LogicalResult AllToAllDispatchMetadataDrainCoreRewritePattern::matchAndRewrite(
       srcOp, srcOp.getDispatched().getType(), srcOp.getIndices().getType(),
       srcOp.getScores().getType(), srcOp.getInputTensor(),
       srcOp.getExpertIndices(), srcOp.getExpertScores(),
-      srcOp.getExpertMapping(), srcOp.getNumDevicesAttr(),
+      srcOp.getExpertMapping(), srcOp.getOptionalDispatchedOutputTensor(),
+      srcOp.getOptionalIndicesOutputTensor(),
+      srcOp.getOptionalScoresOutputTensor(), srcOp.getNumDevicesAttr(),
       srcOp.getClusterAxisAttr(), srcOp.getMemoryConfigAttr(), drainCore);
   return success();
 }

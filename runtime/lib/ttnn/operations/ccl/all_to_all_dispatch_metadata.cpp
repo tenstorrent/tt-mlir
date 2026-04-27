@@ -34,11 +34,11 @@ namespace {
 // cross-device dispatch (all devices downstream of the source produce
 // identical wrong outputs).
 //
-// To match the reference we call ttnn::zeros to obtain the per-device
-// zero storage, and then override the tensor's mesh topology so the kernel
-// interprets it as axis-0 sharded, orthogonal-axis replicated. This is
-// metadata-only: the underlying storage stays the same, but the mesh view
-// now matches what the kernel expects.
+// Used as a fallback only when the IR did not provide
+// `optional_*_output_tensor` operands. The preferred path is to pre-zero
+// the buffers in the IR via `ttnn.full -> ttnn.multiply` so the runtime
+// never has to call `ttnn::zeros` (which writes initial values to device
+// memory and is therefore incompatible with trace capture).
 ::ttnn::Tensor createZeroOutput(const ::tt::target::ttnn::TensorRef *tensorRef,
                                 ProgramContext &context) {
   ::ttnn::Shape shape = ::tt::runtime::ttnn::operations::utils::toTTNNShape(
@@ -54,51 +54,57 @@ namespace {
   ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
   ::tt::runtime::ttnn::OptionalMeshDeviceRef meshDevice =
       std::ref(*meshDevicePtr);
-  ::ttnn::Tensor tensor =
-      ::ttnn::zeros(shape, dtype, layout, meshDevice, memoryConfig);
+  return ::ttnn::zeros(shape, dtype, layout, meshDevice, memoryConfig);
+}
 
-  // Overwrite tensor topology to axis-0 sharded / axis-1 replicated so the
-  // A2A kernel reads the same distributed-tensor metadata the Python
-  // reference produces. Controlled by env var so we can A/B test the fix
-  // without another rebuild: default ON because the replicated topology is
-  // the observed cause of the cross-device batch collapse.
+// Override the tensor's mesh topology in-place to match what the dispatch
+// kernel expects (see createZeroOutput comment): axis-0 sharded along the
+// ring, axis-1 replicated. This is metadata-only — no device writes — so
+// it is safe to invoke during trace capture. Required regardless of how the
+// underlying storage was allocated (`ttnn::zeros` or
+// `ttnn.full + ttnn.multiply` from the IR), because all of those default to
+// a fully-replicated topology.
+void overrideAxis0ShardedTopology(::ttnn::Tensor &tensor,
+                                  ProgramContext &context) {
+  // Controlled by env var so we can A/B test the fix without another
+  // rebuild: default ON because the replicated topology is the observed
+  // cause of the cross-device batch collapse.
   static const bool kOverrideTopology = []() {
     const char *env = std::getenv("TT_A2A_DISPATCH_METADATA_SHARDED_TOPO");
     // Enabled by default; set the env var to "0" to disable and fall back
-    // to the plain replicated topology produced by ttnn::zeros.
+    // to the plain replicated topology.
     return env == nullptr || std::string(env) != "0";
   }();
-
-  if (kOverrideTopology) {
-    const auto &meshShape = meshDevicePtr->shape();
-    if (meshShape.dims() >= 1) {
-      ttsl::SmallVector<tt::tt_metal::distributed::MeshMapperConfig::Placement>
-          placements;
-      placements.reserve(meshShape.dims());
-      // Axis 0: shard along tensor dim 0 (the ring dimension).
-      placements.push_back(
-          tt::tt_metal::distributed::MeshMapperConfig::Shard{0});
-      // Remaining axes (e.g. data-parallel mesh_cols on a 2D mesh):
-      // replicated.
-      for (size_t i = 1; i < meshShape.dims(); ++i) {
-        placements.push_back(
-            tt::tt_metal::distributed::MeshMapperConfig::Replicate{});
-      }
-
-      std::vector<tt::tt_metal::distributed::MeshCoordinate> coords;
-      coords.reserve(meshShape.mesh_size());
-      for (const auto &coord :
-           tt::tt_metal::distributed::MeshCoordinateRange(meshShape)) {
-        coords.push_back(coord);
-      }
-
-      tt::tt_metal::TensorTopology topology(meshShape, std::move(placements),
-                                            std::move(coords));
-      tensor.update_tensor_topology(std::move(topology));
-    }
+  if (!kOverrideTopology) {
+    return;
   }
 
-  return tensor;
+  ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
+  const auto &meshShape = meshDevicePtr->shape();
+  if (meshShape.dims() < 1) {
+    return;
+  }
+  ttsl::SmallVector<tt::tt_metal::distributed::MeshMapperConfig::Placement>
+      placements;
+  placements.reserve(meshShape.dims());
+  // Axis 0: shard along tensor dim 0 (the ring dimension).
+  placements.push_back(tt::tt_metal::distributed::MeshMapperConfig::Shard{0});
+  // Remaining axes (e.g. data-parallel mesh_cols on a 2D mesh): replicated.
+  for (size_t i = 1; i < meshShape.dims(); ++i) {
+    placements.push_back(
+        tt::tt_metal::distributed::MeshMapperConfig::Replicate{});
+  }
+
+  std::vector<tt::tt_metal::distributed::MeshCoordinate> coords;
+  coords.reserve(meshShape.mesh_size());
+  for (const auto &coord :
+       tt::tt_metal::distributed::MeshCoordinateRange(meshShape)) {
+    coords.push_back(coord);
+  }
+
+  tt::tt_metal::TensorTopology topology(meshShape, std::move(placements),
+                                        std::move(coords));
+  tensor.update_tensor_topology(std::move(topology));
 }
 } // namespace
 
@@ -148,12 +154,64 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
   // Without this, unrouted slots on non-source devices retain uninitialized
   // DRAM contents, which manifests as all-zero or garbage MoE outputs on
   // devices 1..N-1 of each row in a multi-device mesh.
+  //
+  // Materialization strategy (split because the dispatch kernel writes the
+  // three buffers very differently):
+  //
+  //   * `dispatched`: SPARSE_UNICAST writes — only routed destination slots
+  //     are touched, every other slot must remain zero. The buffer must be
+  //     freshly zeroed on every call; reusing it across calls would leak
+  //     stale routed data into newly-unrouted slots and corrupt downstream
+  //     MoE compute. Compiled into the IR by
+  //     `TTIRToTTNN::AllToAllDispatchMetadataOpConversionPattern` as
+  //     `ttnn.full(0) -> ttnn.multiply(zero, zero)` (const-eval'd outside
+  //     `@main`), with a per-call duplicator multiplier spliced in by
+  //     `TTNNMoEOpsWorkaround::AllToAllDispatchMetadataOptionalOutputDup-
+  //     licatePattern` so the kernel sees a fresh DRAM tensor each call.
+  //
+  //   * `indices`/`scores`: ALL-GATHER writes — every slot is written with
+  //     the corresponding source device's value, so initial buffer contents
+  //     are completely overwritten and reusing the same buffer across calls
+  //     is safe. The IR-level multiply trick does not work for these
+  //     L1 height-sharded buffers (shard shape is not tile-aligned, so the
+  //     `ttnn::multiply` runtime hits a `to_layout` assert). Instead, route
+  //     through `ProgramContext::getOrCreateImplicitTensor` so the host
+  //     write (`ttnn::zeros`) happens exactly once during the trace warmup
+  //     pass and the cached buffer is reused inside the captured trace.
+  //
+  // All three buffers still need their mesh topology overridden to axis-0
+  // sharded (see `overrideAxis0ShardedTopology`), since both `ttnn::zeros`
+  // and `ttnn::full` produce replicated tensors by default but the kernel
+  // expects a sharded view. `update_tensor_topology` is metadata-only and
+  // trace-safe.
+  uintptr_t opKey = reinterpret_cast<uintptr_t>(op);
+  ::ttnn::Tensor dispatchedOutput =
+      op->optional_dispatched_output_tensor()
+          ? tensorPool.getTTNNTensorAndValidate(
+                op->optional_dispatched_output_tensor())
+          : createZeroOutput(op->dispatched(), context);
+  ::ttnn::Tensor indicesOutput =
+      op->optional_indices_output_tensor()
+          ? tensorPool.getTTNNTensorAndValidate(
+                op->optional_indices_output_tensor())
+          : context.getOrCreateImplicitTensor(opKey, /*subKey=*/1, [&]() {
+              return createZeroOutput(op->indices(), context);
+            });
+  ::ttnn::Tensor scoresOutput =
+      op->optional_scores_output_tensor()
+          ? tensorPool.getTTNNTensorAndValidate(
+                op->optional_scores_output_tensor())
+          : context.getOrCreateImplicitTensor(opKey, /*subKey=*/2, [&]() {
+              return createZeroOutput(op->scores(), context);
+            });
+
+  overrideAxis0ShardedTopology(dispatchedOutput, context);
+  overrideAxis0ShardedTopology(indicesOutput, context);
+  overrideAxis0ShardedTopology(scoresOutput, context);
+
   std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
-      std::array<::ttnn::Tensor, 3>{
-          createZeroOutput(op->dispatched(), context),
-          createZeroOutput(op->indices(), context),
-          createZeroOutput(op->scores(), context),
-      };
+      std::array<::ttnn::Tensor, 3>{dispatchedOutput, indicesOutput,
+                                    scoresOutput};
 
   // Create cross-device semaphore spanning all worker cores of the mesh
   // device. SPARSE_UNICAST requires this for cross-device fabric writes; when
@@ -166,14 +224,26 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
   //       CoreRangeSet({CoreRange((0,0), (grid.x-1, grid.y-1))})
   //   dispatch_semaphore =
   //       ttnn.create_global_semaphore(mesh_device, all_worker_cores, 0)
+  //
+  // `create_global_semaphore` writes the initial value to all devices via
+  // `EnqueueWriteMeshBuffer`, which trace capture rejects. Route through
+  // `ProgramContext::getOrCreateImplicitGlobalSemaphore` so the semaphore is
+  // created exactly once (during the trace warmup pass before
+  // `begin_trace_capture`) and reused for the captured trace and all
+  // subsequent decode steps.
   ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
-  auto computeGrid = meshDevicePtr->compute_with_storage_grid_size();
-  ::tt::tt_metal::CoreRangeSet semaphoreCores(::tt::tt_metal::CoreRange(
-      ::tt::tt_metal::CoreCoord(0, 0),
-      ::tt::tt_metal::CoreCoord(computeGrid.x - 1, computeGrid.y - 1)));
   ::ttnn::GlobalSemaphore crossDeviceSemaphore =
-      ::ttnn::global_semaphore::create_global_semaphore(
-          meshDevicePtr, semaphoreCores, /*initial_value=*/0);
+      context.getOrCreateImplicitGlobalSemaphore(
+          reinterpret_cast<uintptr_t>(op), [&]() {
+            auto computeGrid = meshDevicePtr->compute_with_storage_grid_size();
+            ::tt::tt_metal::CoreRangeSet semaphoreCores(
+                ::tt::tt_metal::CoreRange(::tt::tt_metal::CoreCoord(0, 0),
+                                          ::tt::tt_metal::CoreCoord(
+                                              computeGrid.x - 1,
+                                              computeGrid.y - 1)));
+            return ::ttnn::global_semaphore::create_global_semaphore(
+                meshDevicePtr, semaphoreCores, /*initial_value=*/0);
+          });
 
   // Dispatch algorithm can be overridden via env var for A/B debugging:
   //   TT_A2A_DISPATCH_ALGO=sparse_unicast          (default, matches tt-metal

@@ -12,10 +12,13 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <shared_mutex>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -246,14 +249,15 @@ public:
                  GlobalSemaphoreMap &&liveGlobalSemaphores,
                  common::DylibManager &&programDylibManager,
                  ::tt::runtime::Device deviceHandle,
-                 const Binary &executableHandle, size_t programIndex = 0)
+                 const Binary &executableHandle, size_t programIndex = 0,
+                 ProgramContext *parentContext = nullptr)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         globalSemaphorePool(
             ProgramGlobalSemaphorePool(std::move(liveGlobalSemaphores))),
         dylibManager(std::move(programDylibManager)),
         deviceHandle(deviceHandle), executableHandle(executableHandle),
-        programIndex(programIndex) {
+        programIndex(programIndex), parentContext(parentContext) {
     LOG_ASSERT(deviceHandle.handle, "DeviceHandle cannot be null");
   }
 
@@ -304,6 +308,58 @@ public:
     return globalSemaphorePool;
   }
 
+  // Returns a cached `GlobalSemaphore` for the given op-pointer key, creating
+  // it via `factory` on the first call. Subsequent calls return the cached
+  // value without touching device memory, which is required for trace
+  // compatibility (`create_global_semaphore` writes to device L1 and cannot
+  // run during trace capture).
+  //
+  // Lookups forward to the root context (via `parentContext`) so a semaphore
+  // created during the trace warmup `func.call` is reused inside the trace
+  // capture `func.call` — `FuncCallOp` runs each callee in its own
+  // `ProgramExecutor`/`ProgramContext`, so without forwarding the cache
+  // would miss on the second call and trigger another host write.
+  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
+      uintptr_t opKey,
+      const std::function<::ttnn::GlobalSemaphore()> &factory) {
+    if (parentContext) {
+      return parentContext->getOrCreateImplicitGlobalSemaphore(opKey, factory);
+    }
+    auto it = implicitOpSemaphores.find(opKey);
+    if (it == implicitOpSemaphores.end()) {
+      it = implicitOpSemaphores.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
+  // Returns a cached `Tensor` for the given (op-pointer, sub-key) pair,
+  // creating it via `factory` on the first call. Same trace-capture rationale
+  // as `getOrCreateImplicitGlobalSemaphore`: ops that need to allocate
+  // pre-initialized buffers (e.g. zero-filled outputs for kernels that do
+  // sparse writes / all-gathers) cannot run their host->device init writes
+  // inside a trace capture. Routing the allocation through this cache means
+  // the host write happens exactly once, during the warmup `func.call`, and
+  // every subsequent invocation reads back the cached tensor.
+  //
+  // The sub-key disambiguates multiple cached tensors per op (e.g. a single
+  // op may need two distinct zero buffers — one for `indices` and one for
+  // `scores`).
+  //
+  // Like the semaphore cache, lookups forward to the root context.
+  ::ttnn::Tensor getOrCreateImplicitTensor(
+      uintptr_t opKey, uintptr_t subKey,
+      const std::function<::ttnn::Tensor()> &factory) {
+    if (parentContext) {
+      return parentContext->getOrCreateImplicitTensor(opKey, subKey, factory);
+    }
+    auto cacheKey = std::make_pair(opKey, subKey);
+    auto it = implicitOpTensors.find(cacheKey);
+    if (it == implicitOpTensors.end()) {
+      it = implicitOpTensors.emplace(cacheKey, factory()).first;
+    }
+    return it->second;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -316,6 +372,22 @@ private:
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
 
+  // Cache for `GlobalSemaphore`s implicitly created by ops (e.g. SRC).
+  // Keyed by the flatbuffer op pointer cast to `uintptr_t` so each op
+  // instance gets its own semaphore, but the same semaphore is reused across
+  // repeated calls (warmup + trace capture + replay).
+  // Only populated on the root context (the one whose `parentContext` is
+  // null) — child contexts forward their lookups via `parentContext`.
+  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
+
+  // Cache for tensors that need to be allocated and initialized via host
+  // writes once and reused (e.g. pre-zeroed output buffers for kernels that
+  // all-gather and overwrite all slots, where re-using the same buffer is
+  // safe). Keyed by (op-pointer, sub-key) to support multiple per-op
+  // entries (e.g. one cache slot per output slot of a multi-output op).
+  // Only populated on the root context.
+  std::map<std::pair<uintptr_t, uintptr_t>, ::ttnn::Tensor> implicitOpTensors;
+
   common::DylibManager dylibManager;
 
   ::tt::runtime::Device deviceHandle;
@@ -325,6 +397,13 @@ private:
 
   // The index of the program within the binary
   const size_t programIndex;
+
+  // Caller's context (e.g. `FuncCallOp` invoker), used to forward shared
+  // state (currently: implicit `GlobalSemaphore`s) so that nested
+  // `func.call` invocations inside a single root program (notably the
+  // warmup and trace-capture calls inside `run_and_capture_trace_*_main`)
+  // reuse the same semaphore. Non-owning.
+  ProgramContext *parentContext = nullptr;
 };
 
 } // namespace tt::runtime::ttnn

@@ -1176,15 +1176,41 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   l1ShardedBf16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
   l1ShardedBf16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
 
-  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(l1InterleavedBf16Workaround) // input_tensor
-      .addInputOperandWorkaround(
-          l1InterleavedUint16Workaround)                      // expert_indices
-      .addInputOperandWorkaround(l1InterleavedBf16Workaround) // expert_scores
-      .addInputOperandWorkaround(rowMajorUint16Workaround)    // expert_mapping
-      .addOutputOperandWorkaround(rowMajorBf16Workaround)     // dispatched
-      .addOutputOperandWorkaround(l1ShardedUint16Workaround)  // indices
-      .addOutputOperandWorkaround(l1ShardedBf16Workaround);   // scores
+  auto a2aOp = cast<ttnn::AllToAllDispatchMetadataOp>(op);
+  auto workarounds =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(
+              l1InterleavedBf16Workaround) // input_tensor
+          .addInputOperandWorkaround(
+              l1InterleavedUint16Workaround) // expert_indices
+          .addInputOperandWorkaround(
+              l1InterleavedBf16Workaround) // expert_scores
+          .addInputOperandWorkaround(
+              rowMajorUint16Workaround); // expert_mapping
+  // Optional pre-zeroed output operands, when present, must arrive in the
+  // same layout as the corresponding op result so the kernel can write
+  // directly into them: dispatched = ROW_MAJOR/BF16 (DRAM, the default
+  // result buffer type — no override needed), indices/scores =
+  // ROW_MAJOR/UINT16-or-BF16 on L1 HEIGHT_SHARDED. The optional operands
+  // are emitted by `TTIRToTTNN::AllToAllDispatchMetadataOpConversion-
+  // Pattern` already in the matching layout, so these workarounds are
+  // typically a no-op; we still register them for symmetry.
+  if (a2aOp.getOptionalDispatchedOutputTensor()) {
+    workarounds = workarounds.addInputOperandWorkaround(
+        rowMajorBf16Workaround); // optional_dispatched_output_tensor
+  }
+  if (a2aOp.getOptionalIndicesOutputTensor()) {
+    workarounds = workarounds.addInputOperandWorkaround(
+        l1ShardedUint16Workaround); // optional_indices_output_tensor
+  }
+  if (a2aOp.getOptionalScoresOutputTensor()) {
+    workarounds = workarounds.addInputOperandWorkaround(
+        l1ShardedBf16Workaround); // optional_scores_output_tensor
+  }
+  return workarounds
+      .addOutputOperandWorkaround(rowMajorBf16Workaround)    // dispatched
+      .addOutputOperandWorkaround(l1ShardedUint16Workaround) // indices
+      .addOutputOperandWorkaround(l1ShardedBf16Workaround);  // scores
 }
 
 // Factory method to create workarounds for moe_gpt op operands.

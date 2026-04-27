@@ -114,6 +114,18 @@ table AllToAllDispatchMetadataOp {
   cluster_axis: uint32;
   memory_config: tt.target.ttnn.MemoryConfig;
   drain_core: tt.target.ttnn.CoreCoord;
+  // Optional pre-zeroed output buffers for the three outputs (dispatched,
+  // indices, scores). When provided, the runtime uses these as
+  // `optional_output_tensors` for the kernel instead of allocating fresh
+  // zero buffers via `ttnn::zeros` (which is incompatible with trace capture
+  // because it writes initial values to device memory). The IR materializes
+  // them via `ttnn.full -> ttnn.multiply` so that const-eval can hoist the
+  // zero template outside `@main` and a workaround pass can splice an
+  // additional per-call `ttnn.multiply` to keep each invocation's buffer
+  // fresh.
+  optional_dispatched_output_tensor: tt.target.ttnn.TensorRef;
+  optional_indices_output_tensor: tt.target.ttnn.TensorRef;
+  optional_scores_output_tensor: tt.target.ttnn.TensorRef;
 }
 
 table AllToAllCombineOp {

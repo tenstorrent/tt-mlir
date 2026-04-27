@@ -1664,7 +1664,7 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch"> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [AttrSizedOperandSegments]> {
     let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
     let description = [{
       Routes tokens along with expert scores to devices holding their selected
@@ -1687,12 +1687,31 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata"> {
         - dispatched: [1, tokens_global, H]
         - indices:    [1, tokens_global, K]  (all-gathered across ring)
         - scores:     [1, tokens_global, K]  (all-gathered across ring)
+
+      The three `optional_*_output_tensor` operands, when provided, are used as
+      pre-allocated zero-initialized output buffers. The dispatch kernel
+      performs sparse cross-device writes via the fabric — unrouted destination
+      slots must start as zero, otherwise uninitialized DRAM contents propagate
+      to downstream MoE compute. Callers should pass zero-filled tensors with
+      the same shape/dtype/layout as the corresponding result. Mirrors the
+      tt-metal `fused_decode.py` reference which explicitly pre-zeroes these
+      buffers, and avoids the runtime-side `ttnn::zeros` allocation that is
+      incompatible with trace capture.
     }];
 
     let arguments = (ins AnyRankedTensor:$input_tensor,
                          AnyRankedTensor:$expert_indices,
                          AnyRankedTensor:$expert_scores,
                          AnyRankedTensor:$expert_mapping,
+                         Arg<Optional<AnyRankedTensor>,
+                             "optional pre-zeroed dispatched output tensor",
+                             [MemWrite]>:$optional_dispatched_output_tensor,
+                         Arg<Optional<AnyRankedTensor>,
+                             "optional pre-zeroed indices output tensor",
+                             [MemWrite]>:$optional_indices_output_tensor,
+                         Arg<Optional<AnyRankedTensor>,
+                             "optional pre-zeroed scores output tensor",
+                             [MemWrite]>:$optional_scores_output_tensor,
                          I64Attr:$num_devices,
                          I64Attr:$cluster_axis,
                          OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,

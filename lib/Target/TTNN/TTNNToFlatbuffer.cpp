@@ -1254,10 +1254,31 @@ createOp(FlatbufferObjectCache &cache, AllToAllDispatchMetadataOp op) {
     drainCorePtr = &drainCoreVal;
   }
 
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef>
+      optionalDispatchedOutputTensor = 0;
+  if (op.getOptionalDispatchedOutputTensor()) {
+    optionalDispatchedOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalDispatchedOutputTensor()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef>
+      optionalIndicesOutputTensor = 0;
+  if (op.getOptionalIndicesOutputTensor()) {
+    optionalIndicesOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalIndicesOutputTensor()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef>
+      optionalScoresOutputTensor = 0;
+  if (op.getOptionalScoresOutputTensor()) {
+    optionalScoresOutputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalScoresOutputTensor()));
+  }
+
   return ::tt::target::ttnn::CreateAllToAllDispatchMetadataOp(
       *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
       dispatched, indices, scores, static_cast<uint32_t>(op.getNumDevices()),
-      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig, drainCorePtr);
+      static_cast<uint32_t>(op.getClusterAxis()), memoryConfig, drainCorePtr,
+      optionalDispatchedOutputTensor, optionalIndicesOutputTensor,
+      optionalScoresOutputTensor);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AllToAllCombineOp>

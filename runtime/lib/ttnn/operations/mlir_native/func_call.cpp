@@ -18,9 +18,12 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
         context.getTensorPool().getRuntimeTensorAndValidate(input));
   }
 
+  // Forward the caller's context so state that must persist across nested
+  // invocations (e.g. implicit `GlobalSemaphore`s shared between trace
+  // warmup and trace capture) is shared with the parent.
   ProgramExecutor executor(context.getDeviceHandle(),
                            context.getExecutableHandle(), programIndex, inputs,
-                           /*constEvalProgram=*/false);
+                           /*constEvalProgram=*/false, &context);
 
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputs = executor.gatherOutputTensors();

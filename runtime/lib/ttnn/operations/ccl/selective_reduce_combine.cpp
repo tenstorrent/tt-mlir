@@ -64,14 +64,27 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
   // init-semaphore path which may leave destination slots on remote devices
   // untouched, manifesting as identical (residual-only) outputs on
   // non-source devices of the cluster row.
+  //
+  // `create_global_semaphore` writes the initial value to all devices via
+  // `EnqueueWriteMeshBuffer`, which is rejected during trace capture. We
+  // route through `ProgramContext::getOrCreateImplicitGlobalSemaphore` so
+  // the semaphore is created exactly once per (program-context, op) pair —
+  // on the trace-capture warmup pass, before `begin_trace_capture`. The
+  // captured trace and all subsequent decode steps reuse the cached
+  // semaphore by address, with no further host writes.
   ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
-  auto computeGrid = meshDevicePtr->compute_with_storage_grid_size();
-  ::tt::tt_metal::CoreRangeSet semaphoreCores(::tt::tt_metal::CoreRange(
-      ::tt::tt_metal::CoreCoord(0, 0),
-      ::tt::tt_metal::CoreCoord(computeGrid.x - 1, computeGrid.y - 1)));
   ::ttnn::GlobalSemaphore crossDeviceSemaphore =
-      ::ttnn::global_semaphore::create_global_semaphore(
-          meshDevicePtr, semaphoreCores, /*initial_value=*/0);
+      context.getOrCreateImplicitGlobalSemaphore(
+          reinterpret_cast<uintptr_t>(op), [&]() {
+            auto computeGrid = meshDevicePtr->compute_with_storage_grid_size();
+            ::tt::tt_metal::CoreRangeSet semaphoreCores(
+                ::tt::tt_metal::CoreRange(::tt::tt_metal::CoreCoord(0, 0),
+                                          ::tt::tt_metal::CoreCoord(
+                                              computeGrid.x - 1,
+                                              computeGrid.y - 1)));
+            return ::ttnn::global_semaphore::create_global_semaphore(
+                meshDevicePtr, semaphoreCores, /*initial_value=*/0);
+          });
 
   ::ttnn::Tensor output = ::ttnn::prim::selective_reduce_combine(
       denseInputTensor, denseActivationsTensor, denseTokenMapsTensor,
