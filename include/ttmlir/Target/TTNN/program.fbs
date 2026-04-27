@@ -109,6 +109,7 @@ union OpType {
   Pool2dOp,
   PrepareConv2dBiasOp,
   PrepareConv2dWeightsOp,
+  PrepareConv3dWeightsOp,
   PrepareConvTranspose2dBiasOp,
   PrepareConvTranspose2dWeightsOp,
   RandOp,

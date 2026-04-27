@@ -387,6 +387,81 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareConv3dWeightsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::PrepareConv3dWeightsOp::verify() {
+  mlir::RankedTensorType weightType = getWeightTensor().getType();
+  mlir::RankedTensorType resultType = getResult().getType();
+
+  if (weightType.getRank() != 5) {
+    return emitOpError("Weight must be a 5D tensor");
+  }
+
+  if (resultType.getRank() != 2) {
+    return emitOpError("Result must be a 2D tensor");
+  }
+
+  if (getGroups() <= 0) {
+    return emitOpError("Groups must be positive");
+  }
+
+  if (getCInBlock() < 0) {
+    return emitOpError("C_in_block must be non-negative");
+  }
+
+  if (getAlignment() <= 0) {
+    return emitOpError("Alignment must be positive");
+  }
+
+  if (llvm::any_of(weightType.getShape(), ShapedType::isDynamic) ||
+      llvm::any_of(resultType.getShape(), ShapedType::isDynamic)) {
+    return success();
+  }
+
+  constexpr unsigned int WEIGHT_OUT_CHANNEL_DIM = 0;
+  constexpr unsigned int WEIGHT_IN_CHANNEL_DIM = 1;
+  constexpr unsigned int WEIGHT_KERNEL_DEPTH_DIM = 2;
+  constexpr unsigned int WEIGHT_KERNEL_HEIGHT_DIM = 3;
+  constexpr unsigned int WEIGHT_KERNEL_WIDTH_DIM = 4;
+
+  int64_t outChannels = weightType.getShape()[WEIGHT_OUT_CHANNEL_DIM];
+  int64_t inChannels =
+      weightType.getShape()[WEIGHT_IN_CHANNEL_DIM] * getGroups();
+  int64_t alignment = getAlignment();
+  int64_t cInAligned = llvm::divideCeil(inChannels, alignment) * alignment;
+  int64_t cInBlock = getCInBlock() == 0 ? cInAligned : getCInBlock();
+
+  if (cInAligned % cInBlock != 0) {
+    return emitOpError() << "C_in_block (" << cInBlock
+                         << ") must divide aligned input channels ("
+                         << cInAligned << ")";
+  }
+
+  int64_t numCInBlocks = cInAligned / cInBlock;
+  int64_t flattenedDim =
+      numCInBlocks * weightType.getShape()[WEIGHT_KERNEL_DEPTH_DIM] *
+      weightType.getShape()[WEIGHT_KERNEL_HEIGHT_DIM] *
+      weightType.getShape()[WEIGHT_KERNEL_WIDTH_DIM] * cInBlock;
+
+  if (resultType.getShape()[0] != flattenedDim) {
+    return emitOpError()
+           << "Expected result first dimension (" << resultType.getShape()[0]
+           << ") to match prepared conv3d weight flattened dimension ("
+           << flattenedDim << ")";
+  }
+
+  if (resultType.getShape()[1] != outChannels) {
+    return emitOpError() << "Expected result second dimension ("
+                         << resultType.getShape()[1]
+                         << ") to match output channels (" << outChannels
+                         << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // PrepareConvTranspose2dWeightsOp
 //===----------------------------------------------------------------------===//
 

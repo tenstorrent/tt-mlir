@@ -1243,6 +1243,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRef = opContext.type_as_PrepareConv3dWeightsOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
     tensorRefs = {opContext.type_as_PrepareConvTranspose2dWeightsOp()->out()};
     break;
@@ -1755,6 +1759,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareConv3dWeightsOp()->weight_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
