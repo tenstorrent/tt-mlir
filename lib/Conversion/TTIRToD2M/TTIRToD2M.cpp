@@ -2513,6 +2513,67 @@ public:
     return success();
   }
 };
+
+// Conversion for ttir.repeat -> nested ttir.concat ops -> d2m.composite_view.
+// Decomposes repeat into concatenations along each dimension.
+class D2MRepeatRewriter : public mlir::OpConversionPattern<ttir::RepeatOp>,
+                          D2MNamedRewriterCommon {
+  using ConcreteOp = ttir::RepeatOp;
+
+public:
+  D2MRepeatRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace,
+                    bool /*ttnnMode*/, bool /*collapseTensors*/,
+                    bool enableMulticastInference)
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               /*ttnnMode=*/false, /*collapseTensors=*/false,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::Location loc = op.getLoc();
+    auto repeatDimensions = op.getRepeatDimensions();
+
+    // Start with the input tensor
+    Value current = adaptor.getInput();
+    auto inputType = mlir::cast<RankedTensorType>(current.getType());
+    int64_t rank = inputType.getRank();
+
+    // Process each dimension, creating concat operations
+    for (int64_t dim = 0; dim < rank; ++dim) {
+      int64_t repeatCount = repeatDimensions[dim];
+
+      // Skip dimensions with repeat count of 1
+      if (repeatCount == 1) {
+        continue;
+      }
+
+      // Create a vector of the current tensor repeated repeatCount times
+      SmallVector<Value> inputs(repeatCount, current);
+
+      // Compute the output shape for this concat
+      auto currentType = mlir::cast<RankedTensorType>(current.getType());
+      SmallVector<int64_t> newShape(currentType.getShape().begin(),
+                                    currentType.getShape().end());
+      newShape[dim] *= repeatCount;
+
+      auto outputType = RankedTensorType::get(
+          newShape, currentType.getElementType(), currentType.getEncoding());
+
+      // Create the concat operation
+      auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+      current =
+          rewriter.create<ttir::ConcatOp>(loc, outputType, inputs, dimAttr);
+    }
+
+    // Replace the original repeat op with the final result
+    rewriter.replaceOp(op, current);
+    return success();
+  }
+};
 } // namespace
 
 // Conversion for ttir.to_layout -> d2m.to_layout.
@@ -3955,6 +4016,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,
+    D2MRepeatRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp,          reshapeLogicalInfo>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp,      sliceLogicalInfo>,

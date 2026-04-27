@@ -446,6 +446,15 @@ module {
     return %0 : tensor<32x64xf32>
   }
 
+  // CHECK-LABEL: func @named_repeat
+  func.func @named_repeat(%arg0: tensor<32x32xf32>) -> tensor<64x96xf32> {
+    // CHECK-NOT: ttir.repeat
+    // CHECK: ttir.concat
+    // CHECK: ttir.concat
+    %0 = "ttir.repeat"(%arg0) <{repeat_dimensions = array<i64: 2, 3>}> : (tensor<32x32xf32>) -> tensor<64x96xf32>
+    return %0 : tensor<64x96xf32>
+  }
+
   // CHECK-LABEL: func @named_clamp_scalar
   func.func @named_clamp_scalar(%arg: !ttype) -> (!ttype) {
     // named clamp_scalar op, unary with scalar attributes:
