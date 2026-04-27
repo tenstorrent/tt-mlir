@@ -2361,6 +2361,7 @@ def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$residual,
                          Optional<AnyRankedTensor>:$stats,
+                         Optional<TTNN_GlobalSemaphore>:$semaphore,
                          TTNN_Device:$device,
                          UI32Attr:$cluster_axis,
                          DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
@@ -3334,7 +3335,8 @@ def TTNN_ExecuteTraceOp : TTNN_MemoryEffectOp<"execute_trace", [OpModelExempt]> 
   let hasVerifier = 1;
 }
 
-def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace", [OpModelExempt]> {
+def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace",
+    [AttrSizedOperandSegments, OpModelExempt]> {
   let summary = "Capture or execute trace.";
   let description = [{
     Captures or executes the trace. Will have read/write memory effects on the cached trace data.
@@ -3346,6 +3348,7 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
       - `capture_callee` FlatSymbolRefAttr: The symbol of the capture trace function.
       - `execute_callee` FlatSymbolRefAttr: The symbol of the execute trace function.
       - `inputs` Variadic<AnyRankedTensor>: The input tensors to the trace function.
+      - `semaphore_inputs` Variadic<TTNN_GlobalSemaphore>: Global semaphores forwarded into the capture/execute programs.
     Outputs:
       - `results` Variadic<AnyRankedTensor>: The output tensors from the trace function.
   }];
@@ -3353,7 +3356,8 @@ def TTNN_CaptureOrExecuteTraceOp : TTNN_MemoryEffectOp<"capture_or_execute_trace
   let arguments = (ins TTNN_Device:$device,
                        FlatSymbolRefAttr:$capture_callee,
                        FlatSymbolRefAttr:$execute_callee,
-                       Variadic<AnyRankedTensor>:$inputs);
+                       Variadic<AnyRankedTensor>:$inputs,
+                       Variadic<TTNN_GlobalSemaphore>:$semaphore_inputs);
 
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
@@ -3972,7 +3976,7 @@ def TTNN_TopKRouterGptOp : TTNN_Op<"topk_router_gpt"> {
   let hasVerifier = 1;
 }
 
-def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [OpModelExempt]> {
+def TTNN_CreateGlobalSemaphoreOp : TTNN_Op<"create_global_semaphore", [TTCore_CreationOpTrait, TTCore_NonCacheableTrait, OpModelExempt]> {
     let summary = "Create global semaphore op.";
     let description = [{
       Creates a global semaphore with the specified core range and initial value.

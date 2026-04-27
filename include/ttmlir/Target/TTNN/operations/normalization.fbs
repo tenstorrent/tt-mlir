@@ -69,6 +69,7 @@ table DistributedRMSNormOp {
   stats: tt.target.ttnn.TensorRef;
   program_config: tt.target.ttnn.LayerNormShardedMultiCoreProgramConfig;
   out: tt.target.ttnn.TensorRef;
+  semaphore: tt.target.ttnn.GlobalSemaphoreRef;
 }
 
 table RMSNormPreAllGatherOp {

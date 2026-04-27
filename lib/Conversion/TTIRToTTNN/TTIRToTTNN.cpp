@@ -1282,7 +1282,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::DistributedRMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getResidual(),
-        /*stats=*/nullptr, device,
+        /*stats=*/nullptr,
+        /*semaphore=*/nullptr, device,
         static_cast<uint32_t>(adaptor.getClusterAxis()), adaptor.getEpsilon(),
         /*sub_device_id=*/nullptr,
         /*num_links=*/nullptr,

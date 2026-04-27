@@ -18,11 +18,19 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
         context.getTensorPool().getRuntimeTensorAndValidate(input));
   }
 
-  // Forward the caller's context so state that must persist across nested
-  // invocations (e.g. implicit GlobalSemaphores) is shared with the parent.
+  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs;
+  if (op->semaphore_inputs()) {
+    semaphoreInputs.reserve(op->semaphore_inputs()->size());
+    for (const auto *semaphoreRef : *op->semaphore_inputs()) {
+      semaphoreInputs.push_back(
+          context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
+              semaphoreRef));
+    }
+  }
+
   ProgramExecutor executor(context.getDeviceHandle(),
                            context.getExecutableHandle(), programIndex, inputs,
-                           /*constEvalProgram=*/false, &context);
+                           /*constEvalProgram=*/false, semaphoreInputs);
 
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputs = executor.gatherOutputTensors();
