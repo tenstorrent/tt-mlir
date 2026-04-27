@@ -821,8 +821,9 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         OptionalParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$mem_layout,
                         OptionalParameter<"ttcore::TensorMeshAttr", "TT tensor mesh attr">:$tensor_mesh,
                         OptionalParameter<"bool", "A status flag, asking the users to ignore the physical layout. This is used to model a sharded layout with unspecified shard shape.">:$ignorePhysicalLayout,
-                        OptionalParameter<"bool", "A status flag indicating that the grid should be treated as the exact physical grid and not a virtual grid to be collapsed">:$exactGrid);
-  let assemblyFormat = "`<` $linear`,` `<` custom<DimensionList>($grid_shape) `>` `,` (`mesh` `=` $tensor_mesh^ `,`)? $memref (`,` $mem_layout^)? (`,` `exactGrid` `=` $exactGrid^)? (`,` `ignorePhysicalLayout` `=` $ignorePhysicalLayout^)?`>`";
+                        OptionalParameter<"bool", "A status flag indicating that the grid should be treated as the exact physical grid and not a virtual grid to be collapsed.">:$exactGrid,
+                        OptionalParameter<"CoreRangeSetAttr", "Explicit physical placement; overrides canonical derivation from (memLayout, gridShape, deviceGrid).">:$core_range_set_override);
+  let assemblyFormat = "`<` $linear`,` `<` custom<DimensionList>($grid_shape) `>` `,` (`mesh` `=` $tensor_mesh^ `,`)? custom<TTNNLayoutTail>($memref, $mem_layout, $exactGrid, $ignorePhysicalLayout, $core_range_set_override)";
   let extraClassDeclaration = [{
     static TTNNLayoutAttr get(::mlir::MLIRContext *context,
                         AffineMap linear,
@@ -854,6 +855,9 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
     TTNNLayoutAttr withDataType(ttcore::DataType dataType);
 
+    // Stamp (or clear, via nullptr) an explicit physical CoreRangeSet on this layout.
+    TTNNLayoutAttr withCoreRangeSetOverride(CoreRangeSetAttr override);
+
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
     bool isTiled() const;
@@ -876,12 +880,13 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     llvm::SmallVector<int64_t> getTiledShape(ArrayRef<int64_t> logicalTensorShape) const;
     std::pair<std::int64_t, std::int64_t> getDefaultCollapseIntervals() const;
 
-    // Return the physical CoreRangeSet for this layout on `deviceGrid`:
+    // Return the physical CoreRangeSet for this layout on `deviceGrid`.
     //
-    // Derives  canonically from (memLayout, gridShape, exactGrid,
+    // If an explicit `core_range_set_override` is set, returns it verbatim.
+    // Otherwise derives canonically from (memLayout, gridShape, exactGrid,
     // deviceGrid). Handles BlockSharded / HeightSharded / WidthSharded.
     //
-    // Returns nullptr for non-sharded memory layouts.
+    // Returns nullptr for non-sharded memory layouts with no override.
     CoreRangeSetAttr getCoreRangeSet(ttcore::GridAttr deviceGrid) const;
   }];
 

@@ -158,7 +158,8 @@ void populateTTNNModule(nb::module_ &m) {
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)), gridShape,
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
                 tensorMeshAttr,
-                /*ignorePhysicalLayout=*/false, exactGrid.value_or(false)));
+                /*ignorePhysicalLayout=*/false, exactGrid.value_or(false),
+                /*coreRangeSetOverride=*/nullptr));
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid_shape"),
           nb::arg("memref"), nb::arg("memLayout") = nb::none(),

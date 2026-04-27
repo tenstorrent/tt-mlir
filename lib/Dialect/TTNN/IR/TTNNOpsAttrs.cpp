@@ -447,12 +447,13 @@ TTNNLayoutAttr TTNNLayoutAttr::withDataType(ttcore::DataType dataType) {
     elementType = mlir::tt::ttcore::TileType::get(elementType);
   }
 
+  // Data-type only change: preserve any explicit core-range override.
   return TTNNLayoutAttr::get(
       getContext(), getLinear(), getGridShape(),
       ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), elementType, getBufferType()),
       getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
-      getExactGrid());
+      getExactGrid(), getCoreRangeSetOverride());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -490,12 +491,14 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
                               getContext(), TensorMemoryLayout::Interleaved);
   }
 
+  // Buffer-type change alters the physical semantics of placement
+  // (DRAM cores vs. L1 cores vs. system memory). Drop any override.
   return TTNNLayoutAttr::get(
       getContext(), getLinear(), gridShape,
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout(),
-      getExactGrid());
+      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout(), getExactGrid(),
+      /*coreRangeSetOverride=*/nullptr);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -508,12 +511,15 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
 // return The new TTNNLayoutAttr with the given memory layout.
 TTNNLayoutAttr
 TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
+  // Memory-layout change (Interleaved/BlockSharded/H-/W-sharded) alters the
+  // canonical derivation; any prior override is no longer meaningful.
   return TTNNLayoutAttr::get(getContext(), getLinear(), getGridShape(),
                              ttcore::buildMemRef<BufferType, BufferTypeAttr>(
                                  getContext(), getScalarShardShape(),
                                  getElementType(), getBufferType()),
                              memLayoutAttr, getTensorMesh(),
-                             getIgnorePhysicalLayout(), getExactGrid());
+                             getIgnorePhysicalLayout(), getExactGrid(),
+                             /*coreRangeSetOverride=*/nullptr);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -541,12 +547,13 @@ TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
 // return The new TTNNLayoutAttr with the given shard shape.
 TTNNLayoutAttr
 TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
+  // Per-shard geometry only; physical placement on each core is unaffected.
   return TTNNLayoutAttr::get(
       getContext(), getLinear(), getGridShape(),
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), shardShape, getElementType(), getBufferType()),
       getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
-      getExactGrid());
+      getExactGrid(), getCoreRangeSetOverride());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -582,8 +589,19 @@ TTNNLayoutAttr
 TTNNLayoutAttr::withIgnorePhysicalLayout(bool ignorePhysicalLayout) {
   return TTNNLayoutAttr::get(getContext(), getLinear(), getGridShape(),
                              getMemref(), getMemLayout(), getTensorMesh(),
-                             ignorePhysicalLayout, getExactGrid());
+                             ignorePhysicalLayout, getExactGrid(),
+                             getCoreRangeSetOverride());
 };
+
+// Stamp (or clear) an explicit physical CoreRangeSet onto this layout.
+// Passing a null attr clears any existing override and restores canonical
+// derivation on the next `getCoreRangeSet(deviceGrid)` call.
+TTNNLayoutAttr
+TTNNLayoutAttr::withCoreRangeSetOverride(CoreRangeSetAttr override) {
+  return TTNNLayoutAttr::get(
+      getContext(), getLinear(), getGridShape(), getMemref(), getMemLayout(),
+      getTensorMesh(), getIgnorePhysicalLayout(), getExactGrid(), override);
+}
 
 TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
                                    AffineMap linear,
@@ -594,7 +612,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
   return TTNNLayoutAttr::get(context, linear, gridShape, memref, mem_layout,
                              tensor_mesh,
                              /*ignorePhysicalLayout=*/false,
-                             /*exactGrid=*/false);
+                             /*exactGrid=*/false,
+                             /*coreRangeSetOverride=*/nullptr);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -647,7 +666,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           context, shardShape, elementType, bufferType);
   return get(context, linear, gridShape, memRefType, memLayoutAttr, tensorMesh,
-             ignorePhysicalLayout, /*exactGrid=*/false);
+             ignorePhysicalLayout, /*exactGrid=*/false,
+             /*coreRangeSetOverride=*/nullptr);
 }
 
 llvm::LogicalResult TTNNLayoutAttr::verify(
@@ -655,7 +675,7 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
     llvm::ArrayRef<int64_t> gridShape, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
     mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout,
-    bool exactGrid) {
+    bool exactGrid, CoreRangeSetAttr coreRangeSetOverride) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
@@ -1065,6 +1085,13 @@ buildRowMajorCoreRanges(mlir::MLIRContext *ctx, int64_t numCores,
 
 CoreRangeSetAttr
 TTNNLayoutAttr::getCoreRangeSet(mlir::tt::ttcore::GridAttr deviceGrid) const {
+  // Explicit override wins: the caller has already decided the exact
+  // physical placement (D2M spatial regions, DRAM-sharded permuted
+  // bank→core orderings).
+  if (CoreRangeSetAttr override = getCoreRangeSetOverride()) {
+    return override;
+  }
+
   TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
   if (!memLayoutAttr || !isShardedMemoryLayout(memLayoutAttr.getValue())) {
     return nullptr;

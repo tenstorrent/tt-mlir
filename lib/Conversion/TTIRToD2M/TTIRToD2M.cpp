@@ -663,7 +663,7 @@ protected:
           /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1}, memref,
           ttnnLayout.getMemLayout(),
           /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false,
-          /*exactGrid=*/true);
+          /*exactGrid=*/true, /*coreRangeSetOverride=*/nullptr);
     }
 
     mlir::RankedTensorType scalerType = mlir::RankedTensorType::get(

@@ -113,7 +113,8 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   return {ttnn::TTNNLayoutAttr::get(
       ctx, linearMap, ttnnGridShape, shardMemref, memLayout,
       /*tensorMesh=*/nullptr,
-      /*ignorePhysicalLayout=*/false, /*exactGrid=*/true)};
+      /*ignorePhysicalLayout=*/false, /*exactGrid=*/true,
+      /*coreRangeSetOverride=*/nullptr)};
 }
 
 static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
