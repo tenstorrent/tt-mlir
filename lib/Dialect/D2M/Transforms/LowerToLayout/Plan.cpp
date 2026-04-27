@@ -179,15 +179,18 @@ RankedTensorType createDeviceType(MLIRContext *ctx, RankedTensorType systemType,
 
   ttcore::MetalLayoutAttr layout;
   if (virtualBounceNeeded) {
-    auto [collapsedIntervals, dimAlignments] =
+    auto collapsedIntervals =
         computeGridAwareCollapsedIntervalsAndDimAlignments(ctx, referenceLayout,
-                                                           targetGridShape);
+                                                           targetGridShape)
+            .first;
     tensorGridShape.assign(targetGridShape.size(), 1);
     assert(collapsedIntervals.getType().getDimSize(0) == 2);
+    // Preserve the source layout's alignments so host staging keeps the same
+    // logical strides while the DRAM bounce is collapsed to 2D.
     layout = ttcore::MetalLayoutAttr::get(
-        ctx, referenceLayout.getLogicalShape(), dimAlignments,
-        collapsedIntervals, referenceLayout.getOobVal(),
-        ttcore::MemorySpace::DeviceDRAM,
+        ctx, referenceLayout.getLogicalShape(),
+        referenceLayout.getDimAlignments(), collapsedIntervals,
+        referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved);
   } else {
     layout = ttcore::MetalLayoutAttr::get(
