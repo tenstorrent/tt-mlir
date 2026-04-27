@@ -121,6 +121,7 @@ union OpType {
   RMSNormPreAllGatherOp,
   RMSNormOp,
   ReshapeOp,
+  SamplingOp,
   ScaledDotProductAttentionOp,
   ScaledDotProductAttentionDecodeOp,
   ScatterOp,

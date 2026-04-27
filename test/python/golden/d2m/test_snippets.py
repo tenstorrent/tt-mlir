@@ -61,7 +61,7 @@ def extract_functions_from_mlir(mlir_content: str) -> List[Tuple[str, str]]:
 
 
 # Model IDs (path under mlir_snippets/models without .mlir) to exclude from
-# discovery here; they are tested in test_d2m_fusion_with_optimizer.py instead.
+# discovery here; they are tested in test_fusion_with_optimizer.py instead.
 SNIPPETS_TO_SKIP = {
     "gpt_oss_20b/gate_up",
     "gpt_oss_20b/rope_embedding",

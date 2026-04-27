@@ -5706,11 +5706,12 @@ public:
     RankedTensorType updatesType =
         mlir::cast<RankedTensorType>(updates.getType());
 
-    // If the cachePositions tensor has more than one element we assume it
-    // represents a set of arranged indices (0, cachePositions.size), so we
-    // replace it with FillCacheOp. If the tensor has only one element, we
-    // assume it represents the update index for UpateCacheOp.
-    if (cacheUpdateInputShape[0] != 1) {
+    // If the update seq_len > 1 we use FillCacheOp (prefill). If not, we use
+    // UpdateCacheOp (single-token decode). We use the update tensor's sequence
+    // dim rather than the block arg shape because the block arg may be a scalar
+    // cumulative_length (shape [1]) even when filling multiple positions.
+    int64_t cacheUpdateSeqLen = updatesType.getShape()[2];
+    if (cacheUpdateSeqLen != 1) {
       // Fill cache requires that each batch is filled separately. So, we will
       // insert a FillCacheOp for each batch. This requires slicing out each
       // batch.
@@ -5872,7 +5873,8 @@ private:
       if (!effectively1D) {
         continue;
       }
-      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
+      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize ||
+          ttmlir::utils::volume(argTensorShape) == 1) {
         // We found the cachePositions input tensor.
         return blockArg;
       }
@@ -7362,6 +7364,67 @@ public:
     return success();
   }
 };
+
+class StableHLOSamplingConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.sampling") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().size() != 5 || srcOp.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Sampling op must have exactly five operands and one result. "
+                 "Got " +
+                     std::to_string(adaptor.getOperands().size()) +
+                     " operands and " +
+                     std::to_string(srcOp.getResults().size()) + " results.");
+    }
+
+    Value inputValues = adaptor.getOperands()[0];
+    Value inputIndices = adaptor.getOperands()[1];
+    Value k = adaptor.getOperands()[2];
+    Value p = adaptor.getOperands()[3];
+    Value temp = adaptor.getOperands()[4];
+
+    // Parse optional seed from frontend attributes.
+    std::optional<uint32_t> seed;
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (frontendAttributes) {
+      auto seedStringAttr = frontendAttributes.getAs<mlir::StringAttr>("seed");
+      if (seedStringAttr) {
+        uint32_t seedVal;
+        if (seedStringAttr.getValue().getAsInteger(10, seedVal)) {
+          return rewriter.notifyMatchFailure(srcOp,
+                                             "Failed to parse seed attribute.");
+        }
+        seed = seedVal;
+      }
+    }
+
+    auto resultType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    mlir::IntegerAttr seedAttr;
+    if (seed.has_value()) {
+      seedAttr = rewriter.getIntegerAttr(
+          rewriter.getIntegerType(32, /*isSigned=*/false), seed.value());
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::SamplingOp>(
+        srcOp, resultType, inputValues, inputIndices, k, p, temp, seedAttr);
+
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -8292,6 +8355,7 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedUpdateCacheConversionPattern>(typeConverter, ctx);
   patterns.add<StableHLOPagedFillCacheConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOSamplingConversionPattern>(typeConverter, ctx);
 }
 
 static void

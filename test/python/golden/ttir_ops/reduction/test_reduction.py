@@ -105,7 +105,7 @@ reduction_op_cpu_hoisted_names = [
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_cpu_hoisted_names)
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_reduction_cpu_hoisted_ops(
     shape,
     dtype: torch.dtype,
@@ -190,7 +190,7 @@ def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
     ids=["dim1", "dim0", "dim_negative"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_hoisted_cumsum(
     shapes: List[Shape],
     dim: int,

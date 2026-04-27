@@ -462,28 +462,6 @@ inline mlir::Attribute splatToFillValue(mlir::OpBuilder &builder,
   return nullptr;
 }
 
-/// True when the reduction touches a dim before the last two (tile C/R).
-/// Those go through the D2M outer-reduction path and must not be decomposed.
-template <typename TTIRReductionOp>
-bool isOuterReduction(TTIRReductionOp op) {
-  auto inputType = mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
-  int64_t rank = inputType.getRank();
-  std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
-  if (rank < 2 || !maybeDimArg.has_value()) {
-    return false;
-  }
-  for (auto dimAttr : *maybeDimArg) {
-    int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
-    if (dim < 0) {
-      dim += rank;
-    }
-    if (dim < rank - 2) {
-      return true;
-    }
-  }
-  return false;
-}
-
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H

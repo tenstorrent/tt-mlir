@@ -12,7 +12,6 @@ from builder.base.builder_apis import (
     compile_and_execute_ttir,
 )
 from test_utils import (
-    Marks,
     SkipIf,
     shape_str,
 )
@@ -277,29 +276,28 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 unary_ops = [
     abs,
-    acos | Marks(pytest.mark.skip_config(["ttmetal"])),
-    asin | Marks(pytest.mark.skip_config(["ttmetal"])),
-    asinh | Marks(pytest.mark.skip_config(["ttmetal"])),
-    atan | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
+    acos,
+    asin,
+    asinh,
+    atan,
+    cbrt,
     ceil,
     cos,
     erf,
     erfc,
     exp,
     expm1,
-    exp2 | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     floor,
     gelu,
-    is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
+    is_finite,
     log,
     log1p,
     logical_not,
-    mish | Marks(pytest.mark.skip_config(["ttmetal"])),
+    mish,
     neg,
     reciprocal,
     relu,
-    relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    relu6,
     rsqrt,
     sigmoid,
     sign,
@@ -307,12 +305,6 @@ unary_ops = [
     silu,
     sin,
     sqrt,
-    square | SkipIf("ttnn", "emitc", "emitpy", "sim"),
-    softsign | SkipIf("ttnn", "emitc", "emitpy", "sim"),
-    signbit | SkipIf("ttnn", "emitc", "emitpy", "sim"),
-    selu | SkipIf("ttnn", "emitc", "emitpy", "sim"),
-    frac | SkipIf("ttnn", "emitc", "emitpy", "sim"),
-    trunc | SkipIf("ttnn", "emitc", "emitpy", "sim"),
     tan,
     tanh,
 ]
@@ -330,7 +322,6 @@ unary_ops_dtypes = [
     "target",
     [
         "ttnn" | SkipIf("sim"),
-        "ttmetal",
         "emitc" | SkipIf("sim"),
         "emitpy" | SkipIf("sim"),
     ],
@@ -349,6 +340,21 @@ def test_unary_ops(
         "sign",
     }:
         pytest.skip("int32 unary op is not in the allowlist for this test")
+
+    # tt-metal #41850 replaced the SFPU erf kernel with a LUT-based rational
+    # approximation. The new kernel reads the input as a float, so int32 bit
+    # patterns become NaN/Inf and the output diverges from torch.erf. The
+    # TTNN pipeline inserts a bf16 typecast workaround around ttnn.erf for
+    # integer inputs (see TTNNWorkaroundsPass), but the TTMetal pipeline
+    # lowers ttir.erf directly into a D2M tile op without that workaround.
+    # Skip until a TTIR-level decomposition is added for ttmetal.
+    # Tracking issue: https://github.com/tenstorrent/tt-mlir/issues/8105
+    if dtype == torch.int32 and test_fn is erf and target == "ttmetal":
+        pytest.skip(
+            "erf with int32 input is not supported on ttmetal yet; "
+            "TTNN typecast workaround doesn't apply to the ttmetal pipeline. "
+            "See https://github.com/tenstorrent/tt-mlir/issues/8105"
+        )
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -381,14 +387,11 @@ bitwise_unary_ops = [bitwise_not]
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
 def test_bitwise_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    if target == "ttmetal":
-        pytest.xfail(reason="i32 unary ops not supported on ttmetal yet")
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def bitwise_unary_ops(
@@ -416,7 +419,7 @@ def leaky_relu(
     return builder.leaky_relu(in0, parameter, unit_attrs=unit_attrs)
 
 
-unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
+unary_ops_with_float_param = [leaky_relu]
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
@@ -425,7 +428,6 @@ unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
     "target",
     [
         "ttnn" | SkipIf("sim"),
-        "ttmetal" | SkipIf("sim"),
         "emitc" | SkipIf("sim"),
         "emitpy" | SkipIf("sim"),
     ],
@@ -503,60 +505,6 @@ def test_get_dimension_size(
     )
 
 
-# Unaligned shapes tests for the neg op
-unaligned_shapes = [
-    (5, 3),
-    (32, 1),
-    (31, 7),
-    (1, 32),
-    (13, 29),
-    (64, 1),
-    (61, 3),
-    (61, 37),
-    (1, 64),
-    (5, 67),
-    (43, 67),
-    (2, 3, 5),
-    (3, 17, 37),
-    (9, 43, 7),
-    (5, 61, 49),
-    (51, 19, 23),
-    (677, 1, 1),
-    (2, 3, 5, 7),
-    (3, 37, 5, 53),
-    (37, 3, 5, 53),
-    (41, 7, 43, 11),
-    (7, 41, 43, 11),
-    (1, 23, 1, 1),
-    (23, 1, 1, 1),
-    (3, 5, 7, 11, 13),
-]
-
-
-@pytest.mark.parametrize("shape", unaligned_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_unaligned_shapes_neg(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def wrapper(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return neg(in0, builder, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        print_ir=False,
-    )
-
-
 # Hoisted unary ops
 
 
@@ -612,7 +560,7 @@ hoisted_shapes = [
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_cpu_hoistable_unary_ops_float(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
@@ -640,7 +588,7 @@ def test_cpu_hoistable_unary_ops_float(
 @pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_cpu_hoistable_unary_ops_float_integer(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
@@ -667,7 +615,7 @@ def test_cpu_hoistable_unary_ops_float_integer(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_leaky_relu(
     shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -686,28 +634,6 @@ def test_hoisted_leaky_relu(
     compile_and_execute_ttir(
         module,
         test_base=f"{request.node.name}",
-        target=target,
-        device=device,
-    )
-
-
-# 1D tensor test for ttmetal
-@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def unary_1d(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return neg(in0, builder, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
         target=target,
         device=device,
     )

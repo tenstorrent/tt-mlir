@@ -467,6 +467,24 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 }
 
 TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
+  // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors
+  // and produces a ROW_MAJOR output. Declare both so the pass inserts
+  // to_layout ops to reconcile with neighbours.
+  TTNNOperandWorkarounds empty;
+  TTNNOperandWorkarounds rowMajor;
+  rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(empty)      // input_values
+      .addInputOperandWorkaround(rowMajor)   // input_indices
+      .addInputOperandWorkaround(rowMajor)   // k
+      .addInputOperandWorkaround(rowMajor)   // p
+      .addInputOperandWorkaround(rowMajor)   // temp
+      .addOutputOperandWorkaround(rowMajor); // result
+}
+
+TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(
     Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;
@@ -654,6 +672,25 @@ TTNNOperandsWorkaroundsFactory::createTanhOpOperandsWorkarounds() {
   operandWorkaround.tensorDataTypeWorkaround =
       mlir::tt::ttcore::DataType::BFloat16;
 
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(operandWorkaround)
+      .addOutputOperandWorkaround(operandWorkaround);
+}
+
+// tt-metal's `ttnn.erf` SFPU kernel (LUT-based rational approximation
+// introduced in tt-metal #41850) treats each input lane as a floating-point
+// value. When called with an integer dtype the integer bit pattern is
+// reinterpreted as a float, producing NaN/Inf/garbage that the new LUT is
+// unable to saturate to ±1 in all cases, so the result no longer matches the
+// mathematical erf. Force a bf16 typecast around the op for integer inputs.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createErfOpOperandsWorkarounds(
+    mlir::RankedTensorType inputType) {
+  TTNNOperandWorkarounds operandWorkaround;
+  if (inputType.getElementType().isInteger()) {
+    operandWorkaround.tensorDataTypeWorkaround =
+        mlir::tt::ttcore::DataType::BFloat16;
+  }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(operandWorkaround)
       .addOutputOperandWorkaround(operandWorkaround);

@@ -6,7 +6,7 @@
 #ttnn_layout_device_tile_sharded = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>>
 #ttnn_layout_device_tile_interleaved = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <interleaved>>
 module attributes {} {
-  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = 2x4, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
+  ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = 2x4, chipIds = [0, 1, 2, 3, 4, 5, 6, 7]>
   func.func @test_fabric_unicast(%arg0: tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_row_major> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 2x4>}> : () -> !ttnn.device
 
@@ -20,7 +20,10 @@ module attributes {} {
     %out2 = "ttnn.distribute_tensor"(%out1, %0) <{mapper_config = #ttnn.mesh_mapper_config<placements = [<shard, 0 : i64>, <shard, 1 : i64>]>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
     %out3 = "ttnn.to_device"(%out2, %0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
 
-    "ttnn.generic"(%3, %out3) <{
+    %semaphore = "ttnn.create_global_semaphore"() <{initial_value = 10 : ui32, core_range = #ttnn.core_range<(0,0), (7,7)>}> : () -> !ttnn.global_semaphore
+    "ttnn.reset_global_semaphore"(%semaphore) <{value = 0 : ui32}> : (!ttnn.global_semaphore) -> ()
+
+    "ttnn.generic"(%3, %out3, %semaphore) <{
       program = #ttnn.mesh_program_descriptor<[
         #ttnn.mesh_program<
           range = #ttnn.mesh_range<(0,0), (1,3)>,
@@ -30,7 +33,7 @@ module attributes {} {
                 symbol_ref = @datamovement_kernel0,
                 core_ranges = <[#ttnn.core_range<(0,0), (0,0)>]>,
                 ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>],
-                common_rt_args = [],
+                common_rt_args = [#ttnn.kernel_arg_global_semaphore<2>],
                 rt_args = []>
             ],
             cbs = [
@@ -46,8 +49,8 @@ module attributes {} {
             semaphores = []>
         >
       ], fabric_connection_config = #ttcore.fabric_connection_config<noc_index = noc0, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>>,
-      operandSegmentSizes = array<i32: 2, 0>
-    }> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>) -> ()
+      operandSegmentSizes = array<i32: 2, 1>
+    }> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>, !ttnn.global_semaphore) -> ()
 
     // convert from block_sharded to interleaved before from_device or else aggregate_tensor will crash
     %out4 = "ttnn.to_memory_config"(%out3) <{memory_config = #ttnn.memory_config<#l1, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>) -> tensor<32x32xbf16, #ttnn_layout_device_tile_interleaved>
@@ -57,7 +60,7 @@ module attributes {} {
 
     return %6 : tensor<64x128xbf16, #ttnn_layout_host_row_major>
   }
-  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = global_semaphore, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     // Setup fabric connections
     %fabric_connection_manager_var = "emitc.variable"() <{value = #emitc.opaque<"">}> : () -> !emitc.lvalue<!emitc.opaque<"experimental::FabricConnectionManager">>
     %fabric_connection_manager = emitc.load %fabric_connection_manager_var : <!emitc.opaque<"experimental::FabricConnectionManager">>
@@ -81,8 +84,12 @@ module attributes {} {
     %cb1 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
     %dst_ptr = emitc.call_opaque "get_write_ptr"(%cb1) : (!emitc.opaque<"::tt::CB">) -> i32
 
-    // Get NOC address
-    %noc_addr = emitc.call_opaque "get_noc_addr"(%translated_x, %translated_y, %dst_ptr) : (!emitc.size_t, !emitc.size_t, i32) -> i64
+    // Get noc address
+    %global_semaphore_arg_idx = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
+    %global_semaphore = emitc.call_opaque "get_common_arg_val"(%global_semaphore_arg_idx) {template_args = [#emitc.opaque<"uint32_t">]} : (!emitc.size_t) -> i32
+    %global_semaphore_ptr = emitc.call_opaque "reinterpret_cast<volatile tt_l1_ptr uint32_t*>"(%global_semaphore) : (i32) -> !emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>
+    %global_semaphore_noc_addr = emitc.call_opaque "get_noc_addr"(%translated_x, %translated_y, %global_semaphore) : (!emitc.size_t, !emitc.size_t, i32) -> i64
+    %incr = "emitc.constant"() <{value = 1 : i32}> : () -> i32
 
     // Get my device id
     %my_device_id = emitc.call_opaque "experimental::get_my_device_id"() : () -> i16
@@ -90,7 +97,12 @@ module attributes {} {
     // Check if device is 0 and send to device 1 if it is
     %is_device0 = emitc.cmp eq, %my_device_id, %src_dev_id : (i16, i16) -> i1
     emitc.if %is_device0 {
-      emitc.call_opaque "experimental::fabric_fast_write_any_len"(%fabric_connection_manager, %dst_mesh_id, %dst_dev_id, %noc_addr, %src_ptr, %len_bytes) : (!emitc.opaque<"experimental::FabricConnectionManager">, i16, i16, i64, i32, i32) -> ()
+      emitc.call_opaque "experimental::fabric_sem_inc"(%fabric_connection_manager, %dst_mesh_id, %dst_dev_id, %global_semaphore_noc_addr, %incr) : (!emitc.opaque<"experimental::FabricConnectionManager">, i16, i16, i64, i32) -> ()
+    }
+
+    %is_dst_device = emitc.cmp eq, %my_device_id, %dst_dev_id : (i16, i16) -> i1
+    emitc.if %is_dst_device {
+      emitc.call_opaque "experimental::semaphore_wait"(%global_semaphore_ptr, %incr) : (!emitc.ptr<!emitc.opaque<"volatile tt_l1_ptr uint32_t">>, i32) -> ()
     }
     emitc.call_opaque "experimental::close_fabric_connections"(%fabric_connection_manager) : (!emitc.opaque<"experimental::FabricConnectionManager">) -> ()
     return

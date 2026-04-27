@@ -86,6 +86,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Conversion/D2M* @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Conversion/*D2M @tenstorrent/forge-developers-mlir-d2m
 /test/ttmlir/Dialect/D2M/ @tenstorrent/forge-developers-mlir-d2m
+/test/python/golden/d2m/ @tenstorrent/forge-developers-mlir-d2m
 
 # SFPI Dialect
 /include/ttmlir/Dialect/SFPI/ @tenstorrent/forge-developers-mlir-d2m
@@ -193,8 +194,8 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /tools/scripts/ @nsmithtt @ddilbazTT
 
 # python golden tests
-test/python/golden/test_metal_dma.py @vtangTT
+test/python/golden/d2m/test_dma.py @vtangTT
 
 # model snippet tests
 test/python/golden/mlir_snippets/models/ @nsmithtt @tapspatel
-test/python/golden/test_snippets.py @nsmithtt @tapspatel
+test/python/golden/d2m/test_snippets.py @nsmithtt @tapspatel

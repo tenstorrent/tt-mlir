@@ -2370,17 +2370,15 @@ public:
 } // namespace
 
 namespace {
-class D2MGetGlobalOperandRewriter
-    : public OpConversionPattern<d2m::GetGlobalOperandOp> {
+class D2MGetArgRewriter : public OpConversionPattern<d2m::GetArgOp> {
 public:
-  D2MGetGlobalOperandRewriter(TypeConverter &typeConverter,
-                              MLIRContext *context, bool ttnnMode)
-      : OpConversionPattern<d2m::GetGlobalOperandOp>(typeConverter, context),
+  D2MGetArgRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                    bool ttnnMode)
+      : OpConversionPattern<d2m::GetArgOp>(typeConverter, context),
         ttnnMode(ttnnMode) {}
 
   LogicalResult
-  matchAndRewrite(d2m::GetGlobalOperandOp op,
-                  d2m::GetGlobalOperandOpAdaptor adaptor,
+  matchAndRewrite(d2m::GetArgOp op, d2m::GetArgOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr arg;
@@ -2422,8 +2420,33 @@ public:
           op.getLoc(), rewriter.getI32Type(), static_cast<int32_t>(ctArgIdx));
       rewriter.replaceOpWithNewOp<ttkernel::GetSemaphoreOp>(op, semaphoreIndex);
       return success();
+    } else if (mlir::isa<IndexType, IntegerType, FloatType>(
+                   op.getResult().getType())) {
+      // Scalar additional args are always stored as ui32 in the CT arg slot.
+      // If the declared type differs from ui32, a ReinterpretCastOp recovers
+      // the correct type.
+      Type scalarType = op.getResult().getType();
+      Type ui32Type =
+          IntegerType::get(op.getContext(), 32, IntegerType::Unsigned);
+
+      ArgAttr scalarArg =
+          rewriter.getAttr<ArgAttr>(ArgType::Scalar, op.getOperandIndex());
+      size_t ctArgIdx;
+      rewriter.modifyOpInPlace(entry, [&]() {
+        ctArgIdx = ArgSpecAttr::appendCompileTimeArg(entry, scalarArg);
+      });
+
+      Value ctArg = rewriter.create<ttkernel::GetCompileArgValOp>(
+          op.getLoc(), ui32Type, static_cast<int32_t>(ctArgIdx));
+
+      if (scalarType == ui32Type) {
+        rewriter.replaceOp(op, ctArg);
+      } else {
+        rewriter.replaceOpWithNewOp<ttkernel::BitcastOp>(op, scalarType, ctArg);
+      }
+      return success();
     } else {
-      llvm_unreachable("unexpected arg type to GetGlobalOperandOp");
+      llvm_unreachable("unexpected arg type to GetArgOp");
     }
 
     if (ttnnMode) {
@@ -2921,7 +2944,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreWaitRewriter,
                ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx,
+  patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
                                                       ttnnMode);
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);

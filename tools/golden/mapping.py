@@ -3753,18 +3753,42 @@ def ttir_pad_golden(
 
 
 def ttir_constant_golden(
-    value: DenseElementsAttr, mesh_shape_attr: ArrayAttr
+    value_attr: DenseElementsAttr, mesh_shape_attr: ArrayAttr
 ) -> GoldenMapTensor:
-    shape = list(value.type.shape)
+    shape = list(value_attr.type.shape)
     mesh_shape = unpack_mlir_attr(mesh_shape_attr)
-    dtype = mlir_type_to_torch_dtype(value.type.element_type)
+    dtype = mlir_type_to_torch_dtype(value_attr.type.element_type)
 
-    if value.is_splat:
-        value = value.get_splat_value()
-        torch_tensor = torch.full(shape, value.value, dtype=dtype)
+    if value_attr.is_splat:
+        value_attr = value_attr.get_splat_value()
+        torch_tensor = torch.full(shape, value_attr.value, dtype=dtype)
     else:
-        flat_values = [elem for elem in value]
-        torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
+        # PyTorch bfloat16 is packed as uint16 bits in DenseElementsAttr
+        # MLIR's Python bindings don't support np.array() on bf16 DenseElementsAttr
+        # Extract the hex-encoded data instead
+        if dtype == torch.bfloat16:
+            attr_str = str(value_attr)
+            # MLIR uses hex encoding for large tensors: dense<"0xHEXDATA"> : tensor<...xbf16>
+            match = re.search(r'"0x([0-9A-F]+)"', attr_str, re.IGNORECASE)
+            if match:
+                hex_str = match.group(1)
+                byte_data = bytes.fromhex(hex_str)
+                u16_array = np.frombuffer(byte_data, dtype=np.uint16)
+                torch_tensor = (
+                    torch.from_numpy(u16_array.astype(np.int16))
+                    .view(torch.bfloat16)
+                    .reshape(shape)
+                )
+            else:
+                # Small tensors might use dense<[[value_attr, ...]]> format
+                # Parse the float values and convert to bfloat16
+                raise NotImplementedError(
+                    f"Non-hex bfloat16 constant not yet supported: {attr_str[:100]}"
+                )
+        else:
+            torch_tensor = torch.tensor(np.array(value_attr), dtype=dtype).reshape(
+                shape
+            )
 
     result = torch_tensor.reshape(shape)
     return GoldenMapTensor(
@@ -4904,6 +4928,33 @@ def ttir_topk_router_gpt_golden(
     expert_weights = expert_weights.to(output_dtype)
 
     return expert_indices, expert_weights
+
+
+def ttnn_sampling_golden(
+    input_values: GoldenMapTensor,
+    input_indices: GoldenMapTensor,
+    _k: GoldenMapTensor,
+    _p: GoldenMapTensor,
+    temp: GoldenMapTensor,
+    _seed: Optional[IntegerAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """CPU golden for ttnn.sampling (fused top-k/p + multinomial).
+
+    Inputs are already pre-filtered candidates, so k/p are unused on the
+    CPU side. The device kernel is stochastic with hardware RNG that
+    cannot be mirrored on CPU, so callers should disable PCC comparison.
+    """
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    temperature = temp.float().clamp(min=1e-6).unsqueeze(-1)
+    scaled = torch.div(input_values.float(), temperature)
+    probs = torch.softmax(scaled, dim=-1)
+    sampled_local = torch.multinomial(probs, num_samples=1).squeeze(-1)
+    return (
+        torch.gather(input_indices, 1, sampled_local.unsqueeze(-1))
+        .squeeze(-1)
+        .to(output_dtype)
+    )
 
 
 ################ StableHLO Op Golden Functions ###############
@@ -6650,6 +6701,76 @@ def ttnn_repeat_interleave_golden(
     return torch.repeat_interleave(input_tensor, repeats, dim=dim).to(output_dtype)
 
 
+def ttnn_full_golden(
+    shape_attr: Attribute,
+    fill_value_attr: Union[IntegerAttr, FloatAttr],
+    mesh_shape_attr: DenseI32ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = ttnn.ir.ShapeAttr.maybe_downcast(shape_attr).shape
+    fill_value = unpack_mlir_attr(fill_value_attr)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    tensor = torch.full(shape, fill_value).to(output_dtype)
+    return GoldenMapTensor(
+        {i: tensor.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
+
+
+def ttnn_constant_golden(
+    value_attr: DenseElementsAttr,
+    mesh_shape_attr: DenseI32ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = list(value_attr.type.shape)
+    mesh_shape = unpack_mlir_attr(mesh_shape_attr)
+    dtype = mlir_type_to_torch_dtype(value_attr.type.element_type)
+
+    if value_attr.is_splat:
+        value_attr = value_attr.get_splat_value()
+        torch_tensor = torch.full(shape, value_attr.value, dtype=dtype)
+    else:
+        # PyTorch bfloat16 is packed as uint16 bits in DenseElementsAttr
+        # MLIR's Python bindings don't support np.array() on bf16 DenseElementsAttr
+        # Extract the hex-encoded data instead
+        if dtype == torch.bfloat16:
+            attr_str = str(value_attr)
+            # MLIR uses hex encoding for large tensors: dense<"0xHEXDATA"> : tensor<...xbf16>
+            match = re.search(r'"0x([0-9A-F]+)"', attr_str, re.IGNORECASE)
+            if match:
+                hex_str = match.group(1)
+                byte_data = bytes.fromhex(hex_str)
+                u16_array = np.frombuffer(byte_data, dtype=np.uint16)
+                torch_tensor = (
+                    torch.from_numpy(u16_array.astype(np.int16))
+                    .view(torch.bfloat16)
+                    .reshape(shape)
+                )
+            else:
+                # Small tensors might use dense<[[value_attr, ...]]> format
+                # Parse the float values and convert to bfloat16
+                raise NotImplementedError(
+                    f"Non-hex bfloat16 constant not yet supported: {attr_str[:100]}"
+                )
+        else:
+            torch_tensor = torch.tensor(np.array(value_attr), dtype=dtype).reshape(
+                shape
+            )
+
+    result = torch_tensor.reshape(shape)
+    return GoldenMapTensor(
+        {i: result.clone() for i in range(mesh_shape[0] * mesh_shape[1])}, mesh_shape
+    )
+
+
+def ttnn_reshape_golden(
+    input_tensor: GoldenMapTensor, shape_attr: Attribute, output_type_mlir: Type
+) -> GoldenMapTensor:
+    new_shape = unpack_mlir_attr(shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reshape(input_tensor, new_shape).to(output_dtype)
+
+
 def ttnn_leaky_relu_golden(
     input_tensor: GoldenMapTensor,
     parameter_attr: FloatAttr,
@@ -7510,6 +7631,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    ttnn.ReshapeOp: ttnn_reshape_golden,
+    # Tensor creation
+    ttnn.FullOp: ttnn_full_golden,
+    ttnn.ConstantOp: ttnn_constant_golden,
     # Layout/Device operations
     ttnn.ToLayoutOp: ttnn_to_layout_golden,
     ttnn.ToDeviceOp: ttnn_to_device_golden,
@@ -7519,6 +7644,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.AggregateTensorOp: ttnn_aggregate_tensor_golden,
     ttnn.AllGatherOp: ttnn_all_gather_golden,
     ttnn.GatherOp: ttir_gather_golden,
+    ttnn.SamplingOp: ttnn_sampling_golden,
     ttnn.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttnn.ReduceScatterOp: ttnn_reduce_scatter_golden,
     # ----- DEBUG OPS -----

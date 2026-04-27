@@ -16,7 +16,6 @@ from builder.base.builder_apis import compile_and_execute_ttir, build_module
 from builder.base.builder_enums import *
 from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
-    Marks,
     SkipIf,
     shape_str,
     shapes_list_str,
@@ -50,7 +49,7 @@ def logical_not(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_logical_not(
     shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -129,7 +128,7 @@ def gt(
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [torch.float32, torch.float32])
@@ -178,7 +177,7 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module(builder: TTIRBuilder):
@@ -738,7 +737,7 @@ def test_dropout(
 
 @pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_callable_initialization_basic(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -766,7 +765,7 @@ def test_callable_initialization_basic(
 
 @pytest.mark.parametrize("shape", [(32, 32), (64, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_callable_initialization_zeros(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -789,7 +788,7 @@ def test_callable_initialization_zeros(
 
 @pytest.mark.parametrize("shape", [(32, 32), (64, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_callable_initialization_ones(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -812,7 +811,7 @@ def test_callable_initialization_ones(
 
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_callable_initialization_eye(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -843,7 +842,7 @@ def test_callable_initialization_eye(
 
 @pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_callable_initialization_mixed(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -869,7 +868,7 @@ def test_callable_initialization_mixed(
 
 @pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_callable_initialization_custom_lambda(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -1300,7 +1299,7 @@ def create_hoisted_reduce_op(op_func, name):
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_permute(shapes, permutation, request, target: str, device):
     def module(builder: TTIRBuilder):
@@ -1332,7 +1331,7 @@ def test_hoisted_permute(shapes, permutation, request, target: str, device):
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_slice(
     shape: Shape,
@@ -1369,7 +1368,7 @@ def test_hoisted_slice(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_where(shapes, request, target: str, device):
     def module(builder: TTIRBuilder):
@@ -1398,7 +1397,7 @@ def test_hoisted_where(shapes, request, target: str, device):
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_reshape(
     input_shape, output_shape, dtype, request, target: str, device
@@ -1429,7 +1428,7 @@ def test_hoisted_reshape(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, device):
     def module(builder: TTIRBuilder):
@@ -1456,7 +1455,7 @@ def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, devic
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request, device):
     """Test hoisted squeeze operation with appropriate shape that has a dimension of size 1"""
@@ -1532,13 +1531,7 @@ def test_unary_ops_int32(
         ),
     ],
 )
-@pytest.mark.parametrize(
-    "target",
-    [
-        "ttnn" | SkipIf("sim"),
-        "ttmetal" | Marks(pytest.mark.xfail(reason="Unimplemented ttir.embedding")),
-    ],
-)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_unique_ops(
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
@@ -1624,7 +1617,7 @@ def test_hoisted_embedding(
 @pytest.mark.parametrize("dim_args", [[0]])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_reduce_or(
     shape: Shape, dim_args: List[int], target: str, request, device
@@ -1660,7 +1653,7 @@ def test_hoisted_reduce_or(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_broadcast(shape, broadcast_dims, request, target: str, device):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
@@ -2007,7 +2000,10 @@ def test_reduce_scatter(
         (1, 1, 32, 64),
         (1, 32, 64),
         (32, 64),
-        (30, 60),
+        # Non tile-aligned (30, 60) shape currently fails on tracy builds for
+        # multi-device collective_permute.
+        # See https://github.com/tenstorrent/tt-mlir/issues/8097
+        pytest.param((30, 60), marks=pytest.mark.skip_config(["tracy"])),
     ],
     ids=shape_str,
 )
@@ -2147,6 +2143,11 @@ def test_collective_permute(
         ),
     ],
 )
+# Many all_to_all configurations are currently flaky/failing on tracy builds
+# (n300-tracy and llmbox-tracy CI jobs), so disable the whole test on tracy
+# until the underlying CCL issue is fixed.
+# See https://github.com/tenstorrent/tt-mlir/issues/8097
+@pytest.mark.skip_config(["tracy"])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_to_all(
     test_shape: Shape,
@@ -2224,7 +2225,10 @@ def test_all_to_all(
         (64, 32),
         (32, 128, 64),
         (8, 8, 32, 64),
-        (10, 10, 30, 60),
+        # Non tile-aligned (10, 10, 30, 60) shape currently fails on tracy
+        # builds for multi-device collective_broadcast.
+        # See https://github.com/tenstorrent/tt-mlir/issues/8097
+        pytest.param((10, 10, 30, 60), marks=pytest.mark.skip_config(["tracy"])),
     ],
     ids=shape_str,
 )
@@ -2447,7 +2451,7 @@ def test_nested_function_calls(target, request, device):
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_arange(
     shape: Shape,
@@ -2491,7 +2495,7 @@ def test_hoisted_arange(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_repeat(
     shape: Shape,
@@ -2532,7 +2536,7 @@ def test_hoisted_repeat(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_unsqueeze(
     shape: Shape,
@@ -2610,7 +2614,7 @@ def test_hoisted_typecast(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_concat(
     shapes: List[Shape],
@@ -2850,7 +2854,7 @@ def test_hoisted_split_query_key_value_and_split_heads_gqa(
 )
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_concatenate_heads(
     input_shape: Shape,
@@ -3122,5 +3126,26 @@ def test_paged_flash_multi_latent_attention_decode(
         module,
         **get_request_kwargs(request),
         target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def test_constant(
+    shape: Shape,
+    dtype: torch.dtype,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def constant(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+            constant_tensor = torch.randn(shape, dtype=dtype)
+            return builder.constant(constant_tensor)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
         device=device,
     )

@@ -151,7 +151,7 @@ template <>
 struct OpModel<ErfOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfOp> {};
 
 template <>
-struct OpModel<ErfcOp> : UnaryEltwiseWithFastApproxModeOpModel<ErfcOp> {};
+struct OpModel<ErfcOp> : UnaryEltwiseOpModel<ErfcOp> {};
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
@@ -750,21 +750,22 @@ struct OpModel<PagedScaledDotProductAttentionDecodeOp> {
       std::optional<TTNNLayoutAttr> curPosTensorLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
       std::optional<TTNNLayoutAttr> attentionSinkLayout,
-      std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+      std::optional<llvm::APFloat> scale, std::optional<CoreCoordAttr> coreGrid,
+      TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
-               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
-               llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
-               llvm::ArrayRef<int64_t> pageTableShape,
-               TTNNLayoutAttr pageTableLayout, bool isCausal,
-               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
-               std::optional<TTNNLayoutAttr> attentionMaskLayout,
-               std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
-               std::optional<TTNNLayoutAttr> curPosTensorLayout,
-               std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
-               std::optional<TTNNLayoutAttr> attentionSinkLayout,
-               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+      bool isCausal, std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout,
+      std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+      std::optional<TTNNLayoutAttr> curPosTensorLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
+      std::optional<TTNNLayoutAttr> attentionSinkLayout,
+      std::optional<llvm::APFloat> scale, std::optional<CoreCoordAttr> coreGrid,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1970,6 +1971,34 @@ struct OpModel<TopKOp> {
                                              TTNNLayoutAttr inputLayout, int k,
                                              int dim, bool largest, bool sorted,
                                              TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SamplingOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputValuesShape,
+                   TTNNLayoutAttr inputValuesLayout,
+                   llvm::ArrayRef<int64_t> inputIndicesShape,
+                   TTNNLayoutAttr inputIndicesLayout,
+                   llvm::ArrayRef<int64_t> kShape, TTNNLayoutAttr kLayout,
+                   llvm::ArrayRef<int64_t> pShape, TTNNLayoutAttr pLayout,
+                   llvm::ArrayRef<int64_t> tempShape, TTNNLayoutAttr tempLayout,
+                   std::optional<uint32_t> seed, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputValuesShape,
+               TTNNLayoutAttr inputValuesLayout,
+               llvm::ArrayRef<int64_t> inputIndicesShape,
+               TTNNLayoutAttr inputIndicesLayout,
+               llvm::ArrayRef<int64_t> kShape, TTNNLayoutAttr kLayout,
+               llvm::ArrayRef<int64_t> pShape, TTNNLayoutAttr pLayout,
+               llvm::ArrayRef<int64_t> tempShape, TTNNLayoutAttr tempLayout,
+               std::optional<uint32_t> seed, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

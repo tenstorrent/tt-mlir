@@ -302,11 +302,9 @@ static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
   llvm_unreachable("Expected a FloatType or IntegerType");
 }
 
-// Extract constant fill value by looking through layout ops (broadcast,
-// reshape, typecast, repeat_interleave) to find a FullOp, ZerosOp, or OnesOp.
+// Extract constant fill value from FullOp, ZerosOp, or OnesOp.
 static mlir::Attribute getConstantValue(mlir::Value value) {
-  mlir::Operation *op =
-      mlir::tt::ttir::utils::lookThroughLayoutOps(value).getDefiningOp();
+  mlir::Operation *op = value.getDefiningOp();
 
   if (auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttir::FullOp>(op)) {
     return fullOp.getFillValueAttr();
@@ -376,8 +374,8 @@ getShapeAsI32(mlir::RankedTensorType tensorType) {
 //===----------------------------------------------------------------------===//
 
 // Check if a value is known to be boolean-valued (exactly 0 or 1).
-// True for: i1 types, constants that are exactly 0 or 1 (looks through
-// layout ops), and results of comparison/logical ops.
+// True for: i1 types, constants that are exactly 0 or 1 and results of
+// comparison/logical ops.
 static bool isBooleanValued(mlir::Value value) {
   auto type = mlir::cast<mlir::RankedTensorType>(value.getType());
   if (type.getElementType().isInteger(1)) {
@@ -5226,6 +5224,54 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
           std::to_string(pageTableShape[0]));
     }
   }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::SamplingOp::verify() {
+  auto inputValuesType = getInputValues().getType();
+  auto inputIndicesType = getInputIndices().getType();
+  auto kType = getK().getType();
+  auto pType = getP().getType();
+  auto tempType = getTemp().getType();
+  auto resultType = getResult().getType();
+
+  if (inputValuesType.getRank() != 2) {
+    return emitOpError("input_values must be 2D [batch, candidates]");
+  }
+  if (inputIndicesType.getRank() != 2) {
+    return emitOpError("input_indices must be 2D [batch, candidates]");
+  }
+  if (inputValuesType.getShape() != inputIndicesType.getShape()) {
+    return emitOpError(
+        "input_values and input_indices must have the same shape");
+  }
+
+  int64_t batch = inputValuesType.getShape()[0];
+
+  // k, p, temp must be 1D with the same batch dimension.
+  for (auto [tensor, name] :
+       llvm::zip(std::array<mlir::RankedTensorType, 3>{kType, pType, tempType},
+                 std::array<llvm::StringRef, 3>{"k", "p", "temp"})) {
+    if (tensor.getRank() != 1) {
+      return emitOpError() << name << " must be 1D [batch]";
+    }
+    if (tensor.getShape()[0] != batch) {
+      return emitOpError() << name << " batch dimension ("
+                           << tensor.getShape()[0]
+                           << ") must match input_values batch (" << batch
+                           << ")";
+    }
+  }
+
+  // Result must be 1D [batch].
+  if (resultType.getRank() != 1 || resultType.getShape()[0] != batch) {
+    return emitOpError("result must be 1D [batch]");
+  }
+
   return success();
 }
 

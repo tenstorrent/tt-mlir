@@ -2240,6 +2240,7 @@ struct PagedScaledDotProductAttentionDecodeArgs {
   std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
   std::optional<llvm::APFloat> scale = std::nullopt;
+  std::optional<CoreCoordAttr> coreGrid = std::nullopt;
 };
 
 static PagedScaledDotProductAttentionDecodeArgs
@@ -2260,6 +2261,7 @@ unpackPagedScaledDotProductAttentionDecodeArgs(
   ret.pageTableLayout = inputs[3];
   ret.isCausal = op.getIsCausal();
   ret.scale = op.getScale();
+  ret.coreGrid = op.getCoreGrid();
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
   TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
@@ -2304,15 +2306,20 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
          "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
          "7 input tensors");
 
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-
   PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
       unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+  ttcore::GridAttr deviceGrid;
+  if (pagedSdpaArgs.coreGrid) {
+    deviceGrid = ttcore::GridAttr::get(
+        getContext(), {static_cast<int64_t>(pagedSdpaArgs.coreGrid->getX()),
+                       static_cast<int64_t>(pagedSdpaArgs.coreGrid->getY())});
+  } else {
+    llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+    if (!check) {
+      return check.takeError();
+    }
+    deviceGrid = ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  }
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<
@@ -2324,7 +2331,7 @@ PagedScaledDotProductAttentionDecodeOp::getOpConstraints(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, opConfig.outputLayout);
+      pagedSdpaArgs.scale, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2337,13 +2344,14 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
          "ttnn::paged_scaled_dot_product_attention_decode can have 4, 5, 6, or "
          "7 input tensors");
 
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-
   PagedScaledDotProductAttentionDecodeArgs pagedSdpaArgs =
       unpackPagedScaledDotProductAttentionDecodeArgs(inputs, *this);
+  if (!pagedSdpaArgs.coreGrid) {
+    llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+    if (!check) {
+      return check.takeError();
+    }
+  }
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime,
@@ -2354,7 +2362,7 @@ llvm::Expected<size_t> PagedScaledDotProductAttentionDecodeOp::getOpRuntime(
       pagedSdpaArgs.attentionMaskShape, pagedSdpaArgs.attentionMaskLayout,
       pagedSdpaArgs.curPosTensorShape, pagedSdpaArgs.curPosTensorLayout,
       pagedSdpaArgs.attentionSinkShape, pagedSdpaArgs.attentionSinkLayout,
-      pagedSdpaArgs.scale, opConfig.outputLayout);
+      pagedSdpaArgs.scale, pagedSdpaArgs.coreGrid, opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -3634,6 +3642,42 @@ PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputs[0], inputShape, inputs[1], pageTableShape, inputs[2],
       batchIdxShape, batchIdxLayout, opConfig.outputLayout);
 }
+//===----------------------------------------------------------------------===//
+// SamplingOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+SamplingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 5);
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::SamplingOp>::getOpConstraints, *this,
+      deviceGrid, getInputValues().getType().getShape(), inputs[0],
+      getInputIndices().getType().getShape(), inputs[1],
+      getK().getType().getShape(), inputs[2], getP().getType().getShape(),
+      inputs[3], getTemp().getType().getShape(), inputs[4], getSeed(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SamplingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                         const OpConfig &opConfig) {
+  assert(inputs.size() == 5);
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::SamplingOp>::getOpRuntime, *this,
+      getInputValues().getType().getShape(), inputs[0],
+      getInputIndices().getType().getShape(), inputs[1],
+      getK().getType().getShape(), inputs[2], getP().getType().getShape(),
+      inputs[3], getTemp().getType().getShape(), inputs[4], getSeed(),
+      opConfig.outputLayout);
+}
+
 //===----------------------------------------------------------------------===//
 // WriteTensorOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//

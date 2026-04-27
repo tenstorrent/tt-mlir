@@ -113,7 +113,7 @@ private:
       auto sem1 = rewriter.create<CreateLocalSemaphoreOp>(loc, semType, 0u);
 
       // Add the semaphores to the generic's additionalArgs only.
-      // They are accessed inside regions via d2m.get_global_operand, not block
+      // They are accessed inside regions via d2m.get_arg, not block
       // args, matching the pattern used for global semaphores.
       generic.getAdditionalArgsMutable().append(sem0.getResult());
       generic.getAdditionalArgsMutable().append(sem1.getResult());
