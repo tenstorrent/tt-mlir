@@ -6400,10 +6400,14 @@ def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
 def TTIR_InvokeExternalOp : TTIR_NamedOp<"invoke_external"> {
     let summary = "Invoke external code.";
     let description = [{
-      TODO
+      Invokes an external function defined in an MLIR file on disk.
+      The `path` attribute names the MLIR file and `entry` names the
+      function symbol within that file to call.
     }];
 
-    let arguments = (ins Variadic<AnyType>:$arguments);
+    let arguments = (ins Variadic<AnyType>:$arguments,
+                         StrAttr:$path,
+                         StrAttr:$entry);
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
     let hasVerifier = 1;

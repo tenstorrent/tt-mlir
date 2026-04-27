@@ -8866,10 +8866,33 @@ public:
                                                       resultTypes))) {
       return failure();
     }
-    auto arguments = adaptor.getOperands();
 
-    rewriter.replaceOpWithNewOp<ttir::InvokeExternalOp>(srcOp, resultTypes,
-                                                        arguments);
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "invoke_external op must have mhlo.frontend_attributes attribute.");
+    }
+
+    auto pathAttr = frontendAttributes.getAs<mlir::StringAttr>("path");
+    if (!pathAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "invoke_external op must have a 'path' frontend attribute "
+                 "pointing to an MLIR file.");
+    }
+
+    auto entryAttr = frontendAttributes.getAs<mlir::StringAttr>("entry");
+    if (!entryAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "invoke_external op must have an 'entry' frontend attribute "
+                 "naming the function symbol to call.");
+    }
+
+    auto arguments = adaptor.getOperands();
+    rewriter.replaceOpWithNewOp<ttir::InvokeExternalOp>(
+        srcOp, resultTypes, arguments, pathAttr, entryAttr);
     return success();
   }
 };
