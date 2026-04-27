@@ -666,4 +666,19 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
   ];
 }
 
+def TTNNMoEOpsWorkaround : Pass<"ttnn-moe-ops-workaround", "::mlir::ModuleOp"> {
+  let summary = "Simplify redundant ops between MoE ops.";
+  let description = [{
+    This pass removes redundant ops that appear between `ttnn.moe_gpt` and
+    `ttnn.all_to_all_dispatch_metadata`. For each of the first three operands
+    of `ttnn.moe_gpt`, it traces the operand backward through up to 20 unary
+    ops until it finds the matching output of `ttnn.all_to_all_dispatch_metadata`.
+    If the tensor shape and full layout of that dispatch_metadata output already
+    matches the `moe_gpt` input, the intermediate chain is short-circuited.
+    Otherwise, a minimal number of `ttnn.reshape` and `ttnn.to_memory_config`
+    ops are inserted to bridge the differences. Any difference that cannot be
+    bridged by those two ops causes compilation to fail.
+  }];
+}
+
 #endif

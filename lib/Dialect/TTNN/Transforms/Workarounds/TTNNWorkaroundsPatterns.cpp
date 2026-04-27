@@ -686,6 +686,10 @@ const std::set<mlir::StringRef>
         ttnn::AllToAllDispatchMetadataOp::getOperationName(),
         ttnn::MoeGptOp::getOperationName(),
         ttnn::SelectiveReduceCombineOp::getOperationName(),
+        // TopKRouterGptOp: kernel always returns ROW_MAJOR L1 outputs
+        // (UInt16 indices, BFloat16 weights). Optimizer at opt-level 1
+        // would otherwise force DRAM/Interleaved which doesn't match.
+        ttnn::TopKRouterGptOp::getOperationName(),
         // TypecastOp: tt-metal rejects ROW_MAJOR inputs whose innermost
         // padded dim is not TILE_WIDTH (32) aligned (typecast_device_op.cpp).
         // Enable layout workaround to force TILE layout in those cases.

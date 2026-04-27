@@ -11,6 +11,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/SymbolTable.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -52,6 +54,59 @@ public:
       }
       rewriter.eraseOp(op);
     }
+
+    // When decomposing a ToLayoutOp into concrete ops (to_device, etc.),
+    // the new op's result type may have a different physical memref shape
+    // than the original ToLayoutOp's result — most commonly when moving
+    // to L1 interleaved produces a flattened page layout. If that result
+    // happens to be a terminator operand, the enclosing func.func's
+    // declared result type is now out of sync with its return op.
+    //
+    // We reconcile by pushing the mismatch back onto the defining op
+    // instead of the function signature. The function signature is the
+    // stable contract with callers — including ones we don't otherwise
+    // touch here, such as `ttnn.capture_or_execute_trace`, whose capture
+    // callee's argument types are pinned at trace-hoist time. If we
+    // instead changed the function return type (and cascaded that to
+    // `ttcore.load_cached` results), the new type would propagate into
+    // the trace call site and mismatch the capture callee's declared
+    // arg type, failing the capture_or_execute_trace verifier. Keeping
+    // the signature fixed and snapping the defining op's result type
+    // back to the declared type keeps both sides consistent.
+    syncFunctionSignatures(module);
+  }
+
+  // Walk every func.func in `module` and, if its declared result types
+  // disagree with its terminating return op's operand types, snap each
+  // mismatched return-operand's type back to the function's declared
+  // result type. This propagates "up" through the defining op (since
+  // `Value::setType` mutates the OpResult in place) so the op that
+  // produced the mismatched memref now advertises the originally
+  // declared one. The function signature itself — and therefore all
+  // caller-visible types, including `ttnn.capture_or_execute_trace`
+  // argument positions — is left unchanged.
+  static void syncFunctionSignatures(ModuleOp module) {
+    module.walk([&](func::FuncOp func) {
+      if (func.isDeclaration() || func.getBody().empty()) {
+        return;
+      }
+      auto returnOp = mlir::dyn_cast_if_present<func::ReturnOp>(
+          func.getBody().back().getTerminator());
+      if (!returnOp) {
+        return;
+      }
+      ArrayRef<Type> declaredReturnTypes = func.getResultTypes();
+      if (returnOp.getNumOperands() != declaredReturnTypes.size()) {
+        return;
+      }
+      for (size_t i = 0; i < declaredReturnTypes.size(); ++i) {
+        Value operand = returnOp.getOperand(i);
+        Type declared = declaredReturnTypes[i];
+        if (operand.getType() != declared) {
+          operand.setType(declared);
+        }
+      }
+    });
   }
 
 private:
