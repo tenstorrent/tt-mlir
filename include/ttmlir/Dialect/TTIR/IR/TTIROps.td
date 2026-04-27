@@ -5935,22 +5935,28 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
 def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
     let summary = "A version of scaled dot product attention specifically for decode.";
     let description = [{
-      A version of scaled dot product attention specifically for decode.
-        The implementation is Flash-Decode and it currently only supports MQA on decoding single token.
+      Flash-Decode SDPA for single-query-token decode. Supports MQA and GQA.
 
-        Args:
-            query (AnyRankedTensor): The query tensor [1 x batch x num_heads x head_size]. Note that there is no sequence length dimension as this op is intended for processing a single query token.
-            key (AnyRankedTensor): The key tensor [batch x num_kv_heads x seq_len x head_size].
-            value (AnyRankedTensor): The value tensor [batch x num_kv_heads x seq_len x head_size].
-            is_causal (bool, optional): Whether the attention is causal. Defaults to `true`.
-            attention_mask (AnyRankedTensor, optional): The attention mask [batch x 1 x num_heads x seq_len].
-            cur_pos_tensor (AnyRankedTensor): [batch] Tensor of integers of length batch.
-            attention_sink (AnyRankedTensor, optional): The attention sink [num_heads, 32] (must be a single tile wide).
-            output (AnyRankedTensor): The output DPS operand [1 x batch x num_heads x head_size].
-            scale (float, optional): Defaults to `None`.
+      Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sk` (kv seq len),
+      `D` (head size).
 
-        Returns:
-            AnyRankedTensor: The output tensor [1 x batch x num_heads x head_size].
+      Args:
+          query (AnyRankedTensor): `[1 x B x Hq x D]`. Dim 0 must be 1.
+          key (AnyRankedTensor): `[B x Hkv x Sk x D]`.
+          value (AnyRankedTensor): `[B x Hkv x Sk x D]`. Same type as `key`.
+          is_causal (bool, optional): Defaults to `true`. Mutually exclusive
+              with `attention_mask`.
+          attention_mask (AnyRankedTensor, optional): `[1|B x 1 x 1|Hq x Sk]`.
+              Dim 0 broadcasts batch, dim 2 broadcasts heads. Only valid when
+              `is_causal` is `false`.
+          cur_pos_tensor (AnyRankedTensor): 1D `[B]` integer tensor of decode
+              positions.
+          attention_sink (AnyRankedTensor, optional): `[Hq x 32]`, single tile
+              wide.
+          scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+
+      Returns:
+          AnyRankedTensor: `[1 x B x Hq x D]` (same type as `query`).
     }];
 
     let arguments = (ins AnyRankedTensor:$query,
@@ -6024,21 +6030,35 @@ def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_mult
 def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attention", [AttrSizedOperandSegments]> {
   let summary = "Scaled dot product attention operation.";
   let description = [{
-    Scaled dot product attention.
-    The implementation is FlashAttention-2.
+    FlashAttention-2 SDPA. Supports MHA, MQA, and GQA.
+
+    Lowering to TTNN dispatches on `Sq`: `Sq > 1` lowers to
+    `ttnn.scaled_dot_product_attention` (prefill), while `Sq == 1` lowers to
+    `ttnn.scaled_dot_product_attention_decode` (decode, with the necessary Q
+    and mask permutations applied at the conversion boundary).
+
+    Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sq`/`Sk` (query/kv
+    seq len), `D` (head size).
 
     Args:
-        query (AnyRankedTensor): The query tensor.          [batch x num_heads x query_seq_len x head_size]
-        key (AnyRankedTensor): The key tensor.              [batch x num_kv_heads x kv_seq_len x head_size]
-        value (AnyRankedTensor): The value tensor.          [batch x num_kv_heads x kv_seq_len x head_size]
-        attention_mask (AnyRankedTensor, optional): Defaults to `None`. [batch x 1 x query_seq_len x kv_seq_len]. Head broadcasting is implied.
-        output (AnyRankedTensor): The output DPS operand [batch x num_heads x query_seq_len x head_size].
-        is_causal (bool): Whether The attention is causal. Defaults to `true`.
-        scale (float, optional): Defaults to `None`.
-        sliding_window_size (uint, optional): Defaults to `None`. Size of sliding window for attention. If provided && is_causal, only attends to the last `sliding_window_size` tokens. If provided && !is_causal, attends to a window of size `sliding_window_size` centered at the current position.
+        query (AnyRankedTensor): `[B x Hq x Sq x D]`.
+        key (AnyRankedTensor): `[B x Hkv x Sk x D]`.
+        value (AnyRankedTensor): `[B x Hkv x Sk x D]`. Same type as `key`.
+        attention_mask (AnyRankedTensor, optional): `[1|B x 1|Hq x Sq x Sk]`.
+            Dim 0 broadcasts batch, dim 1 broadcasts heads. Only valid when
+            `is_causal` is `false`. Defaults to `None`.
+        is_causal (bool): Defaults to `true`. Requires `Sq == Sk` and no
+            `attention_mask`.
+        scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+        sliding_window_size (uint, optional): If `is_causal`, attends to the
+            last N tokens; otherwise attends to a window of size N centered at
+            the current position. Defaults to `None`.
+        attention_sink (AnyRankedTensor, optional): `[1 x Hq x 1 x 1]`, one
+            value per query head broadcast across batch and tile dims.
+            Defaults to `None`.
 
     Returns:
-        AnyRankedTensor: The output tensor [batch x num_heads x seq_len x head_size].
+        AnyRankedTensor: `[B x Hq x Sq x D]` (same type as `query`).
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
