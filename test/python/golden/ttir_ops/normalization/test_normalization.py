@@ -396,6 +396,22 @@ def test_distributed_rms_norm(
     2. RMS normalization
     3. All-gather collective communication
     """
+    # Skip combinations that hang on n300 after metal uplift to commit 7fb82fd0
+    # (Reduce compute and dataflow helpers, tt-metal#41637).
+    # Hangs occur when has_weight=True with shape (1, 1, 32, X) where X is a
+    # power-of-2 last dimension. Tracked in tt-mlir#8129 / tt-metal#43173.
+    if has_weight and shape in [
+        (1, 1, 32, 128),
+        (1, 1, 32, 512),
+        (1, 1, 32, 4096),
+        (1, 1, 32, 8192),
+    ]:
+        pytest.skip(
+            f"Hangs on n300 with has_weight=True and shape={shape} after metal uplift "
+            "(Reduce compute and dataflow helpers, tt-metal#41637). "
+            "Tracked in tt-mlir#8129 / tt-metal#43173."
+        )
+
     # Determine input shapes
     shapes = [shape]
     weight_shape = (shape[-1],)  # Weight matches last dimension
