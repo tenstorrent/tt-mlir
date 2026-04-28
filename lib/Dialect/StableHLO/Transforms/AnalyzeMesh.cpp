@@ -352,7 +352,15 @@ public:
     // any analysis. If the caller provided a meshShape via pass options use
     // it, otherwise fall back to a 1x1 mesh.
     if (!automaticArgAnalysis) {
-      if (meshShape.size() == 2) {
+      bool moduleHasInputs = false;
+      rootModule.walk([&](func::FuncOp funcOp) {
+        if (funcOp.getNumArguments() > 0) {
+          moduleHasInputs = true;
+          return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+      });
+      if (!moduleHasInputs && meshShape.size() == 2) {
         shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
                                       meshShape[0], meshShape[1]);
       } else {
