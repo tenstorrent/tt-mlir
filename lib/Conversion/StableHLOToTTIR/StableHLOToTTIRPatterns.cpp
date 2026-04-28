@@ -73,6 +73,7 @@ getPaddingOrDefault(mlir::DenseIntElementsAttr attr, size_t numSpatialDims) {
 enum TypicalInitReductionValue {
   NEG_INF, // It is also used for minimum integer value.
   ZERO,
+  POS_INF, // It is also used for maximum integer value.
 };
 
 // Check if the constant op is initialized with the desired init value.
@@ -105,6 +106,14 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
     desiredI64 = 0;
     desiredI8 = 0;
     desiredI1 = false;
+  } else if (desired == TypicalInitReductionValue::POS_INF) {
+    desiredF32 = std::numeric_limits<float>::infinity();
+    desiredF64 = std::numeric_limits<double>::infinity();
+    desiredBF16 = 0x7f80; // This is +inf in bfloat16 raw bits
+    desiredI32 = std::numeric_limits<int32_t>::max();
+    desiredI64 = std::numeric_limits<int64_t>::max();
+    desiredI8 = std::numeric_limits<int8_t>::max();
+    desiredI1 = true;
   } else {
     return false;
   }
@@ -249,6 +258,9 @@ public:
     if (isArgMax(srcOp, adaptor, rewriter)) {
       return matchAndRewriteInternalArgMax(srcOp, adaptor, rewriter);
     }
+    if (isArgMin(srcOp, adaptor, rewriter)) {
+      return matchAndRewriteInternalArgMin(srcOp, adaptor, rewriter);
+    }
 
     return failure();
   }
@@ -335,6 +347,35 @@ private:
     // explicitly.
     ttir::ArgMaxOp newOp = rewriter.create<tt::ttir::ArgMaxOp>(
         srcOp->getLoc(), outputType, adaptor.getInputs().front(),
+        false /* keep_dim */, dimArg);
+
+    srcOp->getResults().back().replaceAllUsesWith(newOp->getResults().front());
+    rewriter.eraseOp(srcOp);
+
+    return success();
+  }
+
+  // argmin(x) = argmax(-x).  We negate the input tensor and delegate to the
+  // existing ArgMaxOp lowering so no new TTIR op is required.
+  LogicalResult
+  matchAndRewriteInternalArgMin(mlir::stablehlo::ReduceOp &srcOp,
+                                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+
+    mlir::Value input = adaptor.getInputs().front();
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+
+    // Negate the input so that argmax(-x) == argmin(x).
+    ttir::NegOp negOp =
+        rewriter.create<tt::ttir::NegOp>(srcOp->getLoc(), inputType, input);
+
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(srcOp.getDimensions()));
+
+    ttir::ArgMaxOp newOp = rewriter.create<tt::ttir::ArgMaxOp>(
+        srcOp->getLoc(), outputType, negOp.getResult(),
         false /* keep_dim */, dimArg);
 
     srcOp->getResults().back().replaceAllUsesWith(newOp->getResults().front());
@@ -661,6 +702,117 @@ private:
     if (!checkInitValue(initValueOp, desired)) {
       return false;
     }
+    return true;
+  }
+
+  // This function verifies all the required conditions to convert a stablehlo
+  // reduce op to TTIR argmin (via negation + argmax).
+  // Conditions mirror isArgMax but with POS_INF init and LE comparison.
+  bool isArgMin(mlir::stablehlo::ReduceOp &srcOp,
+                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                ConversionPatternRewriter &rewriter) const {
+    // Inputs: same layout as ArgMax (value tensor + iota index tensor).
+    if (!hasValidArgMaxInputs(srcOp.getInputs())) {
+      return false;
+    }
+
+    // Outputs: first result (min value) unused, second (index) consumed.
+    if (!hasValidArgMaxOutputs(srcOp.getResults())) {
+      return false;
+    }
+
+    if (!hasValidArgMinInitValues(srcOp.getInitValues())) {
+      return false;
+    }
+
+    if (!hasValidArgMinReducerBody(srcOp.getBody())) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Validate ArgMin init values: first is +inf (or INT_MAX), second is 0.
+  bool hasValidArgMinInitValues(mlir::OperandRange initValues) const {
+    if (initValues.size() != 2) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.front(),
+                         TypicalInitReductionValue::POS_INF)) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.back(), TypicalInitReductionValue::ZERO)) {
+      return false;
+    }
+    return true;
+  }
+
+  // Validate reducer body for ArgMin (torch pattern):
+  //  stablehlo.compare (LE)
+  //  stablehlo.select
+  //  stablehlo.compare (EQ)
+  //  stablehlo.minimum
+  //  stablehlo.select
+  //  stablehlo.select
+  //  stablehlo.return
+  bool hasValidArgMinReducerBody(mlir::Region &body) const {
+    auto &blocks = body.getBlocks();
+    if (blocks.size() != 1) {
+      return false;
+    }
+
+    auto &operations = blocks.front().getOperations();
+    if (operations.empty()) {
+      return false;
+    }
+
+    return verifyTorchOpArgMinPattern(operations.front());
+  }
+
+  bool verifyTorchOpArgMinPattern(mlir::Operation &operation) const {
+    mlir::Operation *op = &operation;
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    mlir::stablehlo::CompareOp compareOp =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
+    if (compareOp.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::LE) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::MinOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
+      return false;
+    }
+
     return true;
   }
 };
