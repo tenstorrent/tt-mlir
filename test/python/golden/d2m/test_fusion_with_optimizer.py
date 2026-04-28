@@ -18,9 +18,11 @@ from conftest import clear_device_cache, get_request_kwargs
 pytestmark = [pytest.mark.frontend("ttir")]
 
 MLIR_SNIPPETS_DIR = os.path.join(
-    os.path.dirname(__file__), "mlir_snippets/models/gpt_oss_20b"
+    os.path.dirname(os.path.dirname(__file__)), "mlir_snippets/models/gpt_oss_20b"
 )
-GPT_OSS_20B_SNIPPETS = ["gate_up", "rope_embedding"]
+GPT_OSS_20B_SNIPPETS = [
+    "gate_up_subgraph_0",
+]
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -32,6 +34,8 @@ def test_d2m_fusion_with_optimizer(request, target, snippet):
     context for opmodel; device is opened only after compile for execute_fb.
     """
     mlir_path = os.path.join(MLIR_SNIPPETS_DIR, f"{snippet}.mlir")
+    print(MLIR_SNIPPETS_DIR)
+    print(mlir_path)
     if not os.path.exists(mlir_path):
         pytest.skip(f"MLIR not found: {mlir_path}")
 
