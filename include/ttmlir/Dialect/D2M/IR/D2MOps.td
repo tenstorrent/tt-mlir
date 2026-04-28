@@ -368,6 +368,7 @@ def D2M_GenericOp
       int64_t getOperandIndex(Value operand);
       bool hasCompatibleBlocking(GenericOp gOp);
       bool hasSkipOpEltwiseFusionTrait();
+      Type getIndexedRowGatherDataElementType();
       bool hasReduction();
       bool hasMultiUseInputOperand();
       bool isAllParallel();

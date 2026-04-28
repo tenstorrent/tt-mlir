@@ -3059,7 +3059,7 @@ public:
                                enableMulticastInference) {}
 
   LogicalResult
-  matchAndRewrite(ttir::EmbeddingOp op, ttir::EmbeddingOp::Adaptor adaptor,
+  matchAndRewrite(ttir::EmbeddingOp op, ttir::EmbeddingOp::Adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     if (memorySpaces[0] != ttcore::MemorySpace::DeviceL1 ||
         memorySpaces[1] != ttcore::MemorySpace::DeviceL1) {
@@ -3107,19 +3107,28 @@ public:
         createOptimalLayoutOp(origOutputs[0], memorySpaces[1],
                               /*tiled=*/false, /*noCollapse=*/false, rewriter)};
 
-    auto outputTensorType = mlir::cast<RankedTensorType>(outputs[0].getType());
-    auto outputLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
-    auto grid = ttcore::GridAttr::get(
-        rewriter.getContext(), outputLayout.getGridShape(outputTensorType));
-    ArrayAttr threads = rewriter.getArrayAttr(
-        {rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Datamovement)});
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    if (physicalRank != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding currently requires collapsed 2D layouts");
+    }
+
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<AffineExpr> indicesExprs = {rewriter.getAffineDimExpr(0),
+                                            rewriter.getAffineConstantExpr(0)};
+    AffineMap indicesMap = AffineMap::get(physicalRank, /*symbolCount=*/0,
+                                          indicesExprs, rewriter.getContext());
+    SmallVector<AffineMap> indexingMaps = {indicesMap, identityMap,
+                                           identityMap};
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
 
     auto generic = rewriter.create<d2m::GenericOp>(
-        loc, TypeRange(outputs), inputs, outputs,
-        /*additionalArgs=*/ValueRange(), grid, rewriter.getI64ArrayAttr({}),
-        rewriter.getAffineMapArrayAttr({}), rewriter.getArrayAttr({}), threads,
-        /*fabricConnectionConfig=*/nullptr, /*numRegions=*/1);
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes), d2m::ThreadType::Datamovement);
 
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic);

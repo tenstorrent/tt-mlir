@@ -1506,6 +1506,27 @@ bool d2m::GenericOp::hasTensorSemantics() {
   return any_of(getOperandTypes(), isaTensor);
 }
 
+Type d2m::GenericOp::getIndexedRowGatherDataElementType() {
+  Type dataElementType;
+  walk([&](Operation *nestedOp) {
+    if (auto embeddingOp = mlir::dyn_cast<d2m::EmbeddingOp>(nestedOp)) {
+      dataElementType =
+          mlir::cast<ShapedType>(embeddingOp.getWeight().getType())
+              .getElementType();
+      return WalkResult::interrupt();
+    }
+    if (auto indexedRowCopyOp =
+            mlir::dyn_cast<d2m::IndexedRowCopyOp>(nestedOp)) {
+      dataElementType =
+          mlir::cast<ShapedType>(indexedRowCopyOp.getSrc().getType())
+              .getElementType();
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return dataElementType;
+}
+
 static std::optional<int64_t>
 isNotEqualOrBroadcast(mlir::ArrayRef<int64_t> as, mlir::ArrayRef<int64_t> bs) {
   for (auto [dim, a, b] : llvm::enumerate(as, bs)) {
@@ -1787,7 +1808,8 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   bool hasGrid = mlir::isa<MemRefType>(getOutputs().front().getType()) ||
                  (rankedTensorType && rankedTensorType.getEncoding());
   SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
-  if (hasGrid && !indexingMaps.empty()) {
+  if (hasGrid && !indexingMaps.empty() &&
+      !getIndexedRowGatherDataElementType()) {
     // Validate that all operands have device layouts before calling
     // getInputOutputOperandGridShapes(), which assumes layouts are present.
     for (Value operand : getInputsAndOutputs()) {
@@ -2378,6 +2400,8 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
       if (remoteStoreOp.hasResultForm()) {
         remoteStoreOp.getResult().setType(remoteStoreOp.getMemref().getType());
       }
+    } else if (auto embeddingOp = mlir::dyn_cast<d2m::EmbeddingOp>(&clonedOp)) {
+      embeddingOp.getResult().setType(embeddingOp.getOutput().getType());
     } else if (auto dstOp =
                    mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
       unsigned numIns = dstOp.getNumDpsInputs();

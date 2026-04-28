@@ -15,7 +15,6 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
-#include <algorithm>
 #include <limits>
 
 #define GET_OP_CLASSES
@@ -211,10 +210,6 @@ static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
   return MemRefType::get(shape, elementType, cbLayout, l1MemorySpace);
 }
 
-static bool hasRankedTensorType(Value value) {
-  return mlir::isa<RankedTensorType>(value.getType());
-}
-
 static bool isSupportedIndexedRowCopyElementType(Type type) {
   if (mlir::isa<Float32Type, BFloat16Type>(type)) {
     return true;
@@ -299,16 +294,9 @@ void IndexedRowCopyOp::getEffects(
 // EmbeddingOp
 //===----------------------------------------------------------------------===//
 
-static LogicalResult verifyEmbeddingResultForm(EmbeddingOp op) {
-  if (op.getResult().getType() != op.getOutput().getType()) {
-    return op.emitOpError("result type must match output operand type");
-  }
-  return success();
-}
-
 LogicalResult EmbeddingOp::verify() {
-  if (failed(verifyEmbeddingResultForm(*this))) {
-    return failure();
+  if (getResult().getType() != getOutput().getType()) {
+    return emitOpError("result type must match output operand type");
   }
 
   return verifyIndexedRowCopyOperands(
@@ -367,7 +355,7 @@ static FailureOr<Value>
 getBufferIfTensor(Value value, RewriterBase &rewriter,
                   const bufferization::BufferizationOptions &options,
                   bufferization::BufferizationState &state) {
-  if (!hasRankedTensorType(value)) {
+  if (!mlir::isa<RankedTensorType>(value.getType())) {
     return value;
   }
   return bufferization::getBuffer(rewriter, value, options, state);
@@ -415,12 +403,11 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
   Value indexScratch =
       createEmbeddingScratch(*this, indexScratchType, rewriter);
 
-  int64_t rowScratchElements = std::max(static_cast<int64_t>(getEmbeddingDim()),
-                                        kIndexedRowCopyScratchPageElements);
   Type rowScratchElementType =
       mlir::cast<ShapedType>(output.getType()).getElementType();
   MemRefType rowScratchType = createIndexedRowCopyScratchType(
-      getContext(), {1, rowScratchElements}, rowScratchElementType);
+      getContext(), {1, kIndexedRowCopyScratchPageElements},
+      rowScratchElementType);
   Value rowScratch = createEmbeddingScratch(*this, rowScratchType, rewriter);
 
   rewriter.create<IndexedRowCopyOp>(

@@ -472,46 +472,6 @@ static void applyEmptyOpUpdate(const OperandGridInfo &info,
   emptyOp.erase();
 }
 
-static void applyEmbeddingToLayoutUpdate(d2m::GenericOp genericOp,
-                                         const OperandGridInfo &info,
-                                         ArrayRef<int64_t> effectiveTargetGrid,
-                                         bool ttnnMode, OpBuilder &builder) {
-  auto toLayoutOp = info.operand.getDefiningOp<d2m::ToLayoutOp>();
-  auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
-  if (!emptyOp) {
-    return;
-  }
-
-  auto outputType = mlir::cast<RankedTensorType>(toLayoutOp.getType(0));
-  RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
-      outputType, info.targetGrid, ttnnMode, info.selectedGrid);
-
-  builder.setInsertionPoint(emptyOp);
-  auto newEmptyOp = builder.create<d2m::EmptyOp>(
-      emptyOp.getLoc(), newTensorType.getShape(),
-      newTensorType.getElementType(), newTensorType.getEncoding(),
-      effectiveTargetGrid);
-
-  builder.setInsertionPoint(toLayoutOp);
-  auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-      toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
-
-  // Embedding's explicit datamovement region owns the stream type. Restrict the
-  // rewrite to this generic so any accidental external users keep the old type.
-  toLayoutOp.getResult(0).replaceUsesWithIf(
-      newToLayoutOp.getResult(0), [&](OpOperand &use) {
-        Operation *user = use.getOwner();
-        return user == genericOp.getOperation() || genericOp->isAncestor(user);
-      });
-
-  if (toLayoutOp.getResult(0).use_empty()) {
-    toLayoutOp.erase();
-    if (emptyOp.getResult().use_empty()) {
-      emptyOp.erase();
-    }
-  }
-}
-
 // Derive grid (including virtual grid mapping) from the
 // optimized operand grids selected by GridSelection, mirroring
 // GenericOp::build.
@@ -657,41 +617,9 @@ recreateGenericOp(d2m::GenericOp genericOp,
 // Apply all grid decisions from a GenericGridAnalysisResult to a GenericOp.
 // ----------------------------------------------------------------------------
 
-enum class GridOperandKind {
-  TTNNTensor,
-  ViewLayout,
-  CompositeView,
-  ToLayout,
-  Empty,
-  Skip
-};
-
-static GridOperandKind classifyOperandForGridUpdate(Value operand) {
-  if (GridAnalysis::isTTNNOperand(operand)) {
-    return GridOperandKind::TTNNTensor;
-  }
-  if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-    // Reinterpret views are type casts only; their grid must match the input.
-    return view.getReinterpretLayout() ? GridOperandKind::Skip
-                                       : GridOperandKind::ViewLayout;
-  }
-  if (operand.getDefiningOp<d2m::CompositeViewOp>()) {
-    return GridOperandKind::CompositeView;
-  }
-  if (operand.getDefiningOp<d2m::ToLayoutOp>()) {
-    return GridOperandKind::ToLayout;
-  }
-  if (operand.getDefiningOp<d2m::EmptyOp>()) {
-    return GridOperandKind::Empty;
-  }
-  return GridOperandKind::Skip;
-}
-
-template <typename ApplyToLayoutFn>
-static void applyOperandGridUpdates(d2m::GenericOp genericOp,
-                                    const GenericGridAnalysisResult &result,
-                                    bool ttnnMode,
-                                    ApplyToLayoutFn applyToLayout) {
+static void applyGridDecisions(d2m::GenericOp genericOp,
+                               const GenericGridAnalysisResult &result,
+                               bool ttnnMode) {
   // effectiveTargetGrid is the generic's target grid (full device grid, or the
   // range scoped by an enclosing d2m.spatial region), used for virtual grid
   // physical mapping. Per-operand target grids (info.targetGrid) are used
@@ -701,30 +629,54 @@ static void applyOperandGridUpdates(d2m::GenericOp genericOp,
 
   // Classify operands upfront: once apply* mutates IR, defining ops for
   // operand values may be erased, so we can't re-query the kind mid-pass.
-  llvm::SmallVector<GridOperandKind, 4> kinds;
+  enum class Kind {
+    TTNNTensor,
+    ViewLayout,
+    CompositeView,
+    ToLayout,
+    Empty,
+    Skip
+  };
+  llvm::SmallVector<Kind, 4> kinds;
   kinds.reserve(result.operandInfos.size());
   for (const auto &info : result.operandInfos) {
-    kinds.push_back(classifyOperandForGridUpdate(info.operand));
+    Value operand = info.operand;
+    if (GridAnalysis::isTTNNOperand(operand)) {
+      kinds.push_back(Kind::TTNNTensor);
+    } else if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+      // Reinterpret views are type casts only; their grid must match the
+      // input, so don't rewrite them.
+      kinds.push_back(view.getReinterpretLayout() ? Kind::Skip
+                                                  : Kind::ViewLayout);
+    } else if (operand.getDefiningOp<d2m::CompositeViewOp>()) {
+      kinds.push_back(Kind::CompositeView);
+    } else if (operand.getDefiningOp<d2m::ToLayoutOp>()) {
+      kinds.push_back(Kind::ToLayout);
+    } else if (operand.getDefiningOp<d2m::EmptyOp>()) {
+      kinds.push_back(Kind::Empty);
+    } else {
+      kinds.push_back(Kind::Skip);
+    }
   }
 
   // Pass 1: producer-side rewrites. View layouts are handled in pass 2 so
   // they see the final state after upstream producers are rewritten.
   for (auto [info, kind] : llvm::zip_equal(result.operandInfos, kinds)) {
     switch (kind) {
-    case GridOperandKind::TTNNTensor:
+    case Kind::TTNNTensor:
       applyTTNNTensorUpdate(info, builder);
       break;
-    case GridOperandKind::CompositeView:
+    case Kind::CompositeView:
       applyCompositeViewUpdate(info, effectiveTargetGrid, ttnnMode, builder);
       break;
-    case GridOperandKind::ToLayout:
-      applyToLayout(info, effectiveTargetGrid, ttnnMode, builder);
+    case Kind::ToLayout:
+      applyToLayoutUpdate(info, effectiveTargetGrid, ttnnMode, builder);
       break;
-    case GridOperandKind::Empty:
+    case Kind::Empty:
       applyEmptyOpUpdate(info, effectiveTargetGrid, ttnnMode, builder);
       break;
-    case GridOperandKind::ViewLayout:
-    case GridOperandKind::Skip:
+    case Kind::ViewLayout:
+    case Kind::Skip:
       break;
     }
     if (!info.viewSourceGrid.empty()) {
@@ -735,120 +687,12 @@ static void applyOperandGridUpdates(d2m::GenericOp genericOp,
 
   // Pass 2: view layout rewrites.
   for (auto [info, kind] : llvm::zip_equal(result.operandInfos, kinds)) {
-    if (kind == GridOperandKind::ViewLayout) {
+    if (kind == Kind::ViewLayout) {
       applyViewLayoutUpdate(info, ttnnMode, builder);
     }
   }
-}
-
-static void applyGridDecisions(d2m::GenericOp genericOp,
-                               const GenericGridAnalysisResult &result,
-                               bool ttnnMode) {
-  applyOperandGridUpdates(genericOp, result, ttnnMode, applyToLayoutUpdate);
 
   recreateGenericOp(genericOp, result.normalizedOperandGrids);
-}
-
-static bool isEmbeddingExplicitDatamovementGeneric(d2m::GenericOp genericOp) {
-  if (!genericOp.isExplicitDatamovementForm() ||
-      genericOp->hasAttr("d2m.skip_grid_selection")) {
-    return false;
-  }
-
-  WalkResult result = genericOp->walk(
-      [&](d2m::EmbeddingOp) { return WalkResult::interrupt(); });
-  return result.wasInterrupted();
-}
-
-static llvm::SmallVector<int64_t>
-getEffectiveTargetGridShape(d2m::GenericOp genericOp,
-                            ArrayRef<int64_t> deviceGridShape) {
-  mlir::Region *region = genericOp->getParentRegion();
-  if (auto spatialOp = mlir::dyn_cast<d2m::SpatialOp>(region->getParentOp())) {
-    mlir::ArrayAttr gridRangesAttr = spatialOp.getGridRanges();
-    unsigned regionIndex = region->getRegionNumber();
-    if (gridRangesAttr && regionIndex < gridRangesAttr.size()) {
-      ttcore::CoreRangeAttr range =
-          mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr[regionIndex]);
-      return {range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
-              range.getEndCoord().getX() - range.getStartCoord().getX() + 1};
-    }
-  }
-  return llvm::SmallVector<int64_t>(deviceGridShape);
-}
-
-static GenericGridAnalysisResult
-analyzeEmbeddingGeneric(d2m::GenericOp genericOp,
-                        ArrayRef<int64_t> targetGridShape, bool ttnnMode) {
-  GenericGridAnalysisResult result;
-  result.effectiveTargetGrid = llvm::SmallVector<int64_t>(targetGridShape);
-
-  for (Value operand : genericOp.getInputsAndOutputs()) {
-    auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
-    TT_assertv(mlir::isa<ttcore::MetalLayoutAttr>(operandType.getEncoding()),
-               "GridSelection expects embedding GenericOp inputs/outputs to "
-               "have MetalLayoutAttr");
-
-    llvm::SmallVector<int64_t> physShape =
-        utils::computePhysicalShape(operand, targetGridShape, ttnnMode);
-    auto optimalGrid =
-        utils::computeOptimalGrid(operandType, physShape, targetGridShape);
-
-    OperandGridInfo info;
-    info.operand = operand;
-    info.selectedGrid = optimalGrid;
-    info.targetGrid = llvm::SmallVector<int64_t>(targetGridShape);
-
-    if (auto viewLayout = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      if (auto toLayoutOp =
-              viewLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-        if (!toLayoutOp.getInput()
-                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-          auto inputType = mlir::cast<mlir::RankedTensorType>(
-              viewLayout.getInput().getType());
-          llvm::SmallVector<int64_t> inputPhysShape =
-              utils::computePhysicalShape(viewLayout.getInput(),
-                                          targetGridShape, ttnnMode);
-          info.viewSourceGrid = utils::computeOptimalGrid(
-              inputType, inputPhysShape, targetGridShape);
-        }
-      }
-    }
-
-    result.operandInfos.push_back(std::move(info));
-    result.normalizedOperandGrids.push_back(std::move(optimalGrid));
-  }
-
-  return result;
-}
-
-static void applyEmbeddingGridDecisions(d2m::GenericOp genericOp,
-                                        const GenericGridAnalysisResult &result,
-                                        bool ttnnMode) {
-  applyOperandGridUpdates(genericOp, result, ttnnMode,
-                          [genericOp](const OperandGridInfo &info,
-                                      ArrayRef<int64_t> effectiveTargetGrid,
-                                      bool ttnnMode, OpBuilder &builder) {
-                            applyEmbeddingToLayoutUpdate(genericOp, info,
-                                                         effectiveTargetGrid,
-                                                         ttnnMode, builder);
-                          });
-
-  for (auto [genericResult, output] :
-       llvm::zip_equal(genericOp->getResults(), genericOp.getOutputs())) {
-    genericResult.setType(output.getType());
-  }
-  genericOp->walk([&](d2m::EmbeddingOp embeddingOp) {
-    if (embeddingOp.getResult()) {
-      embeddingOp.getResult().setType(
-          mlir::cast<RankedTensorType>(embeddingOp.getOutput().getType()));
-    }
-  });
-
-  OpBuilder gridBuilder(genericOp);
-  ttcore::GridAttr grid = deriveGenericGridAttr(
-      genericOp, result.normalizedOperandGrids, gridBuilder);
-  genericOp.setGridAttr(grid);
 }
 
 // Resolve to a value that dominates the spatial op by following view_layout
@@ -929,46 +773,22 @@ public:
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    llvm::SmallVector<int64_t> deviceGridShape = getDeviceGridShape();
 
     // Phase 1: Analyze all generics (no IR mutation).
-    GridAnalysis gridAnalysis(module, deviceGridShape, this->ttnnMode);
+    GridAnalysis gridAnalysis(module, getDeviceGridShape(), this->ttnnMode);
 
+    // Phase 2: Apply transforms using pre-computed analysis.
     // Collect generics first because the walk is invalidated by IR mutation.
     SmallVector<d2m::GenericOp> generics;
     module.walk(
         [&](d2m::GenericOp genericOp) { generics.push_back(genericOp); });
 
-    llvm::DenseMap<Operation *, GenericGridAnalysisResult> embeddingGridResults;
-    for (d2m::GenericOp genericOp : generics) {
-      if (gridAnalysis.lookup(genericOp) ||
-          !isEmbeddingExplicitDatamovementGeneric(genericOp)) {
-        continue;
-      }
-
-      llvm::SmallVector<int64_t> targetGridShape =
-          getEffectiveTargetGridShape(genericOp, deviceGridShape);
-      embeddingGridResults.insert(
-          {genericOp.getOperation(),
-           analyzeEmbeddingGeneric(genericOp, targetGridShape,
-                                   this->ttnnMode)});
-    }
-
-    // Phase 2: Apply transforms using pre-computed analysis.
     for (auto genericOp : generics) {
       const auto *result = gridAnalysis.lookup(genericOp);
-      if (result) {
-        applyGridDecisions(genericOp, *result, this->ttnnMode);
+      if (!result) {
         continue;
       }
-
-      auto embeddingResultIt =
-          embeddingGridResults.find(genericOp.getOperation());
-      if (embeddingResultIt == embeddingGridResults.end()) {
-        continue;
-      }
-      applyEmbeddingGridDecisions(genericOp, embeddingResultIt->second,
-                                  this->ttnnMode);
+      applyGridDecisions(genericOp, *result, this->ttnnMode);
     }
 
     // Phase 3: Rebuild each SpatialOp's ins/outs from the operands actually

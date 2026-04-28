@@ -431,17 +431,20 @@ inline std::array<int64_t, 2> getEffectiveTileShape(Type elementType) {
 /// `genericOp`.
 inline std::pair<std::array<int64_t, 2>, std::array<int64_t, 2>>
 getGenericInputAndOutputTileShapes(d2m::GenericOp genericOp) {
-  const Type inputElementType =
-      mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().front().getType())
-          .getElementType();
-  for (std::size_t operandIndex = 1;
-       operandIndex < genericOp.getOutputs().getBeginOperandIndex();
-       ++operandIndex) {
-    TT_assertv(inputElementType ==
-                   mlir::cast<MemRefType>(
-                       genericOp->getOperand(operandIndex).getType())
-                       .getElementType(),
-               "expected no change in tile shapes across generic op inputs");
+  Type inputElementType = genericOp.getIndexedRowGatherDataElementType();
+  if (!inputElementType) {
+    inputElementType = mlir::cast<MemRefType>(
+                           genericOp.getInputsAndOutputs().front().getType())
+                           .getElementType();
+    for (std::size_t operandIndex = 1;
+         operandIndex < genericOp.getOutputs().getBeginOperandIndex();
+         ++operandIndex) {
+      TT_assertv(inputElementType ==
+                     mlir::cast<MemRefType>(
+                         genericOp->getOperand(operandIndex).getType())
+                         .getElementType(),
+                 "expected no change in tile shapes across generic op inputs");
+    }
   }
 
   const Type outputElementType =

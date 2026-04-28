@@ -79,18 +79,6 @@ static void rewriteCapturedDMAOperands(IRRewriter &rewriter, GenericOp generic,
   }
 }
 
-static void rewriteCapturedEmbeddingOperands(IRRewriter &rewriter,
-                                             GenericOp generic,
-                                             EmbeddingOp embedding) {
-  for (OpOperand &operand : embedding->getOpOperands()) {
-    auto operandIndex = getCapturedOperandIndex(generic, operand.get());
-    if (operandIndex) {
-      rewriteOperand(rewriter, embedding.getOperation(), operand,
-                     *operandIndex);
-    }
-  }
-}
-
 static void rewriteCapturedIndexedRowCopyOperands(IRRewriter &rewriter,
                                                   GenericOp generic,
                                                   IndexedRowCopyOp copyOp) {
@@ -148,9 +136,6 @@ public:
       // Rewrite DMA ops that directly capture ins/outs operands.
       generic.walk([&](DMAOpInterface dma) {
         rewriteCapturedDMAOperands(rewriter, generic, dma);
-      });
-      generic.walk([&](EmbeddingOp embedding) {
-        rewriteCapturedEmbeddingOperands(rewriter, generic, embedding);
       });
       generic.walk([&](IndexedRowCopyOp copyOp) {
         rewriteCapturedIndexedRowCopyOperands(rewriter, generic, copyOp);
