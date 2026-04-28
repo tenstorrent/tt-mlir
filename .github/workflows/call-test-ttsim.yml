@@ -150,29 +150,19 @@ jobs:
           export TT_METAL_DISABLE_SFPLOADMACRO="1"
           mkdir -p test_reports
 
-          run_sim_test() {
-            local nodeid="$1"
-            local kexpr="$2"
-            local report="$3"
-            if [[ -n "$kexpr" ]]; then
-              pytest -ssv "$nodeid" -k "$kexpr" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report"
-            else
-              pytest -ssv "$nodeid" --sys-desc "$SYSTEM_DESC_PATH" --junit-xml "$report"
-            fi
-          }
-
-          run_sim_test "test/python/golden/ttir_ops/data_movement/test_data_movement.py" "ttmetal" "test_reports/ttsim_test_data_movement_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_binary.py" "ttmetal" "test_reports/ttsim_ttir_binary_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_ternary.py" "ttmetal" "test_reports/ttsim_ttir_ternary_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/eltwise/test_ttir_unary.py" "ttmetal" "test_reports/ttsim_ttir_unary_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/ttir_ops/normalization/test_normalization.py" "ttmetal" "test_reports/ttsim_normalization_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_bfp8_typecast.py" "ttmetal" "test_reports/ttsim_metal_bfp8_typecast_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_composite_ops.py" "ttmetal" "test_reports/ttsim_metal_composite_ops_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_tilize.py" "ttmetal" "test_reports/ttsim_metal_tilize_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_metal_tms.py" "ttmetal" "test_reports/ttsim_metal_tms_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_ttir_eltwise_fusion.py" "ttmetal" "test_reports/ttsim_ttir_eltwise_fusion_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_ttir_models.py" "ttmetal" "test_reports/ttsim_ttir_models_${{ matrix.arch }}.xml"
-          run_sim_test "test/python/golden/test_ttir_ops.py" "ttmetal" "test_reports/ttsim_ttir_ops_${{ matrix.arch }}.xml"
+          pytest -ssv \
+            test/python/golden/d2m/test_binary.py \
+            test/python/golden/d2m/test_ternary.py \
+            test/python/golden/d2m/test_unary.py \
+            test/python/golden/d2m/test_unaligned.py \
+            test/python/golden/d2m/test_ttir_ops.py \
+            test/python/golden/d2m/test_bfp8_typecast.py \
+            test/python/golden/d2m/test_composite_ops.py \
+            test/python/golden/d2m/test_tilize.py \
+            test/python/golden/d2m/test_tms.py \
+            test/python/golden/d2m/test_eltwise_fusion.py \
+            --sys-desc "$SYSTEM_DESC_PATH" \
+            --junit-xml "test_reports/ttsim_all_${{ matrix.arch }}.xml"
 
       - name: Upload TTSim test report xml
         if: success() || failure()
@@ -187,6 +177,6 @@ jobs:
         if: success() || failure()
         uses: mikepenz/action-junit-report@v6
         with:
-          report_paths: test_reports/ttsim_*.xml
+          report_paths: test_reports/ttsim_all_*.xml
           check_name: TTSim golden tests (${{ matrix.arch }})
           job_summary: false

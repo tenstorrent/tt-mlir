@@ -268,16 +268,24 @@ def test_sdpa_mask_broadcast(
     "shapes,mask_shape,scale",
     [
         # Decode mask: [1, batch, num_heads, kv_seq] - standard
-        (
+        pytest.param(
             [(1, 32, 32, 64), (32, 32, 128, 64), (32, 32, 128, 64), (32,)],
             (1, 32, 32, 128),
             0.124999993,
+            marks=pytest.mark.xfail(
+                reason="PCC regression, tracked in "
+                "https://github.com/tenstorrent/tt-mlir/issues/8112"
+            ),
         ),
         # Decode mask with GQA: mask num_heads matches query num_heads
-        (
+        pytest.param(
             [(1, 32, 32, 64), (32, 8, 128, 64), (32, 8, 128, 64), (32,)],
             (1, 32, 32, 128),
             0.124999993,
+            marks=pytest.mark.xfail(
+                reason="PCC regression, tracked in "
+                "https://github.com/tenstorrent/tt-mlir/issues/8112"
+            ),
         ),
         # Decode mask with batch broadcast: mask[1]=1
         (

@@ -3280,7 +3280,15 @@ createOp(FlatbufferObjectCache &cache,
       cache, op.getScale()
                  ? std::make_optional(op.getScale().value().convertToFloat())
                  : std::nullopt);
+  ::flatbuffers::Optional<uint32_t> slidingWindowSize =
+      toFlatbuffer(cache, op.getSlidingWindowSize());
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  const ::tt::target::ttnn::CoreCoord *coreGridPtr = nullptr;
+  ::tt::target::ttnn::CoreCoord coreGridVal;
+  if (auto coreGridAttr = op.getCoreGrid()) {
+    coreGridVal = toFlatbuffer(cache, *coreGridAttr);
+    coreGridPtr = &coreGridVal;
+  }
 
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
@@ -3289,7 +3297,8 @@ createOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreatePagedScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, pageTable, isCausal, attentionMask,
-      curPosTensor, attentionSink, scale, out, memoryConfig);
+      curPosTensor, attentionSink, scale, slidingWindowSize, out, memoryConfig,
+      coreGridPtr);
 }
 
 ::flatbuffers::Offset<
@@ -3428,7 +3437,13 @@ createKernelArgs(FlatbufferObjectCache &cache,
       arg = ::tt::target::ttnn::CreateKernelArgGlobalSemaphore(
                 *cache.fbb, kernelArgGlobalSemaphore.getGlobalSemaphoreIndex())
                 .Union();
-
+    } else if (auto kernelArgScalar =
+                   llvm::dyn_cast<KernelArgScalarAttr>(argAttr);
+               kernelArgScalar) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgScalar;
+      arg = ::tt::target::ttnn::CreateKernelArgScalar(
+                *cache.fbb, kernelArgScalar.getOperandIndex())
+                .Union();
     } else {
       llvm_unreachable("Unsupported kernel argument attribute");
     }
@@ -3971,6 +3986,31 @@ createOp(FlatbufferObjectCache &cache, TopKOp op) {
   return ::tt::target::ttnn::CreateTopKOpDirect(
       *cache.fbb, in, k, dim, largest, sorted,
       (memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0), &outputs);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::SamplingOp>
+createOp(FlatbufferObjectCache &cache, SamplingOp op) {
+  auto inputValues = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputValues()));
+  auto inputIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputIndices()));
+  auto k = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getK()));
+  auto p = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getP()));
+  auto temp = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTemp()));
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  ::flatbuffers::Optional<uint32_t> seed;
+  if (op.getSeed().has_value()) {
+    seed = op.getSeed().value();
+  }
+
+  return ::tt::target::ttnn::CreateSamplingOp(
+      *cache.fbb, inputValues, inputIndices, k, p, temp, seed, output);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::TopKRouterGptOp>
@@ -4567,6 +4607,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       pagedFillCacheOp) {
     return createOperation(cache, createOp(cache, pagedFillCacheOp),
                            debugString, locInfo);
+  }
+  if (auto samplingOp = dyn_cast<SamplingOp>(op); samplingOp) {
+    return createOperation(cache, createOp(cache, samplingOp), debugString,
+                           locInfo);
   }
   if (auto permuteOp = dyn_cast<PermuteOp>(op); permuteOp) {
     return createOperation(cache, createOp(cache, permuteOp), debugString,

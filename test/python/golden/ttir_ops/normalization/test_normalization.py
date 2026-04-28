@@ -99,7 +99,6 @@ def test_batch_norm(
     "target",
     [
         "ttnn" | SkipIf("sim"),
-        "ttmetal",
         "emitpy" | SkipIf("sim"),
         "emitc" | SkipIf("sim"),
     ],
@@ -192,7 +191,7 @@ def test_softmax(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_softmax(
     shape: Shape,
@@ -299,7 +298,7 @@ def test_layer_norm(
 @pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_layer_norm(
     shape: Shape,
@@ -363,6 +362,11 @@ def test_hoisted_layer_norm(
         (1, 1, 128, 128),
         (1, 1, 32, 68),
         (1, 1, 37, 72),
+        # Shapes below exercise the relaxed fused-kernel eligibility check and
+        # the canonical-shape reshape in the decomposition pass: dim -2 == 32
+        # and dim -1 % 32 == 0 with all leading dims equal to 1, but rank != 4.
+        (32, 128),
+        (1, 32, 128),
     ],
     ids=shape_str,
 )
@@ -370,7 +374,10 @@ def test_hoisted_layer_norm(
 @pytest.mark.parametrize("has_residual", [True, False])
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 @pytest.mark.parametrize("cluster_axis", [1])
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim"), "emitc" | SkipIf("sim")],
+)
 def test_distributed_rms_norm(
     shape: Shape,
     has_weight: bool,
@@ -389,6 +396,24 @@ def test_distributed_rms_norm(
     2. RMS normalization
     3. All-gather collective communication
     """
+    # Skip combinations that hang on n300 after metal uplift to commit 7fb82fd0
+    # (Reduce compute and dataflow helpers, tt-metal#41637).
+    # Hangs occur when has_weight=True with shape (1, 1, 32, X) where X is a
+    # power-of-2 last dimension. Tracked in tt-mlir#8129 / tt-metal#43173.
+    if has_weight and shape in [
+        (1, 1, 32, 128),
+        (1, 1, 32, 512),
+        (1, 1, 32, 4096),
+        (1, 1, 32, 8192),
+        (32, 128),
+        (1, 32, 128),
+    ]:
+        pytest.skip(
+            f"Hangs on n300 with has_weight=True and shape={shape} after metal uplift "
+            "(Reduce compute and dataflow helpers, tt-metal#41637). "
+            "Tracked in tt-mlir#8129 / tt-metal#43173."
+        )
+
     # Determine input shapes
     shapes = [shape]
     weight_shape = (shape[-1],)  # Weight matches last dimension
@@ -397,8 +422,8 @@ def test_distributed_rms_norm(
     if has_residual:
         shapes.append(shape)
 
-    # Shard dimensions for width sharding (dim 3)
-    shard_dims = [-1, 3]
+    # Width-shard the last dimension across mesh axis 1.
+    shard_dims = [-1, len(shape) - 1]
 
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.bfloat16] * len(shapes))

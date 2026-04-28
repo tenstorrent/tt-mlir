@@ -10,12 +10,10 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Utils.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Value.h"
-#include "llvm/ADT/SetVector.h"
 
 #include <optional>
 #include <string>
@@ -4608,6 +4606,392 @@ public:
     return success();
   }
 };
+
+class SamplingOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::SamplingOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      tt::ttnn::SamplingOp>::TTNNToEmitPyBaseOpConversionPattern;
+  LogicalResult
+  matchAndRewrite(tt::ttnn::SamplingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<tt::ttnn::SamplingOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputValues()),
+        emitter.emit(srcOp.getInputIndices()),
+        emitter.emit(srcOp.getK()),
+        emitter.emit(srcOp.getP()),
+        emitter.emit(srcOp.getTemp()),
+        emitter.emit(srcOp.getSeed(), "seed"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// WriteTensorOp conversion pattern
+//
+namespace {
+class WriteTensorOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::WriteTensorOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::WriteTensorOp::getOperationName().str();
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.copy_host_to_device_tensor";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::WriteTensorOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::WriteTensorOp writeTensorOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::WriteTensorOp> emitter(
+        writeTensorOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(writeTensorOp.getHostTensor()),
+        emitter.emit(writeTensorOp.getDeviceTensor()),
+        emitter.emit(writeTensorOp.getCqId(), "cq_id"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// BeginTraceCaptureOp conversion pattern
+//
+namespace {
+class BeginTraceCaptureOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::BeginTraceCaptureOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::BeginTraceCaptureOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::BeginTraceCaptureOp beginTraceCaptureOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::BeginTraceCaptureOp>
+        emitter(beginTraceCaptureOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(beginTraceCaptureOp.getDevice()),
+        emitter.emit(beginTraceCaptureOp.getCqId(), "cq_id"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// EndTraceCaptureOp conversion pattern
+//
+namespace {
+class EndTraceCaptureOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::EndTraceCaptureOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::EndTraceCaptureOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::EndTraceCaptureOp endTraceCaptureOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::EndTraceCaptureOp>
+        emitter(endTraceCaptureOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(endTraceCaptureOp.getDevice()),
+        emitter.emit(endTraceCaptureOp.getTraceId()),
+        emitter.emit(endTraceCaptureOp.getCqId(), "cq_id"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ExecuteTraceOp conversion pattern
+//
+namespace {
+class ExecuteTraceOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::ExecuteTraceOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ExecuteTraceOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ExecuteTraceOp executeTraceOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ExecuteTraceOp> emitter(
+        executeTraceOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(executeTraceOp.getDevice()),
+        emitter.emit(executeTraceOp.getTraceId()),
+        emitter.emit(executeTraceOp.getCqId(), "cq_id"),
+        emitter.emit(executeTraceOp.getBlocking(), "blocking"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// CaptureOrExecuteTraceOp conversion pattern
+//
+// Generates module-level globals and a wrapper function that calls
+// capture_callee on the first invocation and execute_callee on the subsequent
+// ones.
+//
+// Python pseudo-code:
+//
+//   is_first_call = True
+//   trace_id = None
+//   input_0 = None; ...; input_n = None
+//   output_0 = None; ...; output_m = None
+//
+//   def capture_or_execute_trace(device, input_0_arg, ..., input_n_arg):
+//       global is_first_call, trace_id, input_0, ..., output_m
+//       if is_first_call:
+//           is_first_call = False
+//           result = capture_callee(input_0_arg, ..., input_n_arg)
+//           trace_id = result[0]
+//           input_0 = result[1]; ...; input_n = result[1 + n]
+//           output_0 = result[1 + n + 1]; ...; output_m = result[...]
+//       else:
+//           execute_callee(trace_id)
+//       return output_0, ..., output_m
+//
+
+// Strips the "run_and_capture_" prefix from a capture callee name to produce a
+// unique suffix for generated symbols.
+// e.g. "run_and_capture_trace_0_single_add" -> "trace_0_single_add"
+static llvm::StringRef getTraceSuffix(llvm::StringRef captureCallee) {
+  if (captureCallee.starts_with(mlir::tt::ttnn::g_TTNNCaptureTracePrefix)) {
+    return captureCallee.drop_front(
+        mlir::tt::ttnn::g_TTNNCaptureTracePrefix.size());
+  }
+  return captureCallee;
+}
+
+namespace {
+class CaptureOrExecuteTraceOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::CaptureOrExecuteTraceOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::CaptureOrExecuteTraceOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CaptureOrExecuteTraceOp captureOrExecuteOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = captureOrExecuteOp.getLoc();
+
+    llvm::StringRef traceSuffix =
+        getTraceSuffix(captureOrExecuteOp.getCaptureCallee());
+
+    auto noneAttr = emitpy::OpaqueAttr::get(ctx, "None");
+    std::string firstCallGlobalName = "is_first_call_" + traceSuffix.str();
+    std::string traceIdGlobalName = "trace_id_" + traceSuffix.str();
+    std::string inputGlobalPrefix = "global_input_";
+    std::string outputGlobalPrefix = "global_output_";
+    std::string traceNameSuffix = "_" + traceSuffix.str();
+
+    // Define globals in the nearest symbol-table scope of capture callee.
+    Operation *nearestSymbolTableOp =
+        SymbolTable::getNearestSymbolTable(captureOrExecuteOp);
+    if (!nearestSymbolTableOp || nearestSymbolTableOp->getNumRegions() == 0 ||
+        nearestSymbolTableOp->getRegion(0).empty()) {
+      return rewriter.notifyMatchFailure(captureOrExecuteOp,
+                                         "failed to find symbol table body");
+    }
+    rewriter.setInsertionPointToStart(
+        &nearestSymbolTableOp->getRegion(0).front());
+    rewriter.create<emitpy::GlobalOp>(loc, firstCallGlobalName,
+                                      emitpy::OpaqueAttr::get(ctx, "True"));
+    rewriter.create<emitpy::GlobalOp>(loc, traceIdGlobalName, noneAttr);
+
+    llvm::SmallVector<emitpy::GlobalOp> inputGlobals;
+    for (size_t i = 0; i < adaptor.getInputs().size(); ++i) {
+      inputGlobals.push_back(rewriter.create<emitpy::GlobalOp>(
+          loc, inputGlobalPrefix + std::to_string(i) + traceNameSuffix,
+          noneAttr));
+    }
+
+    llvm::SmallVector<emitpy::GlobalOp> outputGlobals;
+    for (size_t i = 0; i < captureOrExecuteOp.getNumResults(); ++i) {
+      outputGlobals.push_back(rewriter.create<emitpy::GlobalOp>(
+          loc, outputGlobalPrefix + std::to_string(i) + traceNameSuffix,
+          noneAttr));
+    }
+
+    // Create `capture_or_execute_trace` function.
+    std::string funcName = "capture_or_execute_" + traceSuffix.str();
+
+    mlir::SmallVector<mlir::Type> inputTypes = llvm::map_to_vector(
+        adaptor.getInputs(), [](auto operand) { return operand.getType(); });
+
+    mlir::SmallVector<mlir::Type> resultTypes = llvm::map_to_vector(
+        captureOrExecuteOp.getResultTypes(), [this](auto resultType) {
+          return getTypeConverter()->convertType(resultType);
+        });
+
+    auto funcType = rewriter.getFunctionType(inputTypes, resultTypes);
+
+    auto captureOrExecFuncOp =
+        rewriter.create<func::FuncOp>(loc, funcName, funcType);
+    captureOrExecFuncOp.setPrivate();
+    auto *block = captureOrExecFuncOp.addEntryBlock();
+    rewriter.setInsertionPointToStart(block);
+
+    // Emit `global` statements for all globals used in
+    // `capture_or_execute_trace` function.
+    auto boolType = emitpy::OpaqueType::get(ctx, "bool");
+    auto intType = emitpy::OpaqueType::get(ctx, "int");
+
+    auto isFirstCallRef = rewriter.create<emitpy::GlobalStatementOp>(
+        loc, boolType, rewriter.getStringAttr(firstCallGlobalName));
+    auto traceIdRef = rewriter.create<emitpy::GlobalStatementOp>(
+        loc, intType, rewriter.getStringAttr(traceIdGlobalName));
+
+    llvm::SmallVector<Value> inputRefs;
+    for (size_t i = 0; i < inputGlobals.size(); ++i) {
+      auto inputRef = rewriter.create<emitpy::GlobalStatementOp>(
+          loc, inputTypes[i],
+          rewriter.getStringAttr(inputGlobalPrefix + std::to_string(i) +
+                                 traceNameSuffix));
+      inputRefs.push_back(inputRef.getResult());
+    }
+
+    llvm::SmallVector<Value> outputRefs;
+    for (size_t i = 0; i < outputGlobals.size(); ++i) {
+      auto outputRef = rewriter.create<emitpy::GlobalStatementOp>(
+          loc, resultTypes[i],
+          rewriter.getStringAttr(outputGlobalPrefix + std::to_string(i) +
+                                 traceNameSuffix));
+      outputRefs.push_back(outputRef.getResult());
+    }
+
+    // Create if/else: if is_first_call: capture else: execute
+    auto ifOp =
+        rewriter.create<emitpy::IfOp>(loc, rewriter.getStringAttr("{}"),
+                                      ValueRange{isFirstCallRef.getResult()});
+
+    // THEN block: capture path.
+    {
+      auto *thenBlock = rewriter.createBlock(&ifOp.getThenRegion());
+      rewriter.setInsertionPointToStart(thenBlock);
+
+      // is_first_call = False
+      auto falseVal = rewriter.create<emitpy::ConstantOp>(
+          loc, boolType, emitpy::OpaqueAttr::get(ctx, "False"));
+      rewriter.create<emitpy::AssignGlobalOp>(
+          loc, rewriter.getStringAttr(firstCallGlobalName),
+          falseVal.getResult());
+
+      // result = capture_callee(input_0_arg, ..., input_n_arg)
+      auto tensorListType = emitpy::OpaqueType::get(ctx, "[ttnn.Tensor]");
+      auto captureResult = rewriter.create<emitpy::CallOpaqueOp>(
+          loc, tensorListType, captureOrExecuteOp.getCaptureCallee().str(),
+          block->getArguments());
+
+      // trace_id = result[0]
+      auto idx0 =
+          rewriter.create<emitpy::LiteralOp>(loc, rewriter.getIndexType(), "0");
+      auto traceIdVal = rewriter.create<emitpy::SubscriptOp>(
+          loc, intType, captureResult.getResult(0), idx0.getResult());
+      rewriter.create<emitpy::AssignGlobalOp>(
+          loc, rewriter.getStringAttr(traceIdGlobalName),
+          traceIdVal.getResult());
+
+      // input_i = result[1 + i]
+      const size_t inputBaseIndex = 1;
+      for (size_t i = 0; i < inputGlobals.size(); ++i) {
+        auto idx = rewriter.create<emitpy::LiteralOp>(
+            loc, rewriter.getIndexType(), std::to_string(inputBaseIndex + i));
+        auto inputVal = rewriter.create<emitpy::SubscriptOp>(
+            loc, inputTypes[i], captureResult.getResult(0), idx.getResult());
+        rewriter.create<emitpy::AssignGlobalOp>(
+            loc,
+            rewriter.getStringAttr(inputGlobalPrefix + std::to_string(i) +
+                                   traceNameSuffix),
+            inputVal.getResult());
+      }
+
+      // output_i = result[1 + numInputs + i]
+      const size_t outputBaseIndex = inputBaseIndex + inputGlobals.size();
+      for (size_t i = 0; i < outputGlobals.size(); ++i) {
+        auto idx = rewriter.create<emitpy::LiteralOp>(
+            loc, rewriter.getIndexType(), std::to_string(outputBaseIndex + i));
+        auto outputVal = rewriter.create<emitpy::SubscriptOp>(
+            loc, resultTypes[i], captureResult.getResult(0), idx.getResult());
+        rewriter.create<emitpy::AssignGlobalOp>(
+            loc,
+            rewriter.getStringAttr(outputGlobalPrefix + std::to_string(i) +
+                                   traceNameSuffix),
+            outputVal.getResult());
+      }
+    }
+
+    // ELSE block: execute path.
+    {
+      auto *elseBlock = rewriter.createBlock(&ifOp.getElseRegion());
+      rewriter.setInsertionPointToStart(elseBlock);
+
+      // execute_callee(trace_id)
+      rewriter.create<emitpy::CallOpaqueOp>(
+          loc, TypeRange{}, captureOrExecuteOp.getExecuteCallee().str(),
+          ValueRange{traceIdRef.getResult()});
+    }
+
+    // After the if/else, return the output globals.
+    rewriter.setInsertionPointAfter(ifOp);
+    rewriter.create<func::ReturnOp>(loc, outputRefs);
+
+    // Replace the original op with a call to our new wrapper function.
+    rewriter.setInsertionPoint(captureOrExecuteOp);
+
+    auto callOp = rewriter.create<emitpy::CallOpaqueOp>(
+        loc, resultTypes, captureOrExecFuncOp.getName().str(),
+        adaptor.getInputs());
+
+    rewriter.replaceOp(captureOrExecuteOp, callOp.getResults());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -4691,7 +5075,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::GeluOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ExpOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ErfOp>,
-               EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::ErfcOp>,
+               EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ErfcOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::LogOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::Log1pOp>,
                EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<mlir::tt::ttnn::TanhOp>,
@@ -4855,6 +5239,15 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SamplingOpConversionPattern>(typeConverter, ctx);
+
+  // Trace ops
+  //
+  patterns.add<WriteTensorOpConversionPattern>(typeConverter, ctx);
+  patterns.add<BeginTraceCaptureOpConversionPattern>(typeConverter, ctx);
+  patterns.add<EndTraceCaptureOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ExecuteTraceOpConversionPattern>(typeConverter, ctx);
+  patterns.add<CaptureOrExecuteTraceOpConversionPattern>(typeConverter, ctx);
 
   // Quantization ops.
   //

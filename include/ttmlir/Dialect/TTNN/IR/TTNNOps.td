@@ -349,6 +349,14 @@ def TTNN_ExpOp : TTNN_ElementwiseUnaryOp<"exp"> {
 
 def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
     let summary = "Eltwise erf op.";
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createErfOpOperandsWorkarounds(getInput().getType());
+      }
+    }];
+
     let description = [{
         Eltwise erf operation. Calculates erf(x) for each element of the input tensor.
       }];
@@ -3781,7 +3789,9 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
                        OptionalAttr<F32Attr>:$scale,
-                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                       OptionalAttr<UI32Attr>:$sliding_window_size,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       OptionalAttr<TTNN_CoreCoordAttr>:$core_grid);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -4010,6 +4020,42 @@ def TTNN_AggregateTensorOp : TTNN_Op<"aggregate_tensor"> {
   );
 
   let results = (outs AnyRankedTensor:$result);
+}
+
+def TTNN_SamplingOp : TTNN_Op<"sampling"> {
+  let summary = "Sampling operation.";
+  let description = [{
+    Performs fused top-k + top-p + multinomial sampling on pre-filtered
+    candidate logits using the ttnn::sampling kernel.
+
+    Inputs:
+      - `input_values`: Pre-filtered candidate logit values [batch, candidates] bf16, TILE layout
+      - `input_indices`: Global vocab indices for each candidate [batch, candidates] int32, ROW_MAJOR
+      - `k`: Per-request top-k values [batch] uint32, ROW_MAJOR
+      - `p`: Per-request top-p values [batch] bf16, ROW_MAJOR
+      - `temp`: Per-request temperature values [batch] bf16, ROW_MAJOR
+      - `seed`: Optional random seed (uint32 scalar attribute)
+
+    Output:
+      - `result`: Sampled global token indices [batch] int32, ROW_MAJOR
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input_values,
+                       AnyRankedTensor:$input_indices,
+                       AnyRankedTensor:$k,
+                       AnyRankedTensor:$p,
+                       AnyRankedTensor:$temp,
+                       OptionalAttr<UI32Attr>:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds();
+    }
+  }];
+
+  let hasVerifier = 1;
 }
 
 def TTNN_TopKOp : TTNN_Op<"topk", [TTNN_MemoryConfigOpInterface]> {

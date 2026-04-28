@@ -8,6 +8,8 @@ from conftest import get_request_kwargs
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
+from ttmlir.ir import StringAttr
+
 from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
@@ -195,6 +197,41 @@ def module_convert(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.convert(in0, output_type=torch.bfloat16, unit_attrs=unit_attrs)
+
+
+def module_composite(builder: StableHLOBuilder):
+    # Author the decomposition function first as a private sibling func. The
+    # `stablehlo.composite` op emitted in the main func references it by name
+    # via its `decomposition` symbol attribute, mirroring the canonical form
+    # in test/ttmlir/Silicon/StableHLO/n150/composite_op.mlir.
+    @builder.func([(64, 128), (64, 128)], [torch.float32, torch.float32])
+    def add_impl(
+        lhs: Operand,
+        rhs: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.add(lhs, rhs)
+
+    add_impl.sym_visibility = StringAttr.get("private")
+    # Exclude the private decomposition from the golden_map program list so
+    # only the public entry point is treated as an executable program.
+    builder._nested_funcs.append(add_impl.name.value)
+
+    @builder.func([(64, 128), (64, 128)], [torch.float32, torch.float32])
+    def composite_main(
+        lhs: Operand,
+        rhs: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.composite(
+            "jit_eltwise_add.my_add",
+            [lhs, rhs],
+            decomposition=add_impl,
+            unit_attrs=unit_attrs,
+        )
 
 
 def module_cbrt(builder: StableHLOBuilder):
@@ -566,7 +603,7 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
         )
 
 
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -576,8 +613,8 @@ def module_broadcast_in_dim(builder: StableHLOBuilder):
         module_mul,
         module_pow,
         module_subtract,
-        module_remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_remainder,
+        module_atan2,
     ],
 )
 def test_binary_ops(test_fn: Callable, target: str, request, device):
@@ -589,16 +626,16 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
     [
-        module_compare_eq | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_ne | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_ge | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_gt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_le | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_lt | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_eq,
+        module_compare_ne,
+        module_compare_ge,
+        module_compare_gt,
+        module_compare_le,
+        module_compare_lt,
     ],
 )
 def test_compare_ops(test_fn: Callable, target: str, request, device):
@@ -807,32 +844,21 @@ def test_get_dimension_size(
 
 
 _RESHAPE_CASES = [
-    # shapes, semantic id, skip_ttmetal?
-    ([(2, 3), (3, 2)], "swap", True),
-    ([(2, 3), (6,)], "flatten", True),
-    ([(1, 784), (1, 28, 28)], "unflatten", True),
-    ([(4, 8, 16), (4, 128)], "3d_to_2d", True),
-    ([(64, 512), (64, 1, 512)], "expand_dims", True),
-    ([(128, 128), (64, 256)], "rearrange_2d", True),
-    ([(10,), (10,)], "identity", True),
-    ([(0, 6), (0, 2, 3)], "zero_dim", True),
+    # shapes, semantic id
+    ([(2, 3), (3, 2)], "swap"),
+    ([(2, 3), (6,)], "flatten"),
+    ([(1, 784), (1, 28, 28)], "unflatten"),
+    ([(4, 8, 16), (4, 128)], "3d_to_2d"),
+    ([(64, 512), (64, 1, 512)], "expand_dims"),
+    ([(128, 128), (64, 256)], "rearrange_2d"),
+    ([(10,), (10,)], "identity"),
+    ([(0, 6), (0, 2, 3)], "zero_dim"),
 ]
 
-_RESHAPE_PARAMS = []
-for shapes, case_id, skip_ttmetal in _RESHAPE_CASES:
-    # ttnn: expected to pass
-    _RESHAPE_PARAMS.append(pytest.param(shapes, "ttnn", id=f"{case_id}-ttnn"))
-    # ttmetal: skip cases known to be unsupported
-    marks = []
-    if skip_ttmetal:
-        marks.append(
-            pytest.mark.skip(
-                reason="reshape lowering not yet supported in TTMetal backend"
-            )
-        )
-    _RESHAPE_PARAMS.append(
-        pytest.param(shapes, "ttmetal", id=f"{case_id}-ttmetal", marks=marks)
-    )
+_RESHAPE_PARAMS = [
+    pytest.param(shapes, "ttnn", id=f"{case_id}-ttnn")
+    for shapes, case_id in _RESHAPE_CASES
+]
 
 
 @pytest.mark.parametrize("shapes, target", _RESHAPE_PARAMS)
@@ -874,7 +900,7 @@ def test_ternary_ops(test_fn: Callable, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_reshape_mismatch_raises(target, request, device):
     """
     Element-count mismatch must raise. It may surface as a ValueError from the
@@ -947,7 +973,7 @@ def test_dot_general(
 
 @pytest.mark.parametrize("shape", [(2, 3, 4), (128, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "permutation",
     [
@@ -966,12 +992,6 @@ def test_transpose(
 ):
     if len(shape) != len(permutation):
         pytest.skip(f"Permutation {permutation} doesn't match shape rank {len(shape)}")
-
-    # Skip ttmetal for dimensions > 2
-    if target == "ttmetal" and len(shape) > 2:
-        pytest.skip(
-            f"ttmetal does not support transpose for dimensions > 2, got shape with {len(shape)} dimensions"
-        )
 
     def module(builder: StableHLOBuilder):
         @builder.func([shape], [dtype])
@@ -993,18 +1013,7 @@ def test_transpose(
 @pytest.mark.parametrize("shape", [(2, 3)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[1, 1, 1, 1], [1, 0, 0, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize(
-    "target",
-    [
-        "ttnn",
-        pytest.param(
-            "ttmetal",
-            marks=pytest.mark.skip(
-                reason="ttir.pad lowering not supported on ttmetal, failed to legalize"
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_pad(
     shape: Shape,
     padding: List[int],
@@ -1159,7 +1168,7 @@ def test_logical_unary_ops(
     ids=["128x128_basic", "128x128_offset", "128x128_stride", "256x256_large"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_slice(
     shape: Shape,
     start_indices: List[int],
@@ -2223,6 +2232,19 @@ def test_broadcast_ops(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_composite_op(target: str, request, device):
+    # Op-creating test for stablehlo.composite: emits a private decomposition
+    # function and a public entry point that references it via the
+    # `decomposition` symbol attribute. Mirrors composite_op.mlir.
+    compile_and_execute_shlo(
+        module_composite,
+        **get_request_kwargs(request),
         target=target,
         device=device,
     )

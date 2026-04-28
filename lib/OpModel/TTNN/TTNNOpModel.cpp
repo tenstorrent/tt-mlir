@@ -980,7 +980,7 @@ template struct UnaryEltwiseWithFastApproxModeOpModel<Log1pOp>;
 template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
-template struct UnaryEltwiseWithFastApproxModeOpModel<ErfcOp>;
+template struct UnaryEltwiseOpModel<ErfcOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
 
@@ -2809,7 +2809,9 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2852,15 +2854,25 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = std::nullopt;
+  if (coreGrid) {
+    sdpaProgramConfig.emplace();
+    sdpaProgramConfig->compute_with_storage_grid_size =
+        ::tt::tt_metal::CoreCoord{coreGrid->getX(), coreGrid->getY()};
+    sdpaProgramConfig->q_chunk_size = 0;
+    sdpaProgramConfig->k_chunk_size = 0;
+    sdpaProgramConfig->max_cores_per_head_batch =
+        coreGrid->getX() * coreGrid->getY();
+  }
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -2884,7 +2896,9 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2928,7 +2942,18 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = std::nullopt;
+  if (coreGrid) {
+    sdpaProgramConfig.emplace();
+    sdpaProgramConfig->compute_with_storage_grid_size =
+        ::tt::tt_metal::CoreCoord{coreGrid->getX(), coreGrid->getY()};
+    sdpaProgramConfig->q_chunk_size = 0;
+    sdpaProgramConfig->k_chunk_size = 0;
+    sdpaProgramConfig->max_cores_per_head_batch =
+        coreGrid->getX() * coreGrid->getY();
+  }
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
@@ -2936,7 +2961,7 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        sdpaProgramConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -8319,6 +8344,133 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(topKQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputValuesShape,
+    TTNNLayoutAttr inputValuesLayout, llvm::ArrayRef<int64_t> inputIndicesShape,
+    TTNNLayoutAttr inputIndicesLayout, llvm::ArrayRef<int64_t> kShape,
+    TTNNLayoutAttr kLayout, llvm::ArrayRef<int64_t> pShape,
+    TTNNLayoutAttr pLayout, llvm::ArrayRef<int64_t> tempShape,
+    TTNNLayoutAttr tempLayout, std::optional<uint32_t> seed,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // ttnn::sampling kernel expects 4D [N, C, H, W] with N*C*H==32. Runtime
+  // reshapes 2D [batch, candidates] -> [1, 1, batch, candidates] before
+  // dispatch; mirror that here so constraint queries see the kernel-expected
+  // shape.
+  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
+                                            inputValuesShape[1]};
+  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
+                                             inputIndicesShape[1]};
+
+  auto valuesSpecExp =
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
+  if (!valuesSpecExp) {
+    return valuesSpecExp.takeError();
+  }
+  auto indicesSpecExp =
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
+  if (!indicesSpecExp) {
+    return indicesSpecExp.takeError();
+  }
+  auto kSpecExp = detail::convertToTensorSpec(device, kShape, kLayout);
+  if (!kSpecExp) {
+    return kSpecExp.takeError();
+  }
+  auto pSpecExp = detail::convertToTensorSpec(device, pShape, pLayout);
+  if (!pSpecExp) {
+    return pSpecExp.takeError();
+  }
+  auto tempSpecExp = detail::convertToTensorSpec(device, tempShape, tempLayout);
+  if (!tempSpecExp) {
+    return tempSpecExp.takeError();
+  }
+
+  // Extract TensorSpecs before lambda capture (Expected is not copyable).
+  ::ttnn::TensorSpec valuesSpec = valuesSpecExp.get();
+  ::ttnn::TensorSpec indicesSpec = indicesSpecExp.get();
+  ::ttnn::TensorSpec kSpec = kSpecExp.get();
+  ::ttnn::TensorSpec pSpec = pSpecExp.get();
+  ::ttnn::TensorSpec tempSpec = tempSpecExp.get();
+
+  auto samplingQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::sampling, device, valuesSpec,
+                                indicesSpec, kSpec, pSpec, tempSpec, seed,
+                                std::nullopt, std::nullopt);
+  };
+
+  return operation::getOpConstraints(inputValuesLayout.getContext(), deviceGrid,
+                                     samplingQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputValuesShape, TTNNLayoutAttr inputValuesLayout,
+    llvm::ArrayRef<int64_t> inputIndicesShape,
+    TTNNLayoutAttr inputIndicesLayout, llvm::ArrayRef<int64_t> kShape,
+    TTNNLayoutAttr kLayout, llvm::ArrayRef<int64_t> pShape,
+    TTNNLayoutAttr pLayout, llvm::ArrayRef<int64_t> tempShape,
+    TTNNLayoutAttr tempLayout, std::optional<uint32_t> seed,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // See getOpConstraints: reshape 2D -> 4D to match runtime dispatch.
+  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
+                                            inputValuesShape[1]};
+  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
+                                             inputIndicesShape[1]};
+
+  auto valuesSpecExp =
+      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
+  if (!valuesSpecExp) {
+    return valuesSpecExp.takeError();
+  }
+  auto indicesSpecExp =
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
+  if (!indicesSpecExp) {
+    return indicesSpecExp.takeError();
+  }
+  auto kSpecExp = detail::convertToTensorSpec(device, kShape, kLayout);
+  if (!kSpecExp) {
+    return kSpecExp.takeError();
+  }
+  auto pSpecExp = detail::convertToTensorSpec(device, pShape, pLayout);
+  if (!pSpecExp) {
+    return pSpecExp.takeError();
+  }
+  auto tempSpecExp = detail::convertToTensorSpec(device, tempShape, tempLayout);
+  if (!tempSpecExp) {
+    return tempSpecExp.takeError();
+  }
+
+  ::ttnn::TensorSpec valuesSpec = valuesSpecExp.get();
+  ::ttnn::TensorSpec indicesSpec = indicesSpecExp.get();
+  ::ttnn::TensorSpec kSpec = kSpecExp.get();
+  ::ttnn::TensorSpec pSpec = pSpecExp.get();
+  ::ttnn::TensorSpec tempSpec = tempSpecExp.get();
+
+  auto samplingQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::sampling, device, valuesSpec, indicesSpec,
+                            kSpec, pSpec, tempSpec, seed, std::nullopt,
+                            std::nullopt);
+  };
+
+  return operation::getOpRuntime(samplingQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

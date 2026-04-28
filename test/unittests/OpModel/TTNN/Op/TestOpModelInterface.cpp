@@ -2179,7 +2179,9 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
           /*cur_pos_tensor=*/curPos,
           /*attention_sink=*/nullptr,
           /*scale=*/builder.getF32FloatAttr(0.125f),
-          /*memory_config=*/nullptr);
+          /*sliding_window_size=*/nullptr,
+          /*memory_config=*/nullptr,
+          /*core_grid=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -6478,6 +6480,87 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
                 "PagedFlashMultiLatentAttentionDecodeOp; Error="
              << llvm::toString(runtimeExp.takeError());
     }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// SamplingOp
+//===----------------------------------------------------------------------===//
+
+TEST_F(OpModelBase, SamplingOp) {
+  // Typical vLLM non-greedy sampling shapes: batch=32, candidates=128
+  const int64_t batch = 32;
+  const int64_t candidates = 128;
+
+  llvm::SmallVector<int64_t> valuesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> indicesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> paramShape = {batch}; // k, p, temp
+  llvm::SmallVector<int64_t> outputShape = {batch};
+
+  auto gridAttr = ttcore::GridAttr::get(&context);
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  // Build TTNNLayoutAttrs matching the kernel's expected tensor contracts
+  // post-workaround: input_values is TILE, index/param/result tensors are
+  // ROW_MAJOR (the sampling kernel rejects TILE for indices/k/p/temp).
+  auto bf16TileType = ttcore::TileType::get(builder.getBF16Type());
+  auto bf16Type = builder.getBF16Type();
+  auto si32Type = builder.getIntegerType(32, true);
+  auto ui32Type = builder.getIntegerType(32, false);
+
+  auto valuesLayout =
+      TTNNLayoutAttr::get(&context, valuesShape, bf16TileType, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto indicesLayout =
+      TTNNLayoutAttr::get(&context, indicesShape, si32Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto kLayout =
+      TTNNLayoutAttr::get(&context, paramShape, ui32Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto paramLayout =
+      TTNNLayoutAttr::get(&context, paramShape, bf16Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+  auto outputLayout =
+      TTNNLayoutAttr::get(&context, outputShape, si32Type, BufferType::DRAM,
+                          gridAttr, tensorMemoryLayoutAttr);
+
+  auto inputValues = createEmptyTensor(valuesShape, bf16TileType, valuesLayout);
+  auto inputIndices = createEmptyTensor(indicesShape, si32Type, indicesLayout);
+  auto k = createEmptyTensor(paramShape, ui32Type, kLayout);
+  auto p = createEmptyTensor(paramShape, bf16Type, paramLayout);
+  auto temp = createEmptyTensor(paramShape, bf16Type, paramLayout);
+
+  auto outputType = createRankedTensorType(outputShape, si32Type, outputLayout);
+
+  auto samplingOp =
+      builder.create<SamplingOp>(builder.getUnknownLoc(), outputType,
+                                 inputValues, inputIndices, k, p, temp,
+                                 /*seed=*/mlir::IntegerAttr{});
+
+  samplingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(samplingOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    // outputSize is l1_output_buffer_per_core; ttnn::sampling's signature
+    // has no memory_config parameter, so we can't place output in L1 and
+    // this is expected to be 0.
+    EXPECT_GE(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for SamplingOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(samplingOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0u);
+  } else {
+    FAIL() << "Runtime test failed for SamplingOp; Error="
+           << llvm::toString(runtimeExp.takeError());
   }
 }
 

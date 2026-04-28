@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -28,6 +29,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #include <optional>
@@ -2908,6 +2910,7 @@ public:
         emitter.emit(srcOp.getClusterAxis()),
         emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(/* optional_output_tensor= */ std::nullopt),
         emitter.emit(srcOp.getNumLinks()),
         emitter.emit(srcOp.getTopology()),
     };
@@ -3460,7 +3463,7 @@ public:
         emitter.emit(srcOp.getCurPosTensor()),
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
-        emitter.emit(/*slidingWindowSize=*/std::nullopt),
+        emitter.emit(srcOp.getSlidingWindowSize()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(/*program_config=*/std::nullopt),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
@@ -3638,6 +3641,82 @@ public:
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getUse_2dCoreGrid()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// DistributedRMSNormOp conversion pattern
+//
+namespace {
+class DistributedRMSNormOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::DistributedRMSNormOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.distributed_rms_norm";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "::ttnn::fused_rms_minimal";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DistributedRMSNormOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DistributedRMSNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DistributedRMSNormOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    mlir::Value globalSemaphore =
+        rewriter
+            .create<emitc::CallOpaqueOp>(
+                srcOp.getLoc(),
+                emitc::OpaqueType::get(rewriter.getContext(),
+                                       "::ttnn::GlobalSemaphore"),
+                ttnn_to_emitc::kCreateGlobalSemaphoreFunctionName,
+                /*args=*/nullptr,
+                /*template_args=*/nullptr, adaptor.getInput())
+            .getResult(0);
+
+    // Emit SSA operands in ODS order to maintain correct index mapping, then
+    // arrange the returned attributes in the C++ API call order.
+    auto inputIndexAttr = emitter.emit(srcOp.getInput());
+    auto weightIndexAttr = emitter.emit(srcOp.getWeight());
+    auto residualIndexAttr = emitter.emit(srcOp.getResidual());
+    auto statsIndexAttr = emitter.emit(srcOp.getStats());
+    auto deviceIndexAttr =
+        emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice());
+    auto semaphoreIndexAttr =
+        emitter.emit(globalSemaphore, srcOp->getNumOperands());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        inputIndexAttr,
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(srcOp.getClusterAxis()),
+        deviceIndexAttr,
+        semaphoreIndexAttr,
+        emitter.emit(/* persistent_output_tensor= */ std::nullopt),
+        emitter.emit(srcOp.getNumLinks()),
+        srcOp.getTopology() ? emitter.emit(srcOp.getTopology())
+                            : rewriter.getAttr<emitc::OpaqueAttr>(
+                                  "::tt::tt_fabric::Topology::Linear"),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(/* dtype= */ std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+        residualIndexAttr,
+        emitter.emit(srcOp.getEpsilon()),
+        weightIndexAttr,
+        statsIndexAttr,
     };
 
     emitter.replaceOp(*this, args);
@@ -4451,7 +4530,7 @@ private:
     return mlir::tt::ttnn::WriteTensorOp::getOperationName().str();
   }
   std::string getPrefixSwapPattern() const override {
-    return "tt::tt_metal::write_tensor";
+    return "tt::tt_metal::copy_to_device";
   }
 
 public:
@@ -4468,7 +4547,6 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getHostTensor()),
         emitter.emit(srcOp.getDeviceTensor()),
-        emitter.emit(srcOp.getBlocking()),
         emitter.emit<::ttnn::QueueId>(srcOp.getCqId()),
     };
 
@@ -4544,6 +4622,17 @@ public:
 };
 } // namespace
 
+// Strips the "run_and_capture_" prefix from a capture callee name to produce a
+// unique suffix for generated symbols.
+// e.g. "run_and_capture_trace_0_single_add" -> "trace_0_single_add"
+static llvm::StringRef getTraceSuffix(llvm::StringRef captureCallee) {
+  if (captureCallee.starts_with(mlir::tt::ttnn::g_TTNNCaptureTracePrefix)) {
+    return captureCallee.drop_front(
+        mlir::tt::ttnn::g_TTNNCaptureTracePrefix.size());
+  }
+  return captureCallee;
+}
+
 namespace {
 class CaptureOrExecuteTraceOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
@@ -4559,35 +4648,39 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     /*
     The `capture_or_execute_trace` is a function that depends on the global
-    state. On the first call, it calls `capture_calle` and on the second (and
-    onwards) calls `execute_calle`. Pseudo-C++ code looks like:
+    state. On the first call, it calls `capture_callee` and on the second (and
+    onwards) calls `execute_callee`. Pseudo-C++ code looks like:
 
-    bool is_first_call = true;
-    ttnn::MeshTraceId trace_id;
-    ttnn::Tensor global_input_0;
+    bool is_first_call_<suffix> = true;
+    ttnn::MeshTraceId trace_id_<suffix>;
+    ttnn::Tensor global_input_0_<suffix>;
     ...
-    ttnn::Tensor global_input_n;
-    ttnn::Tensor global_output_0;
+    ttnn::Tensor global_input_n_<suffix>;
+    ttnn::Tensor global_output_0_<suffix>;
     ...
-    ttnn::Tensor global_output_m;
+    ttnn::Tensor global_output_m_<suffix>;
 
-    std::tuple<ttnn::Tensor,..., ttnn::Tensor> capture_or_execute_trace(
-        ttnn::MeshDevice *device,
+    std::tuple<ttnn::Tensor,..., ttnn::Tensor> capture_or_execute_<suffix>(
         ttnn::Tensor input_0,..., ttnn::Tensor input_n) {
-      if (is_first_call) {
-        is_first_call = false;
-        [trace_id,
-         global_input_0,..., global_input_n,
-         global_output_0,..., global_output_m]
-            = capture_calle(input_0,..., input_n);
-        return global_output_0,..., global_output_m;
+      ttnn::Tensor ret_0 = ttnn::Tensor();
+      ...
+      ttnn::Tensor ret_m = ttnn::Tensor();
+      if (is_first_call_<suffix>) {
+        is_first_call_<suffix> = false;
+        auto v = capture_callee(input_0, ..., input_n);
+        trace_id_<suffix>        = std::get<0>(v);
+        global_input_0_<suffix>  = std::get<1>(v);        ...
+        global_input_n_<suffix>  = std::get<n+1>(v);
+        global_output_0_<suffix> = std::get<n+2>(v);      ...
+        global_output_m_<suffix> = std::get<n+2+m>(v);
+        ret_0 = global_output_0_<suffix>; ... ret_m = global_output_m_<suffix>;
       } else {
-        execute_calle(trace_id);
-        return global_output_0,..., global_output_m;
+        execute_callee(trace_id_<suffix>);
+        ret_0 = global_output_0_<suffix>; ... ret_m = global_output_m_<suffix>;
       }
-    }
 
-    Currently supporting only one output.
+      return std::make_tuple(ret_0, ..., ret_m);
+    }
     */
     MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = srcOp.getLoc();
@@ -4600,6 +4693,9 @@ public:
       return failure();
     }
 
+    llvm::StringRef traceSuffix = getTraceSuffix(srcOp.getCaptureCallee());
+    std::string traceNameSuffix = "_" + traceSuffix.str();
+
     // Skip over includes, to find the insertion point for global variables.
     auto insertionPointOp = moduleOp.getBody()->begin();
     while (mlir::isa<emitc::IncludeOp>(*insertionPointOp)) {
@@ -4609,12 +4705,12 @@ public:
 
     // Define global variable to track if this is the first call.
     auto isFirstCall = rewriter.create<emitc::GlobalOp>(
-        loc, /*sym_name=*/"is_first_call", rewriter.getI1Type(),
-        rewriter.getBoolAttr(true));
+        loc, /*sym_name=*/"is_first_call" + traceNameSuffix,
+        rewriter.getI1Type(), rewriter.getBoolAttr(true));
 
     // Define global variable to track the trace id.
     auto traceId = rewriter.create<emitc::GlobalOp>(
-        loc, /*sym_name=*/"trace_id",
+        loc, /*sym_name=*/"trace_id" + traceNameSuffix,
         getTypeConverter()->convertType(
             mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext())),
         /*initial_value=*/nullptr);
@@ -4623,7 +4719,9 @@ public:
     llvm::SmallVector<emitc::GlobalOp> traceInputVariable;
     for (auto [i, input] : llvm::enumerate(adaptor.getInputs())) {
       traceInputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
-          loc, /*sym_name=*/"input_" + std::to_string(i),
+          loc,
+          /*sym_name=*/
+          ("global_input_" + llvm::Twine(i) + traceNameSuffix).str(),
           getTypeConverter()->convertType(input.getType()),
           /*initial_value=*/nullptr));
     }
@@ -4632,23 +4730,37 @@ public:
     llvm::SmallVector<emitc::GlobalOp> traceOutputVariable;
     for (auto [i, output] : llvm::enumerate(srcOp.getResults())) {
       traceOutputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
-          loc, /*sym_name=*/"output_" + std::to_string(i),
+          loc,
+          /*sym_name=*/
+          ("global_output_" + llvm::Twine(i) + traceNameSuffix).str(),
           getTypeConverter()->convertType(output.getType()),
           /*initial_value=*/nullptr));
     }
 
     // Create `capture_or_execute_trace` function.
-    std::string funcName = "capture_or_execute_trace";
+    std::string funcName = "capture_or_execute_" + traceSuffix.str();
 
     mlir::SmallVector<mlir::Type> inputTypes = llvm::map_to_vector(
-        adaptor.getOperands(), [](auto operand) { return operand.getType(); });
+        adaptor.getInputs(), [](auto operand) { return operand.getType(); });
 
     mlir::SmallVector<mlir::Type> resultTypes =
         llvm::map_to_vector(srcOp.getResultTypes(), [this](auto resultType) {
           return getTypeConverter()->convertType(resultType);
         });
 
-    auto funcType = rewriter.getFunctionType(inputTypes, resultTypes);
+    // Build a std::tuple<Tensor, ...> return type.
+    std::string tupleTypeStr = "::std::tuple<";
+    for (size_t i = 0; i < resultTypes.size(); ++i) {
+      if (i > 0) {
+        tupleTypeStr += ", ";
+      }
+      tupleTypeStr += ttnn_to_emitc::TypeNameV<::ttnn::Tensor>;
+    }
+    tupleTypeStr += ">";
+    auto tupleReturnType = emitc::OpaqueType::get(ctx, tupleTypeStr);
+
+    auto funcType =
+        rewriter.getFunctionType(inputTypes, TypeRange{tupleReturnType});
 
     rewriter.setInsertionPoint(srcOp->getParentOfType<func::FuncOp>());
     auto funcOp = rewriter.create<emitc::FuncOp>(loc, funcName, funcType);
@@ -4684,15 +4796,16 @@ public:
           loc, getGlobalVariable(rewriter, loc, isFirstCall), falseC);
 
       // v = capture_callee(args...)
-      // First block argument is the device, so we drop it.
       auto autoTy = emitc::OpaqueType::get(ctx, "auto");
       auto captureTuple = rewriter.create<emitc::CallOpaqueOp>(
           loc, autoTy, srcOp.getCaptureCallee(), nullptr, nullptr,
-          block->getArguments().drop_front());
+          block->getArguments());
 
       // trace_id = std::get<0>(v);
       auto getTraceId = rewriter.create<emitc::CallOpaqueOp>(
-          loc, traceId.getType(), "::std::get<0>", nullptr, nullptr,
+          loc, traceId.getType(), "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
           captureTuple.getResult(0));
       rewriter.create<emitc::AssignOp>(
           loc, getGlobalVariable(rewriter, loc, traceId),
@@ -4701,10 +4814,12 @@ public:
       // input_i = std::get<inputBaseIndex + i>(v)
       const size_t inputBaseIndex = 1;
       for (size_t i = 0; i < traceInputVariable.size(); ++i) {
-        std::string getName =
-            "::std::get<" + std::to_string(inputBaseIndex + i) + ">";
         auto getResult = rewriter.create<emitc::CallOpaqueOp>(
-            loc, traceInputVariable[i].getType(), getName, nullptr, nullptr,
+            loc, traceInputVariable[i].getType(), "::std::get",
+            /*args=*/nullptr,
+            /*template_args=*/
+            rewriter.getArrayAttr(
+                {rewriter.getI32IntegerAttr(inputBaseIndex + i)}),
             ValueRange{captureTuple.getResult(0)});
         rewriter.create<emitc::AssignOp>(
             loc, getGlobalVariable(rewriter, loc, traceInputVariable[i]),
@@ -4716,19 +4831,21 @@ public:
       const size_t traceOutputBaseIndex =
           inputBaseIndex + traceInputVariable.size();
       for (size_t i = 0; i < traceOutputVariable.size(); ++i) {
-        std::string getName =
-            "::std::get<" + std::to_string(traceOutputBaseIndex + i) + ">";
         auto getResult = rewriter.create<emitc::CallOpaqueOp>(
-            loc, traceOutputVariable[i].getType(), getName, nullptr, nullptr,
+            loc, traceOutputVariable[i].getType(), "::std::get",
+            /*args=*/nullptr,
+            /*template_args=*/
+            rewriter.getArrayAttr(
+                {rewriter.getI32IntegerAttr(traceOutputBaseIndex + i)}),
             captureTuple.getResult(0));
         rewriter.create<emitc::AssignOp>(
             loc, getGlobalVariable(rewriter, loc, traceOutputVariable[i]),
             getResult.getResult(0));
 
-        // Return the output slot as the actual output for the first call.
-        rewriter.create<emitc::AssignOp>(
-            loc, returnVariable[i].getResult(),
-            loadGlobalVariable(rewriter, loc, traceOutputVariable[i]));
+        // Copy the output slot into the local return variables. The output
+        // slots act as the actual outputs for the first call.
+        rewriter.create<emitc::AssignOp>(loc, returnVariable[i],
+                                         getResult.getResult(0));
       }
 
       rewriter.create<emitc::YieldOp>(loc);
@@ -4744,31 +4861,48 @@ public:
           loc, TypeRange{}, srcOp.getExecuteCallee(), nullptr, nullptr,
           loadGlobalVariable(rewriter, loc, traceId));
 
-      // Load the result to the return variable.
-      assert(returnVariable.size() == 1 && "expected one return variable");
-      rewriter.create<emitc::AssignOp>(
-          loc, returnVariable[0],
-          loadGlobalVariable(rewriter, loc, traceOutputVariable[0]));
+      // Load results to the return variables.
+      for (size_t i = 0; i < returnVariable.size(); ++i) {
+        rewriter.create<emitc::AssignOp>(
+            loc, returnVariable[i],
+            loadGlobalVariable(rewriter, loc, traceOutputVariable[i]));
+      }
 
       rewriter.create<emitc::YieldOp>(loc);
     }
 
-    // After the if-then-else, load the result and return it from the function.
+    // After the if-then-else, load each return variable and pack them into a
+    // tuple to return from the function.
     rewriter.setInsertionPointAfter(ifOp);
 
-    assert(returnVariable.size() == 1 && "expected one return variable");
-    auto result =
-        rewriter.create<emitc::LoadOp>(loc, ttnnTensorType, returnVariable[0]);
-    rewriter.create<emitc::ReturnOp>(loc, result.getResult());
+    llvm::SmallVector<mlir::Value> loadedResults;
+    for (auto var : returnVariable) {
+      auto loadedResult =
+          rewriter.create<emitc::LoadOp>(loc, ttnnTensorType, var);
+      loadedResults.push_back(loadedResult.getResult());
+    }
+    auto tupleResult = rewriter.create<emitc::CallOpaqueOp>(
+        loc, tupleReturnType, "::std::make_tuple", nullptr, nullptr,
+        loadedResults);
+    rewriter.create<emitc::ReturnOp>(loc, tupleResult.getResult(0));
 
-    // Replace the original operation with a call to our new function.
-    auto resultType =
-        getTypeConverter()->convertType(srcOp.getResult(0).getType());
-
+    // Replace the original operation with a call to our new function, then
+    // extract each element from the result tuple with std::get<N>.
     rewriter.setInsertionPoint(srcOp);
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        srcOp, resultType, funcName, nullptr, nullptr,
-        ttmlir::utils::flatten(adaptor.getDevice(), adaptor.getInputs()));
+    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
+        loc, tupleReturnType, funcName, nullptr, nullptr, adaptor.getInputs());
+
+    llvm::SmallVector<mlir::Value> results;
+    for (size_t i = 0; i < resultTypes.size(); ++i) {
+      auto result = rewriter.create<emitc::CallOpaqueOp>(
+          loc, resultTypes[i], "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(i)}),
+          callOp.getResult(0));
+      results.push_back(result.getResult(0));
+    }
+
+    rewriter.replaceOp(srcOp, results);
 
     return success();
   }
@@ -5109,6 +5243,33 @@ public:
     return success();
   }
 };
+
+class TTNNToEmitCSamplingOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::SamplingOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SamplingOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SamplingOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SamplingOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputValues()),
+        emitter.emit(srcOp.getInputIndices()),
+        emitter.emit(srcOp.getK()),
+        emitter.emit(srcOp.getP()),
+        emitter.emit(srcOp.getTemp()),
+        emitter.emit(srcOp.getSeed()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5182,8 +5343,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                mlir::tt::ttnn::ExpOp>,
            EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
                mlir::tt::ttnn::ErfOp>,
-           EltwiseUnaryWithFastAndApproximateModeOpConversionPattern<
-               mlir::tt::ttnn::ErfcOp>,
+           EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::ErfcOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::CeilOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::SinOp>,
            EltwiseUnaryOpConversionPattern<mlir::tt::ttnn::AsinOp>,
@@ -5248,7 +5408,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
            SliceDynamicOpConversionPattern, SortOpConversionPattern,
            PermuteOpConversionPattern, PadOpConversionPattern,
-           TTNNToEmitCTopKOpConversionPattern, GatherOpConversionPattern>(
+           TTNNToEmitCTopKOpConversionPattern,
+           TTNNToEmitCSamplingOpConversionPattern, GatherOpConversionPattern>(
           typeConverter, ctx);
 
   // Quantization ops.
@@ -5298,7 +5459,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
            CumSumOpConversionPattern, BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-           RMSNormPreAllGatherOpConversionPattern, LayerNormOpConversionPattern,
+           RMSNormPreAllGatherOpConversionPattern,
+           DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,
            LayerNormPostAllGatherOpConversionPattern,
            GroupNormOpConversionPattern>(typeConverter, ctx);

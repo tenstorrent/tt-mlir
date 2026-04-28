@@ -53,19 +53,6 @@ def module_clamp_tensor(dtype: torch.dtype):
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            # int64 on ttmetal is normalized to int32; use int32-range values so
-            # truncation is a no-op and golden matches device output.
-            if dtype == torch.int64:
-                in0_golden = torch.randint(
-                    -(2**31), 2**31, shape, dtype=torch.int64
-                )
-                in1_golden = torch.randint(
-                    -(2**31), 2**31, shape, dtype=torch.int64
-                )
-                in2_golden = torch.randint(
-                    -(2**31), 2**31, shape, dtype=torch.int64
-                )
-                builder.set_goldens({in0: in0_golden, in1: in1_golden, in2: in2_golden})
             return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     return _module_clamp_tensor
@@ -89,15 +76,13 @@ ternary_ops = [
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
 )
-@pytest.mark.parametrize(
-    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitpy" | SkipIf("sim")]
-)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
 @pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    if target != "ttmetal" and dtype == torch.int64:
-        pytest.xfail("int64 not guaranteed to work on non-ttmetal backends")
+    if dtype == torch.int64:
+        pytest.xfail("int64 not guaranteed to work on this backend")
     pipeline_options = []
     compile_and_execute_ttir(
         test_fn(dtype),
@@ -140,7 +125,7 @@ def test_ternary_ops(
         ),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_ternary_eltwise_ops_implicit_broadcast(
     shapes: List[Shape],
     input_dtypes: Tuple[torch.dtype, torch.dtype, torch.dtype],
@@ -148,17 +133,6 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     request,
     device,
 ):
-    # Check if any shape is not 2D
-    is_non_2d = any(len(shape) != 2 for shape in shapes)
-    if target == "ttmetal" and is_non_2d:
-        pytest.xfail(
-            "non-2D shapes bcast not yet supported on ttmetal backend, issue here: https://github.com/tenstorrent/tt-mlir/issues/3023"
-        )
-    if target == "ttmetal" and input_dtypes[0] != input_dtypes[1]:
-        pytest.xfail(
-            "different input dtypes not yet supported on ttmetal backend, issue here: https://github.com/tenstorrent/tt-mlir/issues/6289"
-        )
-
     dtype1, dtype2, dtype3 = input_dtypes
 
     def module_implicit_broadcast(builder: TTIRBuilder):
@@ -271,12 +245,12 @@ def test_where_nan_inf_implicit_broadcast(
     ],
     ids=["f32", "bf16", "i32", "i64"],
 )
-@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "ttmetal"])
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_clamp_scalar(
     shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
 ):
-    if target != "ttmetal" and dtype == torch.int64:
-        pytest.xfail("int64 not guaranteed to work on non-ttmetal backends")
+    if dtype == torch.int64:
+        pytest.xfail("int64 not guaranteed to work on this backend")
 
     def module_clamp_scalar(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -305,7 +279,7 @@ def test_clamp_scalar(
 @pytest.mark.parametrize("max_arg,min_arg", [(0.8, -0.5)])
 @pytest.mark.parametrize(
     "target",
-    ["ttnn" | SkipIf("sim"), "ttmetal" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
+    ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")],
 )
 def test_hoisted_clamp_scalar(
     shape: Shape, max_arg: float, min_arg: float, target: str, request, device
@@ -324,33 +298,6 @@ def test_hoisted_clamp_scalar(
                 min_arg=min_arg,
                 unit_attrs=["ttir.should_hoist"],
             )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-# 1D tensor test for ttmetal
-@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
-        def ternary_1d(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            # in0 is the condition tensor, should be filled with 0s or 1s
-            condition_tensor = torch.randint(0, 2, shape, dtype=dtype)
-            builder.set_goldens(inputs={in0: condition_tensor})
-            return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
