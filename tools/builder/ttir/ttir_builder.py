@@ -15569,7 +15569,7 @@ class TTIRBuilder(Builder):
 
     ############### ttir.composite (MoE bridge ops) ###############
     # These helpers emit ttir.composite with a specific `name` and
-    # composite_attributes. Each name maps 1:1 to a TTNN op during the
+    # op_attributes. Each name maps 1:1 to a TTNN op during the
     # TTIR->TTNN conversion; no TTIR-level transformation is performed.
 
     def _emit_composite(
@@ -16332,7 +16332,7 @@ class TTIRBuilder(Builder):
             result_types,
             old_op.name,
             new_inputs,
-            old_op.composite_attributes,
+            old_op.op_attributes,
             loc=old_op.location,
         )
 
@@ -16342,7 +16342,7 @@ class TTIRBuilder(Builder):
         if isinstance(name, str) and name.startswith('"') and name.endswith('"'):
             name = name[1:-1]
 
-        attr_dict = old_op.composite_attributes
+        attr_dict = old_op.op_attributes
 
         def _attr_int(key: str, default: int = 0) -> int:
             a = attr_dict.get(key) if attr_dict is not None else None
@@ -16433,7 +16433,7 @@ class TTIRBuilder(Builder):
                         result_types,
                         old_op.name,
                         list(inputs),
-                        old_op.composite_attributes,
+                        old_op.op_attributes,
                         loc=old_op.location,
                     )
 

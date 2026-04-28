@@ -6254,7 +6254,7 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
 def TTIR_CompositeOp : TTIR_Op<"composite"> {
     let summary = "Opaque composite op that lowers 1:1 to a matching TTNN op.";
     let description = [{
-      Carries a symbolic `name` and a dictionary of `composite_attributes`. Used
+      Carries a symbolic `name` and a dictionary of `op_attributes`. Used
       as a bridge for `stablehlo.composite` / `stablehlo.custom_call` operations
       that map 1:1 to a TTNN op (no transformation is performed at the TTIR
       level). The TTIR->TTNN conversion dispatches on `name` and constructs the
@@ -6273,12 +6273,8 @@ def TTIR_CompositeOp : TTIR_Op<"composite"> {
 
     let arguments = (ins StrAttr:$name,
                          Variadic<AnyRankedTensor>:$inputs,
-                         DictionaryAttr:$composite_attributes);
+                         DictionaryAttr:$op_attributes);
     let results = (outs Variadic<AnyRankedTensor>:$results);
-
-    let assemblyFormat = [{
-      $name `(` $inputs `)` attr-dict `:` functional-type($inputs, $results)
-    }];
 
     let hasVerifier = 1;
 }

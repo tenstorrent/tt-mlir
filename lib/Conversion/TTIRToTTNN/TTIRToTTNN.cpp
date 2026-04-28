@@ -1753,7 +1753,7 @@ public:
 namespace {
 // Dispatches ttir.composite -> matching TTNN op based on the `name` attribute.
 // Each branch pulls the same attributes the old per-op pattern used out of the
-// composite_attributes dictionary and builds the TTNN op directly.
+// op_attributes dictionary and builds the TTNN op directly.
 class CompositeOpConversionPattern
     : public OpConversionPattern<ttir::CompositeOp> {
 public:
@@ -1763,7 +1763,7 @@ public:
   matchAndRewrite(ttir::CompositeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     llvm::StringRef name = op.getName();
-    mlir::DictionaryAttr attrs = op.getCompositeAttributes();
+    mlir::DictionaryAttr attrs = op.getOpAttributes();
     auto inputs = adaptor.getInputs();
 
     auto convertedType = [&](mlir::Type t) -> RankedTensorType {
@@ -1823,7 +1823,7 @@ public:
       auto getUI32 = [&](llvm::StringRef key) -> mlir::IntegerAttr {
         auto a = attrs.getAs<mlir::IntegerAttr>(key);
         return a ? rewriter.getUI32IntegerAttr(
-                       static_cast<uint32_t>(a.getInt()))
+                       static_cast<uint32_t>(a.getValue().getZExtValue()))
                  : mlir::IntegerAttr();
       };
       rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(

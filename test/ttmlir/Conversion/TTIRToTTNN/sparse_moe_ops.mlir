@@ -13,7 +13,7 @@ module attributes {} {
     %indices: tensor<1x1x128x4xi64>,
     %expert_mapping: tensor<1x1x32x8xi64>
   ) -> (tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>) {
-    %dispatched, %metadata = "ttir.composite"(%activations, %indices, %expert_mapping) <{name = "tt.all_to_all_dispatch", composite_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64}}> : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x32x8xi64>) -> (tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>)
+    %dispatched, %metadata = "ttir.composite"(%activations, %indices, %expert_mapping) <{name = "tt.all_to_all_dispatch", op_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64}}> : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x32x8xi64>) -> (tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>)
     return %dispatched, %metadata : tensor<1x2x128x2880xbf16>, tensor<1x2x128x4xi64>
   }
 }
@@ -32,7 +32,7 @@ module attributes {} {
     %scores: tensor<1x1x128x4xbf16>,
     %expert_mapping: tensor<1x1x8x32xi64>
   ) -> (tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>) {
-    %dispatched, %idx_out, %scores_out = "ttir.composite"(%activations, %indices, %scores, %expert_mapping) <{name = "tt.all_to_all_dispatch_metadata", composite_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64}}> : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x8x32xi64>) -> (tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>)
+    %dispatched, %idx_out, %scores_out = "ttir.composite"(%activations, %indices, %scores, %expert_mapping) <{name = "tt.all_to_all_dispatch_metadata", op_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64}}> : (tensor<1x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x8x32xi64>) -> (tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>)
     return %dispatched, %idx_out, %scores_out : tensor<1x256x2880xbf16>, tensor<1x256x4xi64>, tensor<1x256x4xbf16>
   }
 }
@@ -51,7 +51,7 @@ module attributes {} {
     %expert_mapping: tensor<1x1x32x8xi64>,
     %metadata: tensor<1x2x128x4xi64>
   ) -> (tensor<1x2x128x4xbf16>, tensor<1x1x8x4xbf16>) {
-    %mapping, %reduced = "ttir.composite"(%topk_weights, %expert_mapping, %metadata) <{name = "tt.moe_expert_token_remap", composite_attributes = {reduction_size = 32 : i64}}> : (tensor<1x2x128x32xbf16>, tensor<1x1x32x8xi64>, tensor<1x2x128x4xi64>) -> (tensor<1x2x128x4xbf16>, tensor<1x1x8x4xbf16>)
+    %mapping, %reduced = "ttir.composite"(%topk_weights, %expert_mapping, %metadata) <{name = "tt.moe_expert_token_remap", op_attributes = {reduction_size = 32 : i64}}> : (tensor<1x2x128x32xbf16>, tensor<1x1x32x8xi64>, tensor<1x2x128x4xi64>) -> (tensor<1x2x128x4xbf16>, tensor<1x1x8x4xbf16>)
     return %mapping, %reduced : tensor<1x2x128x4xbf16>, tensor<1x1x8x4xbf16>
   }
 }
@@ -104,7 +104,7 @@ module attributes {} {
     %metadata: tensor<1x2x128x4xi64>,
     %expert_mapping: tensor<1x1x32x8xi64>
   ) -> tensor<4x1x128x2880xbf16> {
-    %result = "ttir.composite"(%input, %metadata, %expert_mapping) <{name = "tt.all_to_all_combine", composite_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64, output_shard_dim = 1 : i64}}> : (tensor<4x2x128x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x128x2880xbf16>
+    %result = "ttir.composite"(%input, %metadata, %expert_mapping) <{name = "tt.all_to_all_combine", op_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64, output_shard_dim = 1 : i64}}> : (tensor<4x2x128x2880xbf16>, tensor<1x2x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x128x2880xbf16>
     return %result : tensor<4x1x128x2880xbf16>
   }
 }
@@ -124,7 +124,7 @@ module attributes {} {
     %metadata: tensor<1x1x128x4xi64>,
     %expert_mapping: tensor<1x1x32x8xi64>
   ) -> tensor<4x1x64x2880xbf16> {
-    %result = "ttir.composite"(%input, %metadata, %expert_mapping) <{name = "tt.all_to_all_combine", composite_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64, output_shard_dim = 2 : i64}}> : (tensor<4x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x64x2880xbf16>
+    %result = "ttir.composite"(%input, %metadata, %expert_mapping) <{name = "tt.all_to_all_combine", op_attributes = {cluster_axis = 0 : i64, num_devices = 2 : i64, num_experts_per_tok = 4 : i64, output_shard_dim = 2 : i64}}> : (tensor<4x1x128x2880xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x32x8xi64>) -> tensor<4x1x64x2880xbf16>
     return %result : tensor<4x1x64x2880xbf16>
   }
 }

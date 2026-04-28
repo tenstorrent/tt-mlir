@@ -7142,10 +7142,9 @@ static ::mlir::LogicalResult requireIntAttr(::mlir::Operation *op,
                                             bool mustBePositive) {
   auto attr = attrs.getAs<::mlir::IntegerAttr>(key);
   if (!attr) {
-    return op->emitOpError()
-           << "composite_attributes missing integer '" << key << "'";
+    return op->emitOpError() << "op_attributes missing integer '" << key << "'";
   }
-  int64_t out = attr.getInt();
+  int64_t out = attr.getValue().getSExtValue();
   if (mustBePositive && out <= 0) {
     return op->emitOpError() << "'" << key << "' must be positive";
   }
@@ -7156,9 +7155,9 @@ static ::mlir::LogicalResult verifyClusterAxis(::mlir::Operation *op,
                                                ::mlir::DictionaryAttr attrs) {
   auto attr = attrs.getAs<::mlir::IntegerAttr>("cluster_axis");
   if (!attr) {
-    return op->emitOpError("composite_attributes missing 'cluster_axis'");
+    return op->emitOpError("op_attributes missing 'cluster_axis'");
   }
-  int64_t v = attr.getInt();
+  int64_t v = attr.getValue().getSExtValue();
   if (v < 0 || v > 1) {
     return op->emitOpError("'cluster_axis' must be 0 or 1");
   }
@@ -7169,7 +7168,7 @@ static ::mlir::LogicalResult verifyClusterAxis(::mlir::Operation *op,
 
 ::mlir::LogicalResult mlir::tt::ttir::CompositeOp::verify() {
   llvm::StringRef name = getName();
-  ::mlir::DictionaryAttr attrs = getCompositeAttributes();
+  ::mlir::DictionaryAttr attrs = getOpAttributes();
   auto inputs = getInputs();
   auto results = getResults();
 
