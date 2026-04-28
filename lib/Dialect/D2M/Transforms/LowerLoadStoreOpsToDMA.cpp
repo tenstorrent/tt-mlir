@@ -148,8 +148,6 @@ public:
     Value isSender = nullptr;
     AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
     ValueRange mcastStartIndex = remoteLoad.getMcastStartIndex();
-    SmallVector<Value> physicalMcastStartIndex = mapVirtualToPhysicalCoreIndex(
-        rewriter, loc, genericOp.getGrid(), mcastStartIndex);
     for (size_t i = 0; i < isMcastDim.size(); ++i) {
       if (isMcastDim[i]) {
         Value coreIdx = rewriter.create<CoreIndexOp>(
@@ -176,6 +174,10 @@ public:
     rewriter.create<scf::IfOp>(
         loc, isSender,
         [&](OpBuilder &builder, Location loc) {
+          SmallVector<Value> physicalMcastStartIndex =
+              mapVirtualToPhysicalCoreIndex(builder, loc, genericOp.getGrid(),
+                                            mcastStartIndex);
+
           // Sender: shard-level DMA read from remote.
           Value dmaTx = builder.create<DMAReadOp>(loc, remoteMemref,
                                                   gridIndices, localMemref);
