@@ -1130,20 +1130,33 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 }
 
 // Factory method to create workarounds for sparse_matmul op operands.
-// The sparsity tensor (3rd input) must be in ROW_MAJOR layout.
+// The sparsity tensor (3rd input) must be in ROW_MAJOR layout AND a 16-bit
+// dtype (BFloat16). The compute kernel reads sparsity through a `uint16_t*`
+// reinterpret cast (see reader_bmm_tile_layout_in0_sender_padding.cpp), so a
+// 4-byte float32 sparsity makes every other E_local read as 0 (the low 16
+// bits of fp32 1.0) and silently zeroes those expert outputs.
+//
+// BFloat16 is preferred over UInt16: callers commonly pass fractional
+// sparsity values (e.g. router scores or random bf16 test data) and rely on
+// the kernel's "any non-zero raw bits => valid" semantics. A value-preserving
+// cast to UInt16 truncates 0 < |x| < 1 to 0 and falsely marks those batches
+// invalid. BFloat16 preserves non-zero raw bits for any non-zero input. For
+// the moe_expert_token_remap path, UInt16(0/1) -> BFloat16(0.0/1.0) is also
+// non-zero-preserving, so the kernel still sees the correct mask.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
 // Inputs: a (input 0), b (input 1), sparsity (input 2)
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSparseMatmulOpOperandsWorkarounds() {
   TTNNOperandWorkarounds emptyWorkaround;
-  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
-  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  TTNNOperandWorkarounds sparsityWorkaround;
+  sparsityWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  sparsityWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(emptyWorkaround)          // input a
-      .addInputOperandWorkaround(emptyWorkaround)          // input b
-      .addInputOperandWorkaround(rowMajorLayoutWorkaround) // sparsity tensor
-      .addOutputOperandWorkaround(emptyWorkaround);        // output
+      .addInputOperandWorkaround(emptyWorkaround)    // input a
+      .addInputOperandWorkaround(emptyWorkaround)    // input b
+      .addInputOperandWorkaround(sparsityWorkaround) // sparsity tensor
+      .addOutputOperandWorkaround(emptyWorkaround);  // output
 }
 
 // Factory method to create workarounds for all_to_all_dispatch op operands.
