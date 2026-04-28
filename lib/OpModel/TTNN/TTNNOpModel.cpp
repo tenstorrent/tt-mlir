@@ -2809,8 +2809,9 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale, std::optional<CoreCoordAttr> coreGrid,
-    TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2870,8 +2871,8 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
         ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout), sdpaProgramConfig,
+        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -2895,8 +2896,9 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale, std::optional<CoreCoordAttr> coreGrid,
-    TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<CoreCoordAttr> coreGrid, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2940,7 +2942,7 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
 
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       sdpaProgramConfig = std::nullopt;
   if (coreGrid) {

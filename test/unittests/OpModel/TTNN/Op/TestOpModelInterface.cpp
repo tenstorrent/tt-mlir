@@ -2179,6 +2179,7 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
           /*cur_pos_tensor=*/curPos,
           /*attention_sink=*/nullptr,
           /*scale=*/builder.getF32FloatAttr(0.125f),
+          /*sliding_window_size=*/nullptr,
           /*memory_config=*/nullptr,
           /*core_grid=*/nullptr);
 

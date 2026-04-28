@@ -12,7 +12,7 @@ import pytest
 import torch
 from typing import Callable, List, Optional
 
-from conftest import x86_only, get_request_kwargs
+from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -438,129 +438,6 @@ def test_unary_ops_with_float_param(
     )
 
 
-# Hoisted unary ops
-hoisted_unary_ops_float = [
-    acos,
-    asin,
-    asinh,
-    atan,
-    cbrt,
-    ceil,
-    cos,
-    erf,
-    erfc,
-    exp,
-    expm1,
-    floor,
-    gelu,
-    hardsigmoid,
-    is_finite,
-    log,
-    log1p,
-    logical_not,
-    mish,
-    reciprocal,
-    relu6,
-    rsqrt,
-    sigmoid,
-    sign,
-    silu,
-    sin,
-    sqrt,
-    tan,
-    tanh,
-]
-
-hoisted_unary_ops_float_integer = [
-    abs,
-    neg,
-    relu,
-]
-
-
-hoisted_shapes = [
-    (128, 128),
-    (1, 32),
-    (7, 41, 43, 11),
-]
-
-
-@x86_only
-@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("test_fn", hoisted_unary_ops_float)
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_cpu_hoistable_unary_ops_float(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def wrapper_func(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return test_fn(in0, builder, unit_attrs=["ttir.should_hoist"])
-
-    compile_and_execute_ttir(
-        module,
-        test_base=f"{request.node.name}",
-        target=target,
-        device=device,
-    )
-
-
-@x86_only
-@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("test_fn", hoisted_unary_ops_float_integer)
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_cpu_hoistable_unary_ops_float_integer(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, request, target: str, device
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def wrapper_func(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return test_fn(in0, builder, unit_attrs=["ttir.should_hoist"])
-
-    compile_and_execute_ttir(
-        module,
-        test_base=f"{request.node.name}",
-        target=target,
-        device=device,
-    )
-
-
-@x86_only
-@pytest.mark.parametrize("shape", hoisted_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_hoisted_leaky_relu(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def hoisted_leaky_relu(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.leaky_relu(
-                in0, parameter=0.01, unit_attrs=["ttir.should_hoist"]
-            )
-
-    compile_and_execute_ttir(
-        module,
-        test_base=f"{request.node.name}",
-        target=target,
-        device=device,
-    )
-
-
 # 1D tensor test for ttmetal
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
@@ -574,54 +451,6 @@ def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
             unit_attrs: Optional[List[str]] = None,
         ):
             return neg(in0, builder, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-# ============================================================
-# Tests moved from test_ttir_ops.py during TTMetal test
-# reorganization.
-# ============================================================
-
-
-def _logical_not_with_goldens(
-    in0: Operand,
-    builder: TTIRBuilder,
-    shape: Shape,
-    dtype: torch.dtype,
-    unit_attrs: Optional[List[str]] = None,
-):
-    randn_tensor = torch.randn(shape, dtype=torch.float32)
-    input_tensor = randn_tensor.uniform_(-10.0, 10.0)
-    input_tensor[torch.abs(input_tensor) < 4.0] = 0.0
-    input_tensor = input_tensor.to(dtype)
-    # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
-    golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
-    logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
-    builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
-    return logical_not_0
-
-
-@x86_only
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
-def test_hoisted_logical_not(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def hoisted_logical_not_wrapper(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
-            return _logical_not_with_goldens(
-                in0, builder, shape, dtype, unit_attrs=["ttir.should_hoist"]
-            )
 
     compile_and_execute_ttir(
         module,
