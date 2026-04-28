@@ -481,6 +481,22 @@ def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
     }];
 }
 
+def TTIR_FracOp: TTIR_ElementwiseUnaryOp<"frac"> {
+    let summary = "Elementwise fractional part operation.";
+    let description = [{
+      For each element x, returns the fractional part x - trunc(x), matching common
+      floating-point library semantics.
+    }];
+}
+
+def TTIR_TruncOp: TTIR_ElementwiseUnaryOp<"trunc"> {
+    let summary = "Elementwise truncation toward zero.";
+    let description = [{
+      For each element x, returns the value truncated toward zero (round toward zero),
+      preserving the tensor element type.
+    }];
+}
+
 def TTIR_GeluOp: TTIR_ElementwiseUnaryOp<"gelu"> {
   let summary = "Elementwise GELU operation.";
   let description = [{
@@ -805,6 +821,13 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
     }];
 }
 
+def TTIR_SoftsignOp: TTIR_ElementwiseUnaryOp<"softsign"> {
+    let summary = "Elementwise softsign activation.";
+    let description = [{
+      For each element x, returns x / (1 + |x|).
+    }];
+}
+
 def TTIR_HardsigmoidOp: TTIR_ElementwiseUnaryOp<"hardsigmoid"> {
   let summary = "Elementwise hard sigmoid operation.";
   let description = [{
@@ -893,6 +916,14 @@ def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
         0  if x = 0
         -1 if x < 0
       }
+    }];
+}
+
+def TTIR_SignbitOp: TTIR_ElementwiseUnaryOp<"signbit"> {
+    let summary = "Elementwise IEEE-754 sign bit as 0.0 or 1.0.";
+    let description = [{
+      For each element, returns 0.0 if the sign bit is clear and 1.0 if set,
+      matching IEEE 754 signbit semantics in the element type of the result tensor.
     }];
 }
 
@@ -985,6 +1016,18 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
       ```
 
       Mathematical definition: sqrt(x) = √x
+    }];
+}
+
+def TTIR_SquareOp : TTIR_ElementwiseUnaryOp<"square"> {
+    let summary = "Eltwise square.";
+    let description = [{
+      The `square` operation computes the square of each element in the input tensor (x * x).
+
+      Example:
+      ```mlir
+      %result = ttir.square(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
+      ```
     }];
 }
 
@@ -1162,6 +1205,26 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
 
       Mathematical definition: exp(x) = e^x
     }];
+}
+
+def TTIR_Exp2Op: TTIR_ElementwiseUnaryOp<"exp2"> {
+    let summary = "Elementwise base-2 exponential.";
+    let description = [{
+      For each element x, returns 2^x.
+    }];
+}
+
+def TTIR_SeluOp : TTIR_ElementwiseOp<"selu", [OneOperand, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface]> {
+    let summary = "Elementwise scaled exponential linear unit (SELU).";
+    let description = [{
+      Applies SELU activation elementwise. `scale` and `alpha` follow the same role as in
+      the standard SELU definition and default to PyTorch's `torch.nn.functional.selu` values.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         DefaultValuedAttr<F32Attr, "1.0507009873390197">:$scale,
+                         DefaultValuedAttr<F32Attr, "1.6732635498046875">:$alpha);
+    let results = (outs AnyRankedTensor:$result);
 }
 
 def TTIR_ErfOp: TTIR_ElementwiseUnaryOp<"erf"> {
@@ -3117,6 +3180,39 @@ def TTIR_SortOp : TTIR_NamedOp<"sort"> {
 
   let results = (outs AnyRankedTensor:$values,
                       AnyRankedTensor:$indices);
+
+  let hasVerifier = 1;
+}
+
+def TTIR_SamplingOp : TTIR_NamedOp<"sampling"> {
+  let summary = "Sampling operation.";
+  let description = [{
+    Performs fused top-k + top-p + multinomial sampling on pre-filtered
+    candidate logits. Takes the top-k values and their global vocab indices
+    (from a prior topk stage), per-request top-k, top-p, temperature
+    parameters, and an optional random seed. Returns one sampled global
+    token index per request.
+
+    Inputs:
+      - `input_values`: Pre-filtered candidate logit values [batch, candidates] bf16
+      - `input_indices`: Global vocab indices for each candidate [batch, candidates] int32
+      - `k`: Per-request top-k values [batch] uint32
+      - `p`: Per-request top-p values [batch] bf16
+      - `temp`: Per-request temperature values [batch] bf16
+      - `seed`: Optional random seed (uint32 scalar attribute)
+
+    Output:
+      - `result`: Sampled global token indices [batch] int32
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input_values,
+                       AnyRankedTensor:$input_indices,
+                       AnyRankedTensor:$k,
+                       AnyRankedTensor:$p,
+                       AnyRankedTensor:$temp,
+                       OptionalAttr<UI32Attr>:$seed);
+
+  let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
 }
@@ -5886,7 +5982,8 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
                        Optional<AnyRankedTensor>:$attention_mask,
                        Optional<AnyRankedTensor>:$cur_pos_tensor,
                        Optional<AnyRankedTensor>:$attention_sink,
-                       OptionalAttr<F32Attr>:$scale);
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<UI32Attr>:$sliding_window_size);
 
   let results = (outs AnyRankedTensor:$result);
 

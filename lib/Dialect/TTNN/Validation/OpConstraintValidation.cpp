@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
@@ -173,17 +172,6 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
   if (!backend) {
-    // Ops marked with the OpModelExempt trait deliberately do not implement
-    // the OpModel interface (e.g. CCL/multi-device, trace, generic, or other
-    // ops without a metal-side definition). The optimizer relies on observing
-    // a NotImplemented result for such ops so it can fall back gracefully
-    // (e.g. evict L1 state) instead of treating the op as analyzable.
-    if (op->hasTrait<OpModelExempt>()) {
-      return ValidationResult::notImplemented(
-          (llvm::Twine("OpModel interface not implemented for op ") +
-           op->getName().getStringRef() + " (OpModelExempt)")
-              .str());
-    }
     llvm::reportFatalInternalError(llvm::Twine("Backend constraints are not "
                                                "implemented for op ")
                                        .concat(op->getName().getStringRef()));

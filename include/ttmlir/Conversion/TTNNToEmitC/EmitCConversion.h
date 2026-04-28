@@ -355,7 +355,7 @@ struct TypeName<::ttnn::QueueId> {
 
 template <>
 struct TypeName<::ttnn::MathFidelity> {
-  inline static const std::string value = "::MathFidelity";
+  inline static const std::string value = "::tt::tt_metal::MathFidelity";
 };
 
 template <>
@@ -1919,6 +1919,11 @@ inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
 // Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "::ttnn::getScalarFromTensor";
+
+// Name for the function that creates a GlobalSemaphore from a tensor's shard
+// spec.
+inline constexpr const char *kCreateGlobalSemaphoreFunctionName =
+    "::ttnn::createGlobalSemaphore";
 
 template <typename TTNNOp>
 class EmitCTTNNEmitter {

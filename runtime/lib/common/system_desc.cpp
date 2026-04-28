@@ -156,7 +156,7 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
   std::uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
   std::uint32_t dramAlignment = ::tt::tt_metal::hal::get_dram_alignment();
 
-  for (const ::tt::tt_metal::IDevice *device : devices) {
+  for (::tt::tt_metal::IDevice *device : devices) {
     size_t l1UnreservedBase =
         device->allocator()->get_base_allocator_addr(HalMemType::L1);
     size_t dramUnreservedBase =
@@ -197,6 +197,25 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
 
     auto dramUnreservedEnd = calculateDRAMUnreservedEnd(device);
 
+    auto dramGridSizeCoord = device->dram_grid_size();
+    ::tt::target::Dim2d dramGridSize(dramGridSizeCoord.y, dramGridSizeCoord.x);
+
+    auto buildBankToWorkerVec =
+        [&](::tt::tt_metal::NOC noc) -> std::vector<::tt::target::Dim2d> {
+      std::vector<::tt::tt_metal::CoreCoord> assignment =
+          device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
+      std::vector<::tt::target::Dim2d> result;
+      result.reserve(assignment.size());
+      for (const auto &core : assignment) {
+        result.emplace_back(core.y, core.x);
+      }
+      return result;
+    };
+    std::vector<::tt::target::Dim2d> dramBankToLogicalWorkerNoc0 =
+        buildBankToWorkerVec(::tt::tt_metal::NOC::NOC_0);
+    std::vector<::tt::target::Dim2d> dramBankToLogicalWorkerNoc1 =
+        buildBankToWorkerVec(::tt::tt_metal::NOC::NOC_1);
+
     constexpr std::uint32_t kDstPhysicalSizeTiles = 16;
     constexpr std::uint32_t kNumComputeThreads = 1;
     constexpr std::uint32_t kNumDatamovementThreads = 2;
@@ -208,7 +227,9 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
         ::tt::tt_metal::hal::get_erisc_l1_unreserved_base(), dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
         kDstPhysicalSizeTiles, NUM_CIRCULAR_BUFFERS, kNumComputeThreads,
-        kNumDatamovementThreads));
+        kNumDatamovementThreads, &dramGridSize,
+        fbb.CreateVectorOfStructs(dramBankToLogicalWorkerNoc0),
+        fbb.CreateVectorOfStructs(dramBankToLogicalWorkerNoc1)));
     chipDescIndices.push_back(chipDescIndices.size());
     // Derive chip capability
     ::tt::target::ChipCapability chipCapability =

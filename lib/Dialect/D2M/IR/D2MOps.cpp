@@ -141,9 +141,8 @@ void d2m::EmptyOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
     auto gridShape = llvm::to_vector(metalLayout.getGridShape(resultType));
     if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
                                                        targetGridShape)) {
-      auto squareGrid = utils::getSquareTargetGrid(targetGridShape);
       auto physGrid = utils::findLegalPhysicalGridForVolume(
-          ttmlir::utils::volume<int64_t>(gridShape), squareGrid);
+          ttmlir::utils::volume<int64_t>(gridShape), targetGridShape);
       TT_assertv(!physGrid.empty(),
                  "Virtual grid required but no legal physical grid found for "
                  "volume {}; target grid [{},{}]",
@@ -3158,6 +3157,14 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
           ++idx;
         }
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&op)) {
+        // Scratch buffers are not operand allocs.
+        bool isScratchBuffer =
+            llvm::any_of(allocOp.getResult().getUsers(), [](Operation *user) {
+              return mlir::isa<d2m::ScratchInitOp>(user);
+            });
+        if (isScratchBuffer) {
+          continue;
+        }
         LocalBufferAssociation assoc =
             analyzeLocalBufferAssociation(allocOp.getResult());
         if (assoc.hasRemoteUse) {

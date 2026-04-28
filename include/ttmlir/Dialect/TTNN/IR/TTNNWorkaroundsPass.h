@@ -296,6 +296,8 @@ public:
   static TTNNOperandsWorkarounds
   createPagedFillCacheOpOperandsWorkarounds(Operation *op);
 
+  static TTNNOperandsWorkarounds createSamplingOpOperandsWorkarounds();
+
   // Create workarounds for binary op operands.
   static TTNNOperandsWorkarounds
   createBinaryOpOperandsWorkarounds(mlir::Operation *op);
@@ -304,6 +306,9 @@ public:
   createRotaryEmbeddingOpOperandsWorkarounds(ttnn::RotaryEmbeddingOp op);
 
   static TTNNOperandsWorkarounds createTanhOpOperandsWorkarounds();
+
+  static TTNNOperandsWorkarounds
+  createErfOpOperandsWorkarounds(mlir::RankedTensorType inputType);
 
   // Create workarounds for group norm op operands.
   static TTNNOperandsWorkarounds

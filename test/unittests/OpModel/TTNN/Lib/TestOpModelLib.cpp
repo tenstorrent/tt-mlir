@@ -6573,13 +6573,15 @@ protected:
     const llvm::APFloat scaleAPFloat(GetParam().scale);
     std::optional<llvm::APFloat> scale = scaleAPFloat;
 
+    std::optional<uint32_t> slidingWindowSize = std::nullopt;
+
     auto constraintsExp =
         OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
             valueShape, valueLayout, pageTableShape, pageTableLayout, isCausal,
             attentionMaskShape, attentionMaskLayout, curPosTensorShape,
             curPosTensorLayout, attentionSinkShape, attentionSinkLayout, scale,
-            outputLayout);
+            slidingWindowSize, /*coreGrid=*/std::nullopt, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {

@@ -125,7 +125,10 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$dstPhysicalSizeTiles,
                     "unsigned":$numCBs,
                     "unsigned":$numComputeThreads,
-                    "unsigned":$numDatamovementThreads);
+                    "unsigned":$numDatamovementThreads,
+                    ArrayRefParameter<"int64_t">:$dramGrid,
+                    ArrayRefParameter<"CoreCoordAttr">:$dramBankToLogicalWorkerNoc0,
+                    ArrayRefParameter<"CoreCoordAttr">:$dramBankToLogicalWorkerNoc1);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
                              `coord_translation_offsets` `=` custom<DimensionList>($coordTranslationOffsets) `,`
@@ -144,7 +147,10 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                              `dst_physical_size_tiles` `=` $dstPhysicalSizeTiles `,`
                              `num_cbs` `=` $numCBs `,`
                              `num_compute_threads` `=` $numComputeThreads `,`
-                             `num_datamovement_threads` `=` $numDatamovementThreads `}`}];
+                             `num_datamovement_threads` `=` $numDatamovementThreads `,`
+                             `dram_grid` `=` custom<DimensionList>($dramGrid) `,`
+                             `dram_bank_to_logical_worker_noc0` `=` custom<CoreCoordList>($dramBankToLogicalWorkerNoc0) `,`
+                             `dram_bank_to_logical_worker_noc1` `=` custom<CoreCoordList>($dramBankToLogicalWorkerNoc1) `}`}];
 
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
@@ -510,12 +516,13 @@ def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {
       interpreted in row-major order.
   }];
   let parameters = (ins TTCore_GridAttr:$workerGrid,
+                        TTCore_GridAttr:$dramGrid,
                         "AffineMap":$l1Map,
                         "AffineMap":$dramMap,
                         ArrayRefParameter<"int64_t">:$meshShape,
                         ArrayRefParameter<"unsigned">:$chipIds,
                         OptionalArrayRefParameter<"Topology">:$meshTopology);
-  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` (`,` `meshTopology` `=` `[` $meshTopology^ `]`)? `>`";
+  let assemblyFormat = "`<` `workerGrid` `=` qualified($workerGrid) `,` `dramGrid` `=` qualified($dramGrid) `,` `l1Map` `=` qualified($l1Map) `,` `dramMap` `=` qualified($dramMap) `,` `meshShape` `=` custom<DimensionList>($meshShape) `,` `chipIds` `=` `[` $chipIds `]` (`,` `meshTopology` `=` `[` $meshTopology^ `]`)? `>`";
 
   let extraClassDeclaration = [{
       static DeviceAttr get(::mlir::MLIRContext *context, SystemDescAttr systemDesc, ArrayRef<int64_t> meshShape, ArrayRef<unsigned> chipIds, ArrayRef<Topology> meshTopology = {});

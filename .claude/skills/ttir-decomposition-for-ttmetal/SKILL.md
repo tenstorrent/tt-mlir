@@ -38,7 +38,7 @@ by the softmax pattern on subsequent rewriter iterations.
 | `lib/Dialect/TTIR/Transforms/DecomposeComposites.cpp` | **Edit** — add a new `OpRewritePattern` |
 | `include/ttmlir/Dialect/TTIR/Transforms/Passes.td` | **Edit** — update description if desired |
 | `test/ttmlir/Dialect/TTIR/Transforms/metal_composite_decompositions.mlir` | **Edit** — add FileCheck tests |
-| `test/python/golden/test_metal_composite_ops.py` | **Edit** — add Python builder tests |
+| `test/python/golden/d2m/test_composite_ops.py` | **Edit** — add Python builder tests |
 
 You should NOT need to touch `CMakeLists.txt` or `Passes.td` pass
 registration in the common case. However, when adding a new composite
@@ -166,7 +166,7 @@ func.func @your_op_basic(%input: tensor<...xbf16>) -> tensor<...xbf16> {
 
 ### 5. Add Python Builder Tests
 
-Add tests to `test/python/golden/test_metal_composite_ops.py`. This file
+Add tests to `test/python/golden/d2m/test_composite_ops.py`. This file
 contains all composite decomposition tests for the TTMetal pipeline.
 
 Follow the existing patterns (SDPA, RMSNorm, softmax) as examples:
@@ -224,7 +224,7 @@ build/bin/ttmlir-opt --ttir-decompose-composites test/ttmlir/Dialect/TTIR/Transf
 And the Python tests:
 
 ```bash
-pytest -svv test/python/golden/test_metal_composite_ops.py
+pytest -svv test/python/golden/d2m/test_composite_ops.py
 ```
 
 ## Reference Implementations
@@ -247,7 +247,9 @@ All live in `lib/Dialect/TTIR/Transforms/DecomposeComposites.cpp`:
   `reciprocal -> multiply` to work around a broadcast-multiply bug).
   When `numericStable=false`, the max-subtract step is skipped.
 
-- **DecomposeMinReduction** (separate pass):
-  `lib/Dialect/TTIR/Transforms/DecomposeMinReduction.cpp` — Decomposes
-  `min(x)` into `neg(max(neg(x)))`. This is a standalone pass, not part
-  of the composites pass.
+- **Inner-min decomposition** (in TTIRToD2M):
+  `D2MInnerMinDecompositionRewriter` in
+  `lib/Conversion/TTIRToD2M/TTIRToD2M.cpp` rewrites inner-dim `ttir.min`
+  into `neg(max(neg(x)))` during conversion (there is no
+  `tile_reduce_min` kernel). Outer-dim min reductions use the
+  accumulation path with `d2m.tile_minimum`.

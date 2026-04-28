@@ -317,6 +317,11 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(tileSize.getY(), tileSize.getX());
 }
 
+inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
+                                        ttcore::CoreCoordAttr coreCoord) {
+  return ::tt::target::Dim2d(coreCoord.getY(), coreCoord.getX());
+}
+
 inline ::tt::target::ChipCapability
 toFlatbuffer(FlatbufferObjectCache &,
              ttcore::ChipCapabilityAttr capabilityAttr) {
@@ -413,6 +418,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
   auto coordTranslationOffsets =
       ::tt::target::Dim2d(chipDesc.getCoordTranslationOffsets()[0],
                           chipDesc.getCoordTranslationOffsets()[1]);
+  assert(chipDesc.getDramGrid().size() == 2 && "expected a 2D dram grid");
+  auto dramGridSize =
+      ::tt::target::Dim2d(chipDesc.getDramGrid()[0], chipDesc.getDramGrid()[1]);
   return ::tt::target::CreateChipDesc(
       *cache.fbb, toFlatbuffer(cache, chipDesc.getArch()), &grid,
       &coordTranslationOffsets, chipDesc.getL1Size(),
@@ -424,7 +432,10 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
       toFlatbuffer(cache, chipDesc.getSupportedDataTypes()),
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
       chipDesc.getDstPhysicalSizeTiles(), chipDesc.getNumCBs(),
-      chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads());
+      chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads(),
+      &dramGridSize,
+      toFlatbuffer(cache, chipDesc.getDramBankToLogicalWorkerNoc0()),
+      toFlatbuffer(cache, chipDesc.getDramBankToLogicalWorkerNoc1()));
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,

@@ -94,6 +94,7 @@
 #include "operations/reduction/cumsum.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
+#include "operations/reduction/sampling.h"
 #include "operations/reduction/topk.h"
 #include "operations/reduction/topk_router_gpt.h"
 #include "operations/tensor_serialization/dump_tensor.h"
@@ -130,7 +131,8 @@ using LogType = ::tt::runtime::logger::LogType;
 ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
-    std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram)
+    std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram,
+    ProgramContext *parentContext)
     : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
@@ -156,7 +158,7 @@ ProgramExecutor::ProgramExecutor(
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
       GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
-      std::move(deviceHandle), executableHandle, programIndex);
+      std::move(deviceHandle), executableHandle, programIndex, parentContext);
 }
 
 void ProgramExecutor::runOpCallback(
@@ -534,6 +536,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
     return operations::kv_cache::run(op->type_as_PagedFillCacheOp(),
                                      getContext());
+  }
+  case ::tt::target::ttnn::OpType::SamplingOp: {
+    return operations::reduction::sampling::run(op->type_as_SamplingOp(),
+                                                getContext());
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), getContext());

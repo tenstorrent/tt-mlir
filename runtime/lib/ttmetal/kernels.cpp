@@ -114,13 +114,17 @@ createKernelConfig(
         std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
         &global_semaphores_cache,
+    const std::unordered_map<std::uint32_t, std::uint32_t>
+        &local_semaphores_cache,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::CBRef>>
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
-    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn) {
+    std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn,
+    const std::unordered_map<std::uint32_t, Tensor> &hostBuffers) {
   std::vector<uint32_t> compileArgs = processCompileArgs(
       kernelConfig->args()->ct_args(), argRefsType, argRefs, meshBuffers,
-      global_semaphores_cache, cbs, deviceAddressValidator, createSemaphoreFn);
+      global_semaphores_cache, local_semaphores_cache, cbs,
+      deviceAddressValidator, createSemaphoreFn, hostBuffers);
   switch (kernelConfig->type_type()) {
   case target::metal::KernelConfigType::NocConfig: {
     switch (kernelConfig->type_as_NocConfig()->noc_index()) {
