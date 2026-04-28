@@ -88,8 +88,8 @@ public:
     }
 
     // Check that the custom_call has exactly one user and that it matches
-    // sdy.all_slice in either composite or inlined (reshape+all_to_all+slice+
-    // reshape) form.
+    // sdy.all_slice in either composite or decomposed
+    // (reshape+all_to_all+slice+ reshape) form.
     if (!customCallOp.getResult(0).hasOneUse()) {
       return rewriter.notifyMatchFailure(
           customCallOp, "rms_norm result has multiple uses, cannot fuse");
@@ -217,7 +217,7 @@ private:
     SmallVector<mlir::Operation *> intermediateOps;
   };
 
-  // Try to match sdy.all_slice in either its composite or inlined form.
+  // Try to match sdy.all_slice in either its composite or decomposed form.
   static std::optional<AllSliceMatch> tryMatchAllSlice(mlir::Operation *op) {
     // Composite form.
     if (auto composite = mlir::dyn_cast<mlir::stablehlo::CompositeOp>(op)) {
@@ -227,7 +227,7 @@ private:
       return std::nullopt;
     }
 
-    // Inlined form: reshape -> all_to_all -> slice -> reshape.
+    // Decomposed form: reshape -> all_to_all -> slice -> reshape.
     // UpdateGlobalToLocalShapes emits this sequence when the all_slice input
     // is not fully replicated across all devices.
     auto reshape1 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(op);
