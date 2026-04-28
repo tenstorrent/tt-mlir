@@ -5723,6 +5723,40 @@ def stablehlo_pad_golden(
     ).to(output_dtype)
 
 
+def stablehlo_reduce_golden(
+    input_tensor: GoldenMapTensor,
+    dimensions: DenseI64ArrayAttr,
+    body: str,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dims = unpack_mlir_attr(dimensions)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    # Convert to list if single integer
+    if isinstance(dims, int):
+        dims = [dims]
+    elif isinstance(dims, np.ndarray):
+        dims = dims.tolist()
+
+    # Perform the appropriate reduction
+    if body == "add":
+        result = torch.sum(input_tensor, dim=dims if dims else None, keepdim=False)
+    elif body == "max":
+        if dims:
+            result = torch.amax(input_tensor, dim=dims, keepdim=False)
+        else:
+            result = torch.amax(input_tensor, keepdim=False)
+    elif body == "min":
+        if dims:
+            result = torch.amin(input_tensor, dim=dims, keepdim=False)
+        else:
+            result = torch.amin(input_tensor, keepdim=False)
+    else:
+        raise ValueError(f"Unsupported reduction body: {body}")
+
+    return result.to(output_dtype)
+
+
 def stablehlo_reduce_window_golden(
     input_tensor: GoldenMapTensor,
     init_value: GoldenMapTensor,
@@ -7528,6 +7562,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # CCL (Collective Communication Library) operations
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
+    stablehlo.ReduceOp: stablehlo_reduce_golden,
     stablehlo.ReduceScatterOp: stablehlo_reduce_scatter_golden,
     stablehlo.ReduceWindowOp: stablehlo_reduce_window_golden,
     stablehlo.CollectivePermuteOp: stablehlo_collective_permute_golden,

@@ -7595,75 +7595,247 @@ class StableHLOBuilder(Builder):
 
     # ----- Reduce Operations -----
 
-    def _reduce_op_proxy(
+    ############### stablehlo.ReduceOp ###############
+
+    @tag(stablehlo.ReduceOp)
+    def reduce(
         self,
         in0: Operand,
+        init_value: Union[Operand, float, int],
         dimensions: List[int],
-        init_attr: Attribute,
-        reduce_op_creator: Callable,
-        loc: Optional[Location] = None,
-    ) -> OpView:
-        """
-        Helper method to create a StableHLO reduce operation.
+        body: str = "add",
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reduce)
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce
-        init_attr : Attribute
-            Initial value attribute
-        reduce_op_creator : Callable
-            Function that creates the reduce operation in the body
-        loc : Optional[Location]
-            Location for the operation
+        input_type = RankedTensorType(in0.type)
+        element_type = input_type.element_type
 
-        Returns
-        -------
-        OpView
-            The reduce operation result
-        """
-        with self._ctx, self._loc:
+        input_shape = list(input_type.shape)
+        dimensions_set = set(dimensions)
+        output_shape = [
+            input_shape[i] for i in range(len(input_shape)) if i not in dimensions_set
+        ]
+
+        if output_type is None:
+            mlir_output_type = element_type
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        output_ranked_type = RankedTensorType.get(output_shape, mlir_output_type)
+
+        # Handle init_value
+        if isinstance(init_value, (int, float)):
+            if isinstance(init_value, float):
+                init_attr = DenseElementsAttr.get_splat(
+                    RankedTensorType.get([], element_type),
+                    FloatAttr.get(element_type, init_value),
+                )
+            else:
+                init_attr = DenseElementsAttr.get_splat(
+                    RankedTensorType.get([], element_type),
+                    IntegerAttr.get(element_type, init_value),
+                )
             if loc is None:
-                id = self._get_next_global_id()
-                loc = self._get_loc_of_extra_file_callee(id=id)
+                const_loc = self._get_location()
+            else:
+                const_loc = Location.name(loc)
+            init_value_op = stablehlo.ConstantOp(init_attr, loc=const_loc).result
 
-            input_type = RankedTensorType(in0.type)
-            element_type = input_type.element_type
+            # Set golden for init constant
+            init_golden_function = get_golden_function(stablehlo.ConstantOp)
+            mesh_shape_attr = DenseI32ArrayAttr.get(self._mesh_shape)
+            init_golden = init_golden_function(init_attr, mesh_shape_attr)
+            self._set_golden_tensor(init_value_op, init_golden)
+        else:
+            init_value_op = init_value
 
-            input_shape = list(input_type.shape)
-            dimensions_set = set(dimensions)
-            output_shape = [
-                input_shape[i]
-                for i in range(len(input_shape))
-                if i not in dimensions_set
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create the reduce operation
+        reduce_op = stablehlo_op(
+            [output_ranked_type],
+            inputs=[in0],
+            init_values=[init_value_op],
+            dimensions=dimensions,
+            loc=loc,
+        )
+
+        # Create the reduction body
+        reduction_type = RankedTensorType.get([], element_type)
+        block = Block.create_at_start(
+            reduce_op.regions[0], [reduction_type, reduction_type]
+        )
+
+        with InsertionPoint(block):
+            if body == "add":
+                reduction_result = stablehlo.AddOp(
+                    block.arguments[0], block.arguments[1], loc=loc
+                ).result
+            elif body == "max":
+                reduction_result = stablehlo.MaxOp(
+                    block.arguments[0], block.arguments[1], loc=loc
+                ).result
+            elif body == "min":
+                reduction_result = stablehlo.MinOp(
+                    block.arguments[0], block.arguments[1], loc=loc
+                ).result
+            else:
+                raise ValueError(
+                    f"Unsupported reduction body: {body}. "
+                    "Supported options: 'add', 'max', 'min'"
+                )
+            stablehlo.ReturnOp([reduction_result], loc=loc)
+
+        op_result = reduce_op.result
+
+        if sharding_attr is not None:
+            reduce_op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                reduce_op.operation.attributes[attr_name] = UnitAttr.get()
+
+        # Compute golden output
+        input_golden = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_golden, dimensions, body, mlir_output_type
+        )
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.ReduceOp)
+    def reduce_parser(
+        self,
+        old_op: stablehlo.ReduceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.reduce_parser)
+
+        in0 = global_dict[old_op.inputs[0]]
+        init_value = global_dict[old_op.init_values[0]]
+
+        # Determine the body type from the old operation's region
+        body = "add"
+        for op in old_op.body.blocks[0].operations:
+            if isinstance(op, stablehlo.AddOp):
+                body = "add"
+                break
+            elif isinstance(op, stablehlo.MaxOp):
+                body = "max"
+                break
+            elif isinstance(op, stablehlo.MinOp):
+                body = "min"
+                break
+
+        new_op = stablehlo_op(
+            [old_op.results[0].type],
+            inputs=[in0],
+            init_values=[init_value],
+            dimensions=old_op.dimensions,
+            loc=old_op.location,
+        )
+
+        # Recreate the reduction body
+        element_type = RankedTensorType(old_op.inputs[0].type).element_type
+        reduction_type = RankedTensorType.get([], element_type)
+        block = Block.create_at_start(
+            new_op.regions[0], [reduction_type, reduction_type]
+        )
+
+        with InsertionPoint(block):
+            if body == "add":
+                reduction_result = stablehlo.AddOp(
+                    block.arguments[0], block.arguments[1], loc=old_op.location
+                ).result
+            elif body == "max":
+                reduction_result = stablehlo.MaxOp(
+                    block.arguments[0], block.arguments[1], loc=old_op.location
+                ).result
+            elif body == "min":
+                reduction_result = stablehlo.MinOp(
+                    block.arguments[0], block.arguments[1], loc=old_op.location
+                ).result
+            stablehlo.ReturnOp([reduction_result], loc=old_op.location)
+
+        new_op_result = new_op.results[0]
+
+        # Compute golden output
+        input_golden = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_golden, new_op.dimensions, body, new_op_result.type.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.results[0]] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ReduceOp)
+    def reduce_split(
+        self,
+        old_op: stablehlo.ReduceOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.reduce_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+
+        # Determine the body type from the old operation's region
+        body = "add"
+        for op in old_op.body.blocks[0].operations:
+            if isinstance(op, stablehlo.AddOp):
+                body = "add"
+                break
+            elif isinstance(op, stablehlo.MaxOp):
+                body = "max"
+                break
+            elif isinstance(op, stablehlo.MinOp):
+                body = "min"
+                break
+
+        with old_context, old_loc:
+            reduce_module = Module.create()
+            reduce_builder = StableHLOBuilder(
+                old_context, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.inputs[0].type,
+                old_op.init_values[0].type,
             ]
 
-            output_type = RankedTensorType.get(output_shape, element_type)
-
-            init_value = stablehlo.ConstantOp(init_attr, loc=loc).result
-
-            reduce_op = stablehlo.ReduceOp(
-                [output_type],
-                inputs=[in0],
-                init_values=[init_value],
-                dimensions=dimensions,
-                loc=loc,
-            )
-
-            reduction_type = RankedTensorType.get([], element_type)
-            block = Block.create_at_start(
-                reduce_op.regions[0], [reduction_type, reduction_type]
-            )
-
-            with InsertionPoint(block):
-                reduce_result = reduce_op_creator(
-                    block.arguments[0], block.arguments[1], loc
+            with InsertionPoint(reduce_module.body):
+                func_type = FunctionType.get(
+                    inputs=op_input_types,
+                    results=[old_op.results[0].type],
                 )
-                stablehlo.ReturnOp([reduce_result], loc=loc)
+                func_op = func.FuncOp(
+                    name="main",
+                    type=func_type,
+                    visibility="public",
+                    ip=reduce_module.body,
+                )
+                entry_block = func_op.add_entry_block()
 
-            return reduce_op.result
+                with InsertionPoint(entry_block):
+                    result = reduce_builder.reduce(
+                        entry_block.arguments[0],
+                        entry_block.arguments[1],
+                        list(old_op.dimensions),
+                        body=body,
+                    )
+                    func.ReturnOp([result])
+
+        return reduce_module, reduce_builder
 
     def reduce_sum(
         self,
@@ -7713,14 +7885,15 @@ class StableHLOBuilder(Builder):
         element_type = input_type.element_type
         zero_attr = self._get_zero_attr(element_type)
 
-        def add_creator(arg0, arg1, loc):
-            return stablehlo.AddOp(arg0, arg1, loc=loc).result
+        # Extract scalar value from zero_attr
+        if IntegerType.isinstance(element_type):
+            init_value = 0
+        else:
+            init_value = 0.0
 
-        result = self._reduce_op_proxy(in0, dimensions, zero_attr, add_creator)
-
-        input_golden = self._get_golden_tensor(in0)
-        output_golden = torch.sum(input_golden, dim=dimensions, keepdim=keep_dims)
-        self._set_golden_tensor(result, output_golden)
+        result = self.reduce(
+            in0, init_value, dimensions, body="add", unit_attrs=unit_attrs
+        )
 
         return result
 
@@ -7770,19 +7943,17 @@ class StableHLOBuilder(Builder):
         """
         input_type = RankedTensorType(in0.type)
         element_type = input_type.element_type
-        neg_inf_attr = self._get_neg_inf_attr(element_type)
 
-        def max_creator(arg0, arg1, loc):
-            return stablehlo.MaxOp(arg0, arg1, loc=loc).result
-
-        result = self._reduce_op_proxy(in0, dimensions, neg_inf_attr, max_creator)
-
-        input_golden = self._get_golden_tensor(in0)
-        if dimensions:
-            output_golden = torch.amax(input_golden, dim=dimensions, keepdim=keep_dims)
+        # Get negative infinity as init value
+        if IntegerType.isinstance(element_type):
+            # For integers, use minimum value
+            init_value = float("-inf")
         else:
-            output_golden = torch.amax(input_golden, keepdim=keep_dims)
-        self._set_golden_tensor(result, output_golden)
+            init_value = float("-inf")
+
+        result = self.reduce(
+            in0, init_value, dimensions, body="max", unit_attrs=unit_attrs
+        )
 
         return result
 
@@ -7821,19 +7992,17 @@ class StableHLOBuilder(Builder):
         """
         input_type = RankedTensorType(in0.type)
         element_type = input_type.element_type
-        pos_inf_attr = self._get_pos_inf_attr(element_type)
 
-        def min_creator(arg0, arg1, loc):
-            return stablehlo.MinOp(arg0, arg1, loc=loc).result
-
-        result = self._reduce_op_proxy(in0, dimensions, pos_inf_attr, min_creator)
-
-        input_golden = self._get_golden_tensor(in0)
-        if dimensions:
-            output_golden = torch.amin(input_golden, dim=dimensions, keepdim=keep_dims)
+        # Get positive infinity as init value
+        if IntegerType.isinstance(element_type):
+            # For integers, use maximum value
+            init_value = float("inf")
         else:
-            output_golden = torch.amin(input_golden, keepdim=keep_dims)
-        self._set_golden_tensor(result, output_golden)
+            init_value = float("inf")
+
+        result = self.reduce(
+            in0, init_value, dimensions, body="min", unit_attrs=unit_attrs
+        )
 
         return result
 
