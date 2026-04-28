@@ -7698,7 +7698,7 @@ class StableHLOBuilder(Builder):
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
-                reduce_op.operation.attributes[attr_name] = UnitAttr.get()
+                reduce_op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         # Compute golden output
         input_golden = self._get_golden_tensor(in0)
