@@ -80,7 +80,7 @@ mergeExternalModule(ModuleOp destModule,
   }
 
   // Compute renames: walk every symbol in the external module and, if its name
-  // collides with usedNames, pick a fresh name.  usedNames is updated as we
+  // collides with usedNames, pick a fresh name. `usedNames` is updated as we
   // go so that symbols within the external module also don't collide with each
   // other after renaming.
   llvm::StringMap<std::string> renameMap;
@@ -110,7 +110,7 @@ mergeExternalModule(ModuleOp destModule,
   // Apply each rename inside the external module:
   //   1. Replace all *uses* of the old name (call sites, symbol references).
   //   2. Rename the defining op itself.
-  // Step 1 must precede step 2 because SymbolTable::replaceAllSymbolUses
+  // Step 1 must precede step 2 because `SymbolTable::replaceAllSymbolUses`
   // searches by name attribute, which would not find the op after renaming.
   for (auto &[origName, newName] : renameMap) {
     StringAttr origAttr = StringAttr::get(ctx, origName);
@@ -124,24 +124,28 @@ mergeExternalModule(ModuleOp destModule,
       return failure();
     }
 
-    // Rename the definition.  replaceAllSymbolUses only touches *uses*, so
-    // the sym_name attribute on the defining op is still the original name.
+    // Rename the definition: `replaceAllSymbolUses` only touches *uses*, so the
+    // `sym_name` attribute on the defining op is still the original name.
     Operation *symOp =
         SymbolTable::lookupSymbolIn(externalModule.get(), origAttr);
     assert(symOp && "defining op must still be findable by original name");
     symOp->setAttr(SymbolTable::getSymbolAttrName(), newAttr);
   }
 
-  // Move all ops from the external module body to the destination module.
-  // ModuleOp uses NoTerminator, so there is no implicit terminator to skip.
-  SmallVector<Operation *> toMove;
+  // Move external module body to the destination module, marking all incoming
+  // symbols as private. Implementation note: `splice` uses
+  // `transferNodesFromList` which atomically updates each op's block pointer
+  // without a `remove`+`push_back` round-trip (which triggers an "already in an
+  // operation block" assertion in `addNodeToList`).
   for (auto &op : externalModule->getBody()->getOperations()) {
-    toMove.push_back(&op);
+    if (op.hasAttr(SymbolTable::getSymbolAttrName())) {
+      op.setAttr(SymbolTable::getVisibilityAttrName(),
+                 StringAttr::get(ctx, "private"));
+    }
   }
-  for (auto *op : toMove) {
-    op->remove();
-    destModule.getBody()->push_back(op);
-  }
+  Block *srcBlock = externalModule->getBody();
+  Block *dstBlock = destModule.getBody();
+  dstBlock->getOperations().splice(dstBlock->end(), srcBlock->getOperations());
 
   return renameMap;
 }
@@ -167,7 +171,7 @@ struct TTIRInlineExternalFunctionsPass
       StringRef entry = invokeOp.getEntry();
       std::string resolvedPath = resolvePath(path, moduleOp);
 
-      if (!mergedPaths.count(resolvedPath)) {
+      if (!mergedPaths.contains(resolvedPath)) {
         mlir::ParserConfig config(moduleOp.getContext());
         mlir::OwningOpRef<mlir::ModuleOp> externalModule =
             mlir::parseSourceFile<mlir::ModuleOp>(resolvedPath, config);
