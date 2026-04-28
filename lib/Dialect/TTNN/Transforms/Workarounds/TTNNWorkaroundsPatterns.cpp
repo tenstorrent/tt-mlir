@@ -748,5 +748,6 @@ const std::set<mlir::StringRef>
         ttnn::ScatterOp::getOperationName(),
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
-        ttnn::TopKOp::getOperationName()};
+        ttnn::TopKOp::getOperationName(),
+        ttnn::PrepareConv3dWeightsOp::getOperationName()};
 } // namespace mlir::tt::ttnn
