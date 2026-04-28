@@ -1,0 +1,7 @@
+// External module 1: @foo returns a scalar i32 tensor.
+module {
+  func.func @foo() -> tensor<i32> {
+    %0 = "ttir.constant"() <{value = dense<1> : tensor<i32>}> : () -> tensor<i32>
+    return %0 : tensor<i32>
+  }
+}
