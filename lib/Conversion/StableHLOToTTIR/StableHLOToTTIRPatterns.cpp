@@ -5795,9 +5795,17 @@ private:
     // Checks that apply to single dimensional scatter.
 
     if (!multiDimensionalScatter && indexShape.size() > updateShape.size()) {
-      return rewriter.notifyMatchFailure(
-          op, "TTIR scatter requires indices.rank <= updates.rank. Please add "
-              "support for rank promotion if needed.");
+      // Allow rank(indices) == rank(updates) + 1 when the extra trailing dim
+      // is the index_vector_dim (e.g. indices [K, 1] vs updates [K]).
+      // extractElementWiseScatterIndices squeezes that trailing dim away.
+      bool hasTrailingVectorDim =
+          indexShape.size() == updateShape.size() + 1 &&
+          indexVectorDim == static_cast<uint32_t>(indexShape.size() - 1);
+      if (!hasTrailingVectorDim) {
+        return rewriter.notifyMatchFailure(
+            op, "TTIR scatter requires indices.rank <= updates.rank. Please add "
+                "support for rank promotion if needed.");
+      }
     }
 
     if (!multiDimensionalScatter && indexVectorDim != 1u) {
@@ -6127,6 +6135,16 @@ private:
                                                  indexTensor, newShape);
       indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
       indexShape = newShape;
+    } else if (indexShape.size() == updateShape.size() + 1) {
+      // Indices have one extra trailing dimension (the index_vector_dim).
+      // e.g. scatter_indices [K, 1] with index_vector_dim=1 vs updates [K].
+      // Squeeze the trailing dim to produce [K] indices.
+      llvm::SmallVector<int64_t> squeezedShape(indexShape.begin(),
+                                               indexShape.end() - 1);
+      indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
+                                                 indexTensor, squeezedShape);
+      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
+      indexShape = squeezedShape;
     }
 
     // Repeat along update_window_dims to match update tensor shape.
