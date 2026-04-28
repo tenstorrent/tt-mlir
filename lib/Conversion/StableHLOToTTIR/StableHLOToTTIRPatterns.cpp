@@ -821,11 +821,17 @@ public:
     // Default momentum for batch norm training
     FloatAttr momentumAttr = rewriter.getF32FloatAttr(1.0f);
 
-    auto runningMean = rewriter.create<ttir::ZerosOp>(
-        loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
-    auto runningVariance = rewriter.create<ttir::OnesOp>(
-        loc, varianceType,
-        llvm::to_vector_of<int32_t>(varianceType.getShape()));
+    // Use EmptyOp (not ZerosOp/OnesOp) so MLIR CSE cannot deduplicate these
+    // buffers with the scale/offset constant operands. scale=ones[C] and
+    // offset=zeros[C] have the same values; if they aliased running_mean and
+    // running_var, the in-place prim::running_statistics write would corrupt
+    // the weight/bias seen by the subsequent prim::batch_norm call.
+    // With momentum=1.0 the initial values are fully overwritten, so
+    // uninitialized buffers are correct here.
+    auto runningMean = rewriter.create<ttir::EmptyOp>(
+        loc, meanType.getShape(), meanType.getElementType());
+    auto runningVariance = rewriter.create<ttir::EmptyOp>(
+        loc, varianceType.getShape(), varianceType.getElementType());
 
     rewriter.replaceOpWithNewOp<mlir::tt::ttir::BatchNormTrainingOp>(
         srcOp, TypeRange{outputType, meanType, varianceType},
