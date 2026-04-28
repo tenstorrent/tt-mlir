@@ -1201,6 +1201,12 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
   if (!currentLayout) {
     return nullptr;
   }
+  // Don't override a memory_config pinned by an earlier pass.
+  if (auto memConfigOp = mlir::dyn_cast<TTNNMemoryConfigOpInterface>(op)) {
+    if (memConfigOp.getMemoryConfigAttr()) {
+      return currentLayout;
+    }
+  }
   return currentLayout.withBufferType(BufferType::DRAM)
       .withMemoryLayout(TensorMemoryLayout::Interleaved)
       .withTensorShape(tensorType.getShape());

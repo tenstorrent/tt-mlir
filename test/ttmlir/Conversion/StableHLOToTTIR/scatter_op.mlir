@@ -108,6 +108,42 @@ module @jit_scatter attributes {} {
         return %result : tensor<1x4x3xi64>
     }
 
+    func.func public @test_scatter_nonzero_operand_dim(%operand: tensor<2x4x3xbf16>, %updates: tensor<2x1x3xbf16>) -> tensor<2x4x3xbf16> {
+        // CHECK-LABEL: func.func public @test_scatter_nonzero_operand_dim
+        // CHECK: "ttir.scatter"
+        // CHECK-SAME: <{dim = 1 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        %indices = stablehlo.constant dense<[[2]]> : tensor<1x1xi64>
+        %0 = "stablehlo.scatter"(%operand, %indices, %updates) <{
+          scatter_dimension_numbers = #stablehlo.scatter<
+            update_window_dims = [0, 2],
+            inserted_window_dims = [1],
+            scatter_dims_to_operand_dims = [1],
+            index_vector_dim = 1>
+        }> ({
+        ^bb0(%a: tensor<bf16>, %b: tensor<bf16>):
+          stablehlo.return %b : tensor<bf16>
+        }) : (tensor<2x4x3xbf16>, tensor<1x1xi64>, tensor<2x1x3xbf16>) -> tensor<2x4x3xbf16>
+        return %0 : tensor<2x4x3xbf16>
+    }
+
+    func.func public @test_scatter_last_operand_dim(%operand: tensor<2x4x3xbf16>, %updates: tensor<2x4x1xbf16>) -> tensor<2x4x3xbf16> {
+        // CHECK-LABEL: func.func public @test_scatter_last_operand_dim
+        // CHECK: "ttir.scatter"
+        // CHECK-SAME: <{dim = 2 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        %indices = stablehlo.constant dense<[[1]]> : tensor<1x1xi64>
+        %0 = "stablehlo.scatter"(%operand, %indices, %updates) <{
+          scatter_dimension_numbers = #stablehlo.scatter<
+            update_window_dims = [0, 1],
+            inserted_window_dims = [2],
+            scatter_dims_to_operand_dims = [2],
+            index_vector_dim = 1>
+        }> ({
+        ^bb0(%a: tensor<bf16>, %b: tensor<bf16>):
+          stablehlo.return %b : tensor<bf16>
+        }) : (tensor<2x4x3xbf16>, tensor<1x1xi64>, tensor<2x4x1xbf16>) -> tensor<2x4x3xbf16>
+        return %0 : tensor<2x4x3xbf16>
+    }
+
     func.func @test_multidim_scatter_with_window_extracted_from_model(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
         // CHECK: "ttir.scatter"
         // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>

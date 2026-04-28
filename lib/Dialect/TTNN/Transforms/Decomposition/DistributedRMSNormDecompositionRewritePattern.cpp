@@ -6,23 +6,60 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::ttnn::decomposition {
 
-// Returns true if the op can be lowered to the fused_rms_minimal kernel.
+namespace {
+
+// Returns true if the op can be lowered to the fused_rms_minimal kernel, i.e.
+// the input is already in canonical (1,1,32,M) shape or can be reshaped there.
 // The kernel requires:
-//   - input shape (1,1,32,M) where M is a multiple of 32
-//     (rms_allgather_device_operation.cpp: shape[0]==1, shape[1]==1,
-//      shape[2]==32, shape[3]%32==0)
 //   - a weight (gamma) tensor must be present; the kernel asserts
 //     gamma.has_value() (https://github.com/tenstorrent/tt-metal/issues/38211)
-static bool isSupportedByFusedKernel(ttnn::DistributedRMSNormOp op) {
+//   - input shape with second-to-last dim == 32, last dim a multiple of 32,
+//     and all leading dims == 1 (canonical (1,...,1,32,M)).
+bool isEligibleForFusedKernel(ttnn::DistributedRMSNormOp op) {
+  if (!op.getWeight()) {
+    return false;
+  }
   ArrayRef<int64_t> shape =
       mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
-  return shape.size() == 4 && shape[0] == 1 && shape[1] == 1 &&
-         shape[2] == 32 && shape[3] % 32 == 0 && op.getWeight();
+  if (shape.size() < 2) {
+    return false;
+  }
+  if (shape[shape.size() - 2] != 32 || shape.back() % 32 != 0) {
+    return false;
+  }
+  for (size_t i = 0; i + 2 < shape.size(); ++i) {
+    if (shape[i] != 1) {
+      return false;
+    }
+  }
+  return true;
 }
+
+// Returns true when the shape is already the canonical rank-4 (1,1,32,M) form
+// that the fused kernel consumes directly.
+bool isAlreadyCanonicalShape(ArrayRef<int64_t> shape) {
+  return shape.size() == 4 && shape[0] == 1 && shape[1] == 1;
+}
+
+mlir::Value reshapeTo(PatternRewriter &rewriter, Location loc, mlir::Value v,
+                      ArrayRef<int64_t> targetShape) {
+  auto srcType = mlir::cast<RankedTensorType>(v.getType());
+  RankedTensorType targetType =
+      utils::RankedTensorTypeFactory::create(srcType, targetShape);
+  SmallVector<int32_t> targetShapeI32(targetShape.begin(), targetShape.end());
+  return rewriter
+      .create<ttnn::ReshapeOp>(loc, targetType, v,
+                               rewriter.getI32ArrayAttr(targetShapeI32),
+                               ttnn::MemoryConfigAttr())
+      .getResult();
+}
+
+} // namespace
 
 LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
     ttnn::DistributedRMSNormOp op, PatternRewriter &rewriter) const {
@@ -33,9 +70,41 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       mlir::cast<RankedTensorType>(op.getResult().getType());
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
-  // Only decompose when the fused kernel cannot handle the op.
-  if (isSupportedByFusedKernel(op)) {
-    return failure();
+  if (isEligibleForFusedKernel(op)) {
+    if (isAlreadyCanonicalShape(inputShape)) {
+      // Already (1,1,32,M) - the fused kernel handles this directly.
+      return failure();
+    }
+
+    // Reshape to canonical (1,1,32,M), forward to the fused kernel, then
+    // reshape the result back to the original shape.
+    Location loc = op.getLoc();
+    SmallVector<int64_t> canonicalShape = {1, 1, 32, inputShape.back()};
+
+    mlir::Value reshapedInput =
+        reshapeTo(rewriter, loc, op.getInput(), canonicalShape);
+
+    mlir::Value reshapedResidual = op.getResidual();
+    if (reshapedResidual) {
+      reshapedResidual =
+          reshapeTo(rewriter, loc, reshapedResidual, canonicalShape);
+    }
+
+    RankedTensorType canonicalResultType =
+        utils::RankedTensorTypeFactory::create(resultType, canonicalShape);
+
+    auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
+        loc, canonicalResultType, reshapedInput, op.getWeight(),
+        reshapedResidual, op.getStats(), op.getDevice(), op.getClusterAxis(),
+        op.getEpsilon(), op.getSubDeviceIdAttr(), op.getMemoryConfigAttr(),
+        op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
+        op.getProgramConfigAttr());
+
+    mlir::Value reshapedResult =
+        reshapeTo(rewriter, loc, newOp.getResult(), resultType.getShape());
+
+    rewriter.replaceOp(op, reshapedResult);
+    return success();
   }
 
   Location loc = op.getLoc();

@@ -245,9 +245,18 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
 
   auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
-  auto statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
-      op.getLoc(), statsResultType, device, statsShapeAttr, statsDtypeAttr,
-      statsLayoutAttr, statsMemConfig);
+
+  // Insert the scratch EmptyOp right after GetDeviceOp so it sits with the
+  // block-prelude ops; leaving it inline would trip TTNNTraceHoistTransform
+  // ("Non-hoistable op in the middle of hoistable ops").
+  ttnn::EmptyOp statsEmptyOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    statsEmptyOp = rewriter.create<ttnn::EmptyOp>(
+        op.getLoc(), statsResultType, device, statsShapeAttr, statsDtypeAttr,
+        statsLayoutAttr, statsMemConfig);
+  }
 
   // The fused kernel output shape == input shape (only stats are all-gathered,
   // not data). Use the input's width-sharded memory config for the output too

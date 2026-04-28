@@ -41,7 +41,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   }
 
   std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+  std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
   auto computeGrid = query.device()->compute_with_storage_grid_size();
   if (op->core_grid()) {
     computeGrid = ::tt::runtime::ttnn::utils::toTTNNCoreCoord(*op->core_grid());
