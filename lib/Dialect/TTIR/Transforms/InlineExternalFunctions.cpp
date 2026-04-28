@@ -8,11 +8,14 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Support/Path.h"
 
 namespace mlir::tt::ttir {
 
@@ -20,6 +23,36 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
+
+// If `path` is relative, prepend the directory of the MLIR file in which
+// `moduleOp` was defined.  The source location is obtained from the module's
+// FileLineColLoc, which is set automatically when ttmlir-opt (or any
+// mlir::parseSourceFile caller) loads a file from disk.
+// If the module has no file location, or if `path` is already absolute, the
+// original `path` is returned unchanged.
+static std::string resolvePath(StringRef path, ModuleOp moduleOp) {
+  if (llvm::sys::path::is_absolute(path)) {
+    return path.str();
+  }
+
+  // Walk the location chain to find a FileLineColLoc.
+  StringRef moduleFile;
+  moduleOp.getLoc()->walk([&](mlir::Location loc) -> mlir::WalkResult {
+    if (auto fileLoc = mlir::dyn_cast<mlir::FileLineColLoc>(loc)) {
+      moduleFile = fileLoc.getFilename().getValue();
+      return mlir::WalkResult::interrupt();
+    }
+    return mlir::WalkResult::advance();
+  });
+
+  if (moduleFile.empty()) {
+    return path.str();
+  }
+
+  llvm::SmallString<256> resolved(llvm::sys::path::parent_path(moduleFile));
+  llvm::sys::path::append(resolved, path);
+  return resolved.str().str();
+}
 
 // Merges every symbol-defining op from `externalModule` into `destModule`.
 //
@@ -132,35 +165,36 @@ struct TTIRInlineExternalFunctionsPass
     for (auto invokeOp : invokeOps) {
       StringRef path = invokeOp.getPath();
       StringRef entry = invokeOp.getEntry();
+      std::string resolvedPath = resolvePath(path, moduleOp);
 
-      if (!mergedPaths.count(path)) {
+      if (!mergedPaths.count(resolvedPath)) {
         mlir::ParserConfig config(moduleOp.getContext());
         mlir::OwningOpRef<mlir::ModuleOp> externalModule =
-            mlir::parseSourceFile<mlir::ModuleOp>(path, config);
+            mlir::parseSourceFile<mlir::ModuleOp>(resolvedPath, config);
         if (!externalModule) {
           invokeOp.emitOpError()
-              << "failed to parse external MLIR file '" << path << "'";
+              << "failed to parse external MLIR file '" << resolvedPath << "'";
           return signalPassFailure();
         }
 
         if (failed(mlir::verify(*externalModule))) {
-          invokeOp.emitOpError()
-              << "external MLIR file '" << path << "' failed verification";
+          invokeOp.emitOpError() << "external MLIR file '" << resolvedPath
+                                 << "' failed verification";
           return signalPassFailure();
         }
 
         auto renameMapOrErr = mergeExternalModule(moduleOp, externalModule);
         if (failed(renameMapOrErr)) {
-          invokeOp.emitOpError()
-              << "failed to merge external module from '" << path << "'";
+          invokeOp.emitOpError() << "failed to merge external module from '"
+                                 << resolvedPath << "'";
           return signalPassFailure();
         }
 
-        mergedPaths.try_emplace(path, std::move(*renameMapOrErr));
+        mergedPaths.try_emplace(resolvedPath, std::move(*renameMapOrErr));
       }
 
       // Resolve the final name of the entry symbol, accounting for any rename.
-      const auto &renameMap = mergedPaths[path];
+      const auto &renameMap = mergedPaths[resolvedPath];
       std::string finalEntry = entry.str();
       if (auto it = renameMap.find(entry); it != renameMap.end()) {
         finalEntry = it->second;
