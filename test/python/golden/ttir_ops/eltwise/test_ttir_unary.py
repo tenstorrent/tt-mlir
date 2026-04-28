@@ -85,6 +85,10 @@ def floor(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     return builder.floor(in0, unit_attrs=unit_attrs)
 
 
+def round(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    return builder.round(in0, unit_attrs=unit_attrs)
+
+
 def cos(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.cos(in0, unit_attrs=unit_attrs)
 
@@ -288,6 +292,7 @@ unary_ops = [
     exp,
     expm1,
     floor,
+    round,
     gelu,
     is_finite,
     log,
@@ -521,6 +526,7 @@ hoisted_unary_ops_float = [
     exp,
     expm1,
     floor,
+    round,
     gelu,
     hardsigmoid,
     is_finite,

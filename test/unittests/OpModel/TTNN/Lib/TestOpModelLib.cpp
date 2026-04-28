@@ -175,6 +175,7 @@ using OpModelSignParam = OpModelUnaryEltwiseParam<SignOp>;
 using OpModelErfParam = OpModelUnaryEltwiseParam<ErfOp>;
 using OpModelErfcParam = OpModelUnaryEltwiseParam<ErfcOp>;
 using OpModelFloorParam = OpModelUnaryEltwiseParam<FloorOp>;
+using OpModelRoundParam = OpModelUnaryEltwiseParam<RoundOp>;
 using OpModelGeluParam = OpModelUnaryEltwiseParam<GeluOp>;
 using OpModelIsFiniteParam = OpModelUnaryEltwiseParam<IsFiniteOp>;
 using OpModelLogicalNotParam = OpModelUnaryEltwiseParam<LogicalNotOp>;
@@ -208,6 +209,7 @@ TEST_P(OpModelSignParam, SignOp) { RunTest(); }
 TEST_P(OpModelErfParam, ErfOp) { RunTest(); }
 TEST_P(OpModelErfcParam, ErfcOp) { RunTest(); }
 TEST_P(OpModelFloorParam, FloorOp) { RunTest(); }
+TEST_P(OpModelRoundParam, RoundOp) { RunTest(); }
 TEST_P(OpModelReciprocalParam, ReciprocalOp) { RunTest(); }
 TEST_P(OpModelGeluParam, GeluOp) { RunTest(); }
 TEST_P(OpModelIsFiniteParam, IsFiniteOp) { RunTest(); }
