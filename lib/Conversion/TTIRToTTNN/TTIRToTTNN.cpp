@@ -414,6 +414,25 @@ public:
       indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
     }
 
+    // Normalize indices to [1, total_tokens] so that the tt-metal assertion
+    // grad_shape[2] == index[0] * index[-1] holds for any index rank/shape.
+    // MoE models (e.g. Qwen3 MoE) produce scatter indices with shapes that
+    // don't match the [batch, seq] assumption after squeezing.
+    {
+      int64_t totalTokens = 1;
+      for (auto dim : indicesType.getShape()) {
+        totalTokens *= dim;
+      }
+      llvm::SmallVector<int64_t, 2> flatShape{1, totalTokens};
+      if (indicesType.getShape() != llvm::ArrayRef<int64_t>(flatShape)) {
+        inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+            mlir::cast<TypedValue<RankedTensorType>>(inputIndices), flatShape,
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(loc, "_flatten_indices"));
+        indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+      }
+    }
+
     // Pad the sequence length to be divisible by TILE_WIDTH (32).
     constexpr int64_t TILE_WIDTH = 32;
     int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
