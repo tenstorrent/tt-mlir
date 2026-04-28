@@ -36,4 +36,19 @@ module {
       }) : (tensor<50257x768xf32>, tensor<256x1xi64>, tensor<256x768xf32>) -> tensor<50257x768xf32>
     return %result : tensor<50257x768xf32>
   }
+
+  // Rank-1 indices with index_vector_dim=rank (scalar index form produced by
+  // XLA for index_add on 1D indices). Indices [N] must be reshaped to [1, N].
+  func.func @test_rank1_scalar_indices(%arg0: tensor<7x4096xbf16>, %arg1: tensor<70xi64>, %arg2: tensor<70x4096xbf16>) -> tensor<7x4096xbf16> {
+  // CHECK: "ttir.reshape"
+  // CHECK: (tensor<70xi64>) -> tensor<1x70xi64>
+  // CHECK: "ttir.embedding_backward"
+  // CHECK: (tensor<1x70xi64>, tensor<7x4096xbf16>, tensor<70x4096xbf16>) -> tensor<7x4096xbf16>
+  %result = "stablehlo.scatter"(%arg0, %arg1, %arg2) <{scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [1], inserted_window_dims = [0], scatter_dims_to_operand_dims = [0], index_vector_dim = 1>}> ({
+      ^bb0(%argL: tensor<bf16>, %argR: tensor<bf16>):
+        %sum = stablehlo.add %argL, %argR : tensor<bf16>
+        stablehlo.return %sum : tensor<bf16>
+      }) : (tensor<7x4096xbf16>, tensor<70xi64>, tensor<70x4096xbf16>) -> tensor<7x4096xbf16>
+    return %result : tensor<7x4096xbf16>
+  }
 }

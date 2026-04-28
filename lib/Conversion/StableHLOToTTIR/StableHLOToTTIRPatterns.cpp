@@ -5632,6 +5632,14 @@ public:
       llvm::append_range(newShape, scatterIndicesType.getShape());
       scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
                                                     scatterIndices, newShape);
+    } else if (scatterIndicesType.getRank() == 1 &&
+               indexVectorDim == scatterIndicesType.getRank()) {
+      // Scalar (rank-1) indices [N] with indexVectorDim=rank — add a batch dim:
+      // [N] → [1, N] so downstream embedding_backward gets the expected 2D
+      // index tensor.
+      llvm::SmallVector<int64_t> newShape{1, scatterIndicesType.getDimSize(0)};
+      scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
+                                                    scatterIndices, newShape);
     }
 
     rewriter.replaceOpWithNewOp<ttir::EmbeddingBackwardOp>(
