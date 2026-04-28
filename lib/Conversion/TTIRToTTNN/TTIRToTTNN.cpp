@@ -3355,11 +3355,19 @@ private:
   // decode op.
   static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
 
-  // Determine if the decode op should be used based on query sequence length.
-  // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
+  // Determine if the decode op should be used based on query/key sequence
+  // lengths. SDPA decode is optimized for autoregressive decoding (q_len == 1)
+  // but requires the KV sequence length to produce a valid k_chunk_size.
+  // tt-metal's get_chunk_size(s) returns a value < 32 whenever s % 32 != 0,
+  // which triggers a TT_FATAL inside sdpa_decode. Guard against this.
   bool shouldUseDecode(ttir::ScaledDotProductAttentionOp op) const {
     auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
-    return queryType.getDimSize(kSeqLenDim) == 1;
+    if (queryType.getDimSize(kSeqLenDim) != 1) {
+      return false;
+    }
+    auto keyType = mlir::cast<RankedTensorType>(op.getKey().getType());
+    int64_t kSeqLen = keyType.getDimSize(kSeqLenDim);
+    return kSeqLen > 0 && (kSeqLen % 32 == 0);
   }
 
   // Broadcast attention mask's head dimension to match the number of heads.
