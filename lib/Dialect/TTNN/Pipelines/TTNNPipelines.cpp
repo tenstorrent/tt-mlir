@@ -249,6 +249,7 @@ void createTTNNPipelineWorkaroundPass(
 void createTTNNPipelineLayoutDecompositionPass(
     OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
   pm.addPass(createTTNNDecomposeLayouts());
+  pm.addPass(createTTNNPostConstEvalInputsToSystemMemory());
 }
 
 void createTTNNPipelineDeallocPass(
