@@ -41,6 +41,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <numeric>
 #include <vector>
@@ -129,8 +130,12 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
 
     auto denseValues = ::mlir::DenseElementsAttr::get(
         initValueOp.getValueAttr().getShapedType(), values);
-    uint16_t bfloatBits =
-        static_cast<uint16_t>(*denseValues.getRawData().data());
+    // Read both bytes of the bf16 value via memcpy to avoid sign-extension
+    // artefacts from reading a single char (0x80 sign-extends to 0xFF80,
+    // making it impossible to distinguish NEG_INF from POS_INF).
+    uint16_t bfloatBits = 0;
+    std::memcpy(&bfloatBits, denseValues.getRawData().data(),
+                sizeof(uint16_t));
     return bfloatBits == desiredBF16;
   }
   if (initValueOp.getResult().getType().getElementType().isF32()) {
