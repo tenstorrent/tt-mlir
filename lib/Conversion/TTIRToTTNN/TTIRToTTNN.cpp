@@ -1927,14 +1927,46 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
+    // Choose c_in_block to keep per-CB L1 usage within budget.
+    // cb_vol2col_tiled and cb_weight_tiled each hold matmul_K_t tiles where
+    // matmul_K_t = K_D*K_H*K_W*c_in_block/TILE_WIDTH and cb_weight_tiled also
+    // depends on matmul_N_t = c_out_block/TILE_WIDTH.  Setting c_out_block =
+    // TILE_WIDTH keeps matmul_N_t = 1.  We then halve c_in_block until each CB
+    // fits within MAX_CB_TILES (512 KB at 2048 B/tile), leaving headroom for
+    // the other CBs in L1 (≈1.5 MB total).
+    //
+    // The runtime also requires C_in_blocks ≤ num_cores, so we pass the full
+    // device worker grid as compute_with_storage_grid_size.  Always attach an
+    // explicit Conv3dConfigAttr so the runtime uses the same c_in_block as the
+    // pre-blocked weight tensor prepared below.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
+    constexpr uint32_t MAX_CB_TILES = 256; // 512 KB / 2048 B per tile
+    int64_t cInAlignedForBlocking =
+        llvm::divideCeil(weightTy.getDimSize(1), TILE_WIDTH) * TILE_WIDTH;
+    int64_t kernelElements =
+        weightTy.getDimSize(2) * weightTy.getDimSize(3) * weightTy.getDimSize(4);
+    uint32_t maxCInBlock = std::max(
+        static_cast<uint32_t>(1),
+        static_cast<uint32_t>(MAX_CB_TILES * TILE_WIDTH / kernelElements));
+    uint32_t cInBlock = static_cast<uint32_t>(TILE_WIDTH);
+    while (cInBlock > 1 && (cInBlock > maxCInBlock ||
+                             cInAlignedForBlocking % cInBlock != 0)) {
+      cInBlock /= 2;
+    }
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+    auto workerGrid = deviceAttr.getWorkerGrid();
+    auto conv3dConfigAttr = ttnn::Conv3dConfigAttr::get(
+        rewriter.getContext(),
+        std::nullopt,                                          // weights_dtype
+        std::nullopt,                                          // t_out_block
+        std::nullopt,                                          // w_out_block
+        std::nullopt,                                          // h_out_block
+        std::optional<uint32_t>(static_cast<uint32_t>(TILE_WIDTH)), // c_out_block
+        std::optional<uint32_t>(cInBlock),                    // c_in_block
+        std::optional<ttcore::GridAttr>(workerGrid));          // full device grid
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
-                                                  /*cInBlock=*/TILE_WIDTH);
+                                                  cInBlock);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -1981,8 +2013,8 @@ public:
         op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
-        nullptr);
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
+        conv3dConfigAttr, nullptr);
 
     if (needsPermute) {
       auto fromNdhwcPermutation =
