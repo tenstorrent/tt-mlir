@@ -696,7 +696,14 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
   FusionValidator validator(rewriter.getContext(), validationConfig);
 
-  bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
+  // The SDPA decode kernel requires k_chunk_size % 32 == 0 AND
+  // kSeqLen % k_chunk_size == 0. Since the minimum k_chunk_size is 32, the K
+  // sequence length must be divisible by 32. Fall back to regular SDPA when it
+  // is not to avoid a runtime TT_FATAL (e.g. Whisper cross-attn kSeqLen=1500).
+  auto kShape4D =
+      normalizeTo4D(mlir::cast<RankedTensorType>(c.key.getType()).getShape());
+  bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1 &&
+                  (kShape4D[kSeqLenDim] % 32 == 0);
   if (isDecode) {
     Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
         mlir::cast<TypedValue<RankedTensorType>>(c.query),
