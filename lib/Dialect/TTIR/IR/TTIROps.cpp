@@ -534,14 +534,8 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
 
 // BitwiseAndOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::BitwiseAndOp::fold(FoldAdaptor adaptor) {
-  return constantFoldEltwiseBinary(
-      *this, adaptor.getLhs(), adaptor.getRhs(),
-      [](const llvm::APFloat &lhs, const llvm::APFloat &rhs) {
-        // APFloat doesn't support bitwise and, so we bitcast to APInt and back.
-        return llvm::APFloat(lhs.getSemantics(),
-                             lhs.bitcastToAPInt() & rhs.bitcastToAPInt());
-      },
-      std::bit_and<>());
+  return constantFoldEltwiseBinaryInt(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                      std::bit_and<>());
 }
 
 //===----------------------------------------------------------------------===//
@@ -550,14 +544,8 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
 
 // BitwiseOrOp folder
 ::mlir::OpFoldResult mlir::tt::ttir::BitwiseOrOp::fold(FoldAdaptor adaptor) {
-  return constantFoldEltwiseBinary(
-      *this, adaptor.getLhs(), adaptor.getRhs(),
-      [](const llvm::APFloat &lhs, const llvm::APFloat &rhs) {
-        // APFloat doesn't support bitwise or, so we bitcast to APInt and back.
-        return llvm::APFloat(lhs.getSemantics(),
-                             lhs.bitcastToAPInt() | rhs.bitcastToAPInt());
-      },
-      std::bit_or<>());
+  return constantFoldEltwiseBinaryInt(*this, adaptor.getLhs(), adaptor.getRhs(),
+                                      std::bit_or<>());
 }
 
 //===----------------------------------------------------------------------===//
@@ -587,14 +575,8 @@ foldBitwiseXorToZero(mlir::tt::ttir::BitwiseXorOp op) {
 static ::mlir::OpFoldResult
 constantFoldBitwiseXor(mlir::tt::ttir::BitwiseXorOp op,
                        mlir::tt::ttir::BitwiseXorOp::FoldAdaptor adaptor) {
-  return constantFoldEltwiseBinary(
-      op, adaptor.getLhs(), adaptor.getRhs(),
-      [](const llvm::APFloat &lhs, const llvm::APFloat &rhs) {
-        // APFloat doesn't support bitwise xor, so we bitcast to APInt and back.
-        return llvm::APFloat(lhs.getSemantics(),
-                             lhs.bitcastToAPInt() ^ rhs.bitcastToAPInt());
-      },
-      std::bit_xor<>());
+  return constantFoldEltwiseBinaryInt(op, adaptor.getLhs(), adaptor.getRhs(),
+                                      std::bit_xor<>());
 }
 
 // BitwiseXorOp folder
