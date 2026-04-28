@@ -414,6 +414,16 @@ public:
       indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
     }
 
+    // embedding_bw expects 2D indices [batch, seq]. Reshape 1D [N] → [1, N].
+    if (indicesType.getRank() == 1) {
+      llvm::SmallVector<int64_t> expandedShape{1, indicesType.getDimSize(0)};
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), expandedShape,
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_expand_indices"));
+      indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+    }
+
     // Pad the sequence length to be divisible by TILE_WIDTH (32).
     constexpr int64_t TILE_WIDTH = 32;
     int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
@@ -489,9 +499,20 @@ public:
         op.getContext(), memLayout,
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType), std::nullopt);
 
-    rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
-        op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
-        adaptor.getWeight(), reshapedGrad, dTypeAttr, memoryConfigAttr);
+    auto resultType = this->getTypeConverter()->convertType(op.getType());
+
+    // embedding_bw always zero-initialises its output and accumulates updates
+    // at the indexed positions. To correctly handle scatter into a non-zero
+    // operand (e.g., MoE index_add_ with accumulated y_flat), add the original
+    // operand back afterwards. For the genuine embedding-backward case the
+    // operand is zero, so this add is a no-op.
+    auto embBwOp = rewriter.create<ttnn::EmbeddingBackwardOp>(
+        op.getLoc(), resultType, inputIndices, adaptor.getWeight(), reshapedGrad,
+        dTypeAttr, memoryConfigAttr);
+
+    rewriter.replaceOpWithNewOp<ttnn::AddOp>(op, resultType,
+                                             adaptor.getWeight(),
+                                             embBwOp.getResult());
     return success();
   }
 };
