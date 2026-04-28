@@ -121,20 +121,32 @@ public:
           return;
         }
 
-        // Insert get_arg before each in-region use.
-        for (OpOperand &use : llvm::make_early_inc_range(arg.getUses())) {
-          if (use.getOwner() == generic.getOperation()) {
+        for (auto &region : generic.getRegions()) {
+          // Skip this region if the arg is not used anywhere inside it.
+          bool usedInRegion = llvm::any_of(arg.getUses(), [&](OpOperand &use) {
+            Block *ownerBlock = use.getOwner()->getBlock();
+            return ownerBlock &&
+                   region.findAncestorBlockInRegion(*ownerBlock) != nullptr;
+          });
+          if (!usedInRegion) {
             continue;
           }
-          if (!generic->isAncestor(use.getOwner())) {
-            continue;
+
+          for (auto &block : region) {
+            rewriter.setInsertionPointToStart(&block);
+
+            auto compileTimeAttr = ResolutionStageAttr::get(
+                &getContext(), ResolutionStage::Compile);
+            Value replacement = rewriter.create<GetArgOp>(arg.getLoc(), argType,
+                                                          i, compileTimeAttr);
+            rewriter.setInsertionPointAfter(replacement.getDefiningOp());
+
+            rewriter.replaceUsesWithIf(arg, replacement, [&](OpOperand &use) {
+              Block *ownerBlock = use.getOwner()->getBlock();
+              return ownerBlock &&
+                     region.findAncestorBlockInRegion(*ownerBlock) != nullptr;
+            });
           }
-          rewriter.setInsertionPoint(use.getOwner());
-          auto buf = rewriter.create<GetArgOp>(
-              use.getOwner()->getLoc(), argType, i,
-              ResolutionStageAttr::get(&getContext(),
-                                       ResolutionStage::Compile));
-          use.set(buf.getResult());
         }
       }
     });
