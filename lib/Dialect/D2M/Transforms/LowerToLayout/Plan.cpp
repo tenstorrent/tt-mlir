@@ -86,8 +86,9 @@ Type getScalarType(Type type) {
     case ttcore::DataType::BFP_BFloat2:
       return BFloat16Type::get(type.getContext());
     default:
-      return tileType.getElementType();
+      break;
     }
+    return tileType.getElementType();
   }
   return type;
 }
