@@ -10,6 +10,7 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
@@ -129,7 +130,8 @@ static void hoistNonGenericOpsAroundSpatial(d2m::SpatialOp spatialOp) {
 
 // Reassign d2m.spatial ins/outs from generics' operands; when result count
 // matches outs, update each spatial result's type from the corresponding out
-// value (extensible for fuller result-type policy later).
+// value only when that out is a ranked tensor (spatial results are tensors;
+// outs may be memref).
 static void rebuildSpatialOpInsOutsAndResultTypes(d2m::SpatialOp spatialOp) {
   llvm::SmallVector<Value> inputs;
   llvm::SmallVector<Value> outputs;
@@ -150,7 +152,9 @@ static void rebuildSpatialOpInsOutsAndResultTypes(d2m::SpatialOp spatialOp) {
   spatialOp.getOutputsMutable().assign(outputs);
   if (spatialOp->getNumResults() == outputs.size()) {
     for (auto [result, outVal] : llvm::zip(spatialOp->getResults(), outputs)) {
-      result.setType(outVal.getType());
+      if (mlir::isa<RankedTensorType>(outVal.getType())) {
+        result.setType(outVal.getType());
+      }
     }
   }
 }
