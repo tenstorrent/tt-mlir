@@ -7,6 +7,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/SpatialOpNormalizeUtil.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -585,10 +586,11 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
 
 // Recreate the d2m.generic with updated operands.
 // After updating ToLayout and ViewLayout ops, the generic's operands have
-// new types with the selected grids. The generic grid is still anchored by the
-// output operand's chosen grid, but we must re-materialize the generic attrs
-// from the selected operand grids after those rewrites so the rebuilt op stays
-// consistent with the new operand types and the derived block factors.
+// new types with the selected grids. The generic grid is still anchored by
+// the output operand's chosen grid, but we must re-materialize the generic
+// attrs from the selected operand grids after those rewrites so the rebuilt
+// op stays consistent with the new operand types and the derived block
+// factors.
 //
 // Returns the generic to use for further work: on success this is the new op
 // (the input handle is erased); on failure or empty grids the original op.
@@ -627,10 +629,10 @@ recreateGenericOp(d2m::GenericOp genericOp,
 static void applyGridDecisions(d2m::GenericOp genericOp,
                                const GenericGridAnalysisResult &result,
                                bool ttnnMode) {
-  // effectiveTargetGrid is the generic's target grid (full device grid, or the
-  // range scoped by an enclosing d2m.spatial region), used for virtual grid
-  // physical mapping. Per-operand target grids (info.targetGrid) are used
-  // for alignment computation.
+  // effectiveTargetGrid is the generic's target grid (full device grid, or
+  // the range scoped by an enclosing d2m.spatial region), used for virtual
+  // grid physical mapping. Per-operand target grids (info.targetGrid) are
+  // used for alignment computation.
   ArrayRef<int64_t> effectiveTargetGrid = result.effectiveTargetGrid;
   OpBuilder builder(genericOp->getContext());
 
@@ -721,11 +723,11 @@ public:
 
   D2MGridSelectionPass(const D2MGridSelectionOptions &options) : Base() {
     this->overrideDeviceShape = llvm::to_vector(options.overrideDeviceShape);
-    // Setting TTNN mode to true ensures we do not implicitly pad or wrap-around
-    // when sharding. Any grid decisions in this mode are representable
-    // using a TTNNLayoutAttr and can be created with a single ttnn.empty()
-    // call. This can be removed only when we implement support for creating
-    // padded tensors in D2MToTTNN pass.
+    // Setting TTNN mode to true ensures we do not implicitly pad or
+    // wrap-around when sharding. Any grid decisions in this mode are
+    // representable using a TTNNLayoutAttr and can be created with a single
+    // ttnn.empty() call. This can be removed only when we implement support
+    // for creating padded tensors in D2MToTTNN pass.
     this->ttnnMode = options.ttnnMode;
   }
 

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -14,7 +14,6 @@ class GenericOp;
 // Bring each d2m.spatial op to canonical form: hoist non-d2m.generic ops out of
 // its regions, rebuild yields, refresh ins/outs from nested generics, and when
 // result arity matches outs, update spatial result types from output values.
-// Idempotent for already-normal IR. Violates invariants only via TT_assertv.
 void normalizeSpatialOpsInModule(ModuleOp module);
 
 // If genericOp lies inside a d2m.spatial, apply the same normalization to that
