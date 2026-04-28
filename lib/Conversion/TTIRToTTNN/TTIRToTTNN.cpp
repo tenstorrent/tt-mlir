@@ -2013,12 +2013,13 @@ public:
         outChannels};
     auto oldWeightLayout =
         mlir::cast<ttnn::TTNNLayoutAttr>(weightTy.getEncoding());
-    auto preparedWeightLayout = ttnn::TTNNLayoutAttr::get(
-        rewriter.getContext(), preparedWeightShape,
-        oldWeightLayout.getScalarElementType(), ttnn::BufferType::DRAM,
-        oldWeightLayout.getGrid(),
-        ttnn::TensorMemoryLayoutAttr::get(
-            rewriter.getContext(), ttnn::TensorMemoryLayout::Interleaved));
+    auto preparedWeightLayout =
+        ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(),
+                                      preparedWeightShape,
+                                      oldWeightLayout.getScalarElementType())
+            .setBufferType(ttnn::BufferType::DRAM)
+            .setMemoryLayout(ttnn::TensorMemoryLayout::Interleaved)
+            .build();
     auto preparedWeightType = mlir::RankedTensorType::get(
         preparedWeightShape, oldWeightLayout.getScalarElementType(),
         preparedWeightLayout);
