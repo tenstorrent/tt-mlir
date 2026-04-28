@@ -71,4 +71,17 @@ module {
     return
   }
 
+  // unpack_stall_on_pack initializes PACK_DONE once per compute kernel.
+  func.func private @unpack_stall_on_pack() attributes {d2m.thread = #d2m.thread<compute>} {
+    d2m.unpack_stall_on_pack
+    d2m.unpack_stall_on_pack
+    // CHECK-LABEL: func.func private @unpack_stall_on_pack
+    // CHECK: ttkernel.experimental::unpack_stall_on_pack_init
+    // CHECK: ttkernel.experimental::unpack_stall_on_pack
+    // CHECK-NOT: ttkernel.experimental::unpack_stall_on_pack_init
+    // CHECK: ttkernel.experimental::unpack_stall_on_pack
+    // CHECK: return
+    return
+  }
+
 }

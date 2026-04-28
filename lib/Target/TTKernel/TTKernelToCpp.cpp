@@ -104,7 +104,8 @@ public:
       }
 
       // Our experimental kernel code snippets.
-      if (callee == "experimental::unpack_stall_on_pack") {
+      if (callee == "experimental::unpack_stall_on_pack_init" ||
+          callee == "experimental::unpack_stall_on_pack") {
         emitLlk(experimental_reg_api_generated,
                 experimental_reg_api_generated_len);
       }

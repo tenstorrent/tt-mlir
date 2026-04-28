@@ -42,6 +42,17 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
 // TTKernel Register operations
 //===----------------------------------------------------------------------===//
 
+def TTKernel_UnpackStallOnPackInitOp
+    : TTKernel_InitOp<"experimental::unpack_stall_on_pack_init"> {
+  let summary = "Initialize the PACK_DONE semaphore for unpack_stall_on_pack.";
+  let description = [{
+    Initializes the hardware semaphore used by unpack_stall_on_pack. This is a
+    one-time compute-kernel setup operation; individual unpack_stall_on_pack
+    calls only post and wait on the semaphore.
+  }];
+  let assemblyFormat = [{ attr-dict }];
+}
+
 def TTKernel_UnpackStallOnPackOp
     : TTKernel_Op<"experimental::unpack_stall_on_pack"> {
   let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
