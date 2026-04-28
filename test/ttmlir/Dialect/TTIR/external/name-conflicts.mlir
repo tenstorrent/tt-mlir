@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --ttir-inline-external-functions -o %t %s
+// RUN: ttmlir-opt --ttir-link-external-functions -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
-// Check that the inline pass renames the injected `foo` to avoid a conflict
+// Check that the link pass renames the injected `foo` to avoid a conflict
 // with the caller module's own `foo`.
 
 module {

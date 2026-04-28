@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-inline-external-functions -o %t %s
+// RUN: ttmlir-opt --ttir-link-external-functions -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
 // Verify that invoking the same external entry point twice from the same module
