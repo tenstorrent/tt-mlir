@@ -68,7 +68,7 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
       if (mlir::isPure(&op)) {
         opsToClone.push_back(&op);
       } else {
-        for (auto user : result.getUsers()) {
+        for (Operation *user : result.getUsers()) {
           if (!llvm::any_of(opsInRange, [&](Operation *op) {
                 return op->isAncestor(user);
               })) {
