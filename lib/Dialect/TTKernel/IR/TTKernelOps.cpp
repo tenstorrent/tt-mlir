@@ -538,4 +538,17 @@ void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
   });
 }
 
+void UnpackStallOnPackOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](UnpackStallOnPackOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    if (!mlir::isa_and_nonnull<UnpackStallOnPackOp>(op->getPrevNode())) {
+      return mlir::failure();
+    }
+
+    rewriter.eraseOp(op);
+    return mlir::success();
+  });
+}
+
 } // namespace mlir::tt::ttkernel

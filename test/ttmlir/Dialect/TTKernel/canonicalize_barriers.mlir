@@ -21,6 +21,16 @@ func.func @test_consecutive_write_barriers() {
   return
 }
 
+// CHECK-LABEL: func.func @test_consecutive_unpack_stall_on_pack
+func.func @test_consecutive_unpack_stall_on_pack() {
+  // CHECK: ttkernel.experimental::unpack_stall_on_pack
+  ttkernel.experimental::unpack_stall_on_pack
+  // CHECK-NOT: ttkernel.experimental::unpack_stall_on_pack
+  ttkernel.experimental::unpack_stall_on_pack
+  // CHECK: return
+  return
+}
+
 // CHECK-LABEL: func.func @test_read_then_write_barrier
 func.func @test_read_then_write_barrier() {
   // CHECK: ttkernel.noc_async_read_barrier

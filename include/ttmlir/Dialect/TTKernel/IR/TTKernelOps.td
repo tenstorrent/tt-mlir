@@ -51,6 +51,7 @@ def TTKernel_UnpackStallOnPackOp
     is visible. Used between consecutive linalg.generics sharing an
     intermediate L1 buffer in the single-tile shard path.
   }];
+  let hasCanonicalizer = 1;
   let assemblyFormat = [{ attr-dict }];
 }
 
