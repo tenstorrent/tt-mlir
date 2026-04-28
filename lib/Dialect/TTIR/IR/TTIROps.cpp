@@ -169,6 +169,10 @@ constantFoldEltwiseUnaryFloat(mlir::Operation *op, mlir::Attribute inputAttr,
   if (!input || !input.getElementType().isFloat()) {
     return nullptr;
   }
+
+  if (op->getOperand(0).getType() != op->getResult(0).getType()) {
+    return nullptr;
+  }
   if (!input.isSplat() && !shouldFold(op)) {
     return nullptr;
   }
@@ -193,6 +197,10 @@ static ::mlir::Attribute constantFoldEltwiseUnaryInt(mlir::Operation *op,
   mlir::DenseElementsAttr input =
       mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(inputAttr);
   if (!input || !input.getElementType().isInteger()) {
+    return nullptr;
+  }
+
+  if (op->getOperand(0).getType() != op->getResult(0).getType()) {
     return nullptr;
   }
   if (!input.isSplat() && !shouldFold(op)) {
