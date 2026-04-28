@@ -88,6 +88,7 @@ class ChiselContext:
 
         program_name = binary.get_program_name(program_index)
         program = ProgramState(program_index, program_name, binary_state.ir_module)
+        program.golden_tensor_pool.update(binary_state.global_tensor_pool)
         binary_state.programs[program_index] = program
         self.current_program = program
 
@@ -101,12 +102,16 @@ class ChiselContext:
     def postprogram(self, binary, program_context) -> None:
         if self.current_program is not None:
             logger.info("postprogram: %s complete", self.current_program.program_name)
+            if self.current_binary is not None:
+                self.current_binary.global_tensor_pool.update(
+                    self.current_program.golden_tensor_pool
+                )
         self.current_binary = None
         self.current_program = None
 
 
 class BinaryState:
-    """Per-binary state: owns the IRModule and per-program states."""
+    """Per-binary state: owns the IRModule, per-program states, and cross-program golden pool."""
 
     def __init__(self, binary):
         mlir_json = json.loads(binary.get_mlir_as_json())
@@ -116,6 +121,7 @@ class BinaryState:
         ]
         self.ir_module = IRModule(mlir_source=mlir_source, functions=functions)
         self.programs: Dict[int, "ProgramState"] = {}
+        self.global_tensor_pool: TensorPool = TensorPool()
 
 
 class ProgramState:

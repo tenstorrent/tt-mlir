@@ -16,11 +16,12 @@ Either check can be disabled via ctx.isolation_check / ctx.accum_check.
 import logging
 
 from _ttmlir_runtime import runtime as tt_runtime
+from ttmlir.dialects import func
 
 from .checker import ChiselChecker
 from .context import ChiselContext
 from .executor import execute_golden, execute_golden_from_pool
-from .op_configs import get_op_config
+from .op_configs import ChiselOpConfig, get_op_config, register_op_config
 from .ops import get_op_inputs, get_op_outputs
 from .utils import (
     chisel_safe,
@@ -214,6 +215,53 @@ def _apply_skip(
             program_context, output_ref, tensor,
             checker=checker, slot=name, check="skip_on_device",
         )
+
+
+def _cpu_hoisted_post_op(binary, program_context, op_context) -> None:
+    """Post-op for cpu-hoisted func.call ops.
+
+    CPU hoisted ops execute on the host CPU and cannot be independently
+    simulated by Chisel. Their device output is used directly as the golden
+    tensor for downstream accumulation checks.
+    """
+    ctx = ChiselContext.get_instance()
+    program = ctx.current_program
+    binary_state = ctx.current_binary
+    op = program.current_op
+    op_name = op.name
+    checker = ChiselChecker(ctx, op_name)
+    ir_module = binary_state.ir_module
+
+    op_outputs = get_op_outputs(op)
+    if not op_outputs:
+        program.stashed_inputs = None
+        return
+
+    output_refs = tt_runtime.get_op_output_refs(op_context, program_context)
+    asm_state = ir_module.get_asm_state()
+
+    for mlir_output, output_ref in zip(op_outputs, output_refs, strict=True):
+        name = mlir_output.get_name(asm_state)
+
+        device_tensor = retrieve_torch_tensor(
+            program_context, output_ref,
+            checker=checker, slot=name, check="retrieve_output",
+        )
+        if device_tensor is None:
+            continue
+
+        program.golden_tensor_pool[name] = device_tensor
+
+        logger.warning(
+            "%s %s [cpu_hoisted]: cannot simulate — using device output as golden",
+            op_name, name,
+        )
+        checker.record(name, "cpu_hoisted", "not_simulated")
+
+    program.stashed_inputs = None
+
+
+register_op_config(func.CallOp, ChiselOpConfig(post_op=_cpu_hoisted_post_op))
 
 
 # ---------------------------------------------------------------------------

@@ -1371,8 +1371,12 @@ getOpOutputRefs(OpContext opContextHandle,
     tensorRefs = {op->q_out(), op->k_out(), op->v_out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::LoadCachedOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_LoadCachedOp()->outputs());
+    break;
+  }
   case ::tt::target::ttnn::OpType::CpuOp:
-  case ::tt::target::ttnn::OpType::LoadCachedOp:
   case ::tt::target::ttnn::OpType::GetDeviceOp:
   case ::tt::target::ttnn::OpType::DeallocateOp:
   case ::tt::target::ttnn::OpType::FuncCallOp:

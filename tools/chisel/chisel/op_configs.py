@@ -15,7 +15,12 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Type
 
+from _ttmlir_runtime import runtime as tt_runtime
 from ttmlir.dialects import func, ttcore, ttnn
+
+from .context import ChiselContext
+from .ops import get_op_inputs, get_op_outputs
+from .utils import retrieve_torch_tensor
 
 logger = logging.getLogger("chisel")
 
@@ -71,6 +76,79 @@ def get_skipped_op_names() -> frozenset:
 
 
 # ---------------------------------------------------------------------------
+# load_cached handlers
+# ---------------------------------------------------------------------------
+
+
+def _load_cached_pre_op(binary, program_context, op_context) -> None:
+    ctx = ChiselContext.get_instance()
+    program = ctx.current_program
+    binary_state = ctx.current_binary
+    op = program.current_op
+    asm_state = binary_state.ir_module.get_asm_state()
+
+    callee_name = op.opview.callee.value
+    callee_args = binary_state.ir_module.get_function_inputs(callee_name)
+    parent_inputs = get_op_inputs(op)
+
+    # Propagate parent golden values into global_tensor_pool keyed by the
+    # callee's input arg SSA names.  preprogram for the callee sub-program
+    # seeds from global_tensor_pool, so the callee gets correct accumulated
+    # goldens instead of raw device tensors.
+    for parent_inp, callee_arg in zip(parent_inputs, callee_args):
+        parent_name = parent_inp.get_name(asm_state)
+        callee_arg_name = callee_arg.get_name(asm_state)
+        if parent_name in program.golden_tensor_pool:
+            binary_state.global_tensor_pool[callee_arg_name] = (
+                program.golden_tensor_pool[parent_name]
+            )
+
+    program.stashed_inputs = {}
+
+
+def _load_cached_post_op(binary, program_context, op_context) -> None:
+    from .checker import ChiselChecker
+
+    ctx = ChiselContext.get_instance()
+    program = ctx.current_program
+    binary_state = ctx.current_binary
+    op = program.current_op
+    asm_state = binary_state.ir_module.get_asm_state()
+    checker = ChiselChecker(ctx, op.name)
+
+    op_outputs = get_op_outputs(op)
+    if not op_outputs:
+        program.stashed_inputs = None
+        return
+
+    output_refs = tt_runtime.get_op_output_refs(op_context, program_context)
+    callee_name = op.opview.callee.value
+    callee_returns = binary_state.ir_module.get_function_outputs(callee_name)
+
+    for mlir_output, output_ref, callee_ret in zip(
+        op_outputs, output_refs, callee_returns, strict=True
+    ):
+        result_name = mlir_output.get_name(asm_state)
+        callee_ret_name = callee_ret.get_name(asm_state)
+
+        golden = binary_state.global_tensor_pool.get(callee_ret_name)
+        device = retrieve_torch_tensor(
+            program_context, output_ref,
+            checker=checker, slot=result_name, check="retrieve_output",
+        )
+
+        if golden is not None and device is not None:
+            checker.check_golden_vs_runtime_tensor(result_name, golden, device)
+
+        # Seed parent pool with callee golden so downstream ops get correct
+        # accumulated golden inputs rather than device values.
+        if golden is not None:
+            program.golden_tensor_pool[result_name] = golden
+
+    program.stashed_inputs = None
+
+
+# ---------------------------------------------------------------------------
 # Registrations
 # ---------------------------------------------------------------------------
 
@@ -78,15 +156,21 @@ def get_skipped_op_names() -> frozenset:
 # meaningless for both isolation and accumulation checks.
 register_op_config(ttnn.EmptyOp, ChiselOpConfig(skip_pcc=True, skip_accum_pcc=True))
 
-# ttcore.load_cached: IR output count > 0 but FB output count = 0.
-# Inputs are cache identifiers, not retrievable tensors.
-register_op_config(ttcore.LoadCachedOp, ChiselOpConfig(skip=True))
+# ttcore.load_cached: golden propagation via BinaryState.global_tensor_pool.
+# pre_op seeds callee input goldens; post_op maps callee return goldens back
+# to the parent program pool and compares against device outputs.
+register_op_config(ttcore.LoadCachedOp, ChiselOpConfig(
+    pre_op=_load_cached_pre_op,
+    post_op=_load_cached_post_op,
+))
 
 # ttnn.generic: IR output count = 0 but FB output count = 1.
 register_op_config(ttnn.GenericOp, ChiselOpConfig(skip=True))
 
-# func.call: not a device op — runtime does not fire callbacks for it.
-register_op_config(func.CallOp, ChiselOpConfig(skip=True))
+# func.call (cpu-hoisted): runtime fires callbacks for these via the flatbuffer
+# CpuOp. Golden simulation is not possible — see _cpu_hoisted_post_op in
+# callbacks.py, which registers the handler and seeds the golden pool with
+# the device output.
 
 # ttnn.paged_update_cache / ttnn.fill_cache: in-place cache writes with no
 # retrievable output tensors.
