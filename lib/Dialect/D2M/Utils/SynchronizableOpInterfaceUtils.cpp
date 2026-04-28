@@ -66,7 +66,7 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
   for (Operation &op : llvm::make_range(start, end)) {
     bool isPure = mlir::isPure(&op);
     for (auto operand : op.getOperands()) {
-      if (pureOps.contains(operand.getDefiningOp())) {
+      if (!pureOps.contains(operand.getDefiningOp())) {
         isPure = false;
         break;
       }
