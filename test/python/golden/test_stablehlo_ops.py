@@ -1098,9 +1098,7 @@ def test_logical_binary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bool], ids=["bool"])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_logical_unary_ops(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
+def test_not(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module_not_(builder: StableHLOBuilder):
         @builder.func([(128, 128)], [torch.bool])
         def not_(
@@ -1277,102 +1275,25 @@ def test_bitwise_unary_ops(
     )
 
 
-# ----- Reduce Operations -----
-
-
-def reduce_sum(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_sum(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def reduce_max(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_max(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def reduce_min(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_min(in0, dimensions, unit_attrs=unit_attrs)
-
-
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_sum(
+@pytest.mark.parametrize("body", ["add", "max", "min"])
+def test_reduce(
     shape: Shape,
     dtype: torch.dtype,
     dimensions: List[int],
+    body: str,
     target: str,
     request,
     device,
 ):
     def module(builder: StableHLOBuilder):
         @builder.func([shape], [dtype])
-        def reduce_sum_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_sum(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_max(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_max_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_max(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_min(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_min_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_min(in0, builder, dimensions)
+        def reduce_wrapper(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.reduce(in0, 0.0, dimensions, body=body)
 
     compile_and_execute_shlo(
         module,

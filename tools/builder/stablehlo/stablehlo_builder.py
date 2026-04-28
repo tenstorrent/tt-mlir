@@ -7593,8 +7593,6 @@ class StableHLOBuilder(Builder):
 
         return not_module, not_builder
 
-    # ----- Reduce Operations -----
-
     ############### stablehlo.ReduceOp ###############
 
     @tag(stablehlo.ReduceOp)
@@ -7814,197 +7812,46 @@ class StableHLOBuilder(Builder):
             ]
 
             with InsertionPoint(reduce_module.body):
-                func_type = FunctionType.get(
-                    inputs=op_input_types,
-                    results=[old_op.results[0].type],
-                )
-                func_op = func.FuncOp(
-                    name="main",
-                    type=func_type,
-                    visibility="public",
-                    ip=reduce_module.body,
-                )
-                entry_block = func_op.add_entry_block()
+                ordered_inputs = []
+                ordered_outputs = []
 
-                with InsertionPoint(entry_block):
+                @func.func(*op_input_types, name="main")
+                def decorated_func(*inputs):
+                    input_tensor = inputs[0]
+                    init_value = inputs[1]
+
+                    # Copy golden tensors BEFORE calling reduce
+                    input0_golden = self._get_golden_tensor(old_op.inputs[0])
+                    init_golden = self._get_golden_tensor(old_op.init_values[0])
+                    result_golden = self._get_golden_tensor(old_op.results[0])
+
+                    reduce_builder._set_golden_tensor(input_tensor, input0_golden)
+                    reduce_builder._set_golden_tensor(init_value, init_golden)
+                    reduce_builder._annotate_presharded_arg(input_tensor)
+                    reduce_builder._annotate_presharded_arg(init_value)
+
                     result = reduce_builder.reduce(
-                        entry_block.arguments[0],
-                        entry_block.arguments[1],
+                        input_tensor,
+                        init_value,
                         list(old_op.dimensions),
                         body=body,
                     )
-                    func.ReturnOp([result])
+
+                    # Override the golden tensor for the result with the original one
+                    reduce_builder._set_golden_tensor(result, result_golden)
+
+                    ordered_inputs.extend([input_tensor, init_value])
+                    ordered_outputs.append(result)
+
+                    return result
+
+                new_func_op = decorated_func.func_op
+                reduce_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
         return reduce_module, reduce_builder
-
-    def reduce_sum(
-        self,
-        in0: Operand,
-        dimensions: List[int],
-        keep_dims: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.reduce`` with sum reduction.
-
-        *Sum reduction operation.*
-
-        Reduces the input tensor by summing elements along the specified dimensions.
-
-        Mathematical definition: For each output element, sum all input elements
-        along the specified reduction dimensions.
-
-        .. code-block:: mlir
-
-            // Sum along dimension 0
-            %result = stablehlo.reduce(%input init: %init) applies stablehlo.add across dimensions = [0] :
-                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
-            // Input tensor:
-            // [[1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0]]
-            // Output tensor:
-            // [5.0, 7.0, 9.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce (0-indexed)
-        keep_dims : bool, optional
-            Whether to keep the reduced dimensions with size 1. Default is False.
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor with reduced dimensions
-        """
-        input_type = RankedTensorType(in0.type)
-        element_type = input_type.element_type
-        zero_attr = self._get_zero_attr(element_type)
-
-        # Extract scalar value from zero_attr
-        if IntegerType.isinstance(element_type):
-            init_value = 0
-        else:
-            init_value = 0.0
-
-        result = self.reduce(
-            in0, init_value, dimensions, body="add", unit_attrs=unit_attrs
-        )
-
-        return result
-
-    def reduce_max(
-        self,
-        in0: Operand,
-        dimensions: List[int],
-        keep_dims: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.reduce`` with max reduction.
-
-        *Max reduction operation.*
-
-        Reduces the input tensor by taking the maximum element along the specified dimensions.
-
-        Mathematical definition: For each output element, find the maximum of all input
-        elements along the specified reduction dimensions.
-
-        .. code-block:: mlir
-
-            // Max along dimension 0
-            %result = stablehlo.reduce(%input init: %init) applies stablehlo.maximum across dimensions = [0] :
-                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
-            // Input tensor:
-            // [[1.0, 5.0, 3.0],
-            //  [4.0, 2.0, 6.0]]
-            // Output tensor:
-            // [4.0, 5.0, 6.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce (0-indexed)
-        keep_dims : bool, optional
-            Whether to keep the reduced dimensions with size 1. Default is False.
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor with reduced dimensions
-        """
-        input_type = RankedTensorType(in0.type)
-        element_type = input_type.element_type
-
-        # Get negative infinity as init value
-        if IntegerType.isinstance(element_type):
-            # For integers, use minimum value
-            init_value = float("-inf")
-        else:
-            init_value = float("-inf")
-
-        result = self.reduce(
-            in0, init_value, dimensions, body="max", unit_attrs=unit_attrs
-        )
-
-        return result
-
-    def reduce_min(
-        self,
-        in0: Operand,
-        dimensions: List[int],
-        keep_dims: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.reduce`` with min reduction.
-
-        *Min reduction operation.*
-
-        Reduces the input tensor by taking the minimum element along the specified dimensions.
-
-        Mathematical definition: For each output element, find the minimum of all input
-        elements along the specified reduction dimensions.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce (0-indexed)
-        keep_dims : bool, optional
-            Whether to keep the reduced dimensions with size 1. Default is False.
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor with reduced dimensions
-        """
-        input_type = RankedTensorType(in0.type)
-        element_type = input_type.element_type
-
-        # Get positive infinity as init value
-        if IntegerType.isinstance(element_type):
-            # For integers, use maximum value
-            init_value = float("inf")
-        else:
-            init_value = float("inf")
-
-        result = self.reduce(
-            in0, init_value, dimensions, body="min", unit_attrs=unit_attrs
-        )
-
-        return result
 
     def pool_2d(
         self,
