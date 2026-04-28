@@ -537,7 +537,10 @@ def TTIRInlineExternalFunctions : Pass<"ttir-inline-external-functions", "::mlir
   }];
 
   let dependentDialects = ["::mlir::func::FuncDialect",
-                           "::mlir::tt::ttir::TTIRDialect"];
+                           "::mlir::tt::ttir::TTIRDialect",
+                           "::mlir::tt::ttnn::TTNNDialect",
+                           "::mlir::tt::ttcore::TTCoreDialect",
+                           "::mlir::memref::MemRefDialect"];
 }
 
 #endif
