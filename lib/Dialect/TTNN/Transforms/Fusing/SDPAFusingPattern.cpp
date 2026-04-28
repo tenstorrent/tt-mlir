@@ -696,7 +696,13 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
   FusionValidator validator(rewriter.getContext(), validationConfig);
 
-  bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
+  auto kType = mlir::cast<RankedTensorType>(c.key.getType());
+  // SDPA decode requires kvSeqLen to be a multiple of 32 (k_chunk_size
+  // constraint).
+  int64_t kvSeqLen =
+      kType.getShape().size() >= 3 ? kType.getShape()[kSeqLenDim] : 0;
+  bool isDecode =
+      qShape.size() == 4 && qShape[kSeqLenDim] == 1 && kvSeqLen % 32 == 0;
   if (isDecode) {
     Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
         mlir::cast<TypedValue<RankedTensorType>>(c.query),
