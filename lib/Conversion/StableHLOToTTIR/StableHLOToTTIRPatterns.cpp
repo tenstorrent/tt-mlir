@@ -5627,6 +5627,21 @@ public:
     // StableHLO uses vectorized indices for scatter.
     // TT-metal expects indices to be [B, N] for embedding_backward. If the
     // indices are 2D and the index vector dim is 1, reshape the indices to 3D.
+    //
+    // XLA may produce 1D (N,) indices with index_vector_dim == rank (scalar
+    // index mode), which is semantically equivalent to 2D (N, 1) with
+    // index_vector_dim == 1. Normalize the 1D case to 2D first so the
+    // existing reshape below can handle it uniformly.
+    if (scatterIndicesType.getRank() == 1 &&
+        indexVectorDim == scatterIndicesType.getRank()) {
+      llvm::SmallVector<int64_t> expandedShape{scatterIndicesType.getDimSize(0),
+                                               1};
+      scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
+                                                    scatterIndices,
+                                                    expandedShape);
+      scatterIndicesType =
+          mlir::cast<RankedTensorType>(scatterIndices.getType());
+    }
     if (scatterIndicesType.getRank() == 2 && indexVectorDim == 1) {
       llvm::SmallVector<int64_t> newShape{1};
       llvm::append_range(newShape, scatterIndicesType.getShape());
