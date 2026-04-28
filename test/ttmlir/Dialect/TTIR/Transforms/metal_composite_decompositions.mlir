@@ -1,5 +1,6 @@
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=SDPA
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=RMS
+// RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=LAYERNORM
 // RUN: ttmlir-opt --ttir-decompose-composites %s | FileCheck %s --check-prefix=SOFTMAX
 
 // =============================================================================
@@ -250,6 +251,46 @@ func.func @rms_norm_weight_only(%input: tensor<2x4x64xf32>, %weight: tensor<64xf
 func.func @rms_norm_custom_epsilon(%input: tensor<32x128xf32>) -> tensor<32x128xf32> {
   %0 = "ttir.rms_norm"(%input) <{normalized_shape = array<i64: 128>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<32x128xf32>) -> tensor<32x128xf32>
   return %0 : tensor<32x128xf32>
+}
+
+// =============================================================================
+// Layer norm decomposition — with weight and bias
+// =============================================================================
+
+// LAYERNORM-LABEL: func.func @layer_norm_weight_bias
+// LAYERNORM-NOT: ttir.layer_norm
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.subtract"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.add"
+// LAYERNORM: "ttir.rsqrt"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.add"
+// LAYERNORM: return
+func.func @layer_norm_weight_bias(%input: tensor<2x4x64xf32>, %weight: tensor<64xf32>, %bias: tensor<64xf32>) -> tensor<2x4x64xf32> {
+  %0 = "ttir.layer_norm"(%input, %weight, %bias) <{normalized_shape = array<i64: 64>, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1>}> : (tensor<2x4x64xf32>, tensor<64xf32>, tensor<64xf32>) -> tensor<2x4x64xf32>
+  return %0 : tensor<2x4x64xf32>
+}
+
+// =============================================================================
+// Layer norm decomposition — no weight, no bias
+// =============================================================================
+
+// LAYERNORM-LABEL: func.func @layer_norm_no_weight_no_bias
+// LAYERNORM-NOT: ttir.layer_norm
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.subtract"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: "ttir.mean"
+// LAYERNORM: "ttir.add"
+// LAYERNORM: "ttir.rsqrt"
+// LAYERNORM: "ttir.multiply"
+// LAYERNORM: return
+func.func @layer_norm_no_weight_no_bias(%input: tensor<2x4x64xf32>) -> tensor<2x4x64xf32> {
+  %0 = "ttir.layer_norm"(%input) <{normalized_shape = array<i64: 4, 64>, epsilon = 1.000000e-06 : f32, operandSegmentSizes = array<i32: 1, 0, 0>}> : (tensor<2x4x64xf32>) -> tensor<2x4x64xf32>
+  return %0 : tensor<2x4x64xf32>
 }
 
 // =============================================================================

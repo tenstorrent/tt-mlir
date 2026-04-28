@@ -1321,12 +1321,14 @@ def ttir_layer_norm_golden(
     epsilon = unpack_mlir_attr(epsilon)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
+    weight_float = weight.float() if weight is not None else None
+    bias_float = bias.float() if bias is not None else None
 
     return torch.nn.functional.layer_norm(
         input_float,
         normalized_shape=normalized_shape,
-        weight=weight,
-        bias=bias,
+        weight=weight_float,
+        bias=bias_float,
         eps=epsilon,
     ).to(output_dtype)
 
