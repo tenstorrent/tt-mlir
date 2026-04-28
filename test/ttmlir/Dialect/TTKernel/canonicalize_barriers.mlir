@@ -24,9 +24,9 @@ func.func @test_consecutive_write_barriers() {
 // CHECK-LABEL: func.func @test_consecutive_unpack_stall_on_pack
 func.func @test_consecutive_unpack_stall_on_pack() {
   // CHECK: ttkernel.experimental::unpack_stall_on_pack
-  ttkernel.experimental::unpack_stall_on_pack
+  "ttkernel.experimental::unpack_stall_on_pack"() : () -> ()
   // CHECK-NOT: ttkernel.experimental::unpack_stall_on_pack
-  ttkernel.experimental::unpack_stall_on_pack
+  "ttkernel.experimental::unpack_stall_on_pack"() : () -> ()
   // CHECK: return
   return
 }
