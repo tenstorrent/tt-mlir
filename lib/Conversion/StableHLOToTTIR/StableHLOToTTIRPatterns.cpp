@@ -4762,9 +4762,6 @@ public:
     auto indexVectorDim = dimensionNumbers.getIndexVectorDim();
 
     if (numIndexingDims > 1) {
-      srcOp->emitWarning("End results might be incorrect when indexing "
-                         "multiple dimensions of input because of typecast "
-                         "ops.");
       auto flattenedIndices = flattenStartIndices(
           rewriter, inputPermuted.getType().getShape(), srcOp.getOperand(),
           startIndices, originalStartIndexMap, indexVectorDim);
@@ -4869,16 +4866,14 @@ private:
     return ttir::utils::createReshapeOp(rewriter, loc, input, newInputShape);
   }
 
-  // If we are indexing multiple dims of input, we need to adjust start
-  // indices to represent indices that index one flattened dimension.
-  // - indexVectorDim represents in what dimension are indices, so first we
-  // permute to make sure it is the last dimension
-  // - matmul doesn't work with integers (which startIndices are when lowered
-  // from SHLO), so a typecast is added
-  // - then we add matmul to transform the indices
-  // Example: indexingDimsSizes = [3, 5], startIndices[...] = (i, j) ->
-  // startIndices[...] = 5 * i + j (because reshaped indexingDimSize is 15)
-  static ttir::MatmulOp
+  // Flatten multi-dimensional gather start indices into a single flat index via
+  // row-major strided dot product: flat = sum(indices * strides, last_dim).
+  // Uses element-wise multiply + reduce-sum instead of matmul to avoid FP16
+  // accumulation errors in TT hardware matmul when strides are large (e.g.
+  // row_idx * 768 + col_idx can exceed FP16 ULP boundaries).
+  // Example: inputShape = [128, 768], indices[...] = (i, j) ->
+  // flat[...] = 768 * i + j
+  static ttir::SumOp
   flattenStartIndices(ConversionPatternRewriter &rewriter,
                       ArrayRef<int64_t> inputShape, Value originalOperand,
                       mlir::TypedValue<mlir::RankedTensorType> startIndices,
@@ -4905,7 +4900,7 @@ private:
                 startIndices, startIndicesPermutation)
             .getResult();
 
-    // Typecast op because matmul needs float operands.
+    // Typecast to float32 for element-wise multiply.
     auto typecastResultType =
         startIndicesPermuted.getType().clone(mlir::Float32Type::get(ctx));
     ttir::TypecastOp typecastOp = rewriter.create<ttir::TypecastOp>(
@@ -4913,31 +4908,48 @@ private:
                                             "_typecast"),
         typecastResultType, startIndicesPermuted);
 
-    // Const op with correct strides to matmul indices with.
+    // Build row-major strides: strides[i] = product of inputShape[i+1..end].
     llvm::SmallVector<float> strides(numIndexingDims);
     int dimensionOffset = 1;
     for (int i = numIndexingDims - 1; i >= 0; i--) {
       strides[i] = dimensionOffset;
       dimensionOffset *= inputShape[i];
     }
-    auto tensorType = mlir::RankedTensorType::get(
-        {static_cast<long>(numIndexingDims), 1}, mlir::Float32Type::get(ctx));
-    auto denseAttr =
-        mlir::DenseElementsAttr::get(tensorType, llvm::ArrayRef(strides));
-    ttir::ConstantOp constantOp = rewriter.create<ttir::ConstantOp>(
+
+    // Strides constant shaped [1, ..., 1, numIndexingDims] to broadcast over
+    // all leading dims of the indices tensor.
+    llvm::SmallVector<int64_t> stridesShape(permutedStartIndicesShape.size(), 1);
+    stridesShape.back() = static_cast<int64_t>(numIndexingDims);
+    auto stridesType =
+        mlir::RankedTensorType::get(stridesShape, mlir::Float32Type::get(ctx));
+    auto stridesAttr =
+        mlir::DenseElementsAttr::get(stridesType, llvm::ArrayRef(strides));
+    ttir::ConstantOp stridesConst = rewriter.create<ttir::ConstantOp>(
         ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(),
                                             "_constant"),
-        tensorType, denseAttr);
+        stridesType, stridesAttr);
 
-    // Return matmul op that transforms indices.
-    llvm::SmallVector<int64_t> matmulResultShape = permutedStartIndicesShape;
-    matmulResultShape[matmulResultShape.size() - 1] = 1;
-    auto matmulResultType =
-        mlir::RankedTensorType::get(matmulResultShape, Float32Type::get(ctx));
+    // Element-wise multiply: indices_f32 * strides (broadcast).
+    auto mulResultType = mlir::RankedTensorType::get(
+        permutedStartIndicesShape, mlir::Float32Type::get(ctx));
+    ttir::MultiplyOp mulOp = rewriter.create<ttir::MultiplyOp>(
+        ttmlir::utils::appendLocationSuffix(originalOperand.getLoc(), "_mul"),
+        mulResultType, typecastOp.getResult(), stridesConst.getResult());
 
-    return rewriter.create<ttir::MatmulOp>(originalOperand.getLoc(),
-                                           matmulResultType,
-                                           typecastOp.getResult(), constantOp);
+    // Reduce-sum over last dimension (keep_dim=true) to produce shape [..., 1].
+    int64_t lastDim =
+        static_cast<int64_t>(permutedStartIndicesShape.size()) - 1;
+    llvm::SmallVector<int64_t> sumResultShape =
+        llvm::to_vector(permutedStartIndicesShape);
+    sumResultShape.back() = 1;
+    auto sumResultType =
+        mlir::RankedTensorType::get(sumResultShape, mlir::Float32Type::get(ctx));
+    auto dimAttr =
+        rewriter.getI32ArrayAttr({static_cast<int32_t>(lastDim)});
+
+    return rewriter.create<ttir::SumOp>(originalOperand.getLoc(), sumResultType,
+                                        mulOp.getResult(),
+                                        rewriter.getBoolAttr(true), dimAttr);
   }
 
   // If startIndicesShape[indexVectorDim] > 1, but we are actually slicing only
