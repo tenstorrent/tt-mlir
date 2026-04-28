@@ -73,7 +73,6 @@
 #include "operations/layout/bitcast_convert.h"
 #include "operations/layout/from_device.h"
 #include "operations/layout/to_device.h"
-#include "operations/layout/to_dtype.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
 #include "operations/layout/typecast.h"
@@ -259,9 +258,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FromDeviceOp: {
     return operations::layout::run(op->type_as_FromDeviceOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::ToDtypeOp: {
-    return operations::layout::run(op->type_as_ToDtypeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::EmptyOp: {
     return operations::creation::run(op->type_as_EmptyOp(), getContext());

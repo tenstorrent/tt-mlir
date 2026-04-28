@@ -99,13 +99,11 @@ public:
     auto newWeightType =
         ttnn::utils::RankedTensorTypeFactory::create(weightType, dtype);
 
-    // Blockfloat targets (BFP_BFloat4, BFP_BFloat8) go through the host
-    // packer via a 3-op chain: from_device → to_dtype (host) → to_device.
-    // Reason: tt-metal's host packer (`pack_as_bfp_tiles`) produces lower
-    // rel-RMS than the device-kernel `ttnn::typecast` for the same input
-    // (~2× cleaner for bfp4; smaller but consistent gap for bfp8).
-    // Const-eval results are cached at compile time, so the host roundtrip
-    // is paid once per cached weight per program; zero inference cost.
+    // Blockfloat targets (BFP_BFloat4, BFP_BFloat8) go through a host-side
+    // typecast via: from_device → typecast (host) → to_device.
+    // The host typecast dispatches to tt-metal's host packer for BFP
+    // formats. Const-eval results are cached at compile time, so the
+    // host roundtrip is paid once per cached weight per program.
     //
     // Other targets (e.g. BFloat16 per-tensor override) keep the existing
     // single-`typecast` device codepath.
@@ -119,17 +117,18 @@ public:
       auto fromDevOp =
           rewriter.create<FromDeviceOp>(op.getLoc(), hostInputType, weight);
 
-      // 2. to_dtype: host bf16 → host bfp4 (host packer)
+      // 2. typecast: host bf16 → host bfp (host packer)
       auto hostOutputType =
           ttnn::utils::RankedTensorTypeFactory::create(hostInputType, dtype);
-      auto toDtypeOp = rewriter.create<ToDtypeOp>(
+      auto typecastOp = rewriter.create<TypecastOp>(
           op.getLoc(), hostOutputType, fromDevOp.getResult(),
           ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
 
-      // 3. to_device: host bfp4 → device bfp4
+      // 3. to_device: host bfp → device bfp
       mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
       auto toDevOp = rewriter.create<ToDeviceOp>(op.getLoc(), newWeightType,
-                                                 toDtypeOp.getResult(), device,
+                                                 typecastOp.getResult(),
+                                                 device,
                                                  /*memory_config=*/nullptr);
       newWeight = toDevOp.getResult();
     } else {

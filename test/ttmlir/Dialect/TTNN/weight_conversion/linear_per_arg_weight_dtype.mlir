@@ -1,8 +1,8 @@
 // RUN: ttmlir-opt --ttnn-weight-dtype-conversion %s | FileCheck %s
 
 // Test per-op weight dtype override on a linear op without a global target-dtype.
-// For blockfloat targets the conversion is the host-pack chain
-// (from_device -> to_dtype -> to_device), not a device typecast.
+// For blockfloat targets the conversion is the host-side chain
+// (from_device -> typecast -> to_device).
 
 #dram = #ttnn.buffer_type<dram>
 
@@ -14,11 +14,10 @@ module attributes {} {
     %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // CHECK: %[[FROM_DEV:.*]] = "ttnn.from_device"(%arg1)
-    // CHECK: %[[TO_DTYPE:.*]] = "ttnn.to_dtype"(%[[FROM_DEV]])
+    // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[FROM_DEV]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf4>
     // CHECK-SAME: -> tensor<1024x2048x!ttcore.tile<32x32, bfp_bf4>,
-    // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%[[TO_DTYPE]], %[[DEV]])
-    // CHECK-NOT: "ttnn.typecast"
+    // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%[[TYPECAST]], %[[DEV]])
 
     // CHECK: "ttnn.linear"(%arg0, %[[TO_DEV]], %arg2)
     // CHECK-SAME: -> tensor<2048x1024xbf16,

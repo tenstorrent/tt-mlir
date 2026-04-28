@@ -1,9 +1,8 @@
 // RUN: ttmlir-opt --ttnn-weight-dtype-conversion="target-dtype=bfp_bf8" %s | FileCheck %s
 
 // Test that the BFP8 weight conversion pass correctly:
-// 1. Inserts a host-pack chain (from_device -> to_dtype -> to_device) before
-//    the linear. Blockfloat targets go through the host packer rather than
-//    the device-kernel typecast.
+// 1. Inserts a host-side chain (from_device -> typecast -> to_device) before
+//    the linear for blockfloat targets.
 // 2. Converts the weight tensor (B operand) to bfp_bf8
 // 3. Updates the linear to use the resulting on-device tensor
 // 4. Keeps the output of linear as bf16 (unchanged)
@@ -20,11 +19,10 @@ module attributes {} {
     %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // CHECK: %[[FROM_DEV:.*]] = "ttnn.from_device"(%arg1)
-    // CHECK: %[[TO_DTYPE:.*]] = "ttnn.to_dtype"(%[[FROM_DEV]])
+    // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[FROM_DEV]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf8>
     // CHECK-SAME: -> tensor<1024x2048x!ttcore.tile<32x32, bfp_bf8>,
-    // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%[[TO_DTYPE]], %[[DEV]])
-    // CHECK-NOT: "ttnn.typecast"
+    // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%[[TYPECAST]], %[[DEV]])
 
     // CHECK: "ttnn.linear"(%arg2, %[[TO_DEV]], %arg3)
     // CHECK-SAME: -> tensor<2048x1024xbf16,

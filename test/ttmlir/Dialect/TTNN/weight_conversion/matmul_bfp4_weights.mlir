@@ -1,9 +1,8 @@
 // RUN: ttmlir-opt --ttnn-weight-dtype-conversion="target-dtype=bfp_bf4" %s | FileCheck %s
 
 // Test that the weight dtype conversion pass correctly:
-// 1. Inserts a host-pack chain (from_device -> to_dtype -> to_device) before
-//    the matmul. Blockfloat targets go through the host packer rather than
-//    the device-kernel typecast.
+// 1. Inserts a host-side chain (from_device -> typecast -> to_device) before
+//    the matmul for blockfloat targets.
 // 2. Converts the weight tensor (B operand) to bfp_bf4
 // 3. Updates the matmul to use the resulting on-device tensor
 // 4. Keeps the output of matmul as bf16 (unchanged)
@@ -20,11 +19,10 @@ module attributes {} {
     %dev = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // CHECK: %[[FROM_DEV:.*]] = "ttnn.from_device"(%arg1)
-    // CHECK: %[[TO_DTYPE:.*]] = "ttnn.to_dtype"(%[[FROM_DEV]])
+    // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[FROM_DEV]])
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf4>
     // CHECK-SAME: -> tensor<1x128x256x!ttcore.tile<32x32, bfp_bf4>,
-    // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%[[TO_DTYPE]], %[[DEV]])
-    // CHECK-NOT: "ttnn.typecast"
+    // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%[[TYPECAST]], %[[DEV]])
 
     // CHECK: "ttnn.matmul"(%arg0, %[[TO_DEV]])
     // CHECK-SAME: -> tensor<1x32x256xbf16,

@@ -370,18 +370,6 @@ createOp(FlatbufferObjectCache &cache, FromDeviceOp op) {
   return ::tt::target::ttnn::CreateFromDeviceOp(*cache.fbb, input, output);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::ToDtypeOp>
-createOp(FlatbufferObjectCache &cache, ToDtypeOp op) {
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtype());
-  auto output =
-      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
-                                  /*local_shape*/ std::nullopt);
-
-  return ::tt::target::ttnn::CreateToDtypeOp(*cache.fbb, input, dtype, output);
-}
-
 ::flatbuffers::Offset<::tt::target::ttnn::CpuOp>
 createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
@@ -4042,10 +4030,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto fromDeviceOp = dyn_cast<FromDeviceOp>(op); fromDeviceOp) {
     return createOperation(cache, createOp(cache, fromDeviceOp), debugString,
-                           locInfo);
-  }
-  if (auto toDtypeOp = dyn_cast<ToDtypeOp>(op); toDtypeOp) {
-    return createOperation(cache, createOp(cache, toDtypeOp), debugString,
                            locInfo);
   }
   if (auto emptyOp = dyn_cast<EmptyOp>(op); emptyOp) {
