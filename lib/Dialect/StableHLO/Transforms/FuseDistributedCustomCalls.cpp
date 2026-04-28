@@ -40,60 +40,6 @@ determineClusterAxis(mlir::DenseIntElementsAttr replicaGroups,
   return success();
 }
 
-// Describes the scatter-back portion that follows custom_call @rms_norm.
-// Two forms are supported:
-//
-//   Composite (sdy.all_slice input was fully replicated):
-//     rms_norm → stablehlo.composite "sdy.all_slice..."
-//
-//   Inlined (input was batch-sharded; emitted by UpdateGlobalToLocalShapes
-//   when input_is_fully_replicated == false):
-//     rms_norm → reshape → all_to_all → slice → reshape
-struct AllSliceMatch {
-  mlir::Type resultType;
-  mlir::Operation *resultOp;
-  SmallVector<mlir::Operation *> intermediateOps;
-};
-
-// Try to match sdy.all_slice in either its composite or inlined form.
-static std::optional<AllSliceMatch> tryMatchAllSlice(mlir::Operation *op) {
-  // Composite form.
-  if (auto composite = mlir::dyn_cast<mlir::stablehlo::CompositeOp>(op)) {
-    if (composite.getName().starts_with("sdy.all_slice")) {
-      return AllSliceMatch{composite.getResult(0).getType(), composite, {}};
-    }
-    return std::nullopt;
-  }
-
-  // Inlined form: reshape → all_to_all → slice → reshape.
-  // UpdateGlobalToLocalShapes emits this sequence when the all_slice input
-  // is not fully replicated across all devices.
-  auto reshape1 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(op);
-  if (!reshape1 || !reshape1.getResult().hasOneUse()) {
-    return std::nullopt;
-  }
-  auto allToAll = mlir::dyn_cast<mlir::stablehlo::AllToAllOp>(
-      *reshape1.getResult().getUsers().begin());
-  if (!allToAll || !allToAll.getResult(0).hasOneUse()) {
-    return std::nullopt;
-  }
-  auto slice = mlir::dyn_cast<mlir::stablehlo::SliceOp>(
-      *allToAll.getResult(0).getUsers().begin());
-  if (!slice || !slice.getResult().hasOneUse()) {
-    return std::nullopt;
-  }
-  auto reshape2 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(
-      *slice.getResult().getUsers().begin());
-  if (!reshape2) {
-    return std::nullopt;
-  }
-
-  return AllSliceMatch{
-      reshape2.getResult().getType(),
-      reshape2.getOperation(),
-      {reshape1.getOperation(), allToAll.getOperation(), slice.getOperation()}};
-}
-
 // Fuse all_gather + custom_call @tenstorrent.rms_norm + sdy.all_slice into a
 // single custom_call @tenstorrent.distributed_rms_norm that operates on local
 // (per-device) tensors which handles cross-device reduction internally.
@@ -233,8 +179,9 @@ public:
     // Replace the scatter-back result with the distributed custom_call result.
     rewriter.replaceOp(allSliceMatch->resultOp, distributedCall.getResults());
 
-    // For the inlined form, erase the intermediate ops in reverse use-def order
-    // (slice before all_to_all before reshape1) now that they have no users.
+    // For the decomposed form, erase the intermediate ops in reverse use-def
+    // order (slice before all_to_all before reshape1) now that they have no
+    // users.
     for (auto *op : llvm::reverse(allSliceMatch->intermediateOps)) {
       rewriter.eraseOp(op);
     }
@@ -250,6 +197,63 @@ public:
     }
 
     return success();
+  }
+
+private:
+  // Describes the scatter-back portion that follows custom_call @rms_norm.
+  // Two forms are supported:
+  //
+  //   Composite (sdy.all_slice input was fully replicated):
+  //     rms_norm -> stablehlo.composite "sdy.all_slice..."
+  //
+  //   Decomposed (sdy.all_slice input was batch-sharded, decomposed by
+  //   UpdateGlobalToLocalShapes and not restored in
+  //   ShardyToStableHLOAllSliceOpRewritePattern since input_is_fully_replicated
+  //   == false):
+  //     rms_norm -> reshape -> all_to_all -> slice -> reshape
+  struct AllSliceMatch {
+    mlir::Type resultType;
+    mlir::Operation *resultOp;
+    SmallVector<mlir::Operation *> intermediateOps;
+  };
+
+  // Try to match sdy.all_slice in either its composite or inlined form.
+  static std::optional<AllSliceMatch> tryMatchAllSlice(mlir::Operation *op) {
+    // Composite form.
+    if (auto composite = mlir::dyn_cast<mlir::stablehlo::CompositeOp>(op)) {
+      if (composite.getName().starts_with("sdy.all_slice")) {
+        return AllSliceMatch{composite.getResult(0).getType(), composite, {}};
+      }
+      return std::nullopt;
+    }
+
+    // Inlined form: reshape -> all_to_all -> slice -> reshape.
+    // UpdateGlobalToLocalShapes emits this sequence when the all_slice input
+    // is not fully replicated across all devices.
+    auto reshape1 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(op);
+    if (!reshape1 || !reshape1.getResult().hasOneUse()) {
+      return std::nullopt;
+    }
+    auto allToAll = mlir::dyn_cast<mlir::stablehlo::AllToAllOp>(
+        *reshape1.getResult().getUsers().begin());
+    if (!allToAll || !allToAll.getResult(0).hasOneUse()) {
+      return std::nullopt;
+    }
+    auto slice = mlir::dyn_cast<mlir::stablehlo::SliceOp>(
+        *allToAll.getResult(0).getUsers().begin());
+    if (!slice || !slice.getResult().hasOneUse()) {
+      return std::nullopt;
+    }
+    auto reshape2 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(
+        *slice.getResult().getUsers().begin());
+    if (!reshape2) {
+      return std::nullopt;
+    }
+
+    return AllSliceMatch{reshape2.getResult().getType(),
+                         reshape2.getOperation(),
+                         {reshape1.getOperation(), allToAll.getOperation(),
+                          slice.getOperation()}};
   }
 };
 
