@@ -54,10 +54,12 @@ static bool needsDMA(Value memref) {
   return false;
 }
 
-bool isAliasedLoad(RemoteLoadOp loadOp) { return needsDMA(loadOp.getMemref()); }
+bool isAliasedLoad(RemoteLoadOp loadOp) {
+  return !needsDMA(loadOp.getMemref());
+}
 
 bool isAliasedStore(RemoteStoreOp storeOp) {
-  return needsDMA(storeOp.getMemref());
+  return !needsDMA(storeOp.getMemref());
 }
 
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
@@ -248,7 +250,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     llvm::errs() << "\n";
     llvm::errs() << "wrapping in synchronized region\n";
     llvm::errs() << "start: " << *start << "\n";
-    llvm::errs() << "end: " << *end << "\n";
+    llvm::errs() << "end: " << *(std::prev(end)) << "\n";
     utils::wrapInSynchronizedRegion(
         rewriter, start, end,
         SmallVector<Value>(loadedCBOperands.begin(), loadedCBOperands.end()),
@@ -389,6 +391,25 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
 // ---------------------------------------------------------------------------
 // DMA thread: convert implicit-form ops to explicit CB form
 // ---------------------------------------------------------------------------
+
+// Erase aliased load and store ops (no DMA needed).
+static LogicalResult eraseAliasedLoadStoreOps(
+    PatternRewriter &rewriter,
+    llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
+  for (auto [localBuffer, usageInfo] : cbUsageInfo) {
+    auto producer = usageInfo.producers.front();
+    auto consumer = usageInfo.consumers.front();
+
+    if (mlir::isa<RemoteStoreOp>(consumer) &&
+        isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
+      rewriter.eraseOp(consumer);
+    } else if (mlir::isa<RemoteLoadOp>(producer) &&
+               isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
+      rewriter.eraseOp(producer);
+    }
+  }
+  return success();
+}
 
 // Convert remote_load/store to explicit CB form in the DMA thread.
 // Aliased ops are collected for deferred erasure (no DMA needed). Shared
@@ -636,14 +657,16 @@ public:
 
     // Compute thread: insert CB sync ops for implicit-form remote ops.
     auto cbUsageInfoCompute = utils::getCBUsageInfo(newGeneric.getRegion(1));
-    // processSharedBufferPairs no longer needed since we have explicit alias
-    // ops
-    // TODO: remove processSharedBufferPairs
+    auto cbUsageInfoDm = utils::getCBUsageInfo(newGeneric.getRegion(0));
     llvm::errs() << "compute block: " << *computeBlock << "\n";
     if (failed(processSharedBufferPairs(computeBlock, rewriter,
                                         cbUsageInfoCompute)) ||
         failed(insertCBOpsForCompute(computeBlock, rewriter,
                                      cbUsageInfoCompute))) {
+      return failure();
+    }
+
+    if (failed(eraseAliasedLoadStoreOps(rewriter, cbUsageInfoDm))) {
       return failure();
     }
 
