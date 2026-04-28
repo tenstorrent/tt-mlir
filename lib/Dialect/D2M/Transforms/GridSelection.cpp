@@ -8,6 +8,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/SpatialOpNormalizeUtil.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -17,7 +18,9 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/AffineMap.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -590,11 +593,14 @@ static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
 // output operand's chosen grid, but we must re-materialize the generic attrs
 // from the selected operand grids after those rewrites so the rebuilt op stays
 // consistent with the new operand types and the derived block factors.
-static void
+//
+// Returns the generic to use for further work: on success this is the new op
+// (the input handle is erased); on failure or empty grids the original op.
+static d2m::GenericOp
 recreateGenericOp(d2m::GenericOp genericOp,
                   ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
   if (optimalOperandGrids.empty()) {
-    return;
+    return genericOp;
   }
 
   OpBuilder builder(genericOp);
@@ -609,11 +615,13 @@ recreateGenericOp(d2m::GenericOp genericOp,
   if (failed(ret)) {
     genericOp.emitOpError()
         << "failed to recreate generic op with withParallelization";
-    return;
+    return genericOp;
   }
 
-  genericOp->replaceAllUsesWith(ret->genericOp);
+  d2m::GenericOp newGeneric = ret->genericOp;
+  genericOp->replaceAllUsesWith(newGeneric);
   genericOp.erase();
+  return newGeneric;
 }
 
 // ----------------------------------------------------------------------------
@@ -695,58 +703,9 @@ static void applyGridDecisions(d2m::GenericOp genericOp,
     }
   }
 
-  recreateGenericOp(genericOp, result.normalizedOperandGrids);
-}
-
-// Resolve to a value that dominates the spatial op by following view_layout
-// chains defined inside the spatial's regions (region-border value).
-static Value resolveToRegionBorderValue(Value operand,
-                                        d2m::SpatialOp spatialOp) {
-  auto inSpatialRegion = [&](Value val) {
-    Operation *def = val.getDefiningOp();
-    if (!def) {
-      return false;
-    }
-    Region *parent = def->getBlock()->getParent();
-    return llvm::any_of(spatialOp->getRegions(),
-                        [parent](Region &r) { return &r == parent; });
-  };
-  Value current = operand;
-  while (inSpatialRegion(current)) {
-    if (auto viewOp = current.getDefiningOp<d2m::ViewLayoutOp>()) {
-      current = viewOp.getInput();
-    } else {
-      break;
-    }
-  }
-  return current;
-}
-
-// Rebuild d2m.spatial's ins and outs from the operands actually used by
-// d2m.generic ops in each region, and set result types from the collected outs.
-static void reconstructSpatialOperands(d2m::SpatialOp spatialOp) {
-  llvm::SmallVector<mlir::Value> inputs;
-  llvm::SmallVector<mlir::Value> outputs;
-  for (Region &region : spatialOp->getRegions()) {
-    if (region.empty()) {
-      continue;
-    }
-    for (d2m::GenericOp genericOp : region.front().getOps<d2m::GenericOp>()) {
-      for (mlir::Value input : genericOp.getInputs()) {
-        inputs.push_back(resolveToRegionBorderValue(input, spatialOp));
-      }
-      for (mlir::Value output : genericOp.getOutputs()) {
-        outputs.push_back(resolveToRegionBorderValue(output, spatialOp));
-      }
-    }
-  }
-  spatialOp.getInputsMutable().assign(inputs);
-  spatialOp.getOutputsMutable().assign(outputs);
-  if (spatialOp->getNumResults() == outputs.size()) {
-    for (auto [result, outVal] : llvm::zip(spatialOp->getResults(), outputs)) {
-      result.setType(outVal.getType());
-    }
-  }
+  d2m::GenericOp newGenericOp =
+      recreateGenericOp(genericOp, result.normalizedOperandGrids);
+  normalizeSpatialOpContainingGeneric(newGenericOp);
 }
 
 // ----------------------------------------------------------------------------
@@ -793,12 +752,6 @@ public:
       }
       applyGridDecisions(genericOp, *result, this->ttnnMode);
     }
-
-    // Phase 3: Rebuild each SpatialOp's ins/outs from the operands actually
-    // used by generics in its regions.
-    module.walk([&](d2m::SpatialOp spatialOp) {
-      reconstructSpatialOperands(spatialOp);
-    });
   }
 
 private:
