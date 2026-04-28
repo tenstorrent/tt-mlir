@@ -5,4 +5,8 @@
 
 
 class TensorPool(dict):
-    """Dict mapping SSA name (str) -> torch.Tensor (golden output)."""
+    """Dict mapping SSA name (str) -> GoldenMapTensor (golden output).
+
+    Single-device programs store GoldenMapTensor({0: tensor}, (1,1)).
+    Multi-device programs store one shard per device keyed by device index.
+    """

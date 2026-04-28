@@ -14,6 +14,7 @@ import torch
 
 from _ttmlir_runtime import runtime as tt_runtime
 
+from golden import GoldenMapTensor
 from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtype
 
 logger = logging.getLogger("chisel")
@@ -29,18 +30,53 @@ def get_torch_tensor(tensor) -> torch.Tensor:
     return torch_tensor.reshape(shape).clone()
 
 
-def retrieve_torch_tensor(
-    program_context, tensor_ref, *, checker=None, slot: str = "", check: str = "retrieve",
-) -> Optional[torch.Tensor]:
-    """Retrieve a tensor from the runtime pool and convert it to a PyTorch tensor.
+def _retrieve_device_tensors(program_context, tensor_ref, untilize=True):
+    """Return a list of per-device runtime tensors from the pool.
 
+    Handles both the old Optional[Tensor] API and the new List[Tensor] API
+    so the rest of chisel is insulated from the API migration.
+    """
+    result = tt_runtime.retrieve_tensor_from_pool(program_context, tensor_ref, untilize)
+    if result is None:
+        return []
+    return result if isinstance(result, list) else [result]
+
+
+def _update_device_tensors(program_context, tensor_ref, rt_tensors):
+    """Write per-device runtime tensors back to the pool.
+
+    Handles both the old single-Tensor API and the new List[Tensor] API.
+    """
+    try:
+        tt_runtime.update_tensor_in_pool(program_context, tensor_ref, rt_tensors)
+    except TypeError:
+        # Old API expects a single Tensor — only safe for single-device.
+        if len(rt_tensors) == 1:
+            tt_runtime.update_tensor_in_pool(program_context, tensor_ref, rt_tensors[0])
+        else:
+            raise
+
+
+def retrieve_torch_tensor(
+    program_context,
+    tensor_ref,
+    *,
+    checker=None,
+    slot: str = "",
+    check: str = "retrieve",
+) -> Optional[GoldenMapTensor]:
+    """Retrieve tensor(s) from the runtime pool as a GoldenMapTensor.
+
+    For single-device programs the result wraps one shard ({0: tensor}, (1,1)).
+    For multi-device programs each shard corresponds to one device in mesh order.
     On failure records an "error" entry via `checker` (if provided) and returns None.
     """
     try:
-        device_tensor = tt_runtime.retrieve_tensor_from_pool(
-            program_context, tensor_ref
-        )
-        return get_torch_tensor(device_tensor)
+        device_tensors = _retrieve_device_tensors(program_context, tensor_ref)
+        if not device_tensors:
+            return None
+        shard_map = {i: get_torch_tensor(t) for i, t in enumerate(device_tensors)}
+        return GoldenMapTensor(shard_map, (1, len(shard_map)))
     except Exception:
         tb = traceback.format_exc()
         logger.error(f"{slot} [{check}]: retrieve_tensor error\n{tb}")
@@ -50,29 +86,42 @@ def retrieve_torch_tensor(
 
 
 def write_torch_tensor_to_pool(
-    program_context, tensor_ref, torch_tensor: torch.Tensor,
-    *, checker=None, slot: str = "", check: str = "skip_on_device",
+    program_context,
+    tensor_ref,
+    golden: GoldenMapTensor,
+    *,
+    checker=None,
+    slot: str = "",
+    check: str = "skip_on_device",
 ) -> bool:
-    """Overwrite a tensor in the runtime pool with a host-side torch tensor.
+    """Overwrite tensor(s) in the runtime pool with values from a GoldenMapTensor.
 
-    Shape/stride/dtype are taken from the existing pool tensor so the substitute
-    matches the layout downstream ops expect. The source tensor is made
-    contiguous first so its data_ptr points at a valid linear buffer.
+    Each shard of `golden` is written to the corresponding per-device tensor
+    in the pool.  Shape, stride, and dtype are taken from the existing pool
+    tensors so the substitute matches the layout downstream ops expect.
 
-    Records "applied" on success and "error" on failure via `checker` (if provided).
+    Records "applied" on success and "error" on failure via `checker`.
     Returns True on success, False on failure.
     """
     try:
-        dst = tt_runtime.retrieve_tensor_from_pool(program_context, tensor_ref)
-        src = torch_tensor.contiguous()
-        rt = tt_runtime.create_owned_host_tensor(
-            src.data_ptr(),
-            dst.get_shape(),
-            dst.get_stride(),
-            src.numel(),
-            dst.get_dtype(),
-        )
-        tt_runtime.update_tensor_in_pool(program_context, tensor_ref, rt)
+        dst_tensors = _retrieve_device_tensors(program_context, tensor_ref)
+        if not dst_tensors:
+            if checker is not None:
+                checker.record(slot, check, "error", traceback="no tensors in pool")
+            return False
+        golden_shards = golden.golden_map_tensor_as_torch_tensors()
+        rt_list = []
+        for i, dst in enumerate(dst_tensors):
+            src = golden_shards[i].contiguous()
+            rt = tt_runtime.create_owned_host_tensor(
+                src.data_ptr(),
+                dst.get_shape(),
+                dst.get_stride(),
+                src.numel(),
+                dst.get_dtype(),
+            )
+            rt_list.append(rt)
+        _update_device_tensors(program_context, tensor_ref, rt_list)
     except Exception:
         tb = traceback.format_exc()
         logger.error(f"{slot} [{check}]: write_tensor error\n{tb}")

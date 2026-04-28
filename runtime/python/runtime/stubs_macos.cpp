@@ -263,6 +263,7 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
   __builtin_trap();
 }
 std::vector<uint32_t> getTensorRefShape(TensorRef) { __builtin_trap(); }
+std::vector<uint32_t> getTensorRefLocalShape(TensorRef) { __builtin_trap(); }
 ::tt::target::DataType getTensorRefDataType(TensorRef) { __builtin_trap(); }
 void walkBinary(Binary, uint32_t, const OpWalkFn &) { __builtin_trap(); }
 void setCompatibleDeviceRuntime(const Binary &binary) { __builtin_trap(); }

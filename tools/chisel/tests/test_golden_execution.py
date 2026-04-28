@@ -13,7 +13,7 @@ import torch
 
 from chisel.executor import execute_golden
 from chisel.ops import get_op_inputs, get_op_outputs
-from golden import is_non_executable_op
+from golden import GoldenMapTensor, is_non_executable_op
 from golden.mapping import mlir_type_to_torch_dtype as _mlir_type_to_torch_dtype
 
 
@@ -65,7 +65,8 @@ def test_golden_execution(subtests, ir_module, binary, mlir_source_path):
                     name = operand.get_name(asm_state)
                     shape = list(operand.type.shape)
                     dtype = _element_type_to_torch_dtype(operand.type.element_type)
-                    inputs[name] = torch.empty(shape, dtype=dtype, device="meta")
+                    t = torch.empty(shape, dtype=dtype, device="meta")
+                    inputs[name] = GoldenMapTensor({0: t}, (1, 1))
 
                 result = execute_golden(op.opview, ir_module, inputs)
                 if result is None:

@@ -253,6 +253,7 @@ std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
                                       CallbackContext programContextHandle);
 
 std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
+std::vector<uint32_t> getTensorRefLocalShape(TensorRef tensorRef);
 ::tt::target::DataType getTensorRefDataType(TensorRef tensorRef);
 
 // For the given tensor reference, retrieves the tensor from the program's

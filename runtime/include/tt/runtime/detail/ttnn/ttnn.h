@@ -264,6 +264,7 @@ std::vector<tt::runtime::TensorRef>
 getOpInputRefs(OpContext opContextHandle, CallbackContext programContextHandle);
 
 std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef);
+std::vector<uint32_t> getTensorRefLocalShape(tt::runtime::TensorRef tensorRef);
 ::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef tensorRef);
 
 using OpWalkFn =

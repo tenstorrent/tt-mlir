@@ -2180,6 +2180,18 @@ std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {
   return std::vector<uint32_t>(shape->begin(), shape->end());
 }
 
+std::vector<uint32_t> getTensorRefLocalShape(tt::runtime::TensorRef tensorRef) {
+  const auto &ref =
+      tensorRef.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+  const auto *local_shape = ref.desc()->local_shape();
+  if (local_shape && local_shape->size() > 0) {
+    return std::vector<uint32_t>(local_shape->begin(), local_shape->end());
+  }
+  // Single-device tensors: local_shape is empty, fall back to global shape.
+  const auto *shape = ref.desc()->shape();
+  return std::vector<uint32_t>(shape->begin(), shape->end());
+}
+
 ::tt::target::DataType getTensorRefDataType(tt::runtime::TensorRef tensorRef) {
   const auto &ref =
       tensorRef.as<::tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);

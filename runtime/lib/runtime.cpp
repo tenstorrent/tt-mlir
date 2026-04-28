@@ -1123,6 +1123,21 @@ std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef) {
       });
 }
 
+std::vector<uint32_t> getTensorRefLocalShape(TensorRef tensorRef) {
+  using RetType = std::vector<uint32_t>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ttnn::getTensorRefLocalShape(tensorRef); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefLocalShape",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefLocalShape",
+                                    HostRuntime::Distributed);
+      });
+}
+
 ::tt::target::DataType getTensorRefDataType(TensorRef tensorRef) {
   using RetType = ::tt::target::DataType;
   return DISPATCH_TO_CURRENT_RUNTIME(

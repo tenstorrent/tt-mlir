@@ -250,7 +250,13 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::TensorRef self) {
              return tt::runtime::getTensorRefShape(self);
            },
-           "Logical shape from the flatbuffer — no tensor allocation.")
+           "Global logical shape from the flatbuffer — no tensor allocation.")
+      .def("get_local_shape",
+           [](tt::runtime::TensorRef self) {
+             return tt::runtime::getTensorRefLocalShape(self);
+           },
+           "Per-device (local) shape from the flatbuffer. For single-device "
+           "tensors this equals get_shape().")
       .def("get_dtype",
            [](tt::runtime::TensorRef self) {
              return tt::runtime::getTensorRefDataType(self);

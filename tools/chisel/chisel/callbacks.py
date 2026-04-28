@@ -74,14 +74,14 @@ def _default_pre_op(binary, program_context, op_context) -> None:
 
     for mlir_input, tensor_ref in zip(op_inputs, input_refs):
         name = mlir_input.get_name(asm_state)
-        checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_input, tensor_ref)
+        checker.check_global_shape_dtype(name, "mlir_vs_tensor_ref", mlir_input, tensor_ref)
         tensor = retrieve_torch_tensor(
             program_context, tensor_ref,
             checker=checker, slot=name, check="retrieve_input",
         )
         if tensor is None:
             continue
-        checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_input, tensor)
+        checker.check_local_shape_dtype(name, "tensor_ref_vs_runtime", tensor_ref, tensor)
         program.stashed_inputs[name] = tensor
         # Seed pool for program inputs (never produced by a prior golden op).
         if name not in program.golden_tensor_pool:
@@ -94,15 +94,15 @@ def _default_post_op(
     """Default postOp body: dual-check validation against isolation and accumulation golden.
 
     For each op output:
-    1. check_shape_dtype(mlir_vs_tensor_ref)     — MLIR IR shape/dtype vs flatbuffer TensorRef
+    1. check_global_shape_dtype(mlir_vs_tensor_ref)    — MLIR global shape vs TensorRef global
     2. Retrieve device tensor
-    3. check_shape_dtype(mlir_vs_runtime_tensor) — MLIR IR shape/dtype vs actual tensor
+    3. check_local_shape_dtype(tensor_ref_vs_runtime)  — TensorRef local shape vs device shard
 
     Then two golden checks (each gated by ctx.isolation_check / ctx.accum_check):
     Isolation golden (device-stashed inputs):
     4. execute_golden with program.stashed_inputs
-    5. check_shape_dtype(mlir_vs_golden)         — MLIR IR shape/dtype vs isolation golden
-    6. check_golden_vs_runtime_tensor            — PCC/atol/rtol (skip if skip_pcc)
+    5. check_local_shape_dtype(tensor_ref_vs_golden)   — TensorRef local shape vs golden shard
+    6. check_golden_vs_runtime_tensor                  — PCC/atol/rtol (skip if skip_pcc)
 
     Accumulation golden (pool inputs):
     7. execute_golden_from_pool with program.golden_tensor_pool
@@ -159,7 +159,7 @@ def _default_post_op(
     ):
         name = mlir_output.get_name(asm_state)
 
-        checker.check_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
+        checker.check_global_shape_dtype(name, "mlir_vs_tensor_ref", mlir_output, output_ref)
 
         device_tensor = retrieve_torch_tensor(
             program_context, output_ref,
@@ -168,10 +168,10 @@ def _default_post_op(
         if device_tensor is None:
             continue
 
-        checker.check_shape_dtype(name, "mlir_vs_runtime_tensor", mlir_output, device_tensor)
+        checker.check_local_shape_dtype(name, "tensor_ref_vs_runtime", output_ref, device_tensor)
 
         if ctx.isolation_check and iso_out is not None:
-            checker.check_shape_dtype(name, "mlir_vs_golden", mlir_output, iso_out)
+            checker.check_local_shape_dtype(name, "tensor_ref_vs_golden", output_ref, iso_out)
             if skip_pcc:
                 checker.record(name, "golden_vs_runtime_tensor", "skipped_pcc")
             else:
