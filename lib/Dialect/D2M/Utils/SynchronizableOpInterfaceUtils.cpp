@@ -61,13 +61,22 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
     opsInRange.insert(&op);
   }
 
-  SmallVector<Operation *> opsToClone;
-  SmallVector<Operation *> opsToWrap;
+  DenseSet<Operation *> pureOps;
+  SmallVector<Operation *> opsToErase;
   for (Operation &op : llvm::make_range(start, end)) {
-    for (Value result : op.getResults()) {
-      if (mlir::isPure(&op)) {
-        opsToClone.push_back(&op);
-      } else {
+    bool isPure = mlir::isPure(&op);
+    for (auto operand : op.getOperands()) {
+      if (pureOps.contains(operand.getDefiningOp())) {
+        isPure = false;
+        break;
+      }
+    }
+
+    if (isPure) {
+      pureOps.insert(&op);
+    } else {
+      opsToErase.push_back(&op);
+      for (Value result : op.getResults()) {
         for (Operation *user : result.getUsers()) {
           if (!llvm::any_of(opsInRange, [&](Operation *op) {
                 return op->isAncestor(user);
@@ -81,33 +90,30 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                              "used outside the range.");
           }
         }
-        opsToWrap.push_back(&op);
       }
     }
   }
 
   rewriter.setInsertionPoint(&*start);
-  IRMapping mapping;
-  for (Operation *op : opsToClone) {
-    rewriter.clone(*op, mapping);
-  }
   auto newSynchronizedRegionOp = rewriter.create<d2m::SynchronizedRegionOp>(
       start->getLoc(), TypeRange(), consumers, producers,
       [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
           mlir::ValueRange bbArgs) {
+        IRMapping bbMapping;
         for (size_t i = 0; i < consumers.size(); i++) {
-          mapping.map(consumers[i], bbArgs[i]);
+          bbMapping.map(consumers[i], bbArgs[i]);
         }
         for (size_t i = 0; i < producers.size(); i++) {
-          mapping.map(producers[i], bbArgs[i + consumers.size()]);
+          bbMapping.map(producers[i], bbArgs[i + consumers.size()]);
         }
 
-        for (Operation *op : opsToWrap) {
-          bbBuilder.clone(*op, mapping);
+        for (Operation &op : llvm::make_range(start, end)) {
+          bbBuilder.clone(op, bbMapping);
         }
       });
 
-  for (Operation *op : llvm::reverse(opsToWrap)) {
+  // Erase only the non-pure ops
+  for (Operation *op : llvm::reverse(opsToErase)) {
     rewriter.eraseOp(op);
   }
 
