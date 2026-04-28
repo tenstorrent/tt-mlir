@@ -7714,6 +7714,21 @@ public:
       scaleAttr = rewriter.getF32FloatAttr(scale);
     }
 
+    auto slidingWindowSizeStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("sliding_window_size");
+    IntegerAttr slidingWindowSizeAttr = nullptr;
+    if (slidingWindowSizeStringAttr) {
+      uint32_t slidingWindowSize;
+      if (!llvm::to_integer(slidingWindowSizeStringAttr.getValue(),
+                            slidingWindowSize)) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "sliding_window_size attribute string must be convertible "
+                   "to non-negative integer. Received \"" +
+                       slidingWindowSizeStringAttr.getValue() + "\".");
+      }
+      slidingWindowSizeAttr = rewriter.getUI32IntegerAttr(slidingWindowSize);
+    }
+
     auto hasAttentionMaskStringAttr =
         frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
     bool hasAttentionMask = false;
@@ -7788,7 +7803,7 @@ public:
         cast<RankedTensorType>(
             getTypeConverter()->convertType(srcOp.getResult(0).getType())),
         query, key, value, pageTable, outputTensor, isCausalAttr, attentionMask,
-        curPosTensor, attentionSink, scaleAttr);
+        curPosTensor, attentionSink, scaleAttr, slidingWindowSizeAttr);
 
     return success();
   }

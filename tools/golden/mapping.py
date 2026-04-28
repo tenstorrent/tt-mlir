@@ -7162,10 +7162,16 @@ def ttir_paged_sdpa_decode_golden(
     cur_pos_tensor: Optional[GoldenMapTensor] = None,
     attention_sink: Optional[GoldenMapTensor] = None,
     scale_attr: Optional[FloatAttr] = None,
+    sliding_window_size_attr: Optional[IntegerAttr] = None,
     output_type_mlir: Optional[Type] = None,
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     scale_val = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
+    sliding_window_size_val = (
+        unpack_mlir_attr(sliding_window_size_attr)
+        if sliding_window_size_attr is not None
+        else None
+    )
     is_causal_val = unpack_mlir_attr(is_causal_attr)
 
     query_t = _gmt_leaf_torch(query)
@@ -7212,6 +7218,18 @@ def ttir_paged_sdpa_decode_golden(
         for i in range(b):
             start_idx = int(cur_t[i].item())
             attn_mask[i, :, :, start_idx + 1 :] = torch.finfo(torch.float32).min
+
+    # Apply sliding window mask if specified
+    if sliding_window_size_val is not None and cur_pos_tensor is not None:
+        cur_t = _gmt_leaf_torch(cur_pos_tensor)
+        if attn_mask is None:
+            attn_mask = torch.zeros((b, nh, s_q, seq_len), dtype=torch.float32)
+        for i in range(b):
+            start_idx = int(cur_t[i].item())
+            # Mask tokens outside the sliding window
+            window_start = max(0, start_idx - sliding_window_size_val + 1)
+            if window_start > 0:
+                attn_mask[i, :, :, :window_start] = torch.finfo(torch.float32).min
 
     if attention_sink is not None and attn_mask is not None:
         sink_t = _gmt_leaf_torch(attention_sink)
