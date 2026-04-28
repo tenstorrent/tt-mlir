@@ -1022,6 +1022,110 @@ public:
   }
 };
 
+class ReshapeRowMajorAdjusting : public OpRewritePattern<ttnn::ReshapeOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::ReshapeOp op,
+                                PatternRewriter &rewriter) const override {
+    if (!op->hasOneUse()) {
+      return failure();
+    }
+
+    auto permuteUser = mlir::dyn_cast<ttnn::PermuteOp>(*op->user_begin());
+    if (!permuteUser) {
+      return failure();
+    }
+
+    auto reshapeResultType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto reshapeResultLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(reshapeResultType.getEncoding());
+    if (!reshapeResultLayout || !reshapeResultLayout.isTiled()) {
+      return failure();
+    }
+
+    auto permuteResultType =
+        mlir::cast<RankedTensorType>(permuteUser.getResult().getType());
+    auto permuteResultLayout =
+        mlir::dyn_cast<ttnn::TTNNLayoutAttr>(permuteResultType.getEncoding());
+    if (!permuteResultLayout || !permuteResultLayout.isTiled()) {
+      return failure();
+    }
+
+    int64_t reshapeTiledVolume = getTiledVolume(reshapeResultType.getShape());
+    int64_t reshapeRmVolume =
+        ttmlir::utils::volume(reshapeResultType.getShape());
+    int64_t permuteTiledVolume = getTiledVolume(permuteResultType.getShape());
+    int64_t permuteRmVolume =
+        ttmlir::utils::volume(permuteResultType.getShape());
+
+    if (permuteTiledVolume != permuteRmVolume) {
+      return failure();
+    }
+
+    // If the difference is less than 5MB, nothing to do.
+    if (reshapeTiledVolume - reshapeRmVolume < 5LL * 1024LL * 1024LL) {
+      return failure();
+    }
+
+    auto rowMajorReshapeLayout = reshapeResultLayout.withLayout(
+        ttnn::Layout::RowMajor, reshapeResultType.getShape());
+    if (rowMajorReshapeLayout == reshapeResultLayout) {
+      return failure();
+    }
+
+    auto rowMajorPermuteLayout = permuteResultLayout.withLayout(
+        ttnn::Layout::RowMajor, permuteResultType.getShape());
+    if (rowMajorPermuteLayout == permuteResultLayout) {
+      return failure();
+    }
+
+    RankedTensorType rowMajorReshapeResultType =
+        reshapeResultType.cloneWithEncoding(rowMajorReshapeLayout);
+    RankedTensorType rowMajorPermuteResultType =
+        permuteResultType.cloneWithEncoding(rowMajorPermuteLayout);
+
+    Value reshapeInput = op.getInput();
+    if (!reshapeInput.getDefiningOp<ttnn::ToLayoutOp>()) {
+      auto inputType = mlir::cast<RankedTensorType>(reshapeInput.getType());
+      auto inputLayout =
+          mlir::dyn_cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+
+      if (inputLayout && inputLayout.isTiled()) {
+        auto rowMajorInput = utils::createToLayoutOp(
+            op, mlir::cast<mlir::TypedValue<RankedTensorType>>(reshapeInput),
+            rewriter, Layout::RowMajor, inputLayout.getBufferType(),
+            inputLayout.getMemLayout(), inputLayout.getDataType(),
+            "_input_row_major");
+        reshapeInput = rowMajorInput.getResult();
+      }
+    }
+
+    auto newReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        op.getLoc(), rowMajorReshapeResultType, reshapeInput, op.getShapeAttr(),
+        /*memory_config=*/nullptr);
+
+    auto newPermuteOp = rewriter.create<ttnn::PermuteOp>(
+        permuteUser.getLoc(), rowMajorPermuteResultType,
+        newReshapeOp.getResult(), permuteUser.getPermutation(),
+        /*memory_config=*/nullptr, permuteUser.getPadValue());
+
+    auto restoredLayout = utils::createToLayoutOp(
+        permuteUser,
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(
+            newPermuteOp.getResult()),
+        rewriter, permuteResultLayout.getLayout(),
+        permuteResultLayout.getBufferType(), permuteResultLayout.getMemLayout(),
+        permuteResultLayout.getDataType(), "_restore_layout");
+
+    rewriter.replaceOp(permuteUser, restoredLayout.getResult());
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
+
 class TTNNMemoryManagement
     : public impl::TTNNMemoryManagementBase<TTNNMemoryManagement> {
 public:
@@ -1041,7 +1145,7 @@ public:
              ReshapeElementwiseAdjusting<ttnn::MultiplyOp>,
              ReshapeElementwiseAdjusting<ttnn::SubtractOp>,
              ReshapeElementwiseAdjusting<ttnn::DivideOp>,
-             PermuteRowMajorAdjusting>(&getContext());
+             PermuteRowMajorAdjusting, ReshapeRowMajorAdjusting>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);
