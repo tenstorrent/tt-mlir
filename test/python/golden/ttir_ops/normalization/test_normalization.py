@@ -405,6 +405,8 @@ def test_distributed_rms_norm(
         (1, 1, 32, 512),
         (1, 1, 32, 4096),
         (1, 1, 32, 8192),
+        (32, 128),
+        (1, 32, 128),
     ]:
         pytest.skip(
             f"Hangs on n300 with has_weight=True and shape={shape} after metal uplift "
