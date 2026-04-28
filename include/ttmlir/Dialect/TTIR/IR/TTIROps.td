@@ -6251,7 +6251,7 @@ def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let hasVerifier = 1;
 }
 
-def TTIR_CompositeOp : TTIR_Op<"composite"> {
+def TTIR_CompositeOp : TTIR_NamedOp<"composite"> {
     let summary = "Opaque composite op that lowers 1:1 to a matching TTNN op.";
     let description = [{
       Carries a symbolic `name` and a dictionary of `op_attributes`. Used
