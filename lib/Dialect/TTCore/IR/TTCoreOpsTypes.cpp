@@ -66,6 +66,15 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
   llvm::SmallVector<std::int64_t> gridShape = {10, 13};
   llvm::SmallVector<std::int64_t> dramGridShape = {1, 8};
 
+  // Captured from a p150 device. Blackhole's optimal mapping is identical
+  // for NOC_0 and NOC_1.
+  llvm::SmallVector<CoreCoordAttr> dramBankToLogicalWorker = {
+      CoreCoordAttr::get(context, 9, 0), CoreCoordAttr::get(context, 0, 0),
+      CoreCoordAttr::get(context, 7, 0), CoreCoordAttr::get(context, 3, 0),
+      CoreCoordAttr::get(context, 9, 7), CoreCoordAttr::get(context, 1, 7),
+      CoreCoordAttr::get(context, 6, 7), CoreCoordAttr::get(context, 4, 7),
+  };
+
   // Physical-to-translated coordinate translation offsets
   llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
 
@@ -109,7 +118,7 @@ SystemDescAttr createDefaultBlackholeSystemDesc(
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd, supported_data_types, supported_tile_sizes,
         dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads,
-        dramGridShape));
+        dramGridShape, dramBankToLogicalWorker, dramBankToLogicalWorker));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -181,6 +190,17 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
   llvm::SmallVector<std::int64_t> gridShape = {8, 8};
   llvm::SmallVector<std::int64_t> dramGridShape = {1, 12};
 
+  // Captured from an n150 device. Wormhole's optimal mapping is identical
+  // for NOC_0 and NOC_1.
+  llvm::SmallVector<CoreCoordAttr> dramBankToLogicalWorker = {
+      CoreCoordAttr::get(context, 7, 3), CoreCoordAttr::get(context, 0, 0),
+      CoreCoordAttr::get(context, 3, 0), CoreCoordAttr::get(context, 4, 0),
+      CoreCoordAttr::get(context, 0, 4), CoreCoordAttr::get(context, 7, 7),
+      CoreCoordAttr::get(context, 1, 4), CoreCoordAttr::get(context, 6, 4),
+      CoreCoordAttr::get(context, 5, 4), CoreCoordAttr::get(context, 2, 6),
+      CoreCoordAttr::get(context, 3, 4), CoreCoordAttr::get(context, 4, 4),
+  };
+
   // Physical-to-translated coordinate translation offsets
   llvm::SmallVector<std::int64_t> coordTranslationOffsets = {18, 18};
 
@@ -224,7 +244,7 @@ createDefaultWormholeSystemDesc(mlir::MLIRContext *context,
         l1UnreservedBase, eriscL1UnreservedBase, dramUnreservedBase,
         dramUnreservedEnd, supportedDataTypes, supportedTileSizes,
         dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads,
-        dramGridShape));
+        dramGridShape, dramBankToLogicalWorker, dramBankToLogicalWorker));
   }
 
   // Duplicate number of chip capabilities based on number of chips.
@@ -436,6 +456,18 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
           TileSizeAttr::get(context, it->y(), it->x()));
     }
 
+    SmallVector<CoreCoordAttr> dramBankToLogicalWorkerNoc0Attr;
+    for (const auto *it : *(element->dram_bank_to_logical_worker_noc0())) {
+      dramBankToLogicalWorkerNoc0Attr.push_back(
+          CoreCoordAttr::get(context, it->y(), it->x()));
+    }
+
+    SmallVector<CoreCoordAttr> dramBankToLogicalWorkerNoc1Attr;
+    for (const auto *it : *(element->dram_bank_to_logical_worker_noc1())) {
+      dramBankToLogicalWorkerNoc1Attr.push_back(
+          CoreCoordAttr::get(context, it->y(), it->x()));
+    }
+
     auto currentChipDescAttr = ChipDescAttr::get(
         context, ArchAttr::get(context, arch),
         {element->grid_size()->y(), element->grid_size()->x()},
@@ -450,7 +482,8 @@ mlir::FailureOr<SystemDescAttr> SystemDescAttr::getFromBuffer(
         supportedTileSizesAttr, element->dst_physical_size_tiles(),
         element->num_cbs(), element->num_compute_threads(),
         element->num_datamovement_threads(),
-        {element->dram_grid_size()->y(), element->dram_grid_size()->x()});
+        {element->dram_grid_size()->y(), element->dram_grid_size()->x()},
+        dramBankToLogicalWorkerNoc0Attr, dramBankToLogicalWorkerNoc1Attr);
     chipDescList.push_back(currentChipDescAttr);
   }
 

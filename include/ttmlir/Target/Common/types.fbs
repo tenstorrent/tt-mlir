@@ -94,6 +94,8 @@ table ChipDesc {
   num_compute_threads: uint32;
   num_datamovement_threads: uint32;
   dram_grid_size: Dim2d;
+  dram_bank_to_logical_worker_noc0: [Dim2d];
+  dram_bank_to_logical_worker_noc1: [Dim2d];
 }
 
 struct ChipCoord {
