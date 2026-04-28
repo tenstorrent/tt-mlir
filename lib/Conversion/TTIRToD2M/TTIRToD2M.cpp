@@ -2568,43 +2568,69 @@ public:
           rewriter.create<ttir::ConcatOp>(loc, outputType, inputs, dimAttr);
     }
 
-    // If we haven't reached the exact count, add remaining copies
+    // If we haven't reached the exact count, build remainder using bit
+    // decomposition. For remaining=N, we concatenate only the power-of-two
+    // chunks whose bits are set in N's binary representation. This keeps the
+    // concat chain O(log repeatCount) rather than O(remaining).
     if (currentRepeat < repeatCount) {
       int64_t remaining = repeatCount - currentRepeat;
 
-      // Build up the remainder to the right size using binary decomposition
-      Value remainder = input;
-      int64_t remainderSize = 1;
+      // Build power-of-two chunks: {1x input, 2x input, 4x input, ...}
+      // Stop when the next power of 2 would exceed remaining.
+      SmallVector<Value> powerOfTwoChunks;
+      Value chunk = input;
+      int64_t chunkSize = 1;
 
-      while (remainderSize * 2 <= remaining) {
-        SmallVector<Value> remInputs = {remainder, remainder};
-        remainderSize *= 2;
+      while (chunkSize <= remaining) {
+        powerOfTwoChunks.push_back(chunk);
 
-        SmallVector<int64_t> remShape(currentType.getShape().begin(),
-                                      currentType.getShape().end());
-        remShape[dim] = originalDimSize * remainderSize;
-        auto remType = RankedTensorType::get(
-            remShape, currentType.getElementType(), currentType.getEncoding());
+        // Double the chunk for the next power of 2
+        if (chunkSize * 2 <= remaining) {
+          SmallVector<Value> doubleInputs = {chunk, chunk};
+          chunkSize *= 2;
 
-        auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-        remainder =
-            rewriter.create<ttir::ConcatOp>(loc, remType, remInputs, dimAttr);
+          SmallVector<int64_t> doubleShape(currentType.getShape().begin(),
+                                           currentType.getShape().end());
+          doubleShape[dim] = originalDimSize * chunkSize;
+          auto doubleType =
+              RankedTensorType::get(doubleShape, currentType.getElementType(),
+                                    currentType.getEncoding());
+
+          auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+          chunk = rewriter.create<ttir::ConcatOp>(loc, doubleType, doubleInputs,
+                                                  dimAttr);
+        } else {
+          break;
+        }
       }
 
-      // If we still need more, add individual copies
-      while (remainderSize < remaining) {
-        SmallVector<Value> remInputs = {remainder, input};
-        remainderSize += 1;
+      // Concatenate only the chunks needed based on bit decomposition of
+      // remaining. Walk from highest to lowest power of 2.
+      SmallVector<Value> remainderParts;
+      int64_t accumulated = 0;
+      for (int64_t i = powerOfTwoChunks.size() - 1; i >= 0; --i) {
+        int64_t power = 1LL << i;
+        if (accumulated + power <= remaining) {
+          remainderParts.push_back(powerOfTwoChunks[i]);
+          accumulated += power;
+        }
+      }
 
+      // Build the remainder by concatenating selected power-of-two chunks
+      Value remainder;
+      if (remainderParts.size() == 1) {
+        remainder = remainderParts[0];
+      } else {
+        // Concatenate all parts at once (or iteratively if needed)
         SmallVector<int64_t> remShape(currentType.getShape().begin(),
                                       currentType.getShape().end());
-        remShape[dim] = originalDimSize * remainderSize;
+        remShape[dim] = originalDimSize * remaining;
         auto remType = RankedTensorType::get(
             remShape, currentType.getElementType(), currentType.getEncoding());
 
         auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-        remainder =
-            rewriter.create<ttir::ConcatOp>(loc, remType, remInputs, dimAttr);
+        remainder = rewriter.create<ttir::ConcatOp>(loc, remType,
+                                                    remainderParts, dimAttr);
       }
 
       // Final concat of current and remainder
