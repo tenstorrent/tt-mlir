@@ -8,5 +8,5 @@ module {
       : (tensor<32x32xf32>) -> tensor<64x64xf32>
     return %0 : tensor<64x64xf32>
   }
-  // CHECK: func.func @injected
+  // CHECK: func.func private @injected
 }
