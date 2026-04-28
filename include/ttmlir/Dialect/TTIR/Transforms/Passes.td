@@ -522,18 +522,19 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
   }];
 }
 
-def TTIRInlineExternalFunctions : Pass<"ttir-inline-external-functions", "::mlir::ModuleOp"> {
-  let summary = "Inline external MLIR functions referenced by ttir.invoke_external.";
+def TTIRLinkExternalFunctions : Pass<"ttir-link-external-functions", "::mlir::ModuleOp"> {
+  let summary = "Link external MLIR functions referenced by `ttir.invoke_external`.";
   let description = [{
-    Walks the module for every ttir.invoke_external op, reads the MLIR file
-    pointed to by its 'path' attribute, validates and verifies it, clones the
-    function named by the 'entry' attribute into the current module, and
-    replaces the ttir.invoke_external op with a func.call to that function.
+    Walks the module for every `ttir.invoke_external` op, reads the MLIR file
+    pointed to by its `path` attribute, merges the external module into the
+    current module, and replaces the `ttir.invoke_external` op with a
+    `func.call` to the `entry` function from the external module.
 
-    The cloned function is given a private linkage so that it is not exported
-    and is not confused with top-level entry points.  If two ttir.invoke_external
-    ops reference the same (path, entry) pair, the function is only inserted
-    once.  Symbol name collisions are resolved by appending a numeric suffix.
+    Merged functions are given a private linkage to allow dead-code elimination
+    and to avoid confusion with top-level entry points.  If two
+    `ttir.invoke_external` ops reference the same (`path`, `entry`) pair, the
+    function is only inserted once. Symbol name collisions are resolved by
+    appending a numeric suffix.
   }];
 
   let dependentDialects = ["::mlir::func::FuncDialect",

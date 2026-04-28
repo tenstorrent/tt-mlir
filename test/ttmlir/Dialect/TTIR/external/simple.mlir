@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --ttir-inline-external-functions -o %t %s
+// RUN: ttmlir-opt --ttir-link-external-functions -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
-// Check that a simple external function is inlined correctly.
+// Check that a simple external function is linked correctly.
 
 module {
   func.func @test_simple(%arg0: tensor<32x32xf32>) -> tensor<64x64xf32> {
