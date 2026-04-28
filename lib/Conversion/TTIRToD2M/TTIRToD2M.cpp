@@ -827,14 +827,6 @@ public:
                                enableMulticastInference) {}
 
 private:
-  static constexpr bool isComparisonOp =
-      std::is_same_v<ConcreteOp, ttir::EqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::NotEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
-
   // Build outer (per-shard) implicit-broadcast indexing maps in `physicalRank`,
   // by comparing each input's physical shard shape (in tiles) to the output's.
   //
@@ -1040,11 +1032,7 @@ private:
     }
 
     mlir::Value yield;
-    if constexpr (isComparisonOp) {
-      // For comparison ops, first subtract then compare with zero.
-      yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
-      yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
       // Decompose into maximum(input, min) then minimum(result, max).
       yield = bbBuilder.create<d2m::TileMaximumOp>(
           loc, resultTypes, ValueRange{operands[0], operands[1]});
@@ -3935,12 +3923,12 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TruncOp,          d2m::TileTruncOp>,
     D2MNamedElementwiseRewriter<ttir::WhereOp,           d2m::TileWhereOp>,
     // Comparison.
-    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqzOp>,
-    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNezOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtzOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGezOp>,
-    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtzOp>,
-    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLezOp>,
+    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqOp>,
+    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNeOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGeOp>,
+    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtOp>,
+    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLeOp>,
     // Outer-dim (and integer) reductions: accumulate full-tile binary ops.
     D2MNamedAccumReductionRewriter<ttir::SumOp,  d2m::TileAddOp>,
     D2MNamedAccumReductionRewriter<ttir::MaxOp,  d2m::TileMaximumOp>,

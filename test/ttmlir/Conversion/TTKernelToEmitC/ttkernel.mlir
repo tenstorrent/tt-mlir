@@ -706,6 +706,126 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @eq_binary_tile_init
+    func.func @eq_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "eq_binary_tile_init"()
+      "ttkernel.eq_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @eq_binary_tile
+    func.func @eq_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "eq_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.eq_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ne_binary_tile_init
+    func.func @ne_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "ne_binary_tile_init"()
+      "ttkernel.ne_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ne_binary_tile
+    func.func @ne_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "ne_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.ne_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @gt_binary_tile_init
+    func.func @gt_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "gt_binary_tile_init"()
+      "ttkernel.gt_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @gt_binary_tile
+    func.func @gt_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "gt_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.gt_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @lt_binary_tile_init
+    func.func @lt_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "lt_binary_tile_init"()
+      "ttkernel.lt_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @lt_binary_tile
+    func.func @lt_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "lt_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.lt_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ge_binary_tile_init
+    func.func @ge_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "ge_binary_tile_init"()
+      "ttkernel.ge_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @ge_binary_tile
+    func.func @ge_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "ge_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.ge_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @le_binary_tile_init
+    func.func @le_binary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "le_binary_tile_init"()
+      "ttkernel.le_binary_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @le_binary_tile
+    func.func @le_binary_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
+      %dst0_index = arith.constant 1 : i32
+      // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
+      %dst1_index = arith.constant 2 : i32
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "le_binary_tile"(%[[DST0_INDEX]], %[[DST1_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.le_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @recip_tile_init
     func.func @recip_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "recip_tile_init"()

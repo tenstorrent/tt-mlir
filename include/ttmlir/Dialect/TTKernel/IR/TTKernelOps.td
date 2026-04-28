@@ -1160,6 +1160,180 @@ def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_Bin
     }];
 }
 
+def TTKernel_EqBinaryTilesInitOp : TTKernel_InitOp<"eq_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before eq_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_EqBinaryTilesOp : TTKernel_SFPUOp<"eq_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Equality operation between two tiles";
+    let description = [{
+      Performs element-wise computation of equality operation
+      DST[odst_index] <- DST[dst0_index] == DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NeBinaryTilesInitOp : TTKernel_InitOp<"ne_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before ne_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NeBinaryTilesOp : TTKernel_SFPUOp<"ne_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Inequality operation between two tiles";
+    let description = [{
+      Performs element-wise computation of inequality operation
+      DST[odst_index] <- DST[dst0_index] != DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GtBinaryTilesInitOp : TTKernel_InitOp<"gt_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before gt_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GtBinaryTilesOp : TTKernel_SFPUOp<"gt_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Greater-than operation between two tiles";
+    let description = [{
+      Performs element-wise computation of greater-than operation
+      DST[odst_index] <- DST[dst0_index] > DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LtBinaryTilesInitOp : TTKernel_InitOp<"lt_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before lt_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LtBinaryTilesOp : TTKernel_SFPUOp<"lt_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Less-than operation between two tiles";
+    let description = [{
+      Performs element-wise computation of less-than operation
+      DST[odst_index] <- DST[dst0_index] < DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GeBinaryTilesInitOp : TTKernel_InitOp<"ge_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before ge_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_GeBinaryTilesOp : TTKernel_SFPUOp<"ge_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Greater-than-or-equal operation between two tiles";
+    let description = [{
+      Performs element-wise computation of greater-than-or-equal operation
+      DST[odst_index] <- DST[dst0_index] >= DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LeBinaryTilesInitOp : TTKernel_InitOp<"le_binary_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before le_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:`functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LeBinaryTilesOp : TTKernel_SFPUOp<"le_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Less-than-or-equal operation between two tiles";
+    let description = [{
+      Performs element-wise computation of less-than-or-equal operation
+      DST[odst_index] <- DST[dst0_index] <= DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_BinaryBitwiseTileInitOp : TTKernel_InitOp<"binary_bitwise_tile_init"> {
     let summary = "Init function for binary bitwise operations (AND, OR, XOR). Refer to documentation for any init function.";
     let description = [{

@@ -647,6 +647,72 @@ def D2M_TileLezOp : D2M_GenericRegionComputeUnaryDstOp<"tile_lez", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileEqOp : D2M_GenericRegionComputeBinaryDstOp<"tile_eq", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Eq Op";
+    let description = [{
+        The `tile_eq` operation performs element-wise equality comparison between two tiles.
+        Result element is 1.0 where lhs == rhs, otherwise 0.0.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileNeOp : D2M_GenericRegionComputeBinaryDstOp<"tile_ne", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Ne Op";
+    let description = [{
+        The `tile_ne` operation performs element-wise inequality comparison between two tiles.
+        Result element is 1.0 where lhs != rhs, otherwise 0.0.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileGtOp : D2M_GenericRegionComputeBinaryDstOp<"tile_gt", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Gt Op";
+    let description = [{
+        The `tile_gt` operation performs element-wise greater-than comparison between two tiles.
+        Result element is 1.0 where lhs > rhs, otherwise 0.0.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileLtOp : D2M_GenericRegionComputeBinaryDstOp<"tile_lt", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Lt Op";
+    let description = [{
+        The `tile_lt` operation performs element-wise less-than comparison between two tiles.
+        Result element is 1.0 where lhs < rhs, otherwise 0.0.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileGeOp : D2M_GenericRegionComputeBinaryDstOp<"tile_ge", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Ge Op";
+    let description = [{
+        The `tile_ge` operation performs element-wise greater-than-or-equal comparison
+        between two tiles. Result element is 1.0 where lhs >= rhs, otherwise 0.0.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileLeOp : D2M_GenericRegionComputeBinaryDstOp<"tile_le", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Le Op";
+    let description = [{
+        The `tile_le` operation performs element-wise less-than-or-equal comparison
+        between two tiles. Result element is 1.0 where lhs <= rhs, otherwise 0.0.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum", D2M_TileComputeOpTraitBundle>{
     let summary = "D2M Tile Maximum Op";
     let description = [{

@@ -1393,6 +1393,18 @@ public:
         TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileInt32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::EqBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::EqBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NeBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NeBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GtBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GtBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LtBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LtBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::GeBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LeBinaryTilesInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LeBinaryTilesOp>,
         TTKernelScalarUnaryTileOpRewriter<ttkernel::DivUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileOp>,
@@ -1436,7 +1448,13 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LtzTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>>(
+        typeConverter, funcOp.getContext());
+
+    // The remaining patterns are added in a separate `patterns.add<>` call to
+    // avoid exceeding clang's default fold-expression nesting depth (256
+    // template args) in `RewritePatternSet::add`.
+    patterns.add<
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulIntTileInitOp>,
