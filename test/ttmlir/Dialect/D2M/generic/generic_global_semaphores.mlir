@@ -68,8 +68,8 @@ module {
             : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>,
               tensor<2x2x!ttcore.tile<32x32, f32>>
             -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout>
-        }
-      }
+        } { d2m.blocking_loop = 2 : i64}
+      } { d2m.blocking_loop = 2 : i64}
 
       d2m.semaphore_wait %sem, %c1 : !d2m.global_semaphore
 

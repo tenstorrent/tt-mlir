@@ -55,11 +55,11 @@ static bool needsDMA(Value memref) {
 }
 
 bool isAliasedLoad(RemoteLoadOp loadOp) {
-  return !needsDMA(loadOp.getMemref());
+  return !needsDMA(loadOp.getMemref()) && !loadOp.isMcast();
 }
 
 bool isAliasedStore(RemoteStoreOp storeOp) {
-  return !needsDMA(storeOp.getMemref());
+  return !needsDMA(storeOp.getMemref()) && storeOp.getStartDevice().empty();
 }
 
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
