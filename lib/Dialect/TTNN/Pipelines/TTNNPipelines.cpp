@@ -182,6 +182,10 @@ void createTTNNPipelineLoweringPasses(OpPassManager &pm,
                                       bool removeDeadValuesEnabled = false) {
   // Add pass to add layout information.
   pm.addPass(createTTNNLayout());
+  // Inline any external MLIR functions referenced by ttir.invoke_external ops
+  // before converting TTIR to TTNN so that the resulting func.call ops are
+  // legal in the TTNN conversion pass.
+  pm.addPass(mlir::tt::ttir::createTTIRInlineExternalFunctions());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
