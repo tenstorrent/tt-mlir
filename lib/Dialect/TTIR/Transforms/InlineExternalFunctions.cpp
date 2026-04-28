@@ -28,8 +28,8 @@ namespace {
 
 // If `path` is relative, prepend the directory of the MLIR file in which
 // `moduleOp` was defined.  The source location is obtained from the module's
-// FileLineColLoc, which is set automatically when ttmlir-opt (or any
-// mlir::parseSourceFile caller) loads a file from disk.
+// `FileLineColLoc`, which is set automatically when `ttmlir-opt` (or any
+// `mlir::parseSourceFile` caller) loads a file from disk.
 // If the module has no file location, or if `path` is already absolute, the
 // original `path` is returned unchanged.
 static std::string resolvePath(StringRef path, ModuleOp moduleOp) {
@@ -61,7 +61,7 @@ static std::string resolvePath(StringRef path, ModuleOp moduleOp) {
 // For each symbol in the external module whose name already exists in the
 // destination module, a unique name is generated (by appending "_0", "_1", …).
 // All uses of the original name *inside* the external module are updated via
-// SymbolTable::replaceAllSymbolUses before the op is moved, so that
+// `SymbolTable::replaceAllSymbolUses` before the op is moved, so that
 // cross-symbol references within the incoming module remain consistent.
 //
 // Returns a map { originalName → finalName } for every symbol that was
@@ -82,7 +82,7 @@ mergeExternalModule(ModuleOp destModule,
   }
 
   // Compute renames: walk every symbol in the external module and, if its name
-  // collides with usedNames, pick a fresh name. `usedNames` is updated as we
+  // collides with `usedNames`, pick a fresh name. `usedNames` is updated as we
   // go so that symbols within the external module also don't collide with each
   // other after renaming.
   llvm::StringMap<std::string> renameMap;
@@ -159,9 +159,9 @@ struct TTIRInlineExternalFunctionsPass
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // Cache: path → renameMap produced when that external module was merged.
+    // Cache: path → `renameMap` produced when that external module was merged.
     // Each external module is parsed and merged at most once regardless of how
-    // many ttir.invoke_external ops reference it.
+    // many `ttir.invoke_external` ops reference it.
     llvm::StringMap<llvm::StringMap<std::string>> mergedPaths;
 
     // Collect ops before walking to avoid mutation-during-walk issues.
@@ -206,7 +206,7 @@ struct TTIRInlineExternalFunctionsPass
         finalEntry = it->second;
       }
 
-      // Replace ttir.invoke_external with func.call.
+      // Replace `ttir.invoke_external` with `func.call`.
       OpBuilder builder(invokeOp);
       auto callOp = builder.create<func::CallOp>(invokeOp.getLoc(), finalEntry,
                                                  invokeOp.getResultTypes(),
