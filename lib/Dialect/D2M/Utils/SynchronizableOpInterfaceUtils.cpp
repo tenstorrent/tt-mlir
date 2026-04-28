@@ -129,9 +129,7 @@ LogicalResult unwrapSynchronizedRegion(RewriterBase &rewriter,
   }
 
   for (Operation &op : synchronizedOp.getRegion().front().getOperations()) {
-    if (!mlir::isa<d2m::YieldOp>(op)) {
-      rewriter.clone(op, mapping);
-    }
+    rewriter.clone(op, mapping);
   }
   // remove the synchronized region op
   rewriter.eraseOp(synchronizedOp);
