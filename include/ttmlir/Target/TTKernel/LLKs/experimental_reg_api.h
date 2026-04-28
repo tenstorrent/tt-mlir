@@ -7,6 +7,12 @@
 
 namespace experimental {
 
+// Initializes the PACK_DONE semaphore used by unpack_stall_on_pack. This should
+// run once at compute kernel startup, not at every synchronization point.
+ALWI void unpack_stall_on_pack_init() {
+  PACK(t6_semaphore_init(semaphore::PACK_DONE, 0, 1));
+}
+
 // Stalls the UNPACK thread until the previous PACK cycle's write is
 // committed to L1. Call this before unpacking data that was just packed
 // by the previous linalg.generic to guarantee L1 read-after-write ordering.

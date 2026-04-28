@@ -1791,6 +1791,13 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @unpack_stall_on_pack_init
+    func.func @unpack_stall_on_pack_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "experimental::unpack_stall_on_pack_init"()
+      "ttkernel.experimental::unpack_stall_on_pack_init"() : () -> ()
+      return
+    }
+
     // CHECK-LABEL: func @noc_semaphore_set_multicast
     func.func @noc_semaphore_set_multicast() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[SRC_ADDR:.*]] = emitc.call_opaque "get_semaphore"

@@ -432,6 +432,12 @@ static bool hasMatmulInit(func::FuncOp func) {
   });
 }
 
+static bool hasUnpackStallOnPackInit(func::FuncOp func) {
+  return llvm::any_of(func.getBody().front(), [](Operation &op) {
+    return isa<ttkernel::UnpackStallOnPackInitOp>(op);
+  });
+}
+
 } // namespace
 
 namespace {
@@ -513,6 +519,13 @@ public:
   LogicalResult
   matchAndRewrite(d2m::UnpackStallOnPackOp op, d2m::UnpackStallOnPackOpAdaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (auto func = op->getParentOfType<func::FuncOp>();
+        func && !hasUnpackStallOnPackInit(func)) {
+      OpBuilder::InsertionGuard guard(rewriter);
+      setInsertionPointToFuncStart(rewriter, func, op);
+      rewriter.create<ttkernel::UnpackStallOnPackInitOp>(op.getLoc());
+    }
+
     rewriter.replaceOpWithNewOp<ttkernel::UnpackStallOnPackOp>(op);
     return success();
   }
