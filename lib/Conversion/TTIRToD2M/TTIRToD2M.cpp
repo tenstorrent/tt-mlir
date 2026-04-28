@@ -853,6 +853,45 @@ protected:
 } // namespace
 
 namespace {
+// Maps a binary tile comparison op (used for floating-point lowering via the
+// SFPU `*_binary_tile` API) to the corresponding unary compare-with-zero op
+// (used for the integer fallback via `(a - b)` followed by `*z_int32`).
+template <typename T>
+struct ComparisonZTileOp;
+template <>
+struct ComparisonZTileOp<d2m::TileEqOp> {
+  using type = d2m::TileEqzOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileNeOp> {
+  using type = d2m::TileNezOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileGtOp> {
+  using type = d2m::TileGtzOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileLtOp> {
+  using type = d2m::TileLtzOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileGeOp> {
+  using type = d2m::TileGezOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileLeOp> {
+  using type = d2m::TileLezOp;
+};
+
+template <typename TileOp>
+inline constexpr bool isBinaryComparisonTileOp =
+    std::is_same_v<TileOp, d2m::TileEqOp> ||
+    std::is_same_v<TileOp, d2m::TileNeOp> ||
+    std::is_same_v<TileOp, d2m::TileGtOp> ||
+    std::is_same_v<TileOp, d2m::TileLtOp> ||
+    std::is_same_v<TileOp, d2m::TileGeOp> ||
+    std::is_same_v<TileOp, d2m::TileLeOp>;
+
 // ----------------------------------------------------------------------------
 //
 // Rewrite elementwise ops by emitting a matching D2M tile version of the op
@@ -874,14 +913,6 @@ public:
                                enableMulticastInference) {}
 
 private:
-  static constexpr bool isComparisonOp =
-      std::is_same_v<ConcreteOp, ttir::EqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::NotEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
-
   // Build outer (per-shard) implicit-broadcast indexing maps in `physicalRank`,
   // by comparing each input's physical shard shape (in tiles) to the output's.
   //
@@ -1087,11 +1118,7 @@ private:
     }
 
     mlir::Value yield;
-    if constexpr (isComparisonOp) {
-      // For comparison ops, first subtract then compare with zero.
-      yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
-      yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
       // Decompose into maximum(input, min) then minimum(result, max).
       yield = bbBuilder.create<d2m::TileMaximumOp>(
           loc, resultTypes, ValueRange{operands[0], operands[1]});
@@ -1129,6 +1156,21 @@ private:
       auto diff = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes,
                                                    ValueRange{nezA, nezB});
       yield = bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, diff);
+    } else if constexpr (isBinaryComparisonTileOp<TileOp>) {
+      // The SFPU `*_binary_tile` API always writes fp32 1.0/0.0 into dst.
+      // For floating-point operands that is the correct answer, but for
+      // integer operands the result tensor's element type is an integer and
+      // the fp32 bytes would be reinterpreted (1.0f -> 0x3F800000). Fall back
+      // to the (sub + *z_int32) decomposition for integer-typed operands so
+      // the kernel produces integer 0/1 directly.
+      auto operandTileTy = mlir::cast<ttcore::TileType>(operands[0].getType());
+      if (operandTileTy.getElementType().isInteger()) {
+        auto sub = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
+        yield = bbBuilder.create<typename ComparisonZTileOp<TileOp>::type>(
+            loc, resultTypes, sub.getResult());
+      } else {
+        yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+      }
     } else {
       yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
     }
@@ -4213,12 +4255,12 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TruncOp,          d2m::TileTruncOp>,
     D2MNamedElementwiseRewriter<ttir::WhereOp,           d2m::TileWhereOp>,
     // Comparison.
-    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqzOp>,
-    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNezOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtzOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGezOp>,
-    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtzOp>,
-    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLezOp>,
+    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqOp>,
+    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNeOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGeOp>,
+    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtOp>,
+    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLeOp>,
     // Outer-dim (and integer) reductions: accumulate full-tile binary ops.
     D2MNamedAccumReductionRewriter<ttir::SumOp,  d2m::TileAddOp>,
     D2MNamedAccumReductionRewriter<ttir::MaxOp,  d2m::TileMaximumOp>,
