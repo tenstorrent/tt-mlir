@@ -107,15 +107,6 @@ module {
     return %1 : tensor<64x64xsi32>
   }
 
-  func.func @bitwise_not_float() -> tensor<64x64xf32> {
-    // CHECK-LABEL: func.func @bitwise_not_float
-    // CHECK: "ttir.zeros"
-    // CHECK-NOT: "ttir.bitwise_not"
-    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = 0xffffffff : f32}> : () -> tensor<64x64xf32>
-    %1 = "ttir.bitwise_not"(%0) : (tensor<64x64xf32>) -> tensor<64x64xf32>
-    return %1 : tensor<64x64xf32>
-  }
-
   func.func @cbrt_float() -> tensor<64x64xf32> {
     // CHECK-LABEL: func.func @cbrt_float
     // CHECK: "ttir.full"
