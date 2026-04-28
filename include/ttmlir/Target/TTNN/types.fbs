@@ -1,5 +1,14 @@
 include "ttmlir/Target/Common/types.fbs";
 
+// POC tags consumed by tools/scripts/op-tensor-refs-gen.py to auto-generate
+// the input/output TensorRef extraction switches in
+// runtime/lib/ttnn/runtime.cpp. Apply to TensorRef-typed fields:
+//   foo: TensorRef       (tt_input);
+//   bar: [TensorRef]     (tt_input);
+//   out: TensorRef       (tt_output);
+attribute "tt_input";
+attribute "tt_output";
+
 namespace tt.target.ttnn;
 
 enum TensorMemoryLayout: ushort {

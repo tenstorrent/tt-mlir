@@ -1010,6 +1010,9 @@ getOpOutputRef(OpContext opContextHandle,
   std::optional<const ::tt::target::ttnn::TensorRef *> tensorRef = std::nullopt;
 
   switch (opContext.type_type()) {
+  // POC: cases for ops whose .fbs out field is tagged with (tt_output).
+  // See tools/scripts/op-tensor-refs-gen.py.
+#include "ttmlir/Target/TTNN/program_op_output_refs.inc"
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     tensorRef = opContext.type_as_ToMemoryConfigOp()->out();
     break;
@@ -1076,18 +1079,6 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
     tensorRef = opContext.type_as_EltwiseUnaryCompositeOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::LinearOp: {
-    tensorRef = opContext.type_as_LinearOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MatmulOp: {
-    tensorRef = opContext.type_as_MatmulOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
-    tensorRef = opContext.type_as_SparseMatmulOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
@@ -1168,10 +1159,6 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     tensorRef = opContext.type_as_RepeatInterleaveOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::Conv2dOp: {
-    tensorRef = opContext.type_as_Conv2dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::Conv3dOp: {
@@ -1430,6 +1417,9 @@ getOpInputRefs(OpContext opContextHandle,
   std::vector<const ::tt::target::ttnn::TensorRef *> tensorRefs;
 
   switch (opContext.type_type()) {
+  // POC: cases for ops whose .fbs fields are tagged with (tt_input).
+  // See tools/scripts/op-tensor-refs-gen.py.
+#include "ttmlir/Target/TTNN/program_op_input_refs.inc"
   case ::tt::target::ttnn::OpType::ArangeOp: {
     break;
   }
@@ -1512,23 +1502,6 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EltwiseUnaryCompositeOp: {
     tensorRefs = {opContext.type_as_EltwiseUnaryCompositeOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::LinearOp: {
-    tensorRefs = {opContext.type_as_LinearOp()->a(),
-                  opContext.type_as_LinearOp()->b(),
-                  opContext.type_as_LinearOp()->bias()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::MatmulOp: {
-    tensorRefs = {opContext.type_as_MatmulOp()->a(),
-                  opContext.type_as_MatmulOp()->b()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::SparseMatmulOp: {
-    tensorRefs = {opContext.type_as_SparseMatmulOp()->a(),
-                  opContext.type_as_SparseMatmulOp()->b(),
-                  opContext.type_as_SparseMatmulOp()->sparsity()};
     break;
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
@@ -1616,10 +1589,6 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     tensorRefs = {opContext.type_as_RepeatInterleaveOp()->input()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::Conv2dOp: {
-    tensorRefs = {opContext.type_as_Conv2dOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::Conv3dOp: {

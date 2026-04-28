@@ -143,10 +143,10 @@ table PrepareConvTranspose2dBiasOp {
 }
 
 table Conv2dOp {
-  input: tt.target.ttnn.TensorRef;
-  weight: tt.target.ttnn.TensorRef;
-  bias: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
+  input: tt.target.ttnn.TensorRef (tt_input);
+  weight: tt.target.ttnn.TensorRef (tt_input);
+  bias: tt.target.ttnn.TensorRef (tt_input);
+  out: tt.target.ttnn.TensorRef (tt_output);
   device: tt.target.DeviceRef;
   in_channels: uint32;
   out_channels: uint32;

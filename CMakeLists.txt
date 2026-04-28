@@ -196,6 +196,11 @@ if (TTMLIR_ENABLE_STABLEHLO)
   )
 endif()
 
+# Build-time codegen tool consumed by include/ttmlir/Target/TTNN flatbuffer
+# generation. Must be configured before add_subdirectory(include) so the target
+# exists when build_flatbuffers() registers its custom_commands.
+add_subdirectory(tools/op-tensor-refs-gen)
+
 add_subdirectory(include)
 add_subdirectory(lib)
 if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)

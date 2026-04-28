@@ -62,9 +62,9 @@ union MatmulProgramConfig {
 
 // ANCHOR: adding_an_op_matmul_fbs
 table MatmulOp {
-  a: tt.target.ttnn.TensorRef;
-  b: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
+  a: tt.target.ttnn.TensorRef (tt_input);
+  b: tt.target.ttnn.TensorRef (tt_input);
+  out: tt.target.ttnn.TensorRef (tt_output);
   transpose_a: bool;
   transpose_b: bool;
   matmul_program_config: tt.target.ttnn.MatmulProgramConfig;
@@ -74,10 +74,10 @@ table MatmulOp {
 // ANCHOR_END: adding_an_op_matmul_fbs
 
 table LinearOp {
-  a: tt.target.ttnn.TensorRef;
-  b: tt.target.ttnn.TensorRef;
-  bias: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
+  a: tt.target.ttnn.TensorRef (tt_input);
+  b: tt.target.ttnn.TensorRef (tt_input);
+  bias: tt.target.ttnn.TensorRef (tt_input);
+  out: tt.target.ttnn.TensorRef (tt_output);
   transpose_a: bool;
   transpose_b: bool;
   matmul_program_config: tt.target.ttnn.MatmulProgramConfig;
@@ -86,10 +86,10 @@ table LinearOp {
 }
 
 table SparseMatmulOp {
-  a: tt.target.ttnn.TensorRef;
-  b: tt.target.ttnn.TensorRef;
-  sparsity: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
+  a: tt.target.ttnn.TensorRef (tt_input);
+  b: tt.target.ttnn.TensorRef (tt_input);
+  sparsity: tt.target.ttnn.TensorRef (tt_input);
+  out: tt.target.ttnn.TensorRef (tt_output);
   is_input_a_sparse: bool;
   is_input_b_sparse: bool;
   nnz: int64;

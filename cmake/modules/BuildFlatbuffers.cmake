@@ -33,12 +33,15 @@ foreach(FILE ${sources})
   get_filename_component(BASE_NAME ${FILE} NAME_WE)
   set(FBS_GEN_FILE "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_generated.h")
   set(FBS_GEN_BFBS_FILE "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_bfbs_generated.h")
+  set(FBS_GEN_BFBS_BIN_FILE "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}.bfbs")
   add_custom_command(OUTPUT
     "${FBS_GEN_FILE}"
     "${FBS_GEN_BFBS_FILE}"
+    "${FBS_GEN_BFBS_BIN_FILE}"
     COMMAND ${FLATBUFFERS_COMPILER}
     ${INCLUDE_ARGS}
     ARGS --bfbs-gen-embed
+    ARGS -b --schema
     ARGS --cpp --cpp-std c++17
     ARGS --scoped-enums --warnings-as-errors
     ARGS --keep-prefix
@@ -50,6 +53,29 @@ foreach(FILE ${sources})
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   list(APPEND FBS_GEN_OUTPUTS ${FBS_GEN_FILE})
   list(APPEND FBS_GEN_OUTPUTS ${FBS_GEN_BFBS_FILE})
+  list(APPEND FBS_GEN_OUTPUTS ${FBS_GEN_BFBS_BIN_FILE})
+
+  # POC: for the top-level program schema, generate switch-case bodies for
+  # getOpInputRefs / getOpOutputRef by reflecting on the binary schema. The
+  # codegen tool is a tiny C++ executable using flatbuffers/reflection_generated.h.
+  if(BASE_NAME STREQUAL "program")
+    set(FBS_GEN_OP_INPUT_REFS_FILE  "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_op_input_refs.inc")
+    set(FBS_GEN_OP_OUTPUT_REFS_FILE "${CMAKE_CURRENT_BINARY_DIR}/${FILE_DIR}/${BASE_NAME}_op_output_refs.inc")
+    add_custom_command(OUTPUT
+      "${FBS_GEN_OP_INPUT_REFS_FILE}"
+      "${FBS_GEN_OP_OUTPUT_REFS_FILE}"
+      COMMAND $<TARGET_FILE:op-tensor-refs-gen>
+              "${FBS_GEN_BFBS_BIN_FILE}"
+              "${FBS_GEN_OP_INPUT_REFS_FILE}"
+              "${FBS_GEN_OP_OUTPUT_REFS_FILE}"
+      DEPENDS "${FBS_GEN_BFBS_BIN_FILE}" op-tensor-refs-gen
+      COMMENT "Generating op tensor-ref switch bodies from ${BASE_NAME}.bfbs"
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      VERBATIM
+    )
+    list(APPEND FBS_GEN_OUTPUTS ${FBS_GEN_OP_INPUT_REFS_FILE})
+    list(APPEND FBS_GEN_OUTPUTS ${FBS_GEN_OP_OUTPUT_REFS_FILE})
+  endif()
 
   # Compute sha256 hash of the schema (via the bfbs file itself)
   set(FBS_GEN_PYTHON_SHA256_SCRIPT "${PROJECT_SOURCE_DIR}/tools/scripts/sha256-include-gen.py")
