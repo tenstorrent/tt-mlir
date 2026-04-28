@@ -18,6 +18,9 @@
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <memory>
 #include <optional>
 #include <type_traits>
 
@@ -161,8 +164,7 @@ inline std::uint64_t getElementSizeBytes(ttcore::DataType dtype) {
   return 0;
 }
 
-inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
-                                           ttcore::DataType dtype) {
+inline ::tt::target::DataType toNative(ttcore::DataType dtype) {
   switch (dtype) {
   case ttcore::DataType::Float32:
     return ::tt::target::DataType::Float32;
@@ -195,8 +197,12 @@ inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
   }
 }
 
-inline ::tt::target::MathFidelity
-toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
+inline ::tt::target::DataType toFlatbuffer(FlatbufferObjectCache &,
+                                           ttcore::DataType dtype) {
+  return toNative(dtype);
+}
+
+inline ::tt::target::MathFidelity toNative(ttnn::MathFidelity mathFidelity) {
   switch (mathFidelity) {
   case ttnn::MathFidelity::LoFi:
     return ::tt::target::MathFidelity::LoFi;
@@ -209,8 +215,13 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
   }
 }
 
+inline ::tt::target::MathFidelity
+toFlatbuffer(FlatbufferObjectCache &, ttnn::MathFidelity mathFidelity) {
+  return toNative(mathFidelity);
+}
+
 inline ::tt::target::ttnn::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
+toNative(ttnn::TensorMemoryLayout memLayout) {
   switch (memLayout) {
   case ttnn::TensorMemoryLayout::Interleaved:
     return ::tt::target::ttnn::TensorMemoryLayout::Interleaved;
@@ -226,13 +237,22 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
 }
 
 inline ::tt::target::ttnn::TensorMemoryLayout
-toFlatbuffer(FlatbufferObjectCache &cache,
-             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
-  return toFlatbuffer(cache, memLayoutAttr.getValue());
+toFlatbuffer(FlatbufferObjectCache &, ttnn::TensorMemoryLayout memLayout) {
+  return toNative(memLayout);
 }
 
-inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
-                                             ttnn::BufferType bufferType) {
+inline ::tt::target::ttnn::TensorMemoryLayout
+toNative(ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  return toNative(memLayoutAttr.getValue());
+}
+
+inline ::tt::target::ttnn::TensorMemoryLayout
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr) {
+  return toNative(memLayoutAttr);
+}
+
+inline ::tt::target::BufferType toNative(ttnn::BufferType bufferType) {
   switch (bufferType) {
   case ttnn::BufferType::SystemMemory:
     return ::tt::target::BufferType::SystemMemory;
@@ -248,8 +268,12 @@ inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
   llvm_unreachable("Unknown ttnn::BufferType");
 }
 
-inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
-                                               ttnn::Layout layout) {
+inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
+                                             ttnn::BufferType bufferType) {
+  return toNative(bufferType);
+}
+
+inline ::tt::target::TensorLayout toNative(ttnn::Layout layout) {
   switch (layout) {
   case ttnn::Layout::RowMajor:
     return ::tt::target::TensorLayout::RowMajor;
@@ -258,6 +282,11 @@ inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
   case ttnn::Layout::Invalid:
     return ::tt::target::TensorLayout::Invalid;
   }
+}
+
+inline ::tt::target::TensorLayout toFlatbuffer(FlatbufferObjectCache &cache,
+                                               ttnn::Layout layout) {
+  return toNative(layout);
 }
 
 inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
@@ -275,7 +304,7 @@ inline ::tt::target::BufferType toFlatbuffer(FlatbufferObjectCache &,
 }
 
 inline ::tt::target::ttnn::ShardOrientation
-toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
+toNative(ttnn::ShardOrientation orientation) {
   switch (orientation) {
   case ttnn::ShardOrientation::RowMajor:
     return ::tt::target::ttnn::ShardOrientation::RowMajor;
@@ -284,15 +313,25 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
   }
 }
 
+inline ::tt::target::ttnn::ShardOrientation
+toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
+  return toNative(orientation);
+}
+
 inline ::tt::target::ttnn::ShardDistributionStrategy
-toFlatbuffer(FlatbufferObjectCache &,
-             ttnn::ShardDistributionStrategy shardDistributionStrategy) {
+toNative(ttnn::ShardDistributionStrategy shardDistributionStrategy) {
   switch (shardDistributionStrategy) {
   case ttnn::ShardDistributionStrategy::RoundRobin1D:
     return ::tt::target::ttnn::ShardDistributionStrategy::RoundRobin1D;
   case ttnn::ShardDistributionStrategy::Grid2D:
     return ::tt::target::ttnn::ShardDistributionStrategy::Grid2D;
   }
+}
+
+inline ::tt::target::ttnn::ShardDistributionStrategy
+toFlatbuffer(FlatbufferObjectCache &,
+             ttnn::ShardDistributionStrategy shardDistributionStrategy) {
+  return toNative(shardDistributionStrategy);
 }
 
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
@@ -353,8 +392,13 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
 }
 
 template <typename T, std::enable_if_t<std::is_arithmetic<T>::value, int> = 0>
-T toFlatbuffer(FlatbufferObjectCache &, T arith) {
+T toNative(T arith) {
   return arith;
+}
+
+template <typename T, std::enable_if_t<std::is_arithmetic<T>::value, int> = 0>
+T toFlatbuffer(FlatbufferObjectCache &, T arith) {
+  return toNative(arith);
 }
 
 template <typename T>
@@ -377,6 +421,15 @@ flatbuffers::Optional<ToFlatbufferReturnType<T>>
 toFlatbuffer(FlatbufferObjectCache &cache, const std::optional<T> &optValue) {
   return llvm::transformOptional(
       optValue, [&](const T &val) { return toFlatbuffer(cache, val); });
+}
+
+template <typename T>
+::flatbuffers::Optional<decltype(toNative(std::declval<T>()))>
+toNative(const std::optional<T> &opt) {
+  if (!opt) {
+    return ::flatbuffers::nullopt;
+  }
+  return toNative(*opt);
 }
 
 template <typename T, std::enable_if_t<IsNativeFlatbufferTypeV<T>, int> = 0>
@@ -541,21 +594,47 @@ toFlatbuffer(FlatbufferObjectCache &cache, ElementsAttr elementsAttr) {
   return toFlatbuffer(cache, ArrayRef<uint32_t>(data));
 }
 
+inline double toNative(mlir::FloatAttr attr) { return attr.getValueAsDouble(); }
+
 inline double toFlatbuffer(FlatbufferObjectCache &, mlir::FloatAttr attr) {
-  return attr.getValueAsDouble();
+  return toNative(attr);
 }
 
 inline ::tt::target::ttnn::CoreCoord
-toFlatbuffer(FlatbufferObjectCache &cache, ttnn::CoreCoordAttr coreCoordAttr) {
+toNative(ttnn::CoreCoordAttr coreCoordAttr) {
   return ::tt::target::ttnn::CoreCoord(coreCoordAttr.getX(),
                                        coreCoordAttr.getY());
 }
 
+inline ::tt::target::ttnn::CoreCoord
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::CoreCoordAttr coreCoordAttr) {
+  return toNative(coreCoordAttr);
+}
+
+inline ::tt::target::ttnn::CoreRange
+toNative(ttnn::CoreRangeAttr coreRangeAttr) {
+  return ::tt::target::ttnn::CoreRange(toNative(coreRangeAttr.getStartCoord()),
+                                       toNative(coreRangeAttr.getEndCoord()));
+}
+
 inline ::tt::target::ttnn::CoreRange
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::CoreRangeAttr coreRangeAttr) {
-  return ::tt::target::ttnn::CoreRange(
-      toFlatbuffer(cache, coreRangeAttr.getStartCoord()),
-      toFlatbuffer(cache, coreRangeAttr.getEndCoord()));
+  return toNative(coreRangeAttr);
+}
+
+inline ::tt::target::ttnn::CoreRangeSetT
+toNative(ttnn::CoreRangeSetAttr coreRangeSetAttr) {
+  if (!coreRangeSetAttr) {
+    return {};
+  }
+  ::tt::target::ttnn::CoreRangeSetT coreRangeSetT;
+
+  auto core_ranges = coreRangeSetAttr.getCoreRanges().vec();
+  for (auto core_range : core_ranges) {
+    coreRangeSetT.core_ranges.push_back(toNative(core_range));
+  }
+
+  return coreRangeSetT;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet>
@@ -565,12 +644,11 @@ toFlatbuffer(FlatbufferObjectCache &cache,
     return 0;
   }
 
-  return ::tt::target::ttnn::CreateCoreRangeSet(
-      *cache.fbb, toFlatbuffer(cache, coreRangeSetAttr.getCoreRanges()));
+  auto t = toNative(coreRangeSetAttr);
+  return ::tt::target::ttnn::CoreRangeSet::Pack(*cache.fbb, &t);
 }
 
-inline ::tt::target::ttnn::UnaryOpType
-toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
+inline ::tt::target::ttnn::UnaryOpType toNative(ttnn::UnaryOpType unaryOpType) {
   using MlirUnaryOpType = ::mlir::tt::ttnn::UnaryOpType;
   using FbUnaryOpType = ::tt::target::ttnn::UnaryOpType;
 
@@ -664,24 +742,77 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
   llvm_unreachable("Unsupported unary op type");
 }
 
+inline ::tt::target::ttnn::UnaryOpType
+toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
+  return toNative(unaryOpType);
+}
+
+inline ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfigT
+toNative(ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfigT matmulConfigT;
+
+  matmulConfigT.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(matmulConfigAttr.getComputeWithStorageGridSize()));
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.out_subblock_h = matmulConfigAttr.getOutSubblockH();
+  matmulConfigT.out_subblock_w = matmulConfigAttr.getOutSubblockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
+
+  return matmulConfigT;
+}
+
 inline ::flatbuffers::Offset<
     ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::MatmulMultiCoreReuseProgramConfigAttr matmulConfigAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
-  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseProgramConfig(
-      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
-      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
-      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN());
+  auto t = toNative(matmulConfigAttr);
+  return ::tt::target::ttnn::MatmulMultiCoreReuseProgramConfig::Pack(*cache.fbb,
+                                                                     &t);
+}
+
+inline ::tt::target::ttnn::UnaryWithParamT
+toNative(ttnn::UnaryWithParamAttr unaryWithParam) {
+  ::tt::target::ttnn::UnaryWithParamT unaryWithParamT;
+
+  unaryWithParamT.op_type = toNative(unaryWithParam.getOpType());
+  for (auto param : unaryWithParam.getParams()) {
+    unaryWithParamT.params.push_back(toNative(param));
+  }
+  return unaryWithParamT;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::UnaryWithParamAttr unaryWithParam) {
-  return ::tt::target::ttnn::CreateUnaryWithParam(
-      *cache.fbb, toFlatbuffer(cache, unaryWithParam.getOpType()),
-      toFlatbuffer(cache, unaryWithParam.getParams()));
+  auto t = toNative(unaryWithParam);
+  return ::tt::target::ttnn::UnaryWithParam::Pack(*cache.fbb, &t);
+}
+
+inline ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfigT toNative(
+    ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfigT matmulConfigT;
+
+  matmulConfigT.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(matmulConfigAttr.getComputeWithStorageGridSize()));
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.out_subblock_h = matmulConfigAttr.getOutSubblockH();
+  matmulConfigT.out_subblock_w = matmulConfigAttr.getOutSubblockW();
+  matmulConfigT.out_block_h = matmulConfigAttr.getOutBlockH();
+  matmulConfigT.out_block_w = matmulConfigAttr.getOutBlockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
+  matmulConfigT.transpose_mcast = matmulConfigAttr.getTransposeMcast();
+  if (matmulConfigAttr.getFusedActivation()) {
+    matmulConfigT.fused_activation =
+        std::make_unique<::tt::target::ttnn::UnaryWithParamT>(
+            toNative(matmulConfigAttr.getFusedActivation()));
+  }
+  matmulConfigT.fuse_batch = matmulConfigAttr.getFuseBatch();
+
+  return matmulConfigT;
 }
 
 inline ::flatbuffers::Offset<
@@ -689,20 +820,41 @@ inline ::flatbuffers::Offset<
 toFlatbuffer(
     FlatbufferObjectCache &cache,
     ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr matmulConfigAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
+  auto t = toNative(matmulConfigAttr);
+  return ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastProgramConfig::Pack(
+      *cache.fbb, &t);
+}
+
+inline ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigT
+toNative(
+    ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigT
+      matmulConfigT;
+  matmulConfigT.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(matmulConfigAttr.getComputeWithStorageGridSize()));
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.out_subblock_h = matmulConfigAttr.getOutSubblockH();
+  matmulConfigT.out_subblock_w = matmulConfigAttr.getOutSubblockW();
+  matmulConfigT.out_block_h = matmulConfigAttr.getOutBlockH();
+  matmulConfigT.out_block_w = matmulConfigAttr.getOutBlockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
+  matmulConfigT.fuse_batch = matmulConfigAttr.getFuseBatch();
   if (matmulConfigAttr.getFusedActivation()) {
-    fusedActivation =
-        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
+    matmulConfigT.fused_activation =
+        std::make_unique<::tt::target::ttnn::UnaryWithParamT>(
+            toNative(matmulConfigAttr.getFusedActivation()));
   }
-  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseMultiCastProgramConfig(
-      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
-      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
-      matmulConfigAttr.getOutBlockH(), matmulConfigAttr.getOutBlockW(),
-      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
-      matmulConfigAttr.getTransposeMcast(), fusedActivation,
-      matmulConfigAttr.getFuseBatch());
+  matmulConfigT.mcast_in0 = matmulConfigAttr.getMcastIn0();
+  matmulConfigT.gather_in0 = matmulConfigAttr.getGatherIn0();
+  matmulConfigT.hop_cores = std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+      toNative(matmulConfigAttr.getHopCores()));
+  matmulConfigT.num_global_cb_receivers =
+      matmulConfigAttr.getNumGlobalCbReceivers();
+  matmulConfigT.untilize_out = matmulConfigAttr.getUntilizeOut();
+
+  return matmulConfigT;
 }
 
 inline ::flatbuffers::Offset<
@@ -710,23 +862,28 @@ inline ::flatbuffers::Offset<
 toFlatbuffer(
     FlatbufferObjectCache &cache,
     ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr matmulConfigAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, matmulConfigAttr.getComputeWithStorageGridSize());
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
+  auto t = toNative(matmulConfigAttr);
+  return ::tt::target::ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfig::Pack(
+      *cache.fbb, &t);
+}
+
+inline ::tt::target::ttnn::
+    MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigT
+    toNative(ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+                 matmulConfigAttr) {
+  ::tt::target::ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigT
+      matmulConfigT;
+
+  matmulConfigT.in0_block_w = matmulConfigAttr.getIn0BlockW();
+  matmulConfigT.per_core_m = matmulConfigAttr.getPerCoreM();
+  matmulConfigT.per_core_n = matmulConfigAttr.getPerCoreN();
   if (matmulConfigAttr.getFusedActivation()) {
-    fusedActivation =
-        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
+    matmulConfigT.fused_activation =
+        std::make_unique<::tt::target::ttnn::UnaryWithParamT>(
+            toNative(matmulConfigAttr.getFusedActivation()));
   }
-  return ::tt::target::ttnn::CreateMatmulMultiCoreReuseMultiCast1DProgramConfig(
-      *cache.fbb, &computeWithStorageGridSize, matmulConfigAttr.getIn0BlockW(),
-      matmulConfigAttr.getOutSubblockH(), matmulConfigAttr.getOutSubblockW(),
-      matmulConfigAttr.getOutBlockH(), matmulConfigAttr.getOutBlockW(),
-      matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
-      matmulConfigAttr.getFuseBatch(), fusedActivation,
-      matmulConfigAttr.getMcastIn0(), matmulConfigAttr.getGatherIn0(),
-      toFlatbuffer(cache, matmulConfigAttr.getHopCores()),
-      matmulConfigAttr.getNumGlobalCbReceivers(),
-      matmulConfigAttr.getUntilizeOut());
+
+  return matmulConfigT;
 }
 
 inline ::flatbuffers::Offset<
@@ -734,16 +891,10 @@ inline ::flatbuffers::Offset<
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
                  matmulConfigAttr) {
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> fusedActivation;
-  if (matmulConfigAttr.getFusedActivation()) {
-    fusedActivation =
-        toFlatbuffer(cache, matmulConfigAttr.getFusedActivation());
-  }
+  auto t = toNative(matmulConfigAttr);
   return ::tt::target::ttnn::
-      CreateMatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
-          *cache.fbb, matmulConfigAttr.getIn0BlockW(),
-          matmulConfigAttr.getPerCoreM(), matmulConfigAttr.getPerCoreN(),
-          fusedActivation);
+      MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig::Pack(*cache.fbb,
+                                                                  &t);
 }
 
 inline ::flatbuffers::Offset<::flatbuffers::String>
@@ -755,13 +906,17 @@ toFlatbuffer(FlatbufferObjectCache &cache, StringAttr strAttr) {
   return 0;
 }
 
-inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
-                                                  BoolAttr attr) {
+inline ::flatbuffers::Optional<bool> toNative(BoolAttr attr) {
   if (attr) {
     return attr.getValue();
   }
 
   return ::flatbuffers::nullopt;
+}
+
+inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
+                                                  BoolAttr attr) {
+  return toNative(attr);
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>
@@ -791,33 +946,58 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       configAttr.getBlockH(), configAttr.getBlockW(), configAttr.getInplace());
 }
 
+inline ::tt::target::ttnn::Conv2dConfigT
+toNative(ttnn::Conv2dConfigAttr config) {
+  ::tt::target::ttnn::Conv2dConfigT conv2dConfigT;
+
+  conv2dConfigT.weights_dtype = toNative(config.getWeightsDtype());
+  if (config.getActivation()) {
+    conv2dConfigT.activation =
+        std::make_unique<::tt::target::ttnn::UnaryWithParamT>(
+            toNative(config.getActivation()));
+  } else {
+    conv2dConfigT.activation = nullptr;
+  }
+  conv2dConfigT.deallocate_activation =
+      toNative(config.getDeallocateActivation());
+  conv2dConfigT.reallocate_halo_output =
+      toNative(config.getReallocateHaloOutput());
+  conv2dConfigT.act_block_h_override = toNative(config.getActBlockHOverride());
+  conv2dConfigT.act_block_w_div = toNative(config.getActBlockWDiv());
+  conv2dConfigT.reshard_if_not_optimal =
+      toNative(config.getReshardIfNotOptimal());
+  conv2dConfigT.override_sharding_config =
+      toNative(config.getOverrideShardingConfig());
+  conv2dConfigT.shard_layout = toNative(config.getShardLayout());
+  if (config.getCoreGrid()) {
+    conv2dConfigT.core_grid =
+        std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+            toNative(config.getCoreGrid()));
+  } else {
+    conv2dConfigT.core_grid = nullptr;
+  }
+  conv2dConfigT.transpose_shards = toNative(config.getTransposeShards());
+  conv2dConfigT.output_layout = toNative(config.getOutputLayout());
+  conv2dConfigT.enable_act_double_buffer =
+      toNative(config.getEnableActDoubleBuffer());
+  conv2dConfigT.enable_weights_double_buffer =
+      toNative(config.getEnableWeightsDoubleBuffer());
+  conv2dConfigT.enable_kernel_stride_folding =
+      toNative(config.getEnableKernelStrideFolding());
+  conv2dConfigT.config_tensors_in_dram =
+      toNative(config.getConfigTensorsInDram());
+
+  return conv2dConfigT;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
-  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
-  if (config.getActivation()) {
-    activation = toFlatbuffer(cache, config.getActivation());
-  }
-
-  return ::tt::target::ttnn::CreateConv2dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()), activation,
-      toFlatbuffer(cache, config.getDeallocateActivation()),
-      toFlatbuffer(cache, config.getReallocateHaloOutput()),
-      toFlatbuffer(cache, config.getActBlockHOverride()),
-      toFlatbuffer(cache, config.getActBlockWDiv()),
-      toFlatbuffer(cache, config.getReshardIfNotOptimal()),
-      toFlatbuffer(cache, config.getOverrideShardingConfig()),
-      toFlatbuffer(cache, config.getShardLayout()),
-      toFlatbuffer(cache, config.getCoreGrid()),
-      toFlatbuffer(cache, config.getTransposeShards()),
-      toFlatbuffer(cache, config.getOutputLayout()),
-      toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
-      toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
-      toFlatbuffer(cache, config.getEnableKernelStrideFolding()),
-      toFlatbuffer(cache, config.getConfigTensorsInDram()));
+  auto t = toNative(config);
+  return ::tt::target::ttnn::Conv2dConfig::Pack(*cache.fbb, &t);
 }
 
 inline ::tt::target::ttnn::Conv2dSliceType
-toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
+toNative(ttnn::Conv2dSliceType sliceType) {
   switch (sliceType) {
   case ttnn::Conv2dSliceType::DramHeight:
     return ::tt::target::ttnn::Conv2dSliceType::DramHeight;
@@ -829,34 +1009,73 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
   llvm_unreachable("Unsupported Conv2dSliceType");
 }
 
+inline ::tt::target::ttnn::Conv2dSliceType
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dSliceType sliceType) {
+  return toNative(sliceType);
+}
+
+inline ::tt::target::ttnn::Conv2dSliceConfigT
+toNative(ttnn::Conv2dSliceConfigAttr sliceConfigAttr) {
+  ::tt::target::ttnn::Conv2dSliceConfigT sliceConfigT;
+  sliceConfigT.slice_type = toNative(sliceConfigAttr.getSliceType());
+  sliceConfigT.num_slices = sliceConfigAttr.getNumSlices();
+  return sliceConfigT;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::Conv2dSliceConfigAttr sliceConfigAttr) {
-  return ::tt::target::ttnn::CreateConv2dSliceConfig(
-      *cache.fbb, toFlatbuffer(cache, sliceConfigAttr.getSliceType()),
-      sliceConfigAttr.getNumSlices());
+  auto sliceConfigT = toNative(sliceConfigAttr);
+  return ::tt::target::ttnn::Conv2dSliceConfig::Pack(*cache.fbb, &sliceConfigT);
+}
+
+inline ::tt::target::ttnn::Conv3dConfigT
+toNative(ttnn::Conv3dConfigAttr config) {
+  ::tt::target::ttnn::Conv3dConfigT conv3dConfigT;
+  if (config.getWeightsDtype()) {
+    conv3dConfigT.weights_dtype = toNative(*config.getWeightsDtype());
+  }
+  if (config.getTOutBlock()) {
+    conv3dConfigT.t_out_block = *config.getTOutBlock();
+  }
+  if (config.getWOutBlock()) {
+    conv3dConfigT.w_out_block = *config.getWOutBlock();
+  }
+  if (config.getHOutBlock()) {
+    conv3dConfigT.h_out_block = *config.getHOutBlock();
+  }
+  if (config.getCOutBlock()) {
+    conv3dConfigT.c_out_block = *config.getCOutBlock();
+  }
+  if (config.getCInBlock()) {
+    conv3dConfigT.c_in_block = *config.getCInBlock();
+  }
+  // compute_with_storage_grid_size not set here
+  return conv3dConfigT;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv3dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv3dConfigAttr config) {
-  return ::tt::target::ttnn::CreateConv3dConfig(
-      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()),
-      toFlatbuffer(cache, config.getTOutBlock()),
-      toFlatbuffer(cache, config.getWOutBlock()),
-      toFlatbuffer(cache, config.getHOutBlock()),
-      toFlatbuffer(cache, config.getCOutBlock()),
-      toFlatbuffer(cache, config.getCInBlock()));
+  auto t = toNative(config);
+  return ::tt::target::ttnn::Conv3dConfig::Pack(*cache.fbb, &t);
+}
+
+inline ::tt::target::ttnn::DeviceComputeKernelConfigT
+toNative(ttnn::DeviceComputeKernelConfigAttr attr) {
+  ::tt::target::ttnn::DeviceComputeKernelConfigT t;
+  t.math_fidelity = toNative(attr.getMathFidelity());
+  t.math_approx_mode = toNative(attr.getMathApproxMode());
+  t.fp32_dest_acc_en = toNative(attr.getFp32DestAccEn());
+  t.packer_l1_acc = toNative(attr.getPackerL1Acc());
+  t.dst_full_sync_en = toNative(attr.getDstFullSyncEn());
+  return t;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {
-  return ::tt::target::ttnn::CreateDeviceComputeKernelConfig(
-      *cache.fbb, toFlatbuffer(cache, computeConfigAttr.getMathFidelity()),
-      toFlatbuffer(cache, computeConfigAttr.getMathApproxMode()),
-      toFlatbuffer(cache, computeConfigAttr.getFp32DestAccEn()),
-      toFlatbuffer(cache, computeConfigAttr.getPackerL1Acc()),
-      toFlatbuffer(cache, computeConfigAttr.getDstFullSyncEn()));
+  auto t = toNative(computeConfigAttr);
+  return ::tt::target::ttnn::DeviceComputeKernelConfig::Pack(*cache.fbb, &t);
 }
 
 template <typename T>
@@ -875,44 +1094,80 @@ toFlatbufferByteVector(FlatbufferObjectCache &cache,
   return cache.fbb->EndVector(sizeBytes);
 }
 
+inline ::tt::target::ttnn::ShardSpecT
+toNative(::mlir::tt::ttnn::ShardSpecAttr shardSpec) {
+  ::tt::target::ttnn::ShardSpecT shardSpecT;
+  shardSpecT.core_range_set =
+      std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+          toNative(shardSpec.getCoreRangeSet()));
+  llvm::ArrayRef<int64_t> shardShapeArr = shardSpec.getShape().getShape();
+  shardSpecT.shape.reserve(shardShapeArr.size());
+  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
+                 std::back_inserter(shardSpecT.shape),
+                 [](int64_t val) { return static_cast<int32_t>(val); });
+  shardSpecT.orientation = toNative(shardSpec.getShardOrientation().getValue());
+  return shardSpecT;
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ::mlir::tt::ttnn::ShardSpecAttr shardSpec) {
-  auto coreRangeSet = toFlatbuffer(cache, shardSpec.getCoreRangeSet());
-  llvm::ArrayRef<int64_t> shardShapeArr = shardSpec.getShape().getShape();
-  assert(shardShapeArr.size() == 2);
-  std::vector<int32_t> shardShape;
-  shardShape.reserve(shardShapeArr.size());
-  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
-                 std::back_inserter(shardShape), [](int64_t val) -> int32_t {
-                   return static_cast<int32_t>(val);
-                 });
-  auto shardOrientation =
-      toFlatbuffer(cache, shardSpec.getShardOrientation().getValue());
+  auto t = toNative(shardSpec);
+  return ::tt::target::ttnn::ShardSpec::Pack(*cache.fbb, &t);
+}
 
-  return ::tt::target::ttnn::CreateShardSpecDirect(
-      *cache.fbb, coreRangeSet, &shardShape, shardOrientation);
+inline ::tt::target::ttnn::NDShardSpecT
+toNative(::mlir::tt::ttnn::NDShardSpecAttr ndShardSpec) {
+  ::tt::target::ttnn::NDShardSpecT ndShardSpecT;
+  ndShardSpecT.core_range_set =
+      std::make_unique<::tt::target::ttnn::CoreRangeSetT>(
+          toNative(ndShardSpec.getCoreRangeSet()));
+  llvm::ArrayRef<int64_t> shardShapeArr = ndShardSpec.getShape().getShape();
+  ndShardSpecT.shape.reserve(shardShapeArr.size());
+  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
+                 std::back_inserter(ndShardSpecT.shape),
+                 [](int64_t val) { return static_cast<int32_t>(val); });
+  ndShardSpecT.orientation =
+      toNative(ndShardSpec.getShardOrientation().getValue());
+  ndShardSpecT.distribution_strategy =
+      toNative(ndShardSpec.getShardDistributionStrategy().getValue());
+  return ndShardSpecT;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::NDShardSpec>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ::mlir::tt::ttnn::NDShardSpecAttr ndShardSpec) {
-  auto coreRangeSet = toFlatbuffer(cache, ndShardSpec.getCoreRangeSet());
-  llvm::ArrayRef<int64_t> shardShapeArr = ndShardSpec.getShape().getShape();
-  std::vector<int32_t> shardShape;
-  shardShape.reserve(shardShapeArr.size());
-  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
-                 std::back_inserter(shardShape), [](int64_t val) -> int32_t {
-                   return static_cast<int32_t>(val);
-                 });
-  auto shardOrientation =
-      toFlatbuffer(cache, ndShardSpec.getShardOrientation().getValue());
-  auto shardDistributionStrategy = toFlatbuffer(
-      cache, ndShardSpec.getShardDistributionStrategy().getValue());
+  auto t = toNative(ndShardSpec);
+  return ::tt::target::ttnn::NDShardSpec::Pack(*cache.fbb, &t);
+}
 
-  return ::tt::target::ttnn::CreateNDShardSpecDirect(
-      *cache.fbb, coreRangeSet, &shardShape, shardOrientation,
-      shardDistributionStrategy);
+inline ::tt::target::ttnn::MemoryConfigT
+toNative(::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
+  if (!isDeviceBufferType(memoryConfigAttr.getBufferType().getValue())) {
+    return {};
+  }
+  ::tt::target::ttnn::MemoryConfigT memoryConfigT;
+
+  memoryConfigT.buffer_type =
+      toNative(memoryConfigAttr.getBufferType().getValue());
+  ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
+      memoryConfigAttr.getTensorMemoryLayout();
+  assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");
+  memoryConfigT.tensor_memory_layout = toNative(tensorMemoryLayoutAttr);
+
+  if (memoryConfigAttr.getShardSpec()) {
+    assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
+                                         tensorMemoryLayoutAttr.getValue()));
+    memoryConfigT.shard_spec = std::make_unique<::tt::target::ttnn::ShardSpecT>(
+        toNative(*memoryConfigAttr.getShardSpec()));
+  }
+  if (memoryConfigAttr.getNdShardSpec()) {
+    memoryConfigT.nd_shard_spec =
+        std::make_unique<::tt::target::ttnn::NDShardSpecT>(
+            toNative(*memoryConfigAttr.getNdShardSpec()));
+  }
+
+  return memoryConfigT;
 }
 
 inline ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
@@ -922,26 +1177,8 @@ toFlatbuffer(FlatbufferObjectCache &cache,
     return 0;
   }
 
-  ::tt::target::BufferType bufferType =
-      toFlatbuffer(cache, memoryConfigAttr.getBufferType().getValue());
-  ttnn::TensorMemoryLayoutAttr tensorMemoryLayoutAttr =
-      memoryConfigAttr.getTensorMemoryLayout();
-  assert(tensorMemoryLayoutAttr && "Expected valid TensorMemoryLayoutAttr");
-  ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
-      toFlatbuffer(cache, tensorMemoryLayoutAttr);
-  ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
-  if (memoryConfigAttr.getShardSpec()) {
-    assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
-                                         tensorMemoryLayoutAttr.getValue()));
-    shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
-  }
-  ::flatbuffers::Offset<::tt::target::ttnn::NDShardSpec> ndShardSpec = 0;
-  if (memoryConfigAttr.getNdShardSpec()) {
-    ndShardSpec = toFlatbuffer(cache, *memoryConfigAttr.getNdShardSpec());
-  }
-
-  return ::tt::target::ttnn::CreateMemoryConfig(
-      *cache.fbb, tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
+  auto t = toNative(memoryConfigAttr);
+  return ::tt::target::ttnn::MemoryConfig::Pack(*cache.fbb, &t);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>

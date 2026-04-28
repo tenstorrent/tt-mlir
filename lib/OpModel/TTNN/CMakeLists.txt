@@ -19,9 +19,9 @@ if (TTMLIR_ENABLE_OPMODEL)
     endif()
 
     # Link to tt-metal libs and include directories
-    target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
+    target_include_directories(${LIB_NAME} SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>" PRIVATE ${PROJECT_SOURCE_DIR}/unified_op_lib/include)
     set(TTNN_LIBS TTMETAL_LIBRARY DEVICE_LIBRARY TTNN_LIBRARY TT_STL_LIBRARY TRACY_LIBRARY)
-    target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS} PRIVATE TTMLIRTTNNUtils)
+    target_link_libraries(${LIB_NAME} PUBLIC ${TTNN_LIBS} TTUnifiedOpLib ${FMT_LIBRARY_PATH} PRIVATE TTMLIRTTNNUtils)
     target_compile_definitions(${LIB_NAME} PUBLIC TTMLIR_ENABLE_OPMODEL)
     if (TTMLIR_DISABLE_MOCK_DEVICE)
         target_compile_definitions(${LIB_NAME} PRIVATE TTMLIR_DISABLE_MOCK_DEVICE)

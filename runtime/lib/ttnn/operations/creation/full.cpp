@@ -21,13 +21,13 @@ void run(const ::tt::target::ttnn::FullOp *op, auto &&fillValue,
   ::ttnn::DataType dtype =
       ::tt::runtime::ttnn::operations::utils::getDataType(op->out());
   if (op->dtype()) {
-    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
+    dtype = unifiedOpLib::operations::utils::toTTNNDataType(*(op->dtype()));
   }
 
   ::ttnn::Layout layout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(op->out());
   if (op->layout()) {
-    layout = ::tt::runtime::ttnn::utils::toTTNNLayout(*(op->layout()));
+    layout = ::unifiedOpLib::operations::utils::toTTNNLayout(*(op->layout()));
   }
 
   OptionalMeshDeviceRef meshDevice;

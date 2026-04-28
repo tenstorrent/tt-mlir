@@ -8,6 +8,11 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "ttmlir/Target/TTNN/types_generated.h"
+#pragma clang diagnostic pop
+
 #include "llvm/ADT/ArrayRef.h"
 
 #include <type_traits>
@@ -51,6 +56,9 @@ TensorMemoryLayout
 getTensorMemoryLayout(const ::tt::tt_metal::TensorMemoryLayout memLayout);
 
 ::tt::tt_metal::MemoryConfig getMemoryConfig(const TTNNLayoutAttr &layout);
+
+::tt::target::ttnn::MemoryConfigT
+getMemoryConfigT(const TTNNLayoutAttr &layout);
 
 ::tt::tt_metal::ShardSpec getShardSpec(const ShardSpecAttr &shardSpecAttr);
 

@@ -43,7 +43,7 @@ static const common::CreateTensorCallbackType<::ttnn::Tensor,
     createTensorFromWrapped = [](const tt::target::ttnn::TensorRef *ref,
                                  std::shared_ptr<void> dataPtr) {
       ::ttnn::Shape shape = utils::toTTNNShape(*ref->desc()->shape());
-      ::ttnn::DataType dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
+      ::ttnn::DataType dtype = unifiedOpLib::operations::utils::toTTNNDataType(
           ref->desc()->layout()->memory_desc()->data_type());
       return createBorrowedTensorFromPtr(dataPtr, shape, dtype);
     };

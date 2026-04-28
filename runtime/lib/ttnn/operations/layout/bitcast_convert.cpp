@@ -17,7 +17,7 @@ void run(const ::tt::target::ttnn::BitcastConvertOp *op,
       tensorPool.getTTNNTensorAndValidate(op->in());
 
   ::ttnn::DataType targetDataType =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+      unifiedOpLib::operations::utils::toTTNNDataType(op->dtype());
 
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
