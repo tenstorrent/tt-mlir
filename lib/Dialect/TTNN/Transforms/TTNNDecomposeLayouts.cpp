@@ -384,15 +384,10 @@ private:
       return currentInput;
     }
 
-    RankedTensorType currentInputType =
-        mlir::cast<RankedTensorType>(currentInput.getType());
-
-    TTNNLayoutAttr inputLayout =
-        mlir::cast<TTNNLayoutAttr>(currentInputType.getEncoding());
-    if (!inputLayout.isSystemBufferType()) {
-      assert(inputLayout.getLayout() == Layout::Tile &&
-             "Only tilized tensors are supported for device typecast");
-    }
+    // tt-metal's typecast supports both tile and row-major device tensors
+    // (see TypecastRowMajorChunkedProgramFactory in
+    // ttnn/operations/copy/typecast/device).  No layout-specific constraint
+    // here.
     return this->createDataTypeCastingOp(op, rewriter, currentInput, info);
   }
 
@@ -908,7 +903,6 @@ private:
                                          const OpCreationInfo &info) const {
     const LayoutInfo &input = info.input;
     const LayoutInfo &output = info.output;
-    const OpsToCreate &opsToCreate = info.opsToCreate;
     assert(input.layoutEnum == output.layoutEnum &&
            "Layout should be the same if we're not creating toLayout op");
 
@@ -947,8 +941,54 @@ private:
       return;
     }
 
-    // If the output is not tilized, typecast on host
-    if (!output.isTilized() && opsToCreate.createFromDeviceOp) {
+    // Output is row-major.  tt-metal's row-major device typecast
+    // (TypecastRowMajorChunkedProgramFactory) requires
+    // padded_shape[-1] % 32 == 0, which does not hold for small tensors such
+    // as 1x1 position-id inputs.  Detour through tile on device to avoid the
+    // host roundtrip:
+    //   tilize -> typecast on tile -> untilize
+    // The tile path internally handles padding for any shape, and both
+    // tilize and untilize have device implementations for Int32/UInt32.
+    if (!output.isTilized() && canTilizeDataTypeOnDevice(input.dataType) &&
+        canUntilizeDataTypeOnDevice(output.dataType)) {
+      // 1. Tilize on device (no dtype change yet).
+      ttnn::LayoutAttr tileLayoutAttr =
+          ttnn::LayoutAttr::get(op.getContext(), Layout::Tile);
+      RankedTensorType currentInputType =
+          mlir::cast<RankedTensorType>(currentInput.getType());
+      RankedTensorType tileType = utils::RankedTensorTypeFactory::create(
+          currentInputType, Layout::Tile);
+      currentInput = this->createOp<ttnn::ToLayoutOp>(
+          rewriter, op, tileType, currentInput, tileLayoutAttr,
+          /*dtype*/ nullptr,
+          /*memory_config*/ nullptr);
+
+      // 2. Typecast on tile (dtype change).
+      currentInput =
+          this->createDataTypeCastingOpIfNeeded(op, rewriter, currentInput, info);
+
+      // 3. Untilize back to row-major (no dtype change).
+      ttnn::LayoutAttr rmLayoutAttr =
+          ttnn::LayoutAttr::get(op.getContext(), Layout::RowMajor);
+      RankedTensorType rmType = utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(currentInput.getType()),
+          Layout::RowMajor);
+      currentInput = this->createOp<ttnn::ToLayoutOp>(
+          rewriter, op, rmType, currentInput, rmLayoutAttr, /*dtype*/ nullptr,
+          /*memory_config*/ nullptr);
+
+      // 4. Apply memory_config / from_device as required.
+      currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
+                                                          currentInput, info);
+      currentInput =
+          this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
+      op.getResult().replaceAllUsesWith(currentInput);
+      return;
+    }
+
+    // Fallback: output is row-major and dtype is not device-(un)tilizable.
+    // Keep the original host-roundtrip path.
+    if (!output.isTilized() && info.opsToCreate.createFromDeviceOp) {
       currentInput =
           this->createFromDeviceOpIfNeeded(op, rewriter, currentInput, info);
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
@@ -956,16 +996,11 @@ private:
       op.getResult().replaceAllUsesWith(currentInput);
       return;
     }
-
-    // Device to device untilized typecast, need to move to host first
-    if (!output.isTilized() && !opsToCreate.createFromDeviceOp) {
-      // Force-create a FromDeviceOp
+    if (!output.isTilized() && !info.opsToCreate.createFromDeviceOp) {
       currentInput = this->createFromDeviceOpIfNeeded(
           op, rewriter, currentInput, info, /*forceCreate=*/true);
-      // typecast on host
       currentInput = this->createDataTypeCastingOpIfNeeded(op, rewriter,
                                                            currentInput, info);
-      // move back to device and convert memory config if needed
       currentInput = this->createToDeviceOpIfNeeded(op, rewriter, currentInput,
                                                     info, /*forceCreate=*/true);
       currentInput = this->createToMemoryConfigOpIfNeeded(op, rewriter,
