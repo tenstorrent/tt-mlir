@@ -447,8 +447,20 @@ struct StableHLOComplexDataTypeConversionPass
         mlir::stablehlo::BroadcastInDimOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
-                        mlir::stablehlo::ImagOp,
-                        mlir::sdy::ManualComputationOp>();
+                        mlir::stablehlo::ImagOp>();
+
+    auto hasComplexType = [](TypeRange types) {
+      return llvm::any_of(types, [](Type t) {
+        auto rtt = mlir::dyn_cast<RankedTensorType>(t);
+        return rtt && mlir::isa<mlir::ComplexType>(rtt.getElementType());
+      });
+    };
+    target.addDynamicallyLegalOp<mlir::sdy::ManualComputationOp>(
+        [hasComplexType](mlir::sdy::ManualComputationOp op) {
+          return !hasComplexType(op.getOperandTypes()) &&
+                 !hasComplexType(op.getResultTypes()) &&
+                 !hasComplexType(op.getBody().front().getArgumentTypes());
+        });
 
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
