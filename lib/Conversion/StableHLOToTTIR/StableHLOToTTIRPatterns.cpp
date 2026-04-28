@@ -5624,10 +5624,23 @@ public:
     int64_t indexVectorDim =
         adaptor.getScatterDimensionNumbers().getIndexVectorDim();
 
+    // This pattern is designed for 2D scatter indices [N, 1] with
+    // indexVectorDim=1 (the shape XLA/JAX emits for embedding_backward).
+    // Rank-1 indices (e.g., from index_add_ in MoE routing) produce an
+    // incorrect [K]*[K] == K^2 vs K shape mismatch in the tt-metal
+    // EmbeddingBackward kernel. Reject all non-2D or non-unit-indexVectorDim
+    // cases and let the generic scatter pattern handle them instead.
+    if (scatterIndicesType.getRank() != 2 || indexVectorDim != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "EmbeddingBackward pattern requires 2D scatter indices with "
+          "indexVectorDim=1; other shapes handled by generic scatter");
+    }
+
     // StableHLO uses vectorized indices for scatter.
     // TT-metal expects indices to be [B, N] for embedding_backward. If the
     // indices are 2D and the index vector dim is 1, reshape the indices to 3D.
-    if (scatterIndicesType.getRank() == 2 && indexVectorDim == 1) {
+    {
       llvm::SmallVector<int64_t> newShape{1};
       llvm::append_range(newShape, scatterIndicesType.getShape());
       scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
