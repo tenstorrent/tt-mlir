@@ -9,6 +9,7 @@ from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
 from ttmlir.ir import StringAttr
+from ttmlir.dialects import stablehlo
 
 from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
@@ -2244,6 +2245,44 @@ def test_composite_op(target: str, request, device):
     # `decomposition` symbol attribute. Mirrors composite_op.mlir.
     compile_and_execute_shlo(
         module_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+def module_reduce_generic(builder: StableHLOBuilder):
+    # Op-creating test for the generic stablehlo.reduce builder: emits a
+    # reduce op with a user-supplied body callable. The body here mirrors
+    # `applies stablehlo.add`, but goes through the full
+    # (inputs, init_values, dimensions, body) builder API rather than the
+    # pre-built reduce_sum/max/min wrappers. This exercises the @tag/@parse/
+    # @split machinery for stablehlo.ReduceOp.
+    @builder.func([(128, 10)], [torch.float32])
+    def reduce_main(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        init_value = builder.constant(torch.zeros((), dtype=torch.float32))
+        return builder.reduce(
+            inputs=[in0],
+            init_values=[init_value],
+            dimensions=[1],
+            body=lambda acc, cur: stablehlo.AddOp(acc, cur).result,
+            unit_attrs=unit_attrs,
+        )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_reduce_generic_op(target: str, request, device):
+    # Op-creating test for the generic builder.reduce(...) method exposing
+    # the full stablehlo.reduce surface (N inputs, N init values, dimensions,
+    # arbitrary body). Complements the existing test_reduce_sum/max/min,
+    # which exercise pre-built reduction wrappers.
+    compile_and_execute_shlo(
+        module_reduce_generic,
         **get_request_kwargs(request),
         target=target,
         device=device,

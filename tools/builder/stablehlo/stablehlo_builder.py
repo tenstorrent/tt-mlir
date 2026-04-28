@@ -7837,6 +7837,296 @@ class StableHLOBuilder(Builder):
 
             return reduce_op.result
 
+    ############### stablehlo.ReduceOp ###############
+
+    @tag(stablehlo.ReduceOp)
+    def reduce(
+        self,
+        inputs: Sequence[Operand],
+        init_values: Sequence[Operand],
+        dimensions: Sequence[int],
+        body: Callable[..., Union[OpResult, Sequence[OpResult]]],
+        result_types: Optional[Sequence[Type]] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> Union[OpResult, List[OpResult]]:
+        """
+        Creates a generic ``stablehlo.reduce`` op.
+
+        Supports the full StableHLO reduce form: N inputs, N init values, an
+        arbitrary user-supplied ``body`` region, and an arbitrary
+        ``dimensions`` list. The body is built via the supplied ``body``
+        callable, which receives the block arguments
+        ``(*acc_args, *cur_args)`` and must return one (or N) OpResult(s)
+        forming the reduction output(s) of one accumulation step. The
+        framework appends the ``stablehlo.return`` for the user.
+
+        ``result_types`` may be left ``None`` to have the result type(s)
+        inferred from the input types and ``dimensions``; for the canonical
+        case where each output element type matches the corresponding input
+        element type, this is sufficient.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reduce)
+
+        with self._ctx, self._loc:
+            if loc is None:
+                op_loc = self._get_loc_of_extra_file_callee(
+                    id=self._get_next_global_id()
+                )
+            else:
+                op_loc = Location.name(loc)
+
+            inputs = list(inputs)
+            init_values = list(init_values)
+            if len(inputs) != len(init_values):
+                raise ValueError(
+                    "stablehlo.reduce: number of inputs must match number of "
+                    "init_values."
+                )
+            if len(inputs) == 0:
+                raise ValueError(
+                    "stablehlo.reduce: at least one (input, init_value) pair is required."
+                )
+
+            dims = list(dimensions)
+            dims_set = set(dims)
+
+            if result_types is None:
+                inferred = []
+                for inp in inputs:
+                    inp_type = RankedTensorType(inp.type)
+                    in_shape = list(inp_type.shape)
+                    out_shape = [
+                        in_shape[i] for i in range(len(in_shape)) if i not in dims_set
+                    ]
+                    inferred.append(
+                        RankedTensorType.get(out_shape, inp_type.element_type)
+                    )
+                result_types = inferred
+            else:
+                result_types = list(result_types)
+
+            reduce_op = stablehlo_op(
+                result_types,
+                inputs=inputs,
+                init_values=init_values,
+                dimensions=dims,
+                loc=op_loc,
+            )
+
+            # Build the body block. Block argument types are scalar-tensor
+            # versions of each (input, init) pair: 2*N args total, with the
+            # first N being the running accumulators and the last N the
+            # current per-element values.
+            body_arg_types = []
+            for inp in inputs:
+                element_type = RankedTensorType(inp.type).element_type
+                body_arg_types.append(RankedTensorType.get([], element_type))
+            for init in init_values:
+                element_type = RankedTensorType(init.type).element_type
+                body_arg_types.append(RankedTensorType.get([], element_type))
+
+            block = Block.create_at_start(reduce_op.regions[0], body_arg_types)
+            with InsertionPoint(block):
+                body_results = body(*block.arguments)
+                if isinstance(body_results, (list, tuple)):
+                    return_values = list(body_results)
+                else:
+                    return_values = [body_results]
+                stablehlo.ReturnOp(return_values, loc=op_loc)
+
+            if unit_attrs is not None:
+                for attr_name in unit_attrs:
+                    reduce_op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+            if sharding_attr is not None:
+                reduce_op.operation.attributes["sdy.sharding"] = sharding_attr
+
+            input_goldens = [self._get_golden_tensor(i) for i in inputs]
+            init_goldens = [self._get_golden_tensor(i) for i in init_values]
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                *input_goldens,
+                *init_goldens,
+                body=reduce_op.regions[0],
+                dimensions=dims,
+                output_types=result_types,
+            )
+
+            results = list(reduce_op.results)
+            if isinstance(golden_output, (list, tuple)):
+                for r, g in zip(results, golden_output):
+                    self._set_golden_tensor(r, g)
+            else:
+                self._set_golden_tensor(results[0], golden_output)
+
+            return results[0] if len(results) == 1 else results
+
+    @parse(stablehlo.ReduceOp)
+    def reduce_parser(
+        self,
+        old_op: stablehlo.ReduceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        new_inputs = [global_dict[i] for i in old_op.inputs]
+        new_init_values = [global_dict[i] for i in old_op.init_values]
+
+        # Reuse the original op's full attribute dict (carries `dimensions` and
+        # any backend-specific attrs) so the rebuilt op is byte-equivalent.
+        attrs = {named_attr.name: named_attr.attr for named_attr in old_op.attributes}
+
+        new_op = Operation.create(
+            name=old_op.operation.name,
+            results=[r.type for r in old_op.results],
+            operands=list(new_inputs) + list(new_init_values),
+            attributes=attrs,
+            regions=1,
+            loc=old_op.location,
+        )
+        # Clone the body region from the old op into the new op so any
+        # downstream consumer (verifier, golden walker) sees the same
+        # reduction body.
+        old_region = old_op.regions[0]
+        new_region = new_op.regions[0]
+        body_arg_types = [arg.type for arg in old_region.blocks[0].arguments]
+        new_block = Block.create_at_start(new_region, body_arg_types)
+
+        body_value_map: Dict[Any, Any] = {}
+        for old_arg, new_arg in zip(
+            old_region.blocks[0].arguments, new_block.arguments
+        ):
+            body_value_map[old_arg] = new_arg
+
+        with InsertionPoint(new_block):
+            for old_inner_op in old_region.blocks[0].operations:
+                cloned = old_inner_op.operation.clone()
+                # Remap operands of the clone to point at the new block's args
+                # (and prior cloned results within the body).
+                for idx, opnd in enumerate(old_inner_op.operands):
+                    if opnd in body_value_map:
+                        cloned.operands[idx] = body_value_map[opnd]
+                for old_r, new_r in zip(old_inner_op.results, cloned.results):
+                    body_value_map[old_r] = new_r
+
+        # Recompute goldens via the registered mapping so the rebuilt op has
+        # the same semantics as the original.
+        op_golden_function = get_golden_function(stablehlo.ReduceOp)
+        input_goldens = [self._get_golden_tensor(i) for i in new_inputs]
+        init_goldens = [self._get_golden_tensor(i) for i in new_init_values]
+        golden_output = op_golden_function(
+            *input_goldens,
+            *init_goldens,
+            body=new_region,
+            dimensions=list(old_op.dimensions),
+            output_types=[r.type for r in old_op.results],
+        )
+
+        op_map_dictionary: Dict[OpResult, OpResult] = {}
+        results = list(new_op.results)
+        goldens = (
+            list(golden_output)
+            if isinstance(golden_output, (list, tuple))
+            else [golden_output] * len(results)
+        )
+        for old_r, new_r, g in zip(old_op.results, results, goldens):
+            self._set_golden_tensor(new_r, g)
+            op_map_dictionary[old_r] = new_r
+
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ReduceOp)
+    def reduce_split(
+        self,
+        old_op: stablehlo.ReduceOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            reduce_module = Module.create()
+            reduce_builder = StableHLOBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [i.type for i in old_op.inputs] + [
+                i.type for i in old_op.init_values
+            ]
+
+            with InsertionPoint(reduce_module.body):
+
+                ordered_inputs: List[Operand] = []
+                ordered_outputs: List[Operand] = []
+
+                @func.func(*op_input_types, name="reduce_module")
+                def decorated_func(*inputs):
+                    num_inputs = len(old_op.inputs)
+                    new_inputs = list(inputs[:num_inputs])
+                    new_init_values = list(inputs[num_inputs:])
+
+                    attrs = {
+                        named_attr.name: named_attr.attr
+                        for named_attr in old_op.attributes
+                    }
+                    new_op = Operation.create(
+                        name=old_op.operation.name,
+                        results=[r.type for r in old_op.results],
+                        operands=list(new_inputs) + list(new_init_values),
+                        attributes=attrs,
+                        regions=1,
+                        loc=old_op.location,
+                    )
+
+                    # Clone body region from the old op.
+                    old_region = old_op.regions[0]
+                    new_region = new_op.regions[0]
+                    body_arg_types = [
+                        arg.type for arg in old_region.blocks[0].arguments
+                    ]
+                    new_block = Block.create_at_start(new_region, body_arg_types)
+                    body_value_map: Dict[Any, Any] = {}
+                    for old_arg, new_arg in zip(
+                        old_region.blocks[0].arguments, new_block.arguments
+                    ):
+                        body_value_map[old_arg] = new_arg
+                    with InsertionPoint(new_block):
+                        for old_inner_op in old_region.blocks[0].operations:
+                            cloned = old_inner_op.operation.clone()
+                            for idx, opnd in enumerate(old_inner_op.operands):
+                                if opnd in body_value_map:
+                                    cloned.operands[idx] = body_value_map[opnd]
+                            for old_r, new_r in zip(
+                                old_inner_op.results, cloned.results
+                            ):
+                                body_value_map[old_r] = new_r
+
+                    # Wire goldens through.
+                    for new_input, old_input in zip(new_inputs, old_op.inputs):
+                        reduce_builder._set_golden_tensor(
+                            new_input, self._get_golden_tensor(old_input)
+                        )
+                        reduce_builder._annotate_presharded_arg(new_input)
+                        ordered_inputs.append(new_input)
+                    for new_init, old_init in zip(new_init_values, old_op.init_values):
+                        reduce_builder._set_golden_tensor(
+                            new_init, self._get_golden_tensor(old_init)
+                        )
+                        reduce_builder._annotate_presharded_arg(new_init)
+                        ordered_inputs.append(new_init)
+                    for new_r, old_r in zip(new_op.results, old_op.results):
+                        reduce_builder._set_golden_tensor(
+                            new_r, self._get_golden_tensor(old_r)
+                        )
+                        ordered_outputs.append(new_r)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                reduce_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return reduce_module, reduce_builder
+
     def reduce_sum(
         self,
         in0: Operand,
@@ -8914,6 +9204,9 @@ class StableHLOBuilder(Builder):
 
         return gather_module, gather_builder
 
+    ############### stablehlo.DotGeneralOp ###############
+
+    @tag(stablehlo.DotGeneralOp)
     def dot_general(
         self,
         in0: Operand,
@@ -9006,6 +9299,99 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
+
+    @parse(stablehlo.DotGeneralOp)
+    def dot_general_parser(
+        self,
+        old_op: stablehlo.DotGeneralOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.dot_general_parser)
+
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        dim_numbers = old_op.dot_dimension_numbers
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            lhs,
+            rhs,
+            dot_dimension_numbers=dim_numbers,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        # Recompute golden using the existing dot_general_golden mapping. The
+        # DotDimensionNumbers attr exposes the four dimension lists directly.
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            self._get_golden_tensor(lhs),
+            self._get_golden_tensor(rhs),
+            list(dim_numbers.lhs_batching_dimensions),
+            list(dim_numbers.lhs_contracting_dimensions),
+            list(dim_numbers.rhs_batching_dimensions),
+            list(dim_numbers.rhs_contracting_dimensions),
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.DotGeneralOp)
+    def dot_general_split(
+        self,
+        old_op: stablehlo.DotGeneralOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.dot_general_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            dot_general_module = Module.create()
+            dot_general_builder = StableHLOBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.lhs.type, old_op.rhs.type]
+
+            with InsertionPoint(dot_general_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="dot_general_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+
+                    new_op = stablehlo_op(
+                        old_op.result.type,
+                        lhs,
+                        rhs,
+                        dot_dimension_numbers=old_op.dot_dimension_numbers,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    lhs_golden = self._get_golden_tensor(old_op.lhs)
+                    rhs_golden = self._get_golden_tensor(old_op.rhs)
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    dot_general_builder._set_golden_tensor(new_op_result, old_op_result)
+                    dot_general_builder._set_golden_tensor(lhs, lhs_golden)
+                    dot_general_builder._set_golden_tensor(rhs, rhs_golden)
+                    dot_general_builder._annotate_presharded_arg(lhs)
+                    dot_general_builder._annotate_presharded_arg(rhs)
+                    ordered_inputs.extend([lhs, rhs])
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dot_general_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dot_general_module, dot_general_builder
 
     def _get_zero_attr(self, element_type: Type) -> Attribute:
         if IntegerType.isinstance(element_type):
