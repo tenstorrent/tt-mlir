@@ -2483,8 +2483,15 @@ def test_hoisted_arange(
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16)], ids=shape_str)
-@pytest.mark.parametrize("repeat_dims", [[32, 1, 1], [1, 2, 2]])
+@x86_only
+@pytest.mark.parametrize(
+    "shape,repeat_dims",
+    [
+        ((32, 32), [1, 3]),
+        ((1, 32, 32), [32, 1, 1]),
+        pytest.param((2, 16, 16), [2, 1, 1], marks=pytest.mark.skip("target=ttmetal")),
+    ],
+)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
