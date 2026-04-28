@@ -276,6 +276,10 @@ const auto createFloor = [](OpBuilder &b, Location loc, Type type,
                             ValueRange ops) {
   return b.create<FloorOp>(loc, type, ops).getOperation();
 };
+const auto createRound = [](OpBuilder &b, Location loc, Type type,
+                            ValueRange ops) {
+  return b.create<RoundOp>(loc, type, ops).getOperation();
+};
 const auto createGelu = [](OpBuilder &b, Location loc, Type type,
                            ValueRange ops) {
   return b.create<GeluOp>(loc, type, ops).getOperation();
@@ -342,6 +346,7 @@ const std::vector<UnaryOpTestParams> unaryOpTestParams = {
     {"Erf", createErf, expected},
     {"Erfc", createErfc, expected},
     {"Floor", createFloor, expected},
+    {"Round", createRound, expected},
     {"Reciprocal", createReciprocal, expected},
     {"Cbrt", createCbrt, expected},
     {"Gelu", createGelu, expected},

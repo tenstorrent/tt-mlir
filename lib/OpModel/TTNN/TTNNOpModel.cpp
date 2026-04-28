@@ -425,12 +425,6 @@ auto getOpSymbol() {
     return WRAP_OP(::ttnn::sign);
   } else if constexpr (std::is_same_v<OpTy, FloorOp>) {
     return WRAP_OP(::ttnn::floor);
-  } else if constexpr (std::is_same_v<OpTy, RoundOp>) {
-    // Adapt `ttnn::round(input, parameter, memory_config, ...)` to the unary
-    // op-model query signature `(input, memory_config)`.
-    return [](const auto &input, const auto &memoryConfig) {
-      return ::ttnn::round(input, std::nullopt, memoryConfig);
-    };
   } else if constexpr (std::is_same_v<OpTy, IsFiniteOp>) {
     return WRAP_OP(::ttnn::isfinite);
   } else if constexpr (std::is_same_v<OpTy, ExpOp>) {
@@ -987,9 +981,66 @@ template struct UnaryEltwiseOpModel<Expm1Op>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<RsqrtOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ErfOp>;
 template struct UnaryEltwiseOpModel<ErfcOp>;
-template struct UnaryEltwiseOpModel<RoundOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<ExpOp>;
 template struct UnaryEltwiseWithFastApproxModeOpModel<GeluOp>;
+
+//===----------------------------------------------------------------------===//
+// RoundOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<RoundOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        WRAP_OP(::ttnn::round), device, inputSpec, std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<RoundOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                               TTNNLayoutAttr inputLayout,
+                               TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  auto query = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        WRAP_OP(::ttnn::round), device, inputSpec, std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(query);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
 
 //===----------------------------------------------------------------------===//
 // SigmoidOp
