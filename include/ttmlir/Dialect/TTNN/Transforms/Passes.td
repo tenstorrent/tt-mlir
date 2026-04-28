@@ -443,7 +443,7 @@ def TTNNDRAMShardedMatmul : Pass<"ttnn-dram-sharded-matmul", "::mlir::ModuleOp">
       - Inserts a ttnn.to_memory_config (InterleavedToSharded) in the weight's
         const_eval function to reshard weights to DRAM WIDTH_SHARDED
       - Inserts ttnn.to_memory_config before the matmul to shard the activation
-        (in0) to L1 WIDTH_SHARDED across compute cores
+        (in0) to L1 WIDTH_SHARDED across the storage core grid
       - Sets the matmul_program_config to
         MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig
       - Inserts ttnn.to_memory_config after the matmul to reshard/deshard the output
@@ -459,9 +459,13 @@ def TTNNDRAMShardedMatmul : Pass<"ttnn-dram-sharded-matmul", "::mlir::ModuleOp">
     Option<"numDRAMBanks", "num-dram-banks", "uint32_t",
            /*default=*/"12",
            "Number of DRAM banks for weight sharding (default: 12 for Wormhole B0).">,
-    Option<"numComputeCores", "num-compute-cores", "uint32_t",
+    Option<"numStorageCores", "num-storage-cores", "uint32_t",
            /*default=*/"8",
-           "Number of compute cores for activation sharding (default: 8).">,
+           "Number of storage cores for in0 (activation) and output sharding "
+           "(default: 8). Note: this is NOT the number of compute cores — the "
+           "DRAM-sharded matmul factory always uses 12 DRAM bank cores for "
+           "compute, regardless of this value. This parameter controls the "
+           "in0 shard grid and output layout grid only.">,
   ];
 }
 

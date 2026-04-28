@@ -24,20 +24,23 @@ static constexpr int64_t kTileSize = 32;
 
 /// Parameters computed for a single DRAM-sharded matmul.
 struct DRAMShardParams {
-  int64_t K;           // inner dimension
-  int64_t N;           // output width
-  int64_t M;           // output height (batch * seq_len rows)
-  int64_t numBanks;    // DRAM banks for weight sharding
-  int64_t numCores;    // compute cores for activation sharding
-  int64_t nPadded;     // N padded to lcm(tileSize, tileSize * numBanks)
-  int64_t shardH;      // shard height in elements = K
-  int64_t shardW;      // shard width in elements = nPadded / numBanks
-  int64_t kTiles;      // K / tileSize
-  int64_t shardWTiles; // shardW / tileSize
-  int64_t in0BlockW;   // tiles per K-loop iteration per core
-  int64_t perCoreM;    // output tile rows per core
-  int64_t perCoreN;    // output tile cols per core
-  int64_t in0ShardW;   // L1 shard width for in0 = K / numCores
+  int64_t K;               // inner dimension
+  int64_t N;               // output width
+  int64_t M;               // output height (batch * seq_len rows)
+  int64_t numBanks;        // DRAM banks for weight sharding (compute cores)
+  int64_t numStorageCores; // storage cores for in0 / output sharding.
+                           // NOT compute cores — the DRAM-sharded matmul
+                           // factory always uses numBanks (12) DRAM bank
+                           // cores for compute, regardless of this value.
+  int64_t nPadded;         // N padded to lcm(tileSize, tileSize * numBanks)
+  int64_t shardH;          // shard height in elements = K
+  int64_t shardW;          // shard width in elements = nPadded / numBanks
+  int64_t kTiles;          // K / tileSize
+  int64_t shardWTiles;     // shardW / tileSize
+  int64_t in0BlockW;       // tiles per K-loop iteration per core
+  int64_t perCoreM;        // output tile rows per storage core
+  int64_t perCoreN;        // output tile cols per storage core
+  int64_t in0ShardW;       // L1 shard width for in0 = K / numStorageCores
   ttcore::DataType weightDataType; // BFP_BFloat8 or BFP_BFloat4
 };
 
@@ -53,22 +56,22 @@ static int64_t padToDRAMBanks(int64_t n, int64_t numBanks) {
 /// in0BlockW.
 static std::optional<DRAMShardParams>
 computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
-                   int64_t numCores, ttcore::DataType weightDataType,
+                   int64_t numStorageCores, ttcore::DataType weightDataType,
                    int64_t l1Available) {
   DRAMShardParams p;
   p.K = K;
   p.N = N;
   p.M = M;
   p.numBanks = numBanks;
-  p.numCores = numCores;
+  p.numStorageCores = numStorageCores;
   p.nPadded = padToDRAMBanks(N, numBanks);
   p.shardH = K;
   p.shardW = p.nPadded / numBanks;
   p.kTiles = K / kTileSize;
   p.shardWTiles = p.shardW / kTileSize;
   p.perCoreM = M / kTileSize;
-  p.perCoreN = (N / kTileSize) / numCores;
-  p.in0ShardW = K / numCores;
+  p.perCoreN = (N / kTileSize) / numStorageCores;
+  p.in0ShardW = K / numStorageCores;
   p.weightDataType = weightDataType;
 
   // Choose in0BlockW to fit in L1.  All CBs are created on every core in the
@@ -82,9 +85,10 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   // in2 (c_2)         NO       globally allocated to in0 tensor buffer
   // out_reshard (c_6) NO       globally allocated to out tensor buffer
   //
-  // in2 and out_reshard use set_globally_allocated_address() (factory lines
-  // 519, 589) — they map onto pre-existing tensor buffers and consume no
-  // additional L1.  Exclude them from this budget estimate.
+  // in2 and out_reshard use set_globally_allocated_address() — they alias the
+  // pre-existing in0/out L1 tensor buffers and add no new CB memory.  However,
+  // those tensor buffers themselves occupy L1 and must be subtracted from the
+  // budget before sizing CBs.
   //
   static constexpr int64_t kBf16Tile = 2048;
   static constexpr int64_t kBfp8Tile = 1088;
@@ -94,12 +98,16 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   int64_t kWeightTile =
       (weightDataType == ttcore::DataType::BFP_BFloat4) ? kBfp4Tile : kBfp8Tile;
 
-  int64_t kPerCore = p.kTiles / numCores;
+  int64_t kPerCore = p.kTiles / numStorageCores;
   // per_core_N on compute cores = ceil(N_tiles / numBanks) = shardWTiles.
   int64_t perCoreNCompute = p.shardWTiles;
 
+  // Tensor buffers placed in L1 (in0 shard + out shard per storage core).
+  int64_t in0TensorBuf = p.perCoreM * kPerCore * kBf16Tile;
+  int64_t outTensorBuf = p.perCoreM * p.perCoreN * kBf16Tile;
+  int64_t cbBudget = l1Available - in0TensorBuf - outTensorBuf;
+
   // Fixed CBs (independent of in0BlockW, no double/triple buffering).
-  // Excludes in2 and out_reshard — both are globally allocated.
   int64_t outCB = p.perCoreM * perCoreNCompute * kBf16Tile;
   int64_t interm0CB = p.perCoreM * perCoreNCompute * kFp32Tile;
   int64_t fixedCost = outCB + interm0CB;
@@ -107,7 +115,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   // If the fixed CBs alone don't fit (e.g. per_core_n too large on matmuls
   // with very wide outputs like LM head), the matmul cannot be DRAM sharded
   // on this core/bank config. Skip.
-  if (fixedCost > l1Available) {
+  if (fixedCost > cbBudget) {
     return std::nullopt;
   }
 
@@ -121,8 +129,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
     int64_t in1CB =
         p.in0BlockW * perCoreNCompute * kWeightTile * (doubleBuf ? 3 : 1);
 
-    if (fixedCost + in0CB + in1CB <= l1Available &&
-        kPerCore % p.in0BlockW == 0) {
+    if (fixedCost + in0CB + in1CB <= cbBudget && kPerCore % p.in0BlockW == 0) {
       found = true;
       break;
     }
@@ -294,11 +301,37 @@ buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
       ctx, p.in0BlockW, p.perCoreM, p.perCoreN, fusedAct);
 }
 
-/// Build compute kernel config: LoFi + packer_l1_acc + fp32_dest_acc.
-static DeviceComputeKernelConfigAttr buildComputeConfig(MLIRContext *ctx) {
+/// Build compute kernel config: math fidelity + packer_l1_acc + fp32_dest_acc.
+///
+/// Fidelity is dtype-dependent because "HiFi2 is free" only holds while the
+/// kernel is DRAM-bandwidth bound:
+///
+///   BFP8 weights → HiFi2.
+///     The kernel is DRAM-bound at decode (M=32). Math (2 cycles/MAC at HiFi2
+///     vs 1 at LoFi) finishes well before DRAM and the kernel waits on DRAM
+///     either way — measured ~1 μs cost on the Gate/Up shape (BFP8 sweep, see
+///     unified_ds_analysis.md §14d). HiFi2 reads the full BF16 activation
+///     mantissa (vs LoFi's truncated 5 bits) for better numerical accuracy at
+///     no perf cost.
+///
+///   BFP4 weights → LoFi.
+///     BFP4 halves DRAM bytes, pushing the kernel into FLOP-bound territory.
+///     HiFi2 then directly slows the matmul: measured +45% at the production
+///     blkw=8 (142 → 206 μs) and +11% at blkw=4 (193 → 214 μs) on the Gate/Up
+///     shape — see up_matmul/results_summary.txt BFP4 sweep. Switching to
+///     HiFi2 globally cost ~4 ms/token on llama 3.1 8B decode (32 layers ×
+///     2 BFP4 matmuls × ~64 μs).
+///
+/// HiFi4 is never used: ~2× LoFi cost when FLOP-bound and reads no extra
+/// precision from BFP{4,8} weights (7- and 3-bit shared mantissa respectively).
+static DeviceComputeKernelConfigAttr
+buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
+  MathFidelity fidelity = (weightDataType == ttcore::DataType::BFP_BFloat4)
+                              ? MathFidelity::LoFi
+                              : MathFidelity::HiFi2;
   return DeviceComputeKernelConfigAttr::get(
       ctx,
-      /*mathFidelity=*/MathFidelity::LoFi,
+      /*mathFidelity=*/fidelity,
       /*mathApproxMode=*/mlir::BoolAttr{},
       /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, true),
       /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),
@@ -370,10 +403,18 @@ public:
       if (M % kTileSize != 0 || K % kTileSize != 0 || N % kTileSize != 0) {
         return;
       }
-      if ((K / kTileSize) % numComputeCores != 0) {
+      if ((K / kTileSize) % numStorageCores != 0) {
         return;
       }
-      if ((N / kTileSize) % numComputeCores != 0) {
+      if ((N / kTileSize) % numStorageCores != 0) {
+        return;
+      }
+      // Decode-only: the factory asserts num_blocks_per_shard == 1 when
+      // per_core_M > 1, but our in0_block_w search may pick a smaller value
+      // under L1 pressure. DS is also DRAM-bound only at small M; at prefill
+      // the shape becomes compute-bound and a non-DS multi-cast factory wins
+      // anyway. Filter out anything with more than one M-tile.
+      if (M / kTileSize > 1) {
         return;
       }
 
@@ -398,7 +439,7 @@ public:
       int64_t M = getActivationM(in0Type);
       auto [K, N] = getWeightKN(weightType);
       auto weightDataType = getWeightDataType(weight);
-      auto pOpt = computeShardParams(M, K, N, numDRAMBanks, numComputeCores,
+      auto pOpt = computeShardParams(M, K, N, numDRAMBanks, numStorageCores,
                                      weightDataType, l1Available);
       if (!pOpt) {
         // Matmul cannot be DRAM sharded on this config (e.g. output too wide
@@ -424,21 +465,21 @@ public:
 
       // --- 2. Shard in0 to L1 WIDTH_SHARDED ---
       int64_t in0ShardHTiles = M / kTileSize;
-      int64_t in0ShardWTiles = (K / kTileSize) / numComputeCores;
+      int64_t in0ShardWTiles = (K / kTileSize) / numStorageCores;
       auto l1In0Layout = buildL1ShardedLayout(ctx, in0Layout, in0ShardHTiles,
-                                              in0ShardWTiles, numComputeCores);
+                                              in0ShardWTiles, numStorageCores);
       auto l1In0Type = withLayout(in0Type, l1In0Layout);
       auto l1In0MemConfig = buildL1ShardedMemoryConfig(
-          ctx, M, K / numComputeCores, numComputeCores);
+          ctx, M, K / numStorageCores, numStorageCores);
 
       auto in0Reshard = builder.create<ToMemoryConfigOp>(
           matmulOp.getLoc(), l1In0Type, in0, l1In0MemConfig);
 
       // --- 3. Build output type (L1 WIDTH_SHARDED) ---
       int64_t outShardHTiles = M / kTileSize;
-      int64_t outShardWTiles = (N / kTileSize) / numComputeCores;
+      int64_t outShardWTiles = (N / kTileSize) / numStorageCores;
       auto l1OutLayout = buildL1ShardedLayout(ctx, outLayout, outShardHTiles,
-                                              outShardWTiles, numComputeCores);
+                                              outShardWTiles, numStorageCores);
       auto l1OutType = withLayout(outType, l1OutLayout);
 
       // --- 4. Do NOT fuse activation into the DRAM sharded program config ---
@@ -458,7 +499,7 @@ public:
 
       // --- 5. Build program config and compute config ---
       auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
-      auto computeConfig = buildComputeConfig(ctx);
+      auto computeConfig = buildComputeConfig(ctx, weightDataType);
 
       // --- 6. Create the new matmul (without activation) ---
       auto newMatmul = builder.create<MatmulOp>(
