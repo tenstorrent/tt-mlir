@@ -13,6 +13,9 @@ namespace mlir::tt::d2m {
 
 class GenericOp;
 
+Value getOrCreateCB(RewriterBase &rewriter, GenericOp generic, Block *block,
+                    unsigned cbOperandIndex);
+
 /// Trace a value through view-like operations (subview, expand_shape, etc.)
 /// and return the defining op if it matches OpT.  Returns null otherwise.
 template <typename OpT>

@@ -271,15 +271,8 @@ static LogicalResult processSharedBufferPairs(
       // Set insertion point before consumer so GetCBOp dominates WaitOp/PopOp
       rewriter.setInsertionPoint(consumer);
       auto cb =
-          rewriter
-              .create<GetCBOp>(
-                  producer->getLoc(),
-                  CBType::get(producer->getContext(),
-                              mlir::cast<ShapedType>(localBuffer.getType())),
-                  cbOperandIdx,
-                  ResolutionStageAttr::get(rewriter.getContext(),
-                                           ResolutionStage::Compile))
-              .getResult();
+          d2m::getOrCreateCB(rewriter, producer->getParentOfType<GenericOp>(),
+                             computeBlock, cbOperandIdx);
       rewriter.create<WaitOp>(loc, cb);
       rewriter.create<PopOp>(loc, cb);
     } else if (mlir::isa<RemoteLoadOp>(producer) &&
@@ -292,15 +285,8 @@ static LogicalResult processSharedBufferPairs(
       // ReserveOp/PushOp
       rewriter.setInsertionPoint(producer);
       auto cb =
-          rewriter
-              .create<GetCBOp>(
-                  consumer->getLoc(),
-                  CBType::get(consumer->getContext(),
-                              mlir::cast<ShapedType>(localBuffer.getType())),
-                  cbOperandIdx,
-                  ResolutionStageAttr::get(rewriter.getContext(),
-                                           ResolutionStage::Compile))
-              .getResult();
+          d2m::getOrCreateCB(rewriter, consumer->getParentOfType<GenericOp>(),
+                             computeBlock, cbOperandIdx);
       rewriter.create<ReserveOp>(loc, cb);
       rewriter.create<PushOp>(loc, cb);
     }
@@ -334,16 +320,9 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           // Assumes only one producer for this local buffer
           auto associatedProducer = cbUsageInfo[localBuffer].producers.front();
           rewriter.setInsertionPoint(synchronizedOp);
-          auto cb = rewriter
-                        .create<GetCBOp>(
-                            loc,
-                            CBType::get(
-                                synchronizedOp.getContext(),
-                                mlir::cast<ShapedType>(localBuffer.getType())),
-                            cbOperandIdx,
-                            ResolutionStageAttr::get(rewriter.getContext(),
-                                                     ResolutionStage::Compile))
-                        .getResult();
+          auto cb = d2m::getOrCreateCB(
+              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
+              computeBlock, cbOperandIdx);
 
           if (mlir::isa<RemoteLoadOp>(associatedProducer) &&
               isAliasedLoad(mlir::cast<RemoteLoadOp>(associatedProducer))) {
@@ -374,17 +353,9 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           // Assumes only one consumer for this local buffer
           auto associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
           rewriter.setInsertionPoint(synchronizedOp);
-          auto cb = rewriter
-                        .create<GetCBOp>(
-                            loc,
-                            CBType::get(
-                                synchronizedOp.getContext(),
-                                mlir::cast<ShapedType>(localBuffer.getType())),
-                            cbOperandIdx,
-                            ResolutionStageAttr::get(rewriter.getContext(),
-                                                     ResolutionStage::Compile))
-                        .getResult();
-
+          auto cb = d2m::getOrCreateCB(
+              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
+              computeBlock, cbOperandIdx);
           auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
           rewriter.setInsertionPointAfter(synchronizedOp);
           rewriter.create<PushOp>(loc, cb);
@@ -450,16 +421,8 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
         loadOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
 
     rewriter.setInsertionPoint(loadOp);
-    auto cb =
-        rewriter
-            .create<GetCBOp>(
-                loadOp.getLoc(),
-                CBType::get(loadOp.getContext(),
-                            mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx,
-                ResolutionStageAttr::get(rewriter.getContext(),
-                                         ResolutionStage::Compile))
-            .getResult();
+    auto cb = d2m::getOrCreateCB(rewriter, loadOp->getParentOfType<GenericOp>(),
+                                 dmBlock, cbOperandIdx);
     auto newLoad = rewriter.create<RemoteLoadOp>(
         loadOp.getLoc(), loadOp.getMemref(), loadOp.getIndices(), cb,
         loadOp.getMcastStartIndex(), loadOp.getMcastShape());
@@ -483,23 +446,14 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
       continue;
     }
 
-    // TODO:similar comment as for loadOp (see above)
     Value localBuffer = storeOp.getLocalBuffer();
     assert(localBuffer && "could not find associated local buffer for store");
     unsigned cbOperandIdx =
         storeOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
 
     rewriter.setInsertionPoint(storeOp);
-    auto cb =
-        rewriter
-            .create<GetCBOp>(
-                storeOp.getLoc(),
-                CBType::get(storeOp.getContext(),
-                            mlir::cast<ShapedType>(localBuffer.getType())),
-                cbOperandIdx,
-                ResolutionStageAttr::get(rewriter.getContext(),
-                                         ResolutionStage::Compile))
-            .getResult();
+    auto cb = d2m::getOrCreateCB(
+        rewriter, storeOp->getParentOfType<GenericOp>(), dmBlock, cbOperandIdx);
     rewriter.create<RemoteStoreOp>(
         storeOp.getLoc(), storeOp.getMemref(), storeOp.getIndices(), cb,
         storeOp.getStartDevice(), storeOp.getDeviceMcastShape(),
