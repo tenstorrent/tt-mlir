@@ -349,11 +349,17 @@ public:
     }
 
     // If the user did not enable automatic argument analysis, we will not do
-    // any analysis and just add a 1x1 mesh to the module.
+    // any analysis. If the caller provided a meshShape via pass options use
+    // it, otherwise fall back to a 1x1 mesh.
     if (!automaticArgAnalysis) {
-      // Create a new 1x1 mesh.
-      shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
-                                    /*firstAxisSize=*/1, /*secondAxisSize=*/1);
+      if (meshShape.size() == 2) {
+        shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
+                                      meshShape[0], meshShape[1]);
+      } else {
+        shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
+                                      /*firstAxisSize=*/1,
+                                      /*secondAxisSize=*/1);
+      }
       return;
     }
 
