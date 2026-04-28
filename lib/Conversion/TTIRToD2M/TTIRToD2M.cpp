@@ -2515,7 +2515,9 @@ public:
 };
 
 // Conversion for ttir.repeat -> nested ttir.concat ops -> d2m.composite_view.
-// Decomposes repeat into concatenations along each dimension.
+// Uses hierarchical binary decomposition to minimize concurrent circular buffer
+// usage. For repeat count of 32, instead of creating 32 inputs at once, we
+// create: 2 -> 4 -> 8 -> 16 -> 32 (each step only has 2 inputs to concat).
 class D2MRepeatRewriter : public mlir::OpConversionPattern<ttir::RepeatOp>,
                           D2MNamedRewriterCommon {
   using ConcreteOp = ttir::RepeatOp;
@@ -2531,6 +2533,96 @@ public:
                                /*ttnnMode=*/false, /*collapseTensors=*/false,
                                enableMulticastInference) {}
 
+  // Helper function to repeat a tensor along a dimension using hierarchical
+  // concat. Uses binary decomposition: double the size repeatedly until we
+  // reach the target.
+  Value repeatAlongDim(mlir::Location loc, Value input, int64_t dim,
+                       int64_t repeatCount,
+                       mlir::ConversionPatternRewriter &rewriter) const {
+    if (repeatCount == 1) {
+      return input;
+    }
+
+    auto currentType = mlir::cast<RankedTensorType>(input.getType());
+    SmallVector<int64_t> currentShape(currentType.getShape().begin(),
+                                      currentType.getShape().end());
+    int64_t originalDimSize = currentShape[dim];
+
+    Value current = input;
+    int64_t currentRepeat = 1;
+
+    // Use binary decomposition: keep doubling until we can't anymore
+    while (currentRepeat * 2 <= repeatCount) {
+      // Double by concatenating with itself
+      SmallVector<Value> inputs = {current, current};
+
+      currentRepeat *= 2;
+      currentShape[dim] = originalDimSize * currentRepeat;
+
+      auto outputType =
+          RankedTensorType::get(currentShape, currentType.getElementType(),
+                                currentType.getEncoding());
+
+      auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+      current =
+          rewriter.create<ttir::ConcatOp>(loc, outputType, inputs, dimAttr);
+    }
+
+    // If we haven't reached the exact count, add remaining copies
+    if (currentRepeat < repeatCount) {
+      int64_t remaining = repeatCount - currentRepeat;
+
+      // Build up the remainder to the right size using binary decomposition
+      Value remainder = input;
+      int64_t remainderSize = 1;
+
+      while (remainderSize * 2 <= remaining) {
+        SmallVector<Value> remInputs = {remainder, remainder};
+        remainderSize *= 2;
+
+        SmallVector<int64_t> remShape(currentType.getShape().begin(),
+                                      currentType.getShape().end());
+        remShape[dim] = originalDimSize * remainderSize;
+        auto remType = RankedTensorType::get(
+            remShape, currentType.getElementType(), currentType.getEncoding());
+
+        auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+        remainder =
+            rewriter.create<ttir::ConcatOp>(loc, remType, remInputs, dimAttr);
+      }
+
+      // If we still need more, add individual copies
+      while (remainderSize < remaining) {
+        SmallVector<Value> remInputs = {remainder, input};
+        remainderSize += 1;
+
+        SmallVector<int64_t> remShape(currentType.getShape().begin(),
+                                      currentType.getShape().end());
+        remShape[dim] = originalDimSize * remainderSize;
+        auto remType = RankedTensorType::get(
+            remShape, currentType.getElementType(), currentType.getEncoding());
+
+        auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+        remainder =
+            rewriter.create<ttir::ConcatOp>(loc, remType, remInputs, dimAttr);
+      }
+
+      // Final concat of current and remainder
+      SmallVector<Value> inputs = {current, remainder};
+      currentShape[dim] = originalDimSize * repeatCount;
+
+      auto outputType =
+          RankedTensorType::get(currentShape, currentType.getElementType(),
+                                currentType.getEncoding());
+
+      auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
+      current =
+          rewriter.create<ttir::ConcatOp>(loc, outputType, inputs, dimAttr);
+    }
+
+    return current;
+  }
+
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -2542,31 +2634,10 @@ public:
     auto inputType = mlir::cast<RankedTensorType>(current.getType());
     int64_t rank = inputType.getRank();
 
-    // Process each dimension, creating concat operations
+    // Process each dimension, using hierarchical concat
     for (int64_t dim = 0; dim < rank; ++dim) {
       int64_t repeatCount = repeatDimensions[dim];
-
-      // Skip dimensions with repeat count of 1
-      if (repeatCount == 1) {
-        continue;
-      }
-
-      // Create a vector of the current tensor repeated repeatCount times
-      SmallVector<Value> inputs(repeatCount, current);
-
-      // Compute the output shape for this concat
-      auto currentType = mlir::cast<RankedTensorType>(current.getType());
-      SmallVector<int64_t> newShape(currentType.getShape().begin(),
-                                    currentType.getShape().end());
-      newShape[dim] *= repeatCount;
-
-      auto outputType = RankedTensorType::get(
-          newShape, currentType.getElementType(), currentType.getEncoding());
-
-      // Create the concat operation
-      auto dimAttr = rewriter.getSI32IntegerAttr(static_cast<int32_t>(dim));
-      current =
-          rewriter.create<ttir::ConcatOp>(loc, outputType, inputs, dimAttr);
+      current = repeatAlongDim(loc, current, dim, repeatCount, rewriter);
     }
 
     // Replace the original repeat op with the final result
