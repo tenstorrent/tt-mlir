@@ -693,10 +693,16 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
   auto qType = mlir::cast<RankedTensorType>(c.query.getType());
   auto qShape = qType.getShape();
+  auto kType = mlir::cast<RankedTensorType>(c.key.getType());
+  int64_t kSeqLen = kType.getShape()[kSeqLenDim];
 
   FusionValidator validator(rewriter.getContext(), validationConfig);
 
-  bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
+  // The decode kernel requires K sequence length divisible by 32 (chunk size
+  // constraint: get_chunk_size(s) is the largest power-of-2 divisor of s,
+  // capped at 512, and must be >= 32).
+  bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1 &&
+                  kSeqLen > 0 && kSeqLen % 32 == 0;
   if (isDecode) {
     Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
         mlir::cast<TypedValue<RankedTensorType>>(c.query),
@@ -737,6 +743,14 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
 
     rewriter.replaceOp(c.attentionMatmul, finalResult);
   } else {
+    // Q seq_len == 1 is autoregressive decode mode. The prefill SDPA kernel is
+    // not designed for single-query sequences; only the decode kernel handles
+    // this correctly. If the decode kernel can't be used (K not divisible by
+    // 32), fall back to plain matmul rather than using prefill SDPA.
+    if (qShape.size() == 4 && qShape[kSeqLenDim] == 1) {
+      return failure();
+    }
+
     auto validationResult =
         validator.validateFusion<ScaledDotProductAttentionOp>(
             c.attentionMatmul.getOperation(), c.attentionMatmul.getLoc(),
