@@ -1,4 +1,3 @@
-
 module {
   func.func @forward_sum(%arg0: tensor<2x3xf32>, %arg1: tensor<f32>) -> tensor<3xf32> {
     %0 = "stablehlo.reduce"(%arg0, %arg1) ({
