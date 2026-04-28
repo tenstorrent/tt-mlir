@@ -576,6 +576,7 @@ func.func @outer_scf_loops_get_fused(
 // CHECK:       "d2m.tile_sin"
 // CHECK:       affine.store {{.*}}, %[[SCRATCH_B]]
 // CHECK:       d2m.unpack_stall_on_pack
+// CHECK-NOT:   d2m.unpack_stall_on_pack
 // CHECK:       affine.load %[[SCRATCH_A]]
 // CHECK:       affine.load %[[SCRATCH_B]]
 // CHECK:       "d2m.tile_add"

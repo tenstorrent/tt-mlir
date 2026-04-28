@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
@@ -15,16 +16,6 @@ namespace mlir::tt::d2m {
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-
-// Calculate total number of elements in a statically-shaped memref.
-static int64_t getNumElements(MemRefType memrefType) {
-  int64_t numElements = 1;
-  for (int64_t dim : memrefType.getShape()) {
-    assert(dim != ShapedType::kDynamic && "scratch memrefs must be static");
-    numElements *= dim;
-  }
-  return numElements;
-}
 
 // Information about a single scratch allocation.
 struct ScratchAllocationInfo {
@@ -81,8 +72,11 @@ private:
     SmallVector<ScratchAllocationInfo> allocations;
     region.walk([&](ScratchAllocateOp allocOp) {
       auto memrefType = mlir::cast<MemRefType>(allocOp.getResult().getType());
+      assert(!llvm::is_contained(memrefType.getShape(), ShapedType::kDynamic) &&
+             "scratch memrefs must be static");
       allocations.push_back({allocOp, static_cast<int64_t>(allocOp.getSlot()),
-                             getNumElements(memrefType),
+                             ttmlir::utils::volume<int64_t>(
+                                 memrefType.getShape()),
                              /*elementOffset=*/0});
     });
 
@@ -105,7 +99,11 @@ private:
     }
 
     // Verify allocations fit in the scratch buffer.
-    int64_t scratchCapacity = getNumElements(scratchMemRefType);
+    assert(!llvm::is_contained(scratchMemRefType.getShape(),
+                               ShapedType::kDynamic) &&
+           "scratch memrefs must be static");
+    int64_t scratchCapacity =
+        ttmlir::utils::volume<int64_t>(scratchMemRefType.getShape());
     if (currentOffset > scratchCapacity) {
       return genericOp.emitOpError()
              << "total scratch allocations (" << currentOffset
