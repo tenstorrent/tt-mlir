@@ -784,6 +784,31 @@ public:
 };
 } // namespace
 
+// Returns true if val is a stablehlo.constant whose elements are all equal to
+// targetValue (checked after converting to the element's float semantics).
+static bool isConstantSplatFloat(Value val, double targetValue) {
+  auto constOp = val.getDefiningOp<mlir::stablehlo::ConstantOp>();
+  if (!constOp) {
+    return false;
+  }
+  auto denseAttr =
+      mlir::dyn_cast<mlir::DenseElementsAttr>(constOp.getValue());
+  if (!denseAttr || !denseAttr.isSplat()) {
+    return false;
+  }
+  auto elemType =
+      mlir::dyn_cast<mlir::FloatType>(denseAttr.getElementType());
+  if (!elemType) {
+    return false;
+  }
+  APFloat splatVal = denseAttr.getSplatValue<APFloat>();
+  APFloat target(targetValue);
+  bool lossy = false;
+  target.convert(elemType.getFloatSemantics(),
+                 APFloat::rmNearestTiesToEven, &lossy);
+  return splatVal.compare(target) == APFloat::cmpEqual;
+}
+
 namespace {
 class StableHLOToBatchNormTrainingOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BatchNormTrainingOp> {
@@ -801,6 +826,61 @@ public:
         checkBatchNormConversionLegality(srcOp, adaptor, rewriter);
     if (!legalityResult.succeeded()) {
       return legalityResult;
+    }
+
+    auto inputType =
+        mlir::cast<RankedTensorType>(adaptor.getOperand().getType());
+    int64_t rank = inputType.getRank();
+    uint64_t featureIndex = srcOp.getFeatureIndex();
+
+    // Detect TorchXLA's batch_norm lowering of LayerNorm. When TorchXLA lowers
+    // nn.LayerNorm over the last dim of a rank-3 tensor [B, S, H], it emits
+    //   batch_norm_training(x, ones_S, zeros_S, epsilon, feature_index=S_dim)
+    // with the mean/var outputs unused; the caller then applies the actual
+    // learned scale/bias via multiply+add. This is mathematically equivalent to
+    // layer_norm(x, normalized_shape=[H], epsilon) for single-batch inputs.
+    // The TTNN batch_norm kernel introduces numerical error due to an
+    // intermediate reshape; lower to ttir.layer_norm for correct results.
+    if (rank == 3 && featureIndex == static_cast<uint64_t>(rank - 2) &&
+        srcOp.getResult(1).use_empty() && srcOp.getResult(2).use_empty() &&
+        isConstantSplatFloat(srcOp.getScale(), 1.0) &&
+        isConstantSplatFloat(srcOp.getOffset(), 0.0)) {
+
+      auto loc = srcOp.getLoc();
+      auto outputType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+      auto meanType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+      auto varianceType = mlir::cast<RankedTensorType>(
+          getTypeConverter()->convertType(srcOp.getResult(2).getType()));
+
+      int64_t normalizedDim = inputType.getDimSize(rank - 1);
+      SmallVector<int64_t, 1> normalizedShape = {normalizedDim};
+
+      SmallVector<NamedAttribute> namedAttrs;
+      namedAttrs.push_back(rewriter.getNamedAttr(
+          "normalized_shape", rewriter.getDenseI64ArrayAttr(normalizedShape)));
+      namedAttrs.push_back(
+          rewriter.getNamedAttr("epsilon", srcOp.getEpsilonAttr()));
+      namedAttrs.push_back(rewriter.getNamedAttr(
+          "operandSegmentSizes", rewriter.getDenseI32ArrayAttr({1, 0, 0})));
+
+      auto layerNormOp = rewriter.create<ttir::LayerNormOp>(
+          loc, outputType, ValueRange{adaptor.getOperand()}, namedAttrs);
+
+      // result(1) and result(2) (mean, variance) have no uses; provide dummy
+      // zero/one tensors to satisfy replaceOp's requirement of matching the
+      // original op's result count.
+      auto dummyMean = rewriter.create<ttir::ZerosOp>(
+          loc, meanType, llvm::to_vector_of<int32_t>(meanType.getShape()));
+      auto dummyVar = rewriter.create<ttir::OnesOp>(
+          loc, varianceType,
+          llvm::to_vector_of<int32_t>(varianceType.getShape()));
+
+      rewriter.replaceOp(srcOp, ValueRange{layerNormOp.getResult(),
+                                           dummyMean.getResult(),
+                                           dummyVar.getResult()});
+      return success();
     }
 
     auto loc = srcOp.getLoc();
