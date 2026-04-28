@@ -116,8 +116,8 @@ module {
   func.func private @compute_kernel0() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<
       ct_args = [
-        <arg_type = cb, operand_index = 2>,
-        <arg_type = cb, operand_index = 3>
+        <arg_type = cb_port, operand_index = 2>,
+        <arg_type = cb_port, operand_index = 3>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<compute>

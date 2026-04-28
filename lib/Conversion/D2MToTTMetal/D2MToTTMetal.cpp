@@ -63,7 +63,7 @@ public:
     SmallVector<ttmetal::KernelArgAttr> rtArgs;
     SmallVector<ttmetal::KernelArgAttr> ctArgs;
     for (ttkernel::ArgAttr arg : kernelSpec.getRtArgs()) {
-      if (arg.getArgType() == ttkernel::ArgType::CB) {
+      if (arg.getArgType() == ttkernel::ArgType::CBPort) {
         rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
       } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
@@ -75,7 +75,7 @@ public:
       }
     }
     for (ttkernel::ArgAttr arg : kernelSpec.getCtArgs()) {
-      if (arg.getArgType() == ttkernel::ArgType::CB) {
+      if (arg.getArgType() == ttkernel::ArgType::CBPort) {
         ctArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
       } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
@@ -733,7 +733,7 @@ private:
               remapTable.lookupGlobalSemaphore(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
-    } else if (kernelArg.getType() == ttkernel::ArgType::CB) {
+    } else if (kernelArg.getType() == ttkernel::ArgType::CBPort) {
       operandIndex += mergedCbSlotBase;
     }
     return builder.getAttr<KernelArgAttr>(kernelArg.getType(), operandIndex);

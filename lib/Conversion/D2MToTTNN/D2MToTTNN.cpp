@@ -155,7 +155,7 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
     return builder.getAttr<ttnn::KernelArgAddressOfTensorAttr>(
         arg.getOperandIndex());
   }
-  case ttkernel::ArgType::CB: {
+  case ttkernel::ArgType::CBPort: {
     return builder.getAttr<ttnn::KernelArgCBBufferIndexAttr>(
         cbOperandIndexToPortMapping.at(arg.getOperandIndex()));
   }

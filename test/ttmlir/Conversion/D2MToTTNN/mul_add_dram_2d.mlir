@@ -81,22 +81,22 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %cast_12 = ttir.ttnn_metal_layout_cast %cast_11 : memref<1x8x1x8x!ttcore.tile<32x32, bf16>, #ttcore.shard<16384x2048, 1>, #ttcore.memory_space<l1>> -> tensor<32x2048xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
     return %cast_12 : tensor<32x2048xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
   }
-  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb, operand_index = 4>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 4>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 4>, <arg_type = cb, operand_index = 3>, <arg_type = cb, operand_index = 5>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 4>, <arg_type = cb_port, operand_index = 3>, <arg_type = cb_port, operand_index = 5>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
-  func.func private @datamovement_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb, operand_index = 4>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 4>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @compute_kernel4() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 4>, <arg_type = cb, operand_index = 5>, <arg_type = cb, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel4() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 4>, <arg_type = cb_port, operand_index = 5>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
-  func.func private @datamovement_kernel5() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel5() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
   func.func private @compute_kernel6() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<compute>} {

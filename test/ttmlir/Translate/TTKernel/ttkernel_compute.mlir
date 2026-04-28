@@ -5,7 +5,7 @@
 #l1_ = #ttcore.memory_space<l1>
 
 // CHECK: void kernel_main()
-func.func @ttkernel_compute() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+func.func @ttkernel_compute() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     // CHECK: int32_t v1 = 4
     %c4_i32 = arith.constant 4 : i32
     %arg1 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>

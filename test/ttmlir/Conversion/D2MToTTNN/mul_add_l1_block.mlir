@@ -62,13 +62,13 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
   func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @compute_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 5>, <arg_type = cb, operand_index = 4>, <arg_type = cb, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 5>, <arg_type = cb_port, operand_index = 4>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
   func.func private @datamovement_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< >, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @compute_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 5>, <arg_type = cb, operand_index = 4>, <arg_type = cb, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel3() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 5>, <arg_type = cb_port, operand_index = 4>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
 }

@@ -2697,7 +2697,7 @@ public:
       if (mlir::isa<ttkernel::CBType>(convertedType)) {
         // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
         // Handle identically to D2MGetCBRewriter: CBPort compile-time arg.
-        arg = rewriter.getAttr<ArgAttr>(ArgType::CB, op.getOperandIndex());
+        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
         argResultType = convertedType;
 
         rewriter.modifyOpInPlace(entry, [&]() {
@@ -2789,7 +2789,7 @@ public:
     // which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
     ArgAttr cbArg =
-        rewriter.getAttr<ArgAttr>(ArgType::CB, op.getCbOperandIdx());
+        rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getCbOperandIdx());
     size_t ctArgIndex;
     rewriter.modifyOpInPlace(entry, [&]() {
       ctArgIndex = ArgSpecAttr::appendCompileTimeArg(entry, cbArg);

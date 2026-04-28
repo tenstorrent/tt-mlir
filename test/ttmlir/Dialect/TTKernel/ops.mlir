@@ -4,7 +4,7 @@
 #l1_ = #ttcore.memory_space<l1>
 
 // CHECK-LABEL: func.func @test_tilize_uninit
-func.func @test_tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>, <arg_type = cb, operand_index = 1>]>} {
+func.func @test_tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>} {
   %tilized_cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<16, !ttcore.tile<32x32, f32>>
   %untilized_cb = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<16384, f32>
   ttkernel.tilize_uninit(%untilized_cb, %tilized_cb) : (!ttkernel.cb<16384, f32>, !ttkernel.cb<16, !ttcore.tile<32x32, f32>>) -> ()
@@ -13,7 +13,7 @@ func.func @test_tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.
 }
 
 // CHECK-LABEL: func.func @test_untilize_uninit
-func.func @test_untilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>} {
+func.func @test_untilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>} {
   %tilized_cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<16, !ttcore.tile<32x32, f32>>
   ttkernel.untilize_uninit(%tilized_cb) : (!ttkernel.cb<16, !ttcore.tile<32x32, f32>>) -> ()
   // CHECK: ttkernel.untilize_uninit(%{{.*}}) : (!ttkernel.cb<16, !ttcore.tile<32x32, f32>>) -> ()
@@ -66,7 +66,7 @@ func.func @test_sub_binary_tile() -> () {
 }
 
 // CHECK-LABEL: func.func @test_pack_tile_block
-func.func @test_pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>} {
+func.func @test_pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>} {
   %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<16, !ttcore.tile<32x32, f32>>
   %c0 = arith.constant 0 : index
   %c4 = arith.constant 4 : index
@@ -76,7 +76,7 @@ func.func @test_pack_tile_block() -> () attributes {ttkernel.arg_spec = #ttkerne
 }
 
 // CHECK-LABEL: func.func @test_copy_block_matmul_partials
-func.func @test_copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb, operand_index = 0>]>} {
+func.func @test_copy_block_matmul_partials() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>} {
   %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<16, !ttcore.tile<32x32, f32>>
   %c0 = arith.constant 0 : index
   %c4 = arith.constant 4 : index

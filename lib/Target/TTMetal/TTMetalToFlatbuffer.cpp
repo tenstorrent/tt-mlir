@@ -658,7 +658,7 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
   target::metal::KernelArgType argType;
   flatbuffers::Offset<void> arg;
   switch (kernelArg.getType()) {
-  case ttkernel::ArgType::CB: {
+  case ttkernel::ArgType::CBPort: {
     argType = target::metal::KernelArgType::KernelArgCBPort;
     arg = target::metal::CreateKernelArgCBPort(*cache.fbb,
                                                kernelArg.getOperandIndex())
