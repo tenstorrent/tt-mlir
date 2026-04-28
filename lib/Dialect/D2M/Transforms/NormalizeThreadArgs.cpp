@@ -114,28 +114,27 @@ public:
         if (!mlir::isa<MemRefType>(argType) &&
             !mlir::isa<d2m::LocalSemaphoreType>(argType) &&
             !mlir::isa<d2m::GlobalSemaphoreType>(argType)) {
-          generic.emitOpError("unsupported argument type in d2m.generic operands: ")
+          generic.emitOpError(
+              "unsupported argument type in d2m.generic operands: ")
               << argType << "; only memref and semaphore types are supported";
           signalPassFailure();
           return;
         }
-        
-        if (mlir::isa<MemRefType>(argType)) {
-          // Buffer additional args: insert get_arg before each in-region use.
-          for (OpOperand &use : llvm::make_early_inc_range(arg.getUses())) {
-            if (use.getOwner() == generic.getOperation()) {
-              continue;
-            }
-            if (!generic->isAncestor(use.getOwner())) {
-              continue;
-            }
-            rewriter.setInsertionPoint(use.getOwner());
-            auto buf = rewriter.create<GetArgOp>(
-                use.getOwner()->getLoc(), argType, i,
-                ResolutionStageAttr::get(&getContext(),
-                                         ResolutionStage::Compile));
-            use.set(buf.getResult());
+
+        // Insert get_arg before each in-region use.
+        for (OpOperand &use : llvm::make_early_inc_range(arg.getUses())) {
+          if (use.getOwner() == generic.getOperation()) {
+            continue;
           }
+          if (!generic->isAncestor(use.getOwner())) {
+            continue;
+          }
+          rewriter.setInsertionPoint(use.getOwner());
+          auto buf = rewriter.create<GetArgOp>(
+              use.getOwner()->getLoc(), argType, i,
+              ResolutionStageAttr::get(&getContext(),
+                                       ResolutionStage::Compile));
+          use.set(buf.getResult());
         }
       }
     });

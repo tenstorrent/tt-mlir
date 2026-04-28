@@ -1367,12 +1367,17 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         } else {
           // Mark allocs as aliased for HoistCBAllocs pass
           auto operandIndex = operandCtx.operand->getOperandNumber();
-          if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(
-                  d2m::GenericOp::getOperandAlloc(genericOp->getRegion(0),
-                                                  operandIndex)
-                      .getDefiningOp())) {
-            allocOp->setAttr("d2m.alias_for_operand",
-                             rewriter.getI64IntegerAttr(operandIndex));
+          Value cbMemref = d2m::GenericOp::getOperandAlloc(
+              genericOp->getRegion(0), operandIndex);
+          if (!cbMemref) {
+            cbMemref = findSharedOutputBuffer(genericOp, operandCtx);
+          }
+          if (cbMemref) {
+            if (auto allocOp =
+                    mlir::dyn_cast<memref::AllocOp>(cbMemref.getDefiningOp())) {
+              allocOp->setAttr("d2m.alias_for_operand",
+                               rewriter.getI64IntegerAttr(operandIndex));
+            }
           }
         }
       }

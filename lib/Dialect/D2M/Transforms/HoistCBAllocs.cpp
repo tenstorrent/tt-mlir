@@ -61,6 +61,9 @@ private:
       if (auto alignAttr = allocOp.getAlignmentAttr()) {
         externalAlloc.setAlignmentAttr(alignAttr);
       }
+      if (auto scratchBufferAttr = allocOp->getAttr("d2m.scratch_buffer")) {
+        externalAlloc->setAttr("d2m.scratch_buffer", scratchBufferAttr);
+      }
 
       // Add the external alloc as an additionalArg to the generic op.
       genericOp.getAdditionalArgsMutable().append(externalAlloc.getResult());

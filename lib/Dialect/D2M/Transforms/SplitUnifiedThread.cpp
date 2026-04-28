@@ -69,6 +69,13 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
       // if (mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout())) {
       if (llvm::find(genericOp.getAdditionalArgs(), value) !=
           genericOp.getAdditionalArgs().end()) {
+        // Skip scratch buffers
+        if (auto scratchBufferAttr =
+                mlir::dyn_cast<Operation *>(value.getDefiningOp())
+                    ->getAttr("d2m.scratch_buffer")) {
+          // llvm::errs() << "value is a scratch buffer: " << value << "\n";
+          return nullptr;
+        }
         return value;
       }
     }
