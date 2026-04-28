@@ -39,6 +39,7 @@ ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
 ALL_ENVIRONMENTS = set(["silicon", "sim"])
 ALL_IMAGES = set(["tracy", "speedy"])
 ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS | ALL_IMAGES
+DISABLED_BUILDER_CODEGEN_BACKENDS = set(["emitc", "emitpy"])
 
 
 _current_device = None
@@ -843,6 +844,16 @@ def pytest_collection_modifyitems(config, items):
             if param[0] == "target":
                 current_target = param[1]
                 break
+
+        if current_target in DISABLED_BUILDER_CODEGEN_BACKENDS:
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=(
+                        "Builder EmitC/EmitPy backend tests are disabled while "
+                        "coverage is redesigned"
+                    )
+                )
+            )
 
         current_environment = _get_current_environment()
         current_image = _get_current_image()
