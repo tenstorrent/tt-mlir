@@ -1927,14 +1927,26 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
+
+    // Choose C_in_block to keep dominant CBs (vol2col_tiled + weight_tiled)
+    // within per-core L1. Each CB costs tile_size * matmul_K_t bytes where
+    // matmul_K_t = kernelVol * cInBlock / TILE_WIDTH. Cap matmul_K_t at 256 so
+    // each CB stays within 512 KB, safe for 1.5 MB L1 on Wormhole/Blackhole.
+    int64_t kernelVol =
+        weightTy.getDimSize(2) * weightTy.getDimSize(3) * weightTy.getDimSize(4);
+    constexpr int64_t MAX_MATMUL_K_TILES = 256;
+    // l1_alignment = 16 bytes; for bfloat16 that is 8 elements minimum.
+    constexpr int64_t MIN_C_IN_BLOCK = 8;
+    int64_t cInBlock = TILE_WIDTH;
+    while (cInBlock > MIN_C_IN_BLOCK &&
+           kernelVol * cInBlock / TILE_WIDTH > MAX_MATMUL_K_TILES) {
+      cInBlock /= 2;
+    }
+
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
-                                                  /*cInBlock=*/TILE_WIDTH);
+                                                  /*cInBlock=*/cInBlock);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -1977,12 +1989,31 @@ public:
           outputType, permutedOutputShape);
     }
 
+    // When cInBlock was reduced for L1 safety, explicitly propagate both
+    // c_in_block and c_out_block to the runtime config. Omitting c_out_block
+    // when a config is present causes the runtime to interpret C_out_block=0 as
+    // "use full padded_C_out", making the weight CB O * matmul_K_t tiles wide.
+    ttnn::Conv3dConfigAttr conv3dConfigAttr = nullptr;
+    if (cInBlock < TILE_WIDTH) {
+      conv3dConfigAttr = ttnn::Conv3dConfigAttr::get(
+          op.getContext(),
+          /*weights_dtype=*/std::nullopt,
+          /*t_out_block=*/std::nullopt,
+          /*w_out_block=*/std::nullopt,
+          /*h_out_block=*/std::nullopt,
+          /*c_out_block=*/std::optional<uint32_t>(
+              static_cast<uint32_t>(TILE_WIDTH)),
+          /*c_in_block=*/std::optional<uint32_t>(
+              static_cast<uint32_t>(cInBlock)),
+          /*compute_with_storage_grid_size=*/std::nullopt);
+    }
+
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
         op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
-        nullptr);
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
+        conv3dConfigAttr, nullptr);
 
     if (needsPermute) {
       auto fromNdhwcPermutation =
