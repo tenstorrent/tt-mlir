@@ -676,6 +676,7 @@ void registerRuntimeBindings(nb::module_ &m) {
                   [pre_op_func](tt::runtime::Binary Binary,
                                 tt::runtime::CallbackContext programContext,
                                 tt::runtime::OpContext opContext) {
+                    nb::gil_scoped_acquire acquire;
                     (*pre_op_func)(Binary, programContext, opContext);
                   };
             }
@@ -684,6 +685,7 @@ void registerRuntimeBindings(nb::module_ &m) {
                   [post_op_func](tt::runtime::Binary Binary,
                                  tt::runtime::CallbackContext programContext,
                                  tt::runtime::OpContext opContext) {
+                    nb::gil_scoped_acquire acquire;
                     (*post_op_func)(Binary, programContext, opContext);
                   };
             }
@@ -692,6 +694,7 @@ void registerRuntimeBindings(nb::module_ &m) {
                   [pre_program_func](
                       tt::runtime::Binary Binary,
                       tt::runtime::CallbackContext programContext) {
+                    nb::gil_scoped_acquire acquire;
                     (*pre_program_func)(Binary, programContext);
                   };
             }
@@ -700,6 +703,7 @@ void registerRuntimeBindings(nb::module_ &m) {
                   [post_program_func](
                       tt::runtime::Binary Binary,
                       tt::runtime::CallbackContext programContext) {
+                    nb::gil_scoped_acquire acquire;
                     (*post_program_func)(Binary, programContext);
                   };
             }
