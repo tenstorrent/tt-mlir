@@ -201,6 +201,7 @@ static ::mlir::Attribute constantFoldEltwiseUnaryInt(mlir::Operation *op,
   }
 
   if (op->getOperand(0).getType() != op->getResult(0).getType()) {
+    // Avoid implicit type conversion in folders since it does not happen often.
     return nullptr;
   }
   if (!input.isSplat() && !shouldFold(op)) {
