@@ -69,6 +69,26 @@ module {
     return %1 : tensor<64x64xbf16>
   }
 
+  func.func @abs_int_to_float_no_fold() -> tensor<64x64xf32> {
+    // CHECK-LABEL: func.func @abs_int_to_float_no_fold
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = -2
+    // CHECK: "ttir.abs"
+    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = -2 : i32}> : () -> tensor<64x64xsi32>
+    %1 = "ttir.abs"(%0) : (tensor<64x64xsi32>) -> tensor<64x64xf32>
+    return %1 : tensor<64x64xf32>
+  }
+
+  func.func @abs_float_to_int_no_fold() -> tensor<64x64xsi32> {
+    // CHECK-LABEL: func.func @abs_float_to_int_no_fold
+    // CHECK: "ttir.full"
+    // CHECK-SAME: fill_value = -2.000000e+00
+    // CHECK: "ttir.abs"
+    %0 = "ttir.full"() <{shape = array<i32: 64, 64>, fill_value = -2.000000e+00 : f32}> : () -> tensor<64x64xf32>
+    %1 = "ttir.abs"(%0) : (tensor<64x64xf32>) -> tensor<64x64xsi32>
+    return %1 : tensor<64x64xsi32>
+  }
+
   func.func @atan0() -> tensor<32xf32> {
     // CHECK-LABEL: func.func @atan0
     // CHECK: "ttir.zeros"
