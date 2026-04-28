@@ -1,0 +1,7 @@
+// External module 2: @foo returns a 1-D bf16 tensor.
+module {
+  func.func @foo() -> tensor<32xbf16> {
+    %0 = "ttir.constant"() <{value = dense<1.0> : tensor<32xbf16>}> : () -> tensor<32xbf16>
+    return %0 : tensor<32xbf16>
+  }
+}
