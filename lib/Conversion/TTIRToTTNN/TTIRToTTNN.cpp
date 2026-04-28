@@ -2074,8 +2074,17 @@ public:
     llvm::SmallVector<int64_t> preparedWeightShape = {
         numCInBlocks * kernelDepth * kernelHeight * kernelWidth * TILE_WIDTH,
         outChannels};
-    auto preparedWeightType = ttnn::utils::RankedTensorTypeFactory::create(
-        weightTy, preparedWeightShape);
+    auto oldWeightLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(weightTy.getEncoding());
+    auto preparedWeightLayout = ttnn::TTNNLayoutAttr::get(
+        rewriter.getContext(), preparedWeightShape,
+        oldWeightLayout.getScalarElementType(), ttnn::BufferType::DRAM,
+        oldWeightLayout.getGrid(),
+        ttnn::TensorMemoryLayoutAttr::get(
+            rewriter.getContext(), ttnn::TensorMemoryLayout::Interleaved));
+    auto preparedWeightType = mlir::RankedTensorType::get(
+        preparedWeightShape, oldWeightLayout.getScalarElementType(),
+        preparedWeightLayout);
     Value reshapedWeight = rewriter.create<ttnn::PrepareConv3dWeightsOp>(
         ttmlir::utils::appendLocationSuffix(op.getLoc(),
                                             "_prepare_conv3d_weight"),

@@ -1855,6 +1855,13 @@ def TTNN_PrepareConv3dWeightsOp : TTNN_Op<"prepare_conv3d_weights"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createPrepareConv3dWeightsOpOperandsWorkarounds();
+      }
+    }];
+
     let hasVerifier = 1;
 }
 

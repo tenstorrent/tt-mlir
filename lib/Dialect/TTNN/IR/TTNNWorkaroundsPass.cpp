@@ -350,6 +350,19 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(hostRowMajorWorkaround);
 }
 
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPrepareConv3dWeightsOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds hostRowMajorWorkaround;
+  hostRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  hostRowMajorWorkaround.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr();
+  hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(hostRowMajorWorkaround)
+      .addOutputOperandWorkaround(TTNNOperandWorkarounds());
+}
+
 // Factory method to create a set of workarounds for where op operands.
 // tt-metal uses predicate type for where op operation. If the predicate data
 // type does not match with inputs/output data type; tt-metal can generate

@@ -368,6 +368,11 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39126
   static TTNNOperandsWorkarounds createSparseMatmulOpOperandsWorkarounds();
 
+  // Create workarounds for prepare_conv3d_weights op operands.
+  // Weight tensor must be in system memory and ROW_MAJOR layout.
+  static TTNNOperandsWorkarounds
+  createPrepareConv3dWeightsOpOperandsWorkarounds();
+
   // Create workarounds for all_to_all_dispatch op operands.
   // Expert indices and mapping require uint16 dtype and ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
