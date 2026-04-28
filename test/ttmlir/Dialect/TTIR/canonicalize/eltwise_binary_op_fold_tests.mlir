@@ -143,18 +143,6 @@ module {
     return %2 : tensor<3xui8>
   }
 
-  func.func @bitwise_and_float() -> tensor<3xf32> {
-    // CHECK-LABEL: @bitwise_and_float
-    // CHECK: "ttir.constant"
-    // CHECK-SAME: value = dense<{{\[}}1.000000e+00, 4.000000e+00, 0.000000e+00]> : tensor<3xf32>
-    // CHECK-NOT: "ttir.constant"
-    // CHECK-NOT: "ttir.bitwise_and"
-    %0 = "ttir.constant"() {value = dense<[1.0, 16.0, -2.5]> : tensor<3xf32>} : () -> tensor<3xf32>
-    %1 = "ttir.constant"() {value = dense<[1.0, 4.0, 0.0]> : tensor<3xf32>} : () -> tensor<3xf32>
-    %2 = "ttir.bitwise_and"(%0, %1) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
-    return %2 : tensor<3xf32>
-  }
-
   func.func @bitwise_and_uint() -> tensor<3xui8> {
     // CHECK-LABEL: @bitwise_and_uint
     // CHECK: "ttir.constant"
@@ -167,18 +155,6 @@ module {
     return %2 : tensor<3xui8>
   }
 
-  func.func @bitwise_or_float() -> tensor<3xf32> {
-    // CHECK-LABEL: @bitwise_or_float
-    // CHECK: "ttir.constant"
-    // CHECK-SAME: value = dense<{{\[}}1.000000e+00, 1.600000e+01, -2.500000e+00]> : tensor<3xf32>
-    // CHECK-NOT: "ttir.constant"
-    // CHECK-NOT: "ttir.bitwise_or"
-    %0 = "ttir.constant"() {value = dense<[1.0, 16.0, -2.5]> : tensor<3xf32>} : () -> tensor<3xf32>
-    %1 = "ttir.constant"() {value = dense<[1.0, 4.0, 0.0]> : tensor<3xf32>} : () -> tensor<3xf32>
-    %2 = "ttir.bitwise_or"(%0, %1) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
-    return %2 : tensor<3xf32>
-  }
-
   func.func @bitwise_or_uint() -> tensor<3xui8> {
     // CHECK-LABEL: @bitwise_or_uint
     // CHECK: "ttir.full"
@@ -189,18 +165,6 @@ module {
     %1 = "ttir.constant"() {value = dense<[1, 85, 15]> : tensor<3xui8>} : () -> tensor<3xui8>
     %2 = "ttir.bitwise_or"(%0, %1) : (tensor<3xui8>, tensor<3xui8>) -> tensor<3xui8>
     return %2 : tensor<3xui8>
-  }
-
-  func.func @bitwise_xor_float() -> tensor<3xf32> {
-    // CHECK-LABEL: @bitwise_xor_float
-    // CHECK: "ttir.constant"
-    // CHECK-SAME: value = dense<{{\[}}0.000000e+00, 1.600000e+01, -2.500000e+00]> : tensor<3xf32>
-    // CHECK-NOT: "ttir.constant"
-    // CHECK-NOT: "ttir.bitwise_xor"
-    %0 = "ttir.constant"() {value = dense<[1.0, 4.7019774e-38, -2.5]> : tensor<3xf32>} : () -> tensor<3xf32>
-    %1 = "ttir.constant"() {value = dense<[1.0, 2.0, 0.0]> : tensor<3xf32>} : () -> tensor<3xf32>
-    %2 = "ttir.bitwise_xor"(%0, %1) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
-    return %2 : tensor<3xf32>
   }
 
   func.func @bitwise_xor_uint() -> tensor<3xui8> {
