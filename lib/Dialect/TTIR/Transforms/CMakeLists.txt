@@ -12,6 +12,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         FlattenSlidingWindow.cpp
         FoldConstantReshapeBroadcast.cpp
         ElementTypeNormalization.cpp
+        InlineExternalFunctions.cpp
         PredicateTypeAlignment.cpp
         InferKVCacheArgumentTypes.cpp
         PropagateWeightDtype.cpp
@@ -37,4 +38,5 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MLIRTTIREraseInverseOps
         MLIRTTIRHoistCPUOps
         TTMLIRTTNNUtils
+        MLIRParser
         )
