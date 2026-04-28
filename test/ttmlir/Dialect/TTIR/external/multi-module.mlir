@@ -1,7 +1,7 @@
-// RUN: ttmlir-opt --ttir-inline-external-functions -o %t %s
+// RUN: ttmlir-opt --ttir-link-external-functions -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
-// Check that we can merge a function from two different external modules.
+// Check that we can link a function from two different external modules.
 
 module {
   func.func @test_multi_module() -> (tensor<i32>, tensor<32xbf16>) {

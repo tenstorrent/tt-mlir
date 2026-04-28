@@ -21,7 +21,7 @@
 
 namespace mlir::tt::ttir {
 
-#define GEN_PASS_DEF_TTIRINLINEEXTERNALFUNCTIONS
+#define GEN_PASS_DEF_TTIRLINKEXTERNALFUNCTIONS
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -152,9 +152,9 @@ mergeExternalModule(ModuleOp destModule,
   return renameMap;
 }
 
-struct TTIRInlineExternalFunctionsPass
-    : public impl::TTIRInlineExternalFunctionsBase<
-          TTIRInlineExternalFunctionsPass> {
+struct TTIRLinkExternalFunctionsPass
+    : public impl::TTIRLinkExternalFunctionsBase<
+          TTIRLinkExternalFunctionsPass> {
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
