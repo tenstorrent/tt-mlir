@@ -421,7 +421,6 @@ void createTTIRToTTNNDevicePipeline(
 
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
 
-
     // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 

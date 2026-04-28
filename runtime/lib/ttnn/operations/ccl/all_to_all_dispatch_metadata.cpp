@@ -12,9 +12,6 @@
 #include <tt-metalium/experimental/tensor/topology/tensor_topology.hpp>
 #include <tt-metalium/mesh_coord.hpp>
 
-#include <cstdlib>
-#include <string>
-
 namespace tt::runtime::ttnn::operations::ccl {
 namespace {
 // Allocate a zero-initialized device tensor matching the shape/dtype/layout/
@@ -66,19 +63,6 @@ namespace {
 // a fully-replicated topology.
 void overrideAxis0ShardedTopology(::ttnn::Tensor &tensor,
                                   ProgramContext &context) {
-  // Controlled by env var so we can A/B test the fix without another
-  // rebuild: default ON because the replicated topology is the observed
-  // cause of the cross-device batch collapse.
-  static const bool kOverrideTopology = []() {
-    const char *env = std::getenv("TT_A2A_DISPATCH_METADATA_SHARDED_TOPO");
-    // Enabled by default; set the env var to "0" to disable and fall back
-    // to the plain replicated topology.
-    return env == nullptr || std::string(env) != "0";
-  }();
-  if (!kOverrideTopology) {
-    return;
-  }
-
   ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
   const auto &meshShape = meshDevicePtr->shape();
   if (meshShape.dims() < 1) {
@@ -132,15 +116,7 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
   // to collapse the cross-device dispatch: only the source device wrote its
   // portion of the dispatched tensor, leaving devices 1..N-1 with the zero-
   // initialized output and producing identical wrong outputs on them.
-  //
-  // Kept the flatbuffer field readable for backwards compat but intentionally
-  // pass std::nullopt to the kernel.
   std::optional<tt::tt_metal::CoreCoord> drainCore = std::nullopt;
-  if (op->drain_core()) {
-    // Log only; do not actually forward to the kernel.
-    (void)op->drain_core()->x();
-    (void)op->drain_core()->y();
-  }
 
   // Match tt-metal GPT-OSS reference
   // (models/demos/gpt_oss/tt/experts_throughput/fused_decode.py): use
@@ -245,34 +221,6 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
                 meshDevicePtr, semaphoreCores, /*initial_value=*/0);
           });
 
-  // Dispatch algorithm can be overridden via env var for A/B debugging:
-  //   TT_A2A_DISPATCH_ALGO=sparse_unicast          (default, matches tt-metal
-  //   reference) TT_A2A_DISPATCH_ALGO=broadcast               (send all tokens
-  //   to all devices) TT_A2A_DISPATCH_ALGO=sparse_mcast_linear
-  //   TT_A2A_DISPATCH_ALGO=sparse_mcast_shortest_path
-  //   TT_A2A_DISPATCH_ALGO=sparse_mcast_split_bw
-  using ::ttnn::operations::experimental::ccl::DispatchAlgorithm;
-  static const DispatchAlgorithm kDispatchAlgorithm = []() {
-    const char *env = std::getenv("TT_A2A_DISPATCH_ALGO");
-    if (env == nullptr) {
-      return DispatchAlgorithm::SPARSE_UNICAST;
-    }
-    std::string s(env);
-    if (s == "broadcast") {
-      return DispatchAlgorithm::BROADCAST;
-    }
-    if (s == "sparse_mcast_linear") {
-      return DispatchAlgorithm::SPARSE_MCAST_LINEAR;
-    }
-    if (s == "sparse_mcast_shortest_path") {
-      return DispatchAlgorithm::SPARSE_MCAST_SHORTEST_PATH;
-    }
-    if (s == "sparse_mcast_split_bw") {
-      return DispatchAlgorithm::SPARSE_MCAST_SPLIT_BW;
-    }
-    return DispatchAlgorithm::SPARSE_UNICAST;
-  }();
-
   auto [dispatched, indices, scores] =
       ::ttnn::experimental::all_to_all_dispatch_metadata(
           input, expertIndices, expertScores, expertMapping,
@@ -283,7 +231,9 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
           /*drain_sync_tilizer_core=*/drainCore,
           /*worker_mode=*/
           ::ttnn::operations::experimental::ccl::WorkerMode::DIRECT,
-          /*dispatch_algorithm=*/kDispatchAlgorithm,
+          /*dispatch_algorithm=*/
+          ::ttnn::operations::experimental::ccl::DispatchAlgorithm::
+              SPARSE_UNICAST,
           /*worker_core_range_set=*/std::nullopt,
           /*mux_core_range_set=*/std::nullopt,
           /*cross_device_semaphore=*/

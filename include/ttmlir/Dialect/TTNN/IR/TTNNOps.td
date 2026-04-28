@@ -4041,7 +4041,7 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d", [
   let hasVerifier = 1;
 }
 
-def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface, TTCore_NonCacheableTrait]> {
+def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface, TTNN_DtypeOpInterface]> {
     let summary = "Assign Tensor";
     let description = [{
       Returns a new tensor which is a new copy of input tensor.
@@ -4049,13 +4049,6 @@ def TTNN_AssignOp : TTNN_Op<"assign", [TTNN_MemoryConfigOpInterface, TTNN_DtypeO
       if their shapes and memory layouts match, and returns input_b tensor.
       Input tensors can be of any data type.
       Output tensor will be of same data type as Input tensor.
-
-      Marked `TTCoreNonCacheableTrait` so the const-eval hoist transform does
-      not pull it into a const-eval subgraph. The caller uses `assign` when
-      they want a *fresh* device-kernel copy every invocation (e.g. to re-zero
-      a pre-allocated output buffer on every trace iteration); caching the
-      result would make `assign` a no-op for subsequent calls and defeat that
-      purpose.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,

@@ -23,7 +23,6 @@ void run(const ::tt::target::ttnn::TopKRouterGptOp *op,
   uint32_t k = static_cast<uint32_t>(op->k());
   uint32_t numExperts = static_cast<uint32_t>(op->num_experts());
 
-
   auto [expertIndices, expertWeights] =
       ::ttnn::experimental::topk_router_gpt(input, weight, bias, k, numExperts);
 

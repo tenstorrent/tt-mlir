@@ -6005,11 +6005,11 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
   RankedTensorType fusedW0W1Type = getFusedW0W1().getType();
   RankedTensorType fusedW2Type = getFusedW2().getType();
   RankedTensorType resultType = getResult().getType();
-  int64_t numDevices = static_cast<int64_t>(getNumDevices());
-  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
-  int64_t numExperts = static_cast<int64_t>(getNumExperts());
-  int64_t numExpertsPerTok = static_cast<int64_t>(getNumExpertsPerTok());
-  int64_t intermediateSize = static_cast<int64_t>(getIntermediateSize());
+  int64_t numDevices = getNumDevices();
+  int64_t clusterAxis = getClusterAxis();
+  int64_t numExperts = getNumExperts();
+  int64_t numExpertsPerTok = getNumExpertsPerTok();
+  int64_t intermediateSize = getIntermediateSize();
 
   // Activations / routing tensors follow the 4D layout used by the surrounding
   // MoE decode custom calls (tt.all_to_all_dispatch_metadata, tt.moe_gpt,
