@@ -7,7 +7,6 @@
 #include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
 #include <tuple>
-#include <utils/utils.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
@@ -17,6 +16,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include <utils/utils.h>
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
