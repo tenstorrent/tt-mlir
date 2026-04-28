@@ -1,8 +1,8 @@
-// RUN: ttmlir-opt --ttir-inline-external-functions -o %t %s
+// RUN: ttmlir-opt --ttir-link-external-functions -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
-// Check that the #ttnn.ttnn_layout attribute defined only in the external module is preserved in
-// the destination module after inlining.
+// Check that the `#ttnn.ttnn_layout` attribute defined only in the external
+// module is preserved in the destination module after linking.
 //
 // CHECK: ttnn.ttnn_layout
 // CHECK-LABEL: func.func @test_attrs
