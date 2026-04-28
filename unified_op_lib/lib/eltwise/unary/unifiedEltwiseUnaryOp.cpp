@@ -21,7 +21,7 @@ EltwiseUnaryResolvedParams resolveEltwiseUnaryParams(
 
   EltwiseUnaryResolvedParams params;
 
-  params.fastApproxMode = true;
+  params.fastApproxMode = false;
 
   if (eltwiseUnaryOpT.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
