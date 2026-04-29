@@ -669,12 +669,9 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> inputDtype =
       detail::getNullableDataType(inputLayout);
@@ -766,12 +763,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> inputDtype =
       detail::getNullableDataType(inputLayout);
@@ -871,12 +865,9 @@ llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto query = [=]() {
@@ -901,12 +892,9 @@ UnaryEltwiseOpModel<OpTy>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto query = [=]() {
@@ -930,12 +918,9 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   bool fastApproxMode = true;
 
@@ -962,12 +947,9 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   bool fastApproxMode = true;
 
@@ -1028,12 +1010,9 @@ llvm::Expected<OpConstraints> OpModel<SigmoidOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Add default parameters
   int32_t vectorMode =
@@ -1062,12 +1041,9 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Add default parameters
   int32_t vectorMode =
@@ -1098,12 +1074,9 @@ llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto leakyReluOpQuery = [=]() {
@@ -1126,12 +1099,9 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto leakyReluOpQuery = [=]() {
@@ -1160,19 +1130,13 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -1205,19 +1169,13 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -1247,19 +1205,13 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
@@ -1287,19 +1239,13 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
@@ -1356,19 +1302,13 @@ llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
@@ -1395,19 +1335,13 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
@@ -1437,12 +1371,9 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Helper lambda to create the query with any exponent value type.
   auto powScalarQuery = [=](auto convertedExponent) {
@@ -1481,12 +1412,9 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Helper lambda to create the query with any exponent value type.
   auto powScalarQuery = [=](auto convertedExponent) {
@@ -1529,26 +1457,17 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  auto inputSpecCExp =
-      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC);
-  if (!inputSpecCExp) {
-    return inputSpecCExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecC,
+      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
@@ -1577,26 +1496,17 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  auto inputSpecCExp =
-      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC);
-  if (!inputSpecCExp) {
-    return inputSpecCExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecC = inputSpecCExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecC,
+      detail::convertToTensorSpec(device, inputShapeC, inputLayoutC));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
@@ -1630,12 +1540,9 @@ llvm::Expected<OpConstraints> ReductionOpModel<OpTy>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttsl::SmallVector<int>> dimArgConverted;
   if (dimArg) {
@@ -1671,12 +1578,9 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttsl::SmallVector<int>> dimArgConverted;
   if (dimArg) {
@@ -1767,12 +1671,9 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto softmaxOpQuery = [=]() {
@@ -1796,12 +1697,9 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto softmaxOpQuery = [=]() {
@@ -1831,26 +1729,17 @@ llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto indexSpecExp =
-      detail::convertToTensorSpec(device, indexShape, indexLayout);
-  if (!indexSpecExp) {
-    return indexSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec indexSpec = indexSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indexSpec,
+      detail::convertToTensorSpec(device, indexShape, indexLayout));
 
-  auto sourceSpecExp =
-      detail::convertToTensorSpec(device, sourceShape, sourceLayout);
-  if (!sourceSpecExp) {
-    return sourceSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec sourceSpec = sourceSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec sourceSpec,
+      detail::convertToTensorSpec(device, sourceShape, sourceLayout));
 
   // Convert optReduction to ScatterReductionType enum
   auto optReductionType = conversion::getScatterReductionType(optReduction);
@@ -1880,26 +1769,17 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto indexSpecExp =
-      detail::convertToTensorSpec(device, indexShape, indexLayout);
-  if (!indexSpecExp) {
-    return indexSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec indexSpec = indexSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indexSpec,
+      detail::convertToTensorSpec(device, indexShape, indexLayout));
 
-  auto sourceSpecExp =
-      detail::convertToTensorSpec(device, sourceShape, sourceLayout);
-  if (!sourceSpecExp) {
-    return sourceSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec sourceSpec = sourceSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec sourceSpec,
+      detail::convertToTensorSpec(device, sourceShape, sourceLayout));
 
   auto optReductionType = conversion::getScatterReductionType(optReduction);
 
@@ -1928,12 +1808,9 @@ llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto reshapeOpQuery = [=]() {
@@ -1956,12 +1833,9 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto reshapeOpQuery = [=]() {
@@ -1988,12 +1862,9 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // convert arrays
   ::ttsl::SmallVector<int> beginsVec =
@@ -2030,12 +1901,9 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert arrays
   ::ttsl::SmallVector<int> beginsVec =
@@ -2076,12 +1944,9 @@ llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // It is not possible to use the dynamic version of slice in tt-metal since
   // the validity of the op depends on the actual data that is stored in the
@@ -2125,12 +1990,9 @@ llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // It is not possible to use the dynamic version of slice in tt-metal since
   // the validity of the op depends on the actual data that is stored in the
@@ -2174,12 +2036,9 @@ llvm::Expected<OpConstraints> OpModel<BitcastConvertOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto bitcastOpQuery = [=]() {
@@ -2202,12 +2061,9 @@ llvm::Expected<size_t> OpModel<BitcastConvertOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto bitcastOpQuery = [=]() {
@@ -2233,12 +2089,9 @@ llvm::Expected<OpConstraints> OpModel<TypecastOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto typecastOpQuery = [=]() {
@@ -2261,12 +2114,9 @@ llvm::Expected<size_t> OpModel<TypecastOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto typecastOpQuery = [=]() {
@@ -2292,12 +2142,9 @@ llvm::Expected<OpConstraints> OpModel<ToLayoutOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> dtype;
   if (outputDtype) {
@@ -2327,12 +2174,9 @@ llvm::Expected<size_t> OpModel<ToLayoutOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> dtype;
   if (outputDtype) {
@@ -2366,12 +2210,9 @@ llvm::Expected<OpConstraints> OpModel<ToMemoryConfigOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto toMemoryConfigOpQuery = [=]() {
@@ -2393,12 +2234,9 @@ llvm::Expected<size_t> OpModel<ToMemoryConfigOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto toMemoryConfigOpQuery = [=]() {
@@ -2429,12 +2267,10 @@ llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
 
   std::vector<::ttnn::TensorSpec> inputSpecs;
   for (size_t i = 0; i < numInputs; ++i) {
-    auto inputSpecExp =
-        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
-    if (!inputSpecExp) {
-      return inputSpecExp.takeError();
-    }
-    inputSpecs.push_back(inputSpecExp.get());
+    ASSIGN_OR_RETURN(
+        auto _push_tmp,
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]));
+    inputSpecs.push_back(std::move(_push_tmp));
   }
 
   // Create query closure
@@ -2463,12 +2299,10 @@ llvm::Expected<size_t> OpModel<ConcatOp>::getOpRuntime(
 
   std::vector<::ttnn::TensorSpec> inputSpecs;
   for (size_t i = 0; i < numInputs; ++i) {
-    auto inputSpecExp =
-        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]);
-    if (!inputSpecExp) {
-      return inputSpecExp.takeError();
-    }
-    inputSpecs.push_back(inputSpecExp.get());
+    ASSIGN_OR_RETURN(
+        auto _push_tmp,
+        detail::convertToTensorSpec(device, inputShapes[i], inputLayouts[i]));
+    inputSpecs.push_back(std::move(_push_tmp));
   }
 
   // Create query closure
@@ -2494,12 +2328,9 @@ llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto transposeOpQuery = [=]() {
@@ -2523,12 +2354,9 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto transposeOpQuery = [=]() {
@@ -2555,12 +2383,9 @@ llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
   if (dtype) {
@@ -2590,12 +2415,9 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
   if (dtype) {
@@ -2626,12 +2448,9 @@ llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto concatenateHeadsOpQuery = [=]() {
@@ -2655,12 +2474,9 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto concatenateHeadsOpQuery = [=]() {
@@ -2698,24 +2514,14 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto valueSpecExp =
-      detail::convertToTensorSpec(device, valueShape, valueLayout);
-  if (!valueSpecExp) {
-    return valueSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
@@ -2772,24 +2578,14 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto valueSpecExp =
-      detail::convertToTensorSpec(device, valueShape, valueLayout);
-  if (!valueSpecExp) {
-    return valueSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
@@ -2850,30 +2646,17 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto valueSpecExp =
-      detail::convertToTensorSpec(device, valueShape, valueLayout);
-  if (!valueSpecExp) {
-    return valueSpecExp.takeError();
-  }
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
@@ -2924,30 +2707,17 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto valueSpecExp =
-      detail::convertToTensorSpec(device, valueShape, valueLayout);
-  if (!valueSpecExp) {
-    return valueSpecExp.takeError();
-  }
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
@@ -3002,24 +2772,14 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
   std::optional<::ttnn::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);
@@ -3072,24 +2832,14 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
   std::optional<::ttnn::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);
@@ -3143,24 +2893,14 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto valueSpecExp =
-      detail::convertToTensorSpec(device, valueShape, valueLayout);
-  if (!valueSpecExp) {
-    return valueSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
@@ -3203,24 +2943,14 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto querySpecExp =
-      detail::convertToTensorSpec(device, queryShape, queryLayout);
-  if (!querySpecExp) {
-    return querySpecExp.takeError();
-  }
-  auto keySpecExp = detail::convertToTensorSpec(device, keyShape, keyLayout);
-  if (!keySpecExp) {
-    return keySpecExp.takeError();
-  }
-  auto valueSpecExp =
-      detail::convertToTensorSpec(device, valueShape, valueLayout);
-  if (!valueSpecExp) {
-    return valueSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec querySpec = querySpecExp.get();
-  ::ttnn::TensorSpec keySpec = keySpecExp.get();
-  ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
@@ -3261,29 +2991,16 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
-  if (!cosSpecExp) {
-    return cosSpecExp.takeError();
-  }
-  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
-  if (!sinSpecExp) {
-    return sinSpecExp.takeError();
-  }
-  auto transMatSpecExp =
-      detail::convertToTensorSpec(device, transMatShape, transMatLayout);
-  if (!transMatSpecExp) {
-    return transMatSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
-  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
-  ::ttnn::TensorSpec transMatSpec = transMatSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+                   detail::convertToTensorSpec(device, cosShape, cosLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+                   detail::convertToTensorSpec(device, sinShape, sinLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec transMatSpec,
+      detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::experimental::rotary_embedding_llama,
@@ -3309,28 +3026,16 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
-  if (!cosSpecExp) {
-    return cosSpecExp.takeError();
-  }
-  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
-  if (!sinSpecExp) {
-    return sinSpecExp.takeError();
-  }
-  auto transMatSpecExp =
-      detail::convertToTensorSpec(device, transMatShape, transMatLayout);
-  if (!transMatSpecExp) {
-    return transMatSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
-  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
-  ::ttnn::TensorSpec transMatSpec = transMatSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+                   detail::convertToTensorSpec(device, cosShape, cosLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+                   detail::convertToTensorSpec(device, sinShape, sinLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec transMatSpec,
+      detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
   // Create query closure
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
@@ -3360,26 +3065,13 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-
-  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
-  if (!cosSpecExp) {
-    return cosSpecExp.takeError();
-  }
-
-  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
-  if (!sinSpecExp) {
-    return sinSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
-  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+                   detail::convertToTensorSpec(device, cosShape, cosLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+                   detail::convertToTensorSpec(device, sinShape, sinLayout));
 
   auto rotaryEmbeddingOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::experimental::rotary_embedding, device,
@@ -3403,26 +3095,13 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-
-  auto cosSpecExp = detail::convertToTensorSpec(device, cosShape, cosLayout);
-  if (!cosSpecExp) {
-    return cosSpecExp.takeError();
-  }
-
-  auto sinSpecExp = detail::convertToTensorSpec(device, sinShape, sinLayout);
-  if (!sinSpecExp) {
-    return sinSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-  ::ttnn::TensorSpec cosSpec = cosSpecExp.get();
-  ::ttnn::TensorSpec sinSpec = sinSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+                   detail::convertToTensorSpec(device, cosShape, cosLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+                   detail::convertToTensorSpec(device, sinShape, sinLayout));
 
   // Create query closure
   auto rotaryEmbeddingOpQuery = [=]() {
@@ -3452,23 +3131,15 @@ OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-
   std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
   if (batchOffsetShape && batchOffsetLayout) {
-    auto batchOffsetSpecExp = detail::convertToTensorSpec(
-        device, batchOffsetShape.value(), batchOffsetLayout.value());
-    if (!batchOffsetSpecExp) {
-      return batchOffsetSpecExp.takeError();
-    }
-    batchOffsetSpec = batchOffsetSpecExp.get();
+    ASSIGN_OR_RETURN(batchOffsetSpec, detail::convertToTensorSpec(
+                                          device, batchOffsetShape.value(),
+                                          batchOffsetLayout.value()));
   }
-
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
@@ -3499,23 +3170,15 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-
   std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
   if (batchOffsetShape && batchOffsetLayout) {
-    auto batchOffsetSpecExp = detail::convertToTensorSpec(
-        device, batchOffsetShape.value(), batchOffsetLayout.value());
-    if (!batchOffsetSpecExp) {
-      return batchOffsetSpecExp.takeError();
-    }
-    batchOffsetSpec = batchOffsetSpecExp.get();
+    ASSIGN_OR_RETURN(batchOffsetSpec, detail::convertToTensorSpec(
+                                          device, batchOffsetShape.value(),
+                                          batchOffsetLayout.value()));
   }
-
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
@@ -3549,21 +3212,15 @@ OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
   if (inputKVShape && inputKVLayout) {
-    auto inputKVSpecExp = detail::convertToTensorSpec(
-        device, inputKVShape.value(), inputKVLayout.value());
-    if (!inputKVSpecExp) {
-      return inputKVSpecExp.takeError();
-    }
-    inputKVSpec = inputKVSpecExp.get();
+    ASSIGN_OR_RETURN(inputKVSpec,
+                     detail::convertToTensorSpec(device, inputKVShape.value(),
+                                                 inputKVLayout.value()));
   }
 
   // Create query closure
@@ -3591,21 +3248,15 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
   if (inputKVShape && inputKVLayout) {
-    auto inputKVSpecExp = detail::convertToTensorSpec(
-        device, inputKVShape.value(), inputKVLayout.value());
-    if (!inputKVSpecExp) {
-      return inputKVSpecExp.takeError();
-    }
-    inputKVSpec = inputKVSpecExp.get();
+    ASSIGN_OR_RETURN(inputKVSpec,
+                     detail::convertToTensorSpec(device, inputKVShape.value(),
+                                                 inputKVLayout.value()));
   }
 
   // Create query closure
@@ -3632,12 +3283,9 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto nlpConcatHeadsOpQuery = [=]() {
@@ -3661,12 +3309,9 @@ OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto nlpConcatHeadsOpQuery = [=]() {
@@ -3692,12 +3337,9 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // tt-metal's nlp_concat_heads_decode infers on_subcoregrids from the input
   // shard grid: if the CoreRangeSet has multiple ranges or doesn't start at
@@ -3737,12 +3379,9 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Pass sub_core_grids when the input shard grid would trigger subcoregrids
   // (see getOpConstraints above for rationale).
@@ -3782,12 +3421,9 @@ llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto repeatInterleaveOpQuery = [=]() {
@@ -3810,12 +3446,9 @@ llvm::Expected<size_t> OpModel<RepeatInterleaveOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto repeatInterleaveOpQuery = [=]() {
@@ -3841,12 +3474,9 @@ llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert repeats to ttnn::Shape
   ::ttnn::Shape repeatShape = conversion::getShape(repeats);
@@ -3879,12 +3509,9 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert repeats to SmallVector<uint32_t> to use overload with memory_config
   ::ttsl::SmallVector<uint32_t> repeatVec;
@@ -3949,12 +3576,9 @@ llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert padding to PadSpecDim format
   auto paddingSpec = convertPadding(padding);
@@ -3981,12 +3605,9 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert padding to PadSpecDim format
   auto paddingSpec = convertPadding(padding);
@@ -4015,12 +3636,9 @@ llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto sortOpQuery = [=]() {
@@ -4043,12 +3661,9 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto sortOpQuery = [=]() {
@@ -4077,25 +3692,16 @@ llvm::Expected<OpConstraints> OpModel<TopKRouterGptOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto weightSpecExp =
-      detail::convertToTensorSpec(device, weightShape, weightLayout);
-  if (!weightSpecExp) {
-    return weightSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  auto biasSpecExp = detail::convertToTensorSpec(device, biasShape, biasLayout);
-  if (!biasSpecExp) {
-    return biasSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec biasSpec = biasSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec biasSpec,
+                   detail::convertToTensorSpec(device, biasShape, biasLayout));
 
   auto topKRouterGptQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::experimental::topk_router_gpt, device,
@@ -4118,25 +3724,16 @@ llvm::Expected<size_t> OpModel<TopKRouterGptOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto weightSpecExp =
-      detail::convertToTensorSpec(device, weightShape, weightLayout);
-  if (!weightSpecExp) {
-    return weightSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  auto biasSpecExp = detail::convertToTensorSpec(device, biasShape, biasLayout);
-  if (!biasSpecExp) {
-    return biasSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec biasSpec = biasSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec biasSpec,
+                   detail::convertToTensorSpec(device, biasShape, biasLayout));
 
   auto topKRouterGptQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::experimental::topk_router_gpt, device,
@@ -4160,12 +3757,9 @@ llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto argMaxOpQuery = [=]() {
@@ -4190,12 +3784,9 @@ OpModel<ArgMaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto argMaxOpQuery = [=]() {
@@ -4221,12 +3812,9 @@ llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto prodOpQuery = [=]() {
@@ -4256,26 +3844,17 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto scaleSpecExp =
-      detail::convertToTensorSpec(device, scaleShape, scaleLayout);
-  if (!scaleSpecExp) {
-    return scaleSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec scaleSpec = scaleSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec scaleSpec,
+      detail::convertToTensorSpec(device, scaleShape, scaleLayout));
 
-  auto zeroPointSpecExp =
-      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout);
-  if (!zeroPointSpecExp) {
-    return zeroPointSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec zeroPointSpec = zeroPointSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec zeroPointSpec,
+      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
   // Use the explicit outputDtype parameter if provided, otherwise infer from
   // layout
@@ -4314,26 +3893,17 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto scaleSpecExp =
-      detail::convertToTensorSpec(device, scaleShape, scaleLayout);
-  if (!scaleSpecExp) {
-    return scaleSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec scaleSpec = scaleSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec scaleSpec,
+      detail::convertToTensorSpec(device, scaleShape, scaleLayout));
 
-  auto zeroPointSpecExp =
-      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout);
-  if (!zeroPointSpecExp) {
-    return zeroPointSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec zeroPointSpec = zeroPointSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec zeroPointSpec,
+      detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
   // Use the explicit outputDtype parameter if provided, otherwise infer from
   // layout
@@ -4379,40 +3949,25 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto inScaleSpecExp =
-      detail::convertToTensorSpec(device, inScaleShape, inScaleLayout);
-  if (!inScaleSpecExp) {
-    return inScaleSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inScaleSpec = inScaleSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inScaleSpec,
+      detail::convertToTensorSpec(device, inScaleShape, inScaleLayout));
 
-  auto inZeroPointSpecExp =
-      detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout);
-  if (!inZeroPointSpecExp) {
-    return inZeroPointSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inZeroPointSpec = inZeroPointSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inZeroPointSpec,
+      detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout));
 
-  auto outScaleSpecExp =
-      detail::convertToTensorSpec(device, outScaleShape, outScaleLayout);
-  if (!outScaleSpecExp) {
-    return outScaleSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec outScaleSpec = outScaleSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec outScaleSpec,
+      detail::convertToTensorSpec(device, outScaleShape, outScaleLayout));
 
-  auto outZeroPointSpecExp = detail::convertToTensorSpec(
-      device, outZeroPointShape, outZeroPointLayout);
-  if (!outZeroPointSpecExp) {
-    return outZeroPointSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec outZeroPointSpec = outZeroPointSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec outZeroPointSpec,
+                   detail::convertToTensorSpec(device, outZeroPointShape,
+                                               outZeroPointLayout));
 
   // Use the explicit outputDtype parameter if provided, otherwise infer from
   // layout
@@ -4453,40 +4008,25 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto inScaleSpecExp =
-      detail::convertToTensorSpec(device, inScaleShape, inScaleLayout);
-  if (!inScaleSpecExp) {
-    return inScaleSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inScaleSpec = inScaleSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inScaleSpec,
+      detail::convertToTensorSpec(device, inScaleShape, inScaleLayout));
 
-  auto inZeroPointSpecExp =
-      detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout);
-  if (!inZeroPointSpecExp) {
-    return inZeroPointSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inZeroPointSpec = inZeroPointSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inZeroPointSpec,
+      detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout));
 
-  auto outScaleSpecExp =
-      detail::convertToTensorSpec(device, outScaleShape, outScaleLayout);
-  if (!outScaleSpecExp) {
-    return outScaleSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec outScaleSpec = outScaleSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec outScaleSpec,
+      detail::convertToTensorSpec(device, outScaleShape, outScaleLayout));
 
-  auto outZeroPointSpecExp = detail::convertToTensorSpec(
-      device, outZeroPointShape, outZeroPointLayout);
-  if (!outZeroPointSpecExp) {
-    return outZeroPointSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec outZeroPointSpec = outZeroPointSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec outZeroPointSpec,
+                   detail::convertToTensorSpec(device, outZeroPointShape,
+                                               outZeroPointLayout));
 
   // Use the explicit outputDtype parameter if provided, otherwise infer from
   // layout
@@ -4528,19 +4068,13 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::Tensor> biasTensor;
   if (biasShape && biasLayout) {
@@ -4596,19 +4130,13 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::Tensor> biasTensor;
   if (biasShape && biasLayout) {
@@ -4654,19 +4182,13 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -4712,19 +4234,13 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecAExp =
-      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA);
-  if (!inputSpecAExp) {
-    return inputSpecAExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecA = inputSpecAExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecA,
+      detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
-  auto inputSpecBExp =
-      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB);
-  if (!inputSpecBExp) {
-    return inputSpecBExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpecB = inputSpecBExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpecB,
+      detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
       detail::getNullableDataType(outputLayout);
@@ -4762,12 +4278,9 @@ OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto deallocateOpQuery = [=]() {
@@ -4792,19 +4305,13 @@ llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto fillCacheOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::fill_cache, device, cacheSpec,
@@ -4826,19 +4333,13 @@ llvm::Expected<size_t> OpModel<FillCacheOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto fillCacheOpQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::fill_cache, device, cacheSpec, inputSpec,
@@ -4864,19 +4365,13 @@ llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // TODO(#1510): modify the ttnn::update_cache to take a tensor for
   // updateIndex.
@@ -4915,19 +4410,13 @@ llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // TODO(#1510): modify the ttnn::update_cache to take a tensor for
   // updateIndex.
@@ -4962,35 +4451,23 @@ llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto updateIndexSpecExp =
-      detail::convertToTensorSpec(device, updateIndexShape, updateIndexLayout);
-  if (!updateIndexSpecExp) {
-    return updateIndexSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec updateIndexSpec = updateIndexSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec updateIndexSpec,
+      detail::convertToTensorSpec(device, updateIndexShape, updateIndexLayout));
 
   std::optional<::ttnn::TensorSpec> pageTableSpec;
   if (pageTableShape && pageTableLayout) {
-    auto pageTableSpecExp =
-        detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout);
-    if (!pageTableSpecExp) {
-      return pageTableSpecExp.takeError();
-    }
-    pageTableSpec = pageTableSpecExp.get();
+    ASSIGN_OR_RETURN(
+        pageTableSpec,
+        detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout));
   }
 
   std::vector<uint32_t> emptyUpdateIndex = {};
@@ -5020,35 +4497,23 @@ llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto updateIndexSpecExp =
-      detail::convertToTensorSpec(device, updateIndexShape, updateIndexLayout);
-  if (!updateIndexSpecExp) {
-    return updateIndexSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec updateIndexSpec = updateIndexSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec updateIndexSpec,
+      detail::convertToTensorSpec(device, updateIndexShape, updateIndexLayout));
 
   std::optional<::ttnn::TensorSpec> pageTableSpec;
   if (pageTableShape && pageTableLayout) {
-    auto pageTableSpecExp =
-        detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout);
-    if (!pageTableSpecExp) {
-      return pageTableSpecExp.takeError();
-    }
-    pageTableSpec = pageTableSpecExp.get();
+    ASSIGN_OR_RETURN(
+        pageTableSpec,
+        detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout));
   }
 
   std::vector<uint32_t> emptyUpdateIndex = {};
@@ -5079,35 +4544,23 @@ llvm::Expected<OpConstraints> OpModel<PagedFillCacheOp>::getOpConstraints(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
   std::optional<::ttnn::TensorSpec> batchIdxSpec;
   if (batchIdxShape && batchIdxLayout) {
-    auto batchIdxSpecExp =
-        detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout);
-    if (!batchIdxSpecExp) {
-      return batchIdxSpecExp.takeError();
-    }
-    batchIdxSpec = batchIdxSpecExp.get();
+    ASSIGN_OR_RETURN(
+        batchIdxSpec,
+        detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout));
   }
 
   auto pagedFillCacheOpQuery = [=]() {
@@ -5134,35 +4587,23 @@ llvm::Expected<size_t> OpModel<PagedFillCacheOp>::getOpRuntime(
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-  auto cacheSpecExp =
-      detail::convertToTensorSpec(device, cacheShape, cacheLayout);
-  if (!cacheSpecExp) {
-    return cacheSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec cacheSpec = cacheSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec cacheSpec,
+      detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
   std::optional<::ttnn::TensorSpec> batchIdxSpec;
   if (batchIdxShape && batchIdxLayout) {
-    auto batchIdxSpecExp =
-        detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout);
-    if (!batchIdxSpecExp) {
-      return batchIdxSpecExp.takeError();
-    }
-    batchIdxSpec = batchIdxSpecExp.get();
+    ASSIGN_OR_RETURN(
+        batchIdxSpec,
+        detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout));
   }
 
   auto pagedFillCacheOpQuery = [=]() {
@@ -5227,12 +4668,9 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
@@ -5315,12 +4753,9 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
@@ -5389,30 +4824,20 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
     TTNNLayoutAttr outputLayout) {
 
   // Convert input layout to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert weight layout to TensorSpec
-  auto weightSpecExp =
-      detail::convertToTensorSpec(device, weightShape, weightLayout);
-  if (!weightSpecExp) {
-    return weightSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
   // Convert bias if present
   std::optional<::ttnn::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
-    auto biasSpecExp =
-        detail::convertToTensorSpec(device, *biasShape, *biasLayout);
-    if (!biasSpecExp) {
-      return biasSpecExp.takeError();
-    }
-    biasSpec = biasSpecExp.get();
+    ASSIGN_OR_RETURN(
+        biasSpec, detail::convertToTensorSpec(device, *biasShape, *biasLayout));
   }
 
   std::optional<::ttnn::experimental::prim::Conv3dConfig> config;
@@ -5613,12 +5038,9 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
@@ -5698,12 +5120,9 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
       detail::getNullableDataType(outputLayout);
@@ -5998,12 +5417,9 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto maxPool2DQuery = [=]() {
@@ -6048,12 +5464,9 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto maxPool2DQuery = [=]() {
@@ -6103,12 +5516,9 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
@@ -6154,12 +5564,9 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
@@ -6208,12 +5615,9 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // default values for the variables that are received by the op's invoke
   // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
@@ -6264,12 +5668,9 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
 
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // default values for the variables that are received by the op's invoke
   // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
@@ -6312,12 +5713,9 @@ llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDType;
   if (dtype.has_value()) {
@@ -6348,12 +5746,9 @@ llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDType;
   if (dtype.has_value()) {
@@ -6395,12 +5790,9 @@ llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
@@ -6452,12 +5844,9 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
@@ -6514,12 +5903,9 @@ llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
@@ -6570,12 +5956,9 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
@@ -6628,12 +6011,9 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
@@ -6675,12 +6055,9 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
@@ -6724,13 +6101,8 @@ llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
+                   detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
@@ -6770,13 +6142,8 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
+                   detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
@@ -6819,12 +6186,9 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
@@ -6860,12 +6224,9 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
@@ -6907,12 +6268,9 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
@@ -6954,12 +6312,9 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
@@ -7007,19 +6362,13 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto statsSpecExp =
-      detail::convertToTensorSpec(device, statsShape, statsLayout);
-  if (!statsSpecExp) {
-    return statsSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec statsSpec = statsSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec statsSpec,
+      detail::convertToTensorSpec(device, statsShape, statsLayout));
 
   std::optional<::ttnn::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
@@ -7055,19 +6404,13 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto statsSpecExp =
-      detail::convertToTensorSpec(device, statsShape, statsLayout);
-  if (!statsSpecExp) {
-    return statsSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec statsSpec = statsSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec statsSpec,
+      detail::convertToTensorSpec(device, statsShape, statsLayout));
 
   std::optional<::ttnn::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
@@ -7109,12 +6452,9 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> inputMaskSpec =
       detail::convertToOptionalTensorSpec(device, inputMaskShape,
@@ -7168,12 +6508,9 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::TensorSpec> inputMaskSpec =
       detail::convertToOptionalTensorSpec(device, inputMaskShape,
@@ -7239,12 +6576,9 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto memConfig = detail::getNullableMemoryConfig(outputLayout);
   auto minVariant = clampAttrToVariant(min);
@@ -7270,12 +6604,9 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto memConfig = detail::getNullableMemoryConfig(outputLayout);
   auto minVariant = clampAttrToVariant(min);
@@ -7305,24 +6636,15 @@ llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto minSpecExp = detail::convertToTensorSpec(device, minShape, minLayout);
-  if (!minSpecExp) {
-    return minSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec minSpec = minSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec minSpec,
+                   detail::convertToTensorSpec(device, minShape, minLayout));
 
-  auto maxSpecExp = detail::convertToTensorSpec(device, maxShape, maxLayout);
-  if (!maxSpecExp) {
-    return maxSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec maxSpec = maxSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec maxSpec,
+                   detail::convertToTensorSpec(device, maxShape, maxLayout));
 
   // Create query closure
   auto clampTensorQuery = [=]() {
@@ -7348,24 +6670,15 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto minSpecExp = detail::convertToTensorSpec(device, minShape, minLayout);
-  if (!minSpecExp) {
-    return minSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec minSpec = minSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec minSpec,
+                   detail::convertToTensorSpec(device, minShape, minLayout));
 
-  auto maxSpecExp = detail::convertToTensorSpec(device, maxShape, maxLayout);
-  if (!maxSpecExp) {
-    return maxSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec maxSpec = maxSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec maxSpec,
+                   detail::convertToTensorSpec(device, maxShape, maxLayout));
 
   // Create query closure
   auto clampTensorQuery = [=]() {
@@ -7396,12 +6709,9 @@ llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
 
   float defaultedPadValue = padValue.convertToFloat();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto permuteQuery = [=]() {
@@ -7432,12 +6742,9 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
   // Convert float
   float defaultedPadValue = padValue.convertToFloat();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto permuteQuery = [=]() {
@@ -7481,12 +6788,9 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     return llvm::createStringError("Invalid scaleFactor");
   }
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto upsampleQuery = [=]() {
@@ -7529,12 +6833,9 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
     return llvm::createStringError("Invalid scaleFactor");
   }
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto upsampleQuery = [=]() {
@@ -7564,19 +6865,13 @@ llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
     ::tt::tt_metal::distributed::MeshDevice *device,
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout) {
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto weightSpecExp =
-      detail::convertToTensorSpec(device, weightShape, weightLayout);
-  if (!weightSpecExp) {
-    return weightSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
   return EmbeddingOpArgs{inputSpec, weightSpec};
 }
@@ -7680,26 +6975,17 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto weightSpecExp =
-      detail::convertToTensorSpec(device, weightShape, weightLayout);
-  if (!weightSpecExp) {
-    return weightSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  auto inGradientSpecExp =
-      detail::convertToTensorSpec(device, inGradientShape, inGradientLayout);
-  if (!inGradientSpecExp) {
-    return inGradientSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inGradientSpec = inGradientSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inGradientSpec,
+      detail::convertToTensorSpec(device, inGradientShape, inGradientLayout));
 
   auto embeddingBackwardOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -7725,26 +7011,17 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  auto weightSpecExp =
-      detail::convertToTensorSpec(device, weightShape, weightLayout);
-  if (!weightSpecExp) {
-    return weightSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  auto inGradientSpecExp =
-      detail::convertToTensorSpec(device, inGradientShape, inGradientLayout);
-  if (!inGradientSpecExp) {
-    return inGradientSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inGradientSpec = inGradientSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inGradientSpec,
+      detail::convertToTensorSpec(device, inGradientShape, inGradientLayout));
 
   auto embeddingBackwardOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
@@ -7771,19 +7048,12 @@ llvm::Expected<OpConstraints> OpModel<GatherOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  auto indexSpecExp =
-      detail::convertToTensorSpec(device, indexShape, indexLayout);
-  if (!indexSpecExp) {
-    return indexSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-  ::ttnn::TensorSpec indexSpec = indexSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indexSpec,
+      detail::convertToTensorSpec(device, indexShape, indexLayout));
 
   auto gatherOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -7808,19 +7078,12 @@ llvm::Expected<size_t> OpModel<GatherOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  auto indexSpecExp =
-      detail::convertToTensorSpec(device, indexShape, indexLayout);
-  if (!indexSpecExp) {
-    return indexSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
-  ::ttnn::TensorSpec indexSpec = indexSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indexSpec,
+      detail::convertToTensorSpec(device, indexShape, indexLayout));
 
   auto gatherOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
@@ -8041,12 +7304,9 @@ OpModel<mlir::tt::ttnn::DropoutOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   float probVal = prob.convertToFloat();
   float scaleVal = scale.convertToFloat();
@@ -8074,12 +7334,9 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::DropoutOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   float probVal = prob.convertToFloat();
   float scaleVal = scale.convertToFloat();
@@ -8225,12 +7482,9 @@ OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert input tensor to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert output memory config
   ::tt::tt_metal::MemoryConfig metalMemConfig =
@@ -8264,12 +7518,9 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert input tensor to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert output memory config
   ::tt::tt_metal::MemoryConfig metalMemConfig =
@@ -8307,12 +7558,9 @@ llvm::Expected<OpConstraints> OpModel<TopKOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert input tensor to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto topKQuery = [=]() {
@@ -8338,12 +7586,9 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert input tensor to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto topKQuery = [=]() {
@@ -8385,35 +7630,17 @@ llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
   llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
                                              inputIndicesShape[1]};
 
-  auto valuesSpecExp =
-      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
-  if (!valuesSpecExp) {
-    return valuesSpecExp.takeError();
-  }
-  auto indicesSpecExp =
-      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
-  if (!indicesSpecExp) {
-    return indicesSpecExp.takeError();
-  }
-  auto kSpecExp = detail::convertToTensorSpec(device, kShape, kLayout);
-  if (!kSpecExp) {
-    return kSpecExp.takeError();
-  }
-  auto pSpecExp = detail::convertToTensorSpec(device, pShape, pLayout);
-  if (!pSpecExp) {
-    return pSpecExp.takeError();
-  }
-  auto tempSpecExp = detail::convertToTensorSpec(device, tempShape, tempLayout);
-  if (!tempSpecExp) {
-    return tempSpecExp.takeError();
-  }
-
-  // Extract TensorSpecs before lambda capture (Expected is not copyable).
-  ::ttnn::TensorSpec valuesSpec = valuesSpecExp.get();
-  ::ttnn::TensorSpec indicesSpec = indicesSpecExp.get();
-  ::ttnn::TensorSpec kSpec = kSpecExp.get();
-  ::ttnn::TensorSpec pSpec = pSpecExp.get();
-  ::ttnn::TensorSpec tempSpec = tempSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec valuesSpec,
+                   detail::convertToTensorSpec(device, values4D, inputValuesLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indicesSpec,
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
+                   detail::convertToTensorSpec(device, kShape, kLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec pSpec,
+                   detail::convertToTensorSpec(device, pShape, pLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec tempSpec,
+                   detail::convertToTensorSpec(device, tempShape, tempLayout));
 
   auto samplingQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::sampling, device, valuesSpec,
@@ -8446,34 +7673,17 @@ llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
   llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
                                              inputIndicesShape[1]};
 
-  auto valuesSpecExp =
-      detail::convertToTensorSpec(device, values4D, inputValuesLayout);
-  if (!valuesSpecExp) {
-    return valuesSpecExp.takeError();
-  }
-  auto indicesSpecExp =
-      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout);
-  if (!indicesSpecExp) {
-    return indicesSpecExp.takeError();
-  }
-  auto kSpecExp = detail::convertToTensorSpec(device, kShape, kLayout);
-  if (!kSpecExp) {
-    return kSpecExp.takeError();
-  }
-  auto pSpecExp = detail::convertToTensorSpec(device, pShape, pLayout);
-  if (!pSpecExp) {
-    return pSpecExp.takeError();
-  }
-  auto tempSpecExp = detail::convertToTensorSpec(device, tempShape, tempLayout);
-  if (!tempSpecExp) {
-    return tempSpecExp.takeError();
-  }
-
-  ::ttnn::TensorSpec valuesSpec = valuesSpecExp.get();
-  ::ttnn::TensorSpec indicesSpec = indicesSpecExp.get();
-  ::ttnn::TensorSpec kSpec = kSpecExp.get();
-  ::ttnn::TensorSpec pSpec = pSpecExp.get();
-  ::ttnn::TensorSpec tempSpec = tempSpecExp.get();
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec valuesSpec,
+                   detail::convertToTensorSpec(device, values4D, inputValuesLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec indicesSpec,
+      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
+                   detail::convertToTensorSpec(device, kShape, kLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec pSpec,
+                   detail::convertToTensorSpec(device, pShape, pLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec tempSpec,
+                   detail::convertToTensorSpec(device, tempShape, tempLayout));
 
   auto samplingQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::sampling, device, valuesSpec, indicesSpec,
@@ -8500,12 +7710,9 @@ llvm::Expected<OpConstraints> OpModel<MeshPartitionOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert input tensor to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto meshPartitionOpQuery = [=]() {
@@ -8529,12 +7736,9 @@ llvm::Expected<size_t> OpModel<MeshPartitionOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert input tensor to TensorSpec
-  auto inputSpecExp =
-      detail::convertToTensorSpec(device, inputShape, inputLayout);
-  if (!inputSpecExp) {
-    return inputSpecExp.takeError();
-  }
-  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
   auto meshPartitionOpQuery = [=]() {
