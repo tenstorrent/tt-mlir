@@ -24,6 +24,7 @@ on:
 permissions:
   checks: write
   packages: write
+  actions: read
 
 jobs:
   # Run tests on TT hardware
@@ -74,11 +75,15 @@ jobs:
       run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
 
     - name: Use install artifacts
-      uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
-      with:
-        name: install-artifacts-${{ matrix.build.image }}
-        path: install
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        artifact_name="install-artifacts-${{ matrix.build.image }}"
+        gh run download ${{ github.run_id }} -n "$artifact_name" -D _artifact_dl
+        mkdir -p install
+        mv "_artifact_dl/$artifact_name"/* install/
+        rm -rf _artifact_dl
 
     - name: Remove existing whls files
       shell: bash
@@ -98,11 +103,15 @@ jobs:
         pip install ttrt*.whl --upgrade
 
     - name: Download Build Artifacts
-      uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
-      with:
-        name: build-artifacts-${{ matrix.build.image }}
-        path: build
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        artifact_name="build-artifacts-${{ matrix.build.image }}"
+        gh run download ${{ github.run_id }} -n "$artifact_name" -D _artifact_dl
+        mkdir -p build
+        mv "_artifact_dl/$artifact_name"/* build/
+        rm -rf _artifact_dl
 
     # TG galaxy doesn't have support for dispatch on eth cores - thus need to disable it
     - name: Generate system descriptor
