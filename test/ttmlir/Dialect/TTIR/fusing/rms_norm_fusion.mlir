@@ -293,4 +293,89 @@ module {
         return %14 : tensor<32x2048xbf16>
     }
 
+    // RMS norm without learnable scale weight (no `* gamma` after the inner
+    // multiply). This pattern appears in the value-stream of Gemma's
+    // attention layer where the V tensor is RMS-normalized per head without
+    // a learned weight before being written to the paged KV cache.
+    // CHECK-LABEL: func.func @rms_norm_fusion_no_gamma
+    func.func @rms_norm_fusion_no_gamma(%arg0: tensor<1x4x256xbf16>) -> tensor<1x4x256xbf16> {
+        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%arg0)
+        // CHECK-SAME: (tensor<1x4x256xbf16>) -> tensor<1x4x256xbf16>
+        // CHECK: return %[[RMSNORM]]
+        %0 = "ttir.constant"() <{value = dense<9.99999997E-7> : tensor<1x4x1xf32>}> : () -> tensor<1x4x1xf32>
+        %1 = "ttir.constant"() <{value = dense<3.906250e-03> : tensor<1x4xf32>}> : () -> tensor<1x4xf32>
+        %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<1x4x256xf32>}> : () -> tensor<1x4x256xf32>
+        %3 = "ttir.typecast"(%arg0) <{conservative_folding = false}> : (tensor<1x4x256xbf16>) -> tensor<1x4x256xf32>
+        %4 = "ttir.pow"(%3, %2) : (tensor<1x4x256xf32>, tensor<1x4x256xf32>) -> tensor<1x4x256xf32>
+        %5 = "ttir.sum"(%4) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<1x4x256xf32>) -> tensor<1x4xf32>
+        %6 = "ttir.multiply"(%5, %1) : (tensor<1x4xf32>, tensor<1x4xf32>) -> tensor<1x4xf32>
+        %7 = "ttir.reshape"(%6) <{shape = [1 : i32, 4 : i32, 1 : i32]}> : (tensor<1x4xf32>) -> tensor<1x4x1xf32>
+        %8 = "ttir.add"(%7, %0) : (tensor<1x4x1xf32>, tensor<1x4x1xf32>) -> tensor<1x4x1xf32>
+        %9 = "ttir.rsqrt"(%8) : (tensor<1x4x1xf32>) -> tensor<1x4x1xf32>
+        %10 = "ttir.broadcast"(%9) <{broadcast_dimensions = array<i64: 1, 1, 256>}> : (tensor<1x4x1xf32>) -> tensor<1x4x256xf32>
+        %11 = "ttir.multiply"(%3, %10) : (tensor<1x4x256xf32>, tensor<1x4x256xf32>) -> tensor<1x4x256xf32>
+        // No multiply by gamma after - result is directly typecast back.
+        %12 = "ttir.typecast"(%11) <{conservative_folding = false}> : (tensor<1x4x256xf32>) -> tensor<1x4x256xbf16>
+        return %12 : tensor<1x4x256xbf16>
+    }
+
+    // No-gamma RMS norm where the input is reshaped into per-head form before
+    // normalizing. Mirrors Gemma's V-stream pattern coming straight out of a
+    // QKV linear: reshape(1x1024 -> 1x4x256) -> RMSNorm(no weight) ->
+    // typecast -> paged_update_cache. The reshape changes the last dim, so
+    // the fusion should produce an RMSNorm on the reshaped (1x4x256) tensor.
+    // CHECK-LABEL: func.func @rms_norm_fusion_no_gamma_with_reshape
+    func.func @rms_norm_fusion_no_gamma_with_reshape(%arg0: tensor<1x1024xbf16>) -> tensor<1x4x256xbf16> {
+        // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%arg0)
+        // CHECK-SAME: (tensor<1x1024xbf16>) -> tensor<1x4x256xbf16>
+        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%[[RESHAPE]])
+        // CHECK-SAME: (tensor<1x4x256xbf16>) -> tensor<1x4x256xbf16>
+        // CHECK: return %[[RMSNORM]]
+        %0 = "ttir.constant"() <{value = dense<9.99999997E-7> : tensor<1x4x1xf32>}> : () -> tensor<1x4x1xf32>
+        %1 = "ttir.constant"() <{value = dense<3.906250e-03> : tensor<1x4xf32>}> : () -> tensor<1x4xf32>
+        %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<1x4x256xf32>}> : () -> tensor<1x4x256xf32>
+        %3 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 4 : i32, 256 : i32]}> : (tensor<1x1024xbf16>) -> tensor<1x4x256xbf16>
+        %4 = "ttir.typecast"(%3) <{conservative_folding = false}> : (tensor<1x4x256xbf16>) -> tensor<1x4x256xf32>
+        %5 = "ttir.pow"(%4, %2) : (tensor<1x4x256xf32>, tensor<1x4x256xf32>) -> tensor<1x4x256xf32>
+        %6 = "ttir.sum"(%5) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<1x4x256xf32>) -> tensor<1x4xf32>
+        %7 = "ttir.multiply"(%6, %1) : (tensor<1x4xf32>, tensor<1x4xf32>) -> tensor<1x4xf32>
+        %8 = "ttir.reshape"(%7) <{shape = [1 : i32, 4 : i32, 1 : i32]}> : (tensor<1x4xf32>) -> tensor<1x4x1xf32>
+        %9 = "ttir.add"(%8, %0) : (tensor<1x4x1xf32>, tensor<1x4x1xf32>) -> tensor<1x4x1xf32>
+        %10 = "ttir.rsqrt"(%9) : (tensor<1x4x1xf32>) -> tensor<1x4x1xf32>
+        %11 = "ttir.reshape"(%10) <{shape = [1 : i32, 4 : i32]}> : (tensor<1x4x1xf32>) -> tensor<1x4xf32>
+        %12 = "ttir.reshape"(%11) <{shape = [1 : i32, 4 : i32, 1 : i32]}> : (tensor<1x4xf32>) -> tensor<1x4x1xf32>
+        %13 = "ttir.broadcast"(%12) <{broadcast_dimensions = array<i64: 1, 1, 256>}> : (tensor<1x4x1xf32>) -> tensor<1x4x256xf32>
+        %14 = "ttir.multiply"(%4, %13) : (tensor<1x4x256xf32>, tensor<1x4x256xf32>) -> tensor<1x4x256xf32>
+        %15 = "ttir.typecast"(%14) <{conservative_folding = false}> : (tensor<1x4x256xf32>) -> tensor<1x4x256xbf16>
+        return %15 : tensor<1x4x256xbf16>
+    }
+
+    // Confirm the no-gamma fallback does NOT race the with-gamma matcher when
+    // the inner multiply is followed by a typecast and another multiply (the
+    // gamma mul). The result should be a single fused RMSNorm with weight,
+    // not a weight-less RMSNorm followed by a stray gamma multiply.
+    // CHECK-LABEL: func.func @rms_norm_no_gamma_does_not_race_gamma_path
+    func.func @rms_norm_no_gamma_does_not_race_gamma_path(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x2048xbf16> {
+        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%arg0, %arg1)
+        // CHECK-SAME: (tensor<32x2048xbf16>, tensor<2048xbf16>) -> tensor<32x2048xbf16>
+        // CHECK-NOT: "ttir.multiply"
+        // CHECK: return %[[RMSNORM]]
+        %0 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
+        %1 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
+        %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x2048xf32>}> : () -> tensor<32x2048xf32>
+        %3 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 2048 : i32]}> : (tensor<2048xbf16>) -> tensor<1x2048xbf16>
+        %4 = "ttir.broadcast"(%3) <{broadcast_dimensions = array<i64: 32, 1>}> : (tensor<1x2048xbf16>) -> tensor<32x2048xbf16>
+        %5 = "ttir.typecast"(%arg0) <{conservative_folding = false}> : (tensor<32x2048xbf16>) -> tensor<32x2048xf32>
+        %6 = "ttir.pow"(%5, %2) : (tensor<32x2048xf32>, tensor<32x2048xf32>) -> tensor<32x2048xf32>
+        %7 = "ttir.sum"(%6) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<32x2048xf32>) -> tensor<32xf32>
+        %8 = "ttir.reshape"(%7) <{shape = [32 : i32, 1 : i32]}> : (tensor<32xf32>) -> tensor<32x1xf32>
+        %9 = "ttir.multiply"(%8, %1) : (tensor<32x1xf32>, tensor<32x1xf32>) -> tensor<32x1xf32>
+        %10 = "ttir.add"(%9, %0) : (tensor<32x1xf32>, tensor<32x1xf32>) -> tensor<32x1xf32>
+        %11 = "ttir.rsqrt"(%10) : (tensor<32x1xf32>) -> tensor<32x1xf32>
+        %12 = "ttir.broadcast"(%11) <{broadcast_dimensions = array<i64: 1, 2048>}> : (tensor<32x1xf32>) -> tensor<32x2048xf32>
+        %13 = "ttir.multiply"(%5, %12) : (tensor<32x2048xf32>, tensor<32x2048xf32>) -> tensor<32x2048xf32>
+        %14 = "ttir.typecast"(%13) <{conservative_folding = false}> : (tensor<32x2048xf32>) -> tensor<32x2048xbf16>
+        %15 = "ttir.multiply"(%14, %4) : (tensor<32x2048xbf16>, tensor<32x2048xbf16>) -> tensor<32x2048xbf16>
+        return %15 : tensor<32x2048xbf16>
+    }
 }
