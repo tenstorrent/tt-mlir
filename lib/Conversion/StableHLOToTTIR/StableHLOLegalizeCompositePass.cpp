@@ -653,11 +653,19 @@ public:
 
     SmallVector<NamedAttribute> namedAttrs;
 
-    bool isCausal = true;
+    // A 4th input (attention_mask) is present iff the frontend marked 4 inputs.
+    bool hasAttnMask = (numOperands == 4);
+    // Default: causal iff no mask is provided.
+    bool isCausal = !hasAttnMask;
     if (compositeAttrs) {
       if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
         isCausal = attr.getValue();
         namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
+      } else if (auto attr = compositeAttrs.getAs<IntegerAttr>("is_causal")) {
+        // Python serialises bool as IntegerAttr; handle both representations.
+        isCausal = !attr.getValue().isZero();
+        namedAttrs.push_back(rewriter.getNamedAttr(
+            "is_causal", rewriter.getBoolAttr(isCausal)));
       }
       if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
         namedAttrs.push_back(rewriter.getNamedAttr(
@@ -665,11 +673,6 @@ public:
                          static_cast<float>(attr.getValueAsDouble()))));
       }
     }
-
-    // The composite's first 3 operands are always query, key, value.
-    // A 4th boundary input (attention_mask) is present only when
-    // is_causal is false and the frontend marked 4 inputs.
-    bool hasAttnMask = !isCausal && numOperands == 4;
     SmallVector<Value> sdpaOperands = {adaptor.getOperands()[0],
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
