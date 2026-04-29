@@ -586,24 +586,6 @@ def module_compare_lt(builder: StableHLOBuilder):
         return builder.compare(in0, in1, "LT", unit_attrs=unit_attrs)
 
 
-def module_broadcast_in_dim(builder: StableHLOBuilder):
-    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
-    def broadcast_in_dim(
-        in0: Operand,
-        builder: StableHLOBuilder,
-        broadcast_dimensions: List[int],
-        output_shape: List[int],
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        return builder.broadcast_in_dim(
-            in0,
-            broadcast_dimensions=broadcast_dimensions,
-            output_shape=output_shape,
-            unit_attrs=unit_attrs,
-        )
-
-
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",
@@ -1136,9 +1118,7 @@ def test_logical_binary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bool], ids=["bool"])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_logical_unary_ops(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
+def test_not(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module_not_(builder: StableHLOBuilder):
         @builder.func([(128, 128)], [torch.bool])
         def not_(
@@ -1154,7 +1134,7 @@ def test_logical_unary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pcc=-1.0,
+        check_pcc=False,
     )
 
 
@@ -2210,11 +2190,44 @@ def test_convolution_groups_dilation(
     )
 
 
-@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize(
+    "shape,broadcast_dimensions,output_shape",
+    [
+        # 1D to 2D broadcasts
+        ((128,), [1], [32, 128]),
+        ((128,), [0], [128, 32]),
+        ((64,), [1], [16, 64]),
+        # 1D to 3D broadcasts
+        ((128,), [2], [4, 8, 128]),
+        ((64,), [0], [64, 16, 32]),
+        ((32,), [1], [8, 32, 16]),
+        # 2D to 3D broadcasts
+        ((32, 64), [1, 2], [8, 32, 64]),
+        ((16, 32), [0, 1], [16, 32, 8]),
+        # 2D to 4D broadcasts
+        ((32, 64), [2, 3], [2, 4, 32, 64]),
+        ((16, 32), [0, 2], [16, 8, 32, 4]),
+        # Scalar to multi-dim (0D to 2D)
+        ((), [], [32, 64]),
+        ((), [], [16, 16]),
+    ],
+    ids=[
+        "1d_128_to_2d_32x128",
+        "1d_128_to_2d_128x32",
+        "1d_64_to_2d_16x64",
+        "1d_128_to_3d_4x8x128",
+        "1d_64_to_3d_64x16x32",
+        "1d_32_to_3d_8x32x16",
+        "2d_32x64_to_3d_8x32x64",
+        "2d_16x32_to_3d_16x32x8",
+        "2d_32x64_to_4d_2x4x32x64",
+        "2d_16x32_to_4d_16x8x32x4",
+        "scalar_to_2d_32x64",
+        "scalar_to_2d_16x16",
+    ],
+)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("broadcast_dimensions", [[1]])
-@pytest.mark.parametrize("output_shape", [[32, 128]])
 def test_broadcast_ops(
     shape: Shape,
     dtype: torch.dtype,
