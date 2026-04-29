@@ -2654,6 +2654,7 @@ buildPagedSdpaDecodeProgramConfig(
   // See runtime-side comments for the rationale of these heuristics.
   constexpr uint32_t kMaxSdpaDecodeCoresPerHeadBatch = 64u;
   constexpr uint32_t kPageTokens = 32u;
+  constexpr uint32_t kLargeHeadDimThreshold = 512u;
   const uint64_t perPageKvBytes =
       /*K+V*/ 2u * static_cast<uint64_t>(kPageTokens) *
       static_cast<uint64_t>(headDim) * queryElementSize *
@@ -2661,9 +2662,10 @@ buildPagedSdpaDecodeProgramConfig(
   const uint64_t perCoreL1 = device->l1_size_per_core();
   const uint64_t kvBudgetPerCore = perCoreL1 / 2u;
   const bool needL1Override =
-      perPageKvBytes > 0 &&
-      perPageKvBytes * static_cast<uint64_t>(pageTableBlocks) >
-          kvBudgetPerCore;
+      headDim >= kLargeHeadDimThreshold ||
+      (perPageKvBytes > 0 &&
+       perPageKvBytes * static_cast<uint64_t>(pageTableBlocks) >
+           kvBudgetPerCore);
 
   const uint32_t totalCores = computeGrid.x * computeGrid.y;
   const uint32_t coresCap =

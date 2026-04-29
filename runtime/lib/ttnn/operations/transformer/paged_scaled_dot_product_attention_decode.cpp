@@ -78,6 +78,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     const uint32_t headDim = query.padded_shape()[-1];
     const uint32_t pageTableBlocks = pageTable.padded_shape()[-1];
     constexpr uint32_t kPageTokens = 32u;
+    constexpr uint32_t kLargeHeadDimThreshold = 512u;
     const uint64_t dtypeBytes = query.element_size();
     const uint64_t perPageKvBytes =
         /*K+V*/ 2u * static_cast<uint64_t>(kPageTokens) *
@@ -88,10 +89,16 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     // other overheads we do not model explicitly; give the rest to K/V
     // residency.
     const uint64_t kvBudgetPerCore = perCoreL1 / 2u;
+    // Force the L1-override schedule whenever head_dim is large (e.g.
+    // Gemma-4 global attention, head_dim=512). The K/V residency estimate
+    // alone underestimates total per-core CB pressure for these shapes
+    // because Q/O, attention-score, and partial-accumulator workspaces also
+    // scale with head_dim and tripped a static-CB overflow on Blackhole.
     const bool needL1Override =
-        perPageKvBytes > 0 &&
-        perPageKvBytes * static_cast<uint64_t>(pageTableBlocks) >
-            kvBudgetPerCore;
+        headDim >= kLargeHeadDimThreshold ||
+        (perPageKvBytes > 0 &&
+         perPageKvBytes * static_cast<uint64_t>(pageTableBlocks) >
+             kvBudgetPerCore);
 
     const uint32_t totalCores = computeGrid.x * computeGrid.y;
     const uint32_t coresCap =
