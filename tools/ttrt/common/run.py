@@ -330,6 +330,13 @@ class Run:
             choices=[True, False],
             help="disable ttrt callbacks",
         )
+        Run.register_arg(
+            name="--memory-log-level",
+            type=str,
+            default="none",
+            choices=["none", "program", "operation", "any"],
+            help="Set memory logging level: none (no logging), program (log at program boundaries), operation (log at operation boundaries), or any (both program and operation)",
+        )
 
     def __init__(self, args={}, logger=None, artifacts=None):
         for name, attributes in Run.registered_args.items():
@@ -554,6 +561,22 @@ class Run:
             torch.manual_seed(self["--seed"])
             ttrt.runtime.set_compatible_device_runtime(binaries[0].fbb)
             current_runtime = ttrt.runtime.get_current_device_runtime()
+
+            # Set memory log level
+            memory_log_level_str = self["--memory-log-level"].lower()
+            if memory_log_level_str == "none":
+                memory_log_level = ttrt.runtime.MemoryLogLevel.NONE
+            elif memory_log_level_str == "program":
+                memory_log_level = ttrt.runtime.MemoryLogLevel.PROGRAM
+            elif memory_log_level_str == "operation":
+                memory_log_level = ttrt.runtime.MemoryLogLevel.OPERATION
+            elif memory_log_level_str == "any":
+                memory_log_level = ttrt.runtime.MemoryLogLevel.ANY
+            else:
+                raise ValueError(f"Invalid memory log level: {memory_log_level_str}")
+            ttrt.runtime.set_memory_log_level(memory_log_level)
+            self.logging.debug(f"setting memory log level={memory_log_level_str}")
+
             self.logging.debug(f"opening devices={self.query.device_ids}")
 
             if "--init" in sys.argv:
