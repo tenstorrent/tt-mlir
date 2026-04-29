@@ -252,6 +252,54 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       return {collapsedIntervals, dimAlignments};
     }
 
+    llvm::SmallVector<int64_t>
+    computeDivisibleBounceGrid(ArrayRef<int64_t> preferredGrid,
+                               ArrayRef<int64_t> targetGridShape,
+                               ArrayRef<int64_t> physicalShape) const {
+      auto dividesPhysicalShape = [&](ArrayRef<int64_t> grid) {
+        if (grid.size() != physicalShape.size()) {
+          return false;
+        }
+        return llvm::all_of(llvm::zip_equal(physicalShape, grid),
+                            [](auto dimAndGrid) {
+                              auto [dim, gridDim] = dimAndGrid;
+                              return gridDim > 0 && dim % gridDim == 0;
+                            });
+      };
+
+      if (dividesPhysicalShape(preferredGrid)) {
+        return llvm::to_vector(preferredGrid);
+      }
+
+      TT_assert(targetGridShape.size() == 2u);
+      TT_assert(physicalShape.size() == 2u);
+
+      int64_t preferredVolume = 1;
+      for (int64_t dim : preferredGrid) {
+        preferredVolume *= dim;
+      }
+
+      llvm::SmallVector<int64_t> bestGrid;
+      int64_t bestVolume = 0;
+      for (int64_t y = 1; y <= targetGridShape[0]; ++y) {
+        for (int64_t x = 1; x <= targetGridShape[1]; ++x) {
+          int64_t volume = y * x;
+          if (volume > preferredVolume || volume <= bestVolume) {
+            continue;
+          }
+          llvm::SmallVector<int64_t> candidate = {y, x};
+          if (!dividesPhysicalShape(candidate)) {
+            continue;
+          }
+          bestGrid = candidate;
+          bestVolume = volume;
+        }
+      }
+
+      TT_assert(!bestGrid.empty());
+      return bestGrid;
+    }
+
     // Create a device tensor type from a system tensor type.
     // For virtual grids (ND or exceeding device bounds), the data must bounce
     // through DRAM interleaved because the host cannot directly scatter data
@@ -326,6 +374,11 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
       auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
       auto elementType = newElementType.value_or(baseType.getElementType());
+      ArrayRef<int64_t> tileShape;
+      if (mlir::isa<ttcore::TileType>(elementType)) {
+        tileShape =
+            newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
+      }
 
       // Do not consider a tensor with an identity remapping as having a virtual
       // grid.
@@ -370,6 +423,8 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
                                               dimAlignments, collapsedIntervals,
                                               baseLayout.getOobVal(), memSpace,
                                               baseLayout.getMemoryLayout());
+        tensorGrid = computeDivisibleBounceGrid(
+            tensorGrid, targetGridShape, layout.getPhysicalShape(tileShape));
       } else {
         // Otherwise, preserve dim alignments and collapsed intervals.
         layout = ttcore::MetalLayoutAttr::get(
@@ -378,11 +433,6 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             memSpace, baseLayout.getMemoryLayout());
       }
 
-      ArrayRef<int64_t> tileShape;
-      if (mlir::isa<ttcore::TileType>(elementType)) {
-        tileShape =
-            newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
-      }
       auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
 
       return RankedTensorType::get(deviceShape, elementType, layout);

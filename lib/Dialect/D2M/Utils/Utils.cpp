@@ -310,7 +310,9 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     TT_assert(shapedType);
     auto fullShape = shapedType.getShape();
     auto physShape = ttmlir::utils::evalShape(*fwdMap, fullShape);
-    unsigned gridRank = fullShape.size() / 2;
+    unsigned shardRank = fullShape.size() / 2;
+    TT_assert(physShape.size() >= shardRank);
+    unsigned gridRank = physShape.size() - shardRank;
     return SmallVector<int64_t>(physShape.begin(),
                                 physShape.begin() + gridRank);
   }
