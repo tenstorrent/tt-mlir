@@ -213,6 +213,93 @@ public:
 };
 } // namespace
 
+// Decomposes abs(complex) -> sqrt(real^2 + imag^2):
+//
+//   tensor<d0x...xdNx2>   <- unpacked complex layout
+//         |
+//   transposeTrailingToLeading
+//         |
+//   tensor<2xd0x...xdN>
+//        / \
+//  slice(0)  slice(1)   <- real, imag
+//       |       |
+//   reshape  reshape
+//       |       |
+//   tensor<d0x...xdN>  tensor<d0x...xdN>
+//       \       /
+//        mul   mul      <- re*re, im*im
+//          \  /
+//           add         <- re^2 + im^2
+//            |
+//           sqrt
+//            |
+//   tensor<d0x...xdN>   <- magnitude
+namespace {
+class StablehloAbsComplexConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::AbsOp> {
+  using OpConversionPattern<mlir::stablehlo::AbsOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::AbsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputType =
+        mlir::cast<RankedTensorType>(op.getOperand().getType());
+    if (!mlir::isa<mlir::ComplexType>(inputType.getElementType())) {
+      return rewriter.notifyMatchFailure(op, "not a complex input");
+    }
+
+    Location loc = op.getLoc();
+
+    // adaptor.getOperand() is in packed-real form: tensor<d0x...xdNx2xf32>
+    Value packed = adaptor.getOperand();
+    auto packedType = mlir::cast<RankedTensorType>(packed.getType());
+    auto floatTy = mlir::cast<mlir::FloatType>(packedType.getElementType());
+    int64_t rank = packedType.getRank();
+
+    Value transposed = transposeTrailingToLeading(loc, packed, rewriter);
+    auto transposedType = mlir::cast<RankedTensorType>(transposed.getType());
+    ArrayRef<int64_t> transposedShape = transposedType.getShape();
+
+    SmallVector<int64_t> resultShape(transposedShape.begin() + 1,
+                                     transposedShape.end());
+    auto resultType = RankedTensorType::get(resultShape, floatTy);
+
+    auto extractComponent = [&](int offset) -> Value {
+      SmallVector<int64_t> begins(rank, 0),
+          ends(transposedShape.begin(), transposedShape.end()),
+          steps(rank, 1),
+          sliceShape(transposedShape.begin(), transposedShape.end());
+      begins[0] = offset;
+      ends[0] = offset + 1;
+      sliceShape[0] = 1;
+      auto sliced = rewriter.create<mlir::stablehlo::SliceOp>(
+          loc, RankedTensorType::get(sliceShape, floatTy), transposed,
+          rewriter.getDenseI64ArrayAttr(begins),
+          rewriter.getDenseI64ArrayAttr(ends),
+          rewriter.getDenseI64ArrayAttr(steps));
+      return rewriter
+          .create<mlir::stablehlo::ReshapeOp>(loc, resultType,
+                                              sliced.getResult())
+          .getResult();
+    };
+
+    Value re = extractComponent(0);
+    Value im = extractComponent(1);
+
+    Value reSq =
+        rewriter.create<mlir::stablehlo::MulOp>(loc, resultType, re, re);
+    Value imSq =
+        rewriter.create<mlir::stablehlo::MulOp>(loc, resultType, im, im);
+    Value sumSq =
+        rewriter.create<mlir::stablehlo::AddOp>(loc, resultType, reSq, imSq);
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::SqrtOp>(op, resultType,
+                                                          sumSq);
+    return success();
+  }
+};
+} // namespace
+
 // Rewrites ops that produce complex-typed tensors to operate on the equivalent
 // unpacked real representation (trailing dim of size 2).
 namespace {
@@ -349,6 +436,14 @@ struct StableHLOComplexDataTypeConversionPass
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
 
+    // abs(complex) -> sqrt(re^2 + im^2): illegal when operand is complex.
+    target.addDynamicallyLegalOp<mlir::stablehlo::AbsOp>(
+        [](mlir::stablehlo::AbsOp op) {
+          auto inputType =
+              mlir::cast<RankedTensorType>(op.getOperand().getType());
+          return !mlir::isa<mlir::ComplexType>(inputType.getElementType());
+        });
+
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
     typeConverter.addConversion(
@@ -374,6 +469,7 @@ struct StableHLOComplexDataTypeConversionPass
         ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
+        StablehloAbsComplexConversionPattern,
         StablehloComplexToDecomposedPattern,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
