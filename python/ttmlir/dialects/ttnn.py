@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import inspect
 
 from ._ttnn_ops_gen import *
 from ._ttnn_enum_gen import *
@@ -16,7 +15,11 @@ from ._ttnn_op_schema import OP_SCHEMA as _OP_SCHEMA
 
 
 def _stamp_ttnn_op_schema():
-    for cls_name, cls in inspect.getmembers_static(_ttnn_ops_gen_module, inspect.isclass):
+    import inspect
+
+    for cls_name, cls in inspect.getmembers_static(
+        _ttnn_ops_gen_module, inspect.isclass
+    ):
         op_name = getattr(cls, "OPERATION_NAME", None)
         s = _OP_SCHEMA.get(op_name)
         if s is None:

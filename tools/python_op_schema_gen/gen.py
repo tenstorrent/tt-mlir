@@ -102,8 +102,8 @@ def _unwrap_arg(name: str, records: dict) -> str:
     """If `name` refers to an Arg<...> wrapper record, return the inner
     constraint's name; otherwise return `name` unchanged.
 
-    The Arg wrapper carries description/decorator metadata around a real Constraint. 
-    Classification cares about the constraint, not the metadata. 
+    The Arg wrapper carries description/decorator metadata around a real Constraint.
+    Classification cares about the constraint, not the metadata.
     Current TTNNOps.td does not nest Arg wrappers, so a single hop is enough.
     """
     rec = records.get(name)
@@ -115,9 +115,9 @@ def _unwrap_arg(name: str, records: dict) -> str:
 def _mangle_name(name: str) -> str:
     """Mirror the ODS Python op generator's local-collision mangling.
 
-    The generated `__init__` uses a local list literally named `results` to pass into `OpView.__init__`. 
-    When an ODS-declared operand/attribute/result name shadows that local, 
-    the generator suffixes it with `_` (so the accessor on the class becomes e.g. `results_`, not `results`). 
+    The generated `__init__` uses a local list literally named `results` to pass into `OpView.__init__`.
+    When an ODS-declared operand/attribute/result name shadows that local,
+    the generator suffixes it with `_` (so the accessor on the class becomes e.g. `results_`, not `results`).
     The schema has to match the actual class member name — `dir(cls)` exposes the
     suffixed form — so we apply the same rule here.
     """
@@ -149,9 +149,9 @@ def collect(records: dict):
     _expect_json_v1(records)
 
     inst = records.get("!instanceof", {})
-    assert isinstance(inst, dict), (
-        f"!instanceof: expected a dictionary, got {type(inst).__name__}"
-    )
+    assert isinstance(
+        inst, dict
+    ), f"!instanceof: expected a dictionary, got {type(inst).__name__}"
     type_set = set(inst.get("TypeConstraint", []))
     attr_set = set(inst.get("AttrConstraint", []))
     overlap = type_set & attr_set

@@ -16,10 +16,10 @@ For each TTNN op:
 """
 import inspect
 
-from ttmlir.ir import OpView
+import pytest
 
-from ttmlir.dialects import ttnn  # noqa: F401 — import side-effect stamps the schema
-from ttmlir.dialects import _ttnn_ops_gen
+from ttmlir.ir import OpView
+from ttmlir.dialects import ttnn
 
 
 OPVIEW_BASELINE = set(dir(OpView))
@@ -31,63 +31,38 @@ SCHEMA_SENTINELS = {
 }
 
 
-def _ttnn_opview_classes():
-    for _, cls in inspect.getmembers_static(_ttnn_ops_gen, inspect.isclass):
-        if not issubclass(cls, OpView):
-            continue
-        if getattr(cls, "OPERATION_NAME", None) is None:
-            continue
-        yield cls
+TTNN_OPVIEW_CLASSES = [
+    cls
+    for _, cls in inspect.getmembers_static(ttnn, inspect.isclass)
+    if issubclass(cls, OpView) and getattr(cls, "OPERATION_NAME", None) is not None
+]
 
 
-def test_schema_names_are_class_members(capsys):
+@pytest.mark.parametrize(
+    "cls",
+    TTNN_OPVIEW_CLASSES,
+    ids=[cls.OPERATION_NAME for cls in TTNN_OPVIEW_CLASSES],
+)
+def test_schema_names_are_class_members(cls):
     """Every schema name (operand/attribute/result) should resolve as a member
-    of its OpView class. Anything left in `dir(cls)` that the schema doesn't
-    cover gets printed for inspection."""
-    failures = []
-    leftovers_per_op = {}
+    of its OpView class, and `dir(cls)` should contain no names the schema
+    doesn't classify."""
+    operands = set(getattr(cls, "OPERAND_NAMES", tuple()))
+    attributes = set(getattr(cls, "ATTRIBUTE_NAMES", tuple()))
+    results = set(getattr(cls, "RESULT_NAMES", tuple()))
 
-    for cls in _ttnn_opview_classes():
-        op_name = cls.OPERATION_NAME
-        operands = set(getattr(cls, "OPERAND_NAMES", ()))
-        attributes = set(getattr(cls, "ATTRIBUTE_NAMES", ()))
-        results = set(getattr(cls, "RESULT_NAMES", ()))
+    members = set(dir(cls))
 
-        members = set(dir(cls))
+    for kind, names in (
+        ("operand", operands),
+        ("attribute", attributes),
+        ("result", results),
+    ):
+        missing = names - members
+        assert not missing, f"{kind} names not in dir(cls): {sorted(missing)}"
 
-        for kind, names in (
-            ("operand", operands),
-            ("attribute", attributes),
-            ("result", results),
-        ):
-            missing = names - members
-            if missing:
-                failures.append(
-                    f"{op_name}: {kind} names not in dir(cls): {sorted(missing)}"
-                )
-
-        leftover = (
-            members
-            - operands
-            - attributes
-            - results
-            - OPVIEW_BASELINE
-            - SCHEMA_SENTINELS
-        )
-        leftover = {n for n in leftover if not n.startswith("_")}
-        if leftover:
-            leftovers_per_op[op_name] = sorted(leftover)
-
-    with capsys.disabled():
-        print(f"\nChecked {sum(1 for _ in _ttnn_opview_classes())} TTNN ops.")
-        if leftovers_per_op:
-            print(
-                f"\n{len(leftovers_per_op)} op(s) have dir() members not covered "
-                "by OPERAND_NAMES / ATTRIBUTE_NAMES / RESULT_NAMES:"
-            )
-            for op_name, names in sorted(leftovers_per_op.items()):
-                print(f"  {op_name}: {names}")
-        else:
-            print("\nNo unclassified dir() members across all TTNN ops.")
-
-    assert not failures, "\n".join(failures)
+    leftover = members.difference(
+        operands, attributes, results, OPVIEW_BASELINE, SCHEMA_SENTINELS
+    )
+    leftover = {n for n in leftover if not n.startswith("_")}
+    assert not leftover, f"unclassified dir() members: {sorted(leftover)}"
