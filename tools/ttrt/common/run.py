@@ -334,8 +334,8 @@ class Run:
             name="--memory-log-level",
             type=str,
             default="none",
-            choices=["none", "program", "operation", "all"],
-            help="Set memory logging level: none (no logging), program (log at program boundaries), operation (log at operation boundaries), or all (both program and operation)",
+            choices=["none", "program", "operation", "any"],
+            help="Set memory logging level: none (no logging), program (log at program boundaries), operation (log at operation boundaries), or any (both program and operation)",
         )
 
     def __init__(self, args={}, logger=None, artifacts=None):
@@ -575,11 +575,8 @@ class Run:
                 memory_log_level = ttrt.runtime.MemoryLogLevel.PROGRAM
             elif memory_log_level_str == "operation":
                 memory_log_level = ttrt.runtime.MemoryLogLevel.OPERATION
-            elif memory_log_level_str == "all":
-                memory_log_level = (
-                    ttrt.runtime.MemoryLogLevel.PROGRAM
-                    | ttrt.runtime.MemoryLogLevel.OPERATION
-                )
+            elif memory_log_level_str == "any":
+                memory_log_level = ttrt.runtime.MemoryLogLevel.ANY
             else:
                 raise ValueError(f"Invalid memory log level: {memory_log_level_str}")
             ttrt.runtime.set_memory_log_level(memory_log_level)
