@@ -103,4 +103,43 @@ LayoutScore RmsNormRuleBook::adjustScore(
   return base;
 }
 
+bool RmsNormRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty() || !inputLayouts[0]) {
+    return true;
+  }
+  TTNNLayoutAttr inputLayout = inputLayouts[0];
+  auto inputMem = inputLayout.getMemLayout();
+  bool inputSharded = inputMem && isShardedMemoryLayout(inputMem.getValue());
+
+  if (!inputSharded) {
+    return true; // interleaved factory handles any output layout
+  }
+
+  // NULL hint defers to the backend; tt-metal's sharded layernorm defaults
+  // its output mem config to the input mem config, which yields
+  // skip_write_back=true. Safe.
+  if (!hint.outputLayout) {
+    return true;
+  }
+
+  auto hintMem = hint.outputLayout.getMemLayout();
+  if (!hintMem || !isShardedMemoryLayout(hintMem.getValue())) {
+    // Sharded inputs require sharded outputs (validate enforces this).
+    return false;
+  }
+  // Same memory layout type (block/width), same grid, same shard shape →
+  // skip_write_back path, no integrated reshard.
+  if (hintMem.getValue() != inputMem.getValue()) {
+    return false;
+  }
+  if (inputLayout.getGrid() != hint.outputLayout.getGrid()) {
+    return false;
+  }
+  if (inputLayout.getShardShape() != hint.outputLayout.getShardShape()) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace mlir::tt::ttnn
