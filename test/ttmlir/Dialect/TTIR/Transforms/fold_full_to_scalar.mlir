@@ -70,3 +70,22 @@ func.func @fold_full_shape_carrier(%arg0: tensor<1x32xf32>) -> tensor<64x32xf32>
   // CHECK: return %[[BCAST]]
   return %1 : tensor<64x32xf32>
 }
+
+// The case when both operands of a broadcastable binary op are constant and
+// one of them is a splat, but the non-splat one doesn't match the result shape
+// is not folded in canonicalizations to avoid creating a large constant which
+// could be represented as a smaller constant + broadcast. But since this pass
+// transforms this to the "safe" case, the fold method should trigger here and
+// fold the binary op.
+// CHECK-LABEL: func.func @constant_fold_splat_nonsplat
+func.func @constant_fold_splat_nonsplat() -> tensor<3x3xsi32> {
+  // CHECK-NOT: "ttir.ones"
+  %0 = "ttir.ones"() <{shape = array<i32: 3, 1>}> : () -> tensor<3x1xsi32>
+  // CHECK: %[[CONST:.*]] = "ttir.constant"() <{value = dense<{{\[\[}}2, 3, 4]]> : tensor<1x3xsi32>}> : () -> tensor<1x3xsi32>
+  %1 = "ttir.constant"() <{value = dense<[[1, 2, 3]]> : tensor<1x3xsi32>}> : () -> tensor<1x3xsi32>
+  // CHECK-NOT: "ttir.add"
+  %2 = "ttir.add"(%0, %1) : (tensor<3x1xsi32>, tensor<1x3xsi32>) -> tensor<3x3xsi32>
+  // CHECK: %[[BCAST:.*]] = "ttir.broadcast"(%[[CONST]]) <{broadcast_dimensions = array<i64: 3, 1>}> : (tensor<1x3xsi32>) -> tensor<3x3xsi32>
+  // CHECK: return %[[BCAST]]
+  return %2 : tensor<3x3xsi32>
+}

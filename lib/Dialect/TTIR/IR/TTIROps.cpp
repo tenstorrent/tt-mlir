@@ -83,9 +83,9 @@ static bool shouldFold(mlir::Operation *op) {
 // argument using an index mapping function. The index mapping function takes
 // output coordinates and returns input coordinates.
 template <typename ElementType, typename Fun>
-static ::mlir::OpFoldResult foldNonSplatTM(ShapedType resultType,
-                                           DenseElementsAttr inputAttr,
-                                           Fun indexMap) {
+static mlir::DenseElementsAttr foldNonSplatTM(ShapedType resultType,
+                                              DenseElementsAttr inputAttr,
+                                              Fun indexMap) {
   auto inputValues = inputAttr.getValues<ElementType>();
   llvm::SmallVector<ElementType> outputValues;
   outputValues.reserve(resultType.getNumElements());
@@ -233,44 +233,108 @@ constantFoldEltwiseUnary(mlir::Operation *op, mlir::Attribute inputAttr,
   return nullptr;
 }
 
+bool fulfillFoldEltwiseBinaryConditions(mlir::Operation *op,
+                                        mlir::DenseElementsAttr lhs,
+                                        mlir::DenseElementsAttr rhs) {
+  if (!lhs || !rhs) {
+    return false;
+  }
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  if (lhs.getElementType() != rhs.getElementType() ||
+      lhs.getElementType() != resultType.getElementType()) {
+    // Avoid implicit type conversion in folders since it does not happen often.
+    return false;
+  }
+  if (!(lhs.isSplat() && rhs.isSplat()) && !shouldFold(op)) {
+    return false;
+  }
+
+  // If exactly one input is not a splat we require it to have the same shape as
+  // the output. Otherwise we could lose an optimization opportunity by
+  // materializing a large constant which could be represented by small tensor +
+  // implicit broadcast.
+  if (lhs.isSplat() && !rhs.isSplat() && rhs.getType() != resultType) {
+    return false;
+  }
+  if (!lhs.isSplat() && rhs.isSplat() && lhs.getType() != resultType) {
+    return false;
+  }
+
+  return true;
+}
+
 template <typename ElementType, typename Fun>
 static ::mlir::OpFoldResult
 foldEltwiseBinaryHelper(mlir::Operation *op, mlir::DenseElementsAttr lhs,
                         mlir::DenseElementsAttr rhs, Fun mapFn) {
-  if (!lhs || !rhs) {
+  if (!fulfillFoldEltwiseBinaryConditions(op, lhs, rhs)) {
     return nullptr;
-  }
-  auto resultType = mlir::dyn_cast<ShapedType>(op->getResult(0).getType());
-  if (lhs.getElementType() != rhs.getElementType() ||
-      lhs.getElementType() != resultType.getElementType()) {
-    // Avoid implicit type conversion in folders since it does not happen often.
-    return nullptr;
-  }
-  if (!(lhs.isSplat() && rhs.isSplat())) {
-    if (lhs.getType() != rhs.getType()) {
-      // If the inputs are not both splats, we require them to have the same
-      // shape to avoid broadcasting.
-      return nullptr;
-    }
-    if (!shouldFold(op)) {
-      return nullptr;
-    }
   }
 
+  // If exactly one input is a splat we resize it to the shape of the other,
+  // to be able to iterate trgough the same number of elements.
+  if (lhs.isSplat() && !rhs.isSplat()) {
+    lhs = lhs.resizeSplat(rhs.getType());
+  }
+  if (!lhs.isSplat() && rhs.isSplat()) {
+    rhs = rhs.resizeSplat(lhs.getType());
+  }
+
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+
+  // If both inputs are splats, just use the splat values.
   if (lhs.isSplat() && rhs.isSplat()) {
     auto lhsSplatValue = lhs.getSplatValue<ElementType>();
     auto rhsSplatValue = rhs.getSplatValue<ElementType>();
     ElementType result = mapFn(lhsSplatValue, rhsSplatValue);
-    return mlir::SplatElementsAttr::get(lhs.getType(), result);
+    return mlir::SplatElementsAttr::get(resultType, result);
   }
-  llvm::SmallVector<ElementType> results;
-  results.reserve(lhs.getNumElements());
-  auto lhsBegin = lhs.value_begin<ElementType>();
-  auto lhsEnd = lhs.value_end<ElementType>();
-  auto rhsBegin = rhs.value_begin<ElementType>();
-  std::transform(lhsBegin, lhsEnd, rhsBegin, std::back_inserter(results),
-                 mapFn);
-  return mlir::DenseElementsAttr::get(lhs.getType(), results);
+
+  llvm::SmallVector<ElementType> resultValues;
+  resultValues.reserve(resultType.getNumElements());
+
+  // If no broadcast is needed, just map over the input values.
+  if (lhs.getType() == resultType && rhs.getType() == resultType) {
+    auto lhsBegin = lhs.value_begin<ElementType>();
+    auto lhsEnd = lhs.value_end<ElementType>();
+    auto rhsBegin = rhs.value_begin<ElementType>();
+    std::transform(lhsBegin, lhsEnd, rhsBegin, std::back_inserter(resultValues),
+                   mapFn);
+    return mlir::DenseElementsAttr::get(resultType, resultValues);
+  }
+
+  auto lhsValues = lhs.getValues<ElementType>();
+  auto rhsValues = rhs.getValues<ElementType>();
+  llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
+  llvm::ArrayRef<int64_t> lhsShape = lhs.getType().getShape();
+  llvm::ArrayRef<int64_t> rhsShape = rhs.getType().getShape();
+  llvm::SmallVector<int64_t> resultStrides = mlir::computeStrides(resultShape);
+  llvm::SmallVector<int64_t> lhsStrides = mlir::computeStrides(lhsShape);
+  llvm::SmallVector<int64_t> rhsStrides = mlir::computeStrides(rhsShape);
+
+  // Iterate over the result elements and compute the positions of the input
+  // elements to which the map function should be applied.
+  for (int64_t i = 0; i != resultType.getNumElements(); ++i) {
+    llvm::SmallVector<int64_t> resultCoord =
+        mlir::delinearize(i, resultStrides);
+
+    llvm::SmallVector<int64_t> lhsCoord = resultCoord;
+    llvm::SmallVector<int64_t> rhsCoord = resultCoord;
+    for (size_t i = 0; i != resultCoord.size(); ++i) {
+      if (lhsShape[i] == 1) {
+        lhsCoord[i] = 0;
+      }
+      if (rhsShape[i] == 1) {
+        rhsCoord[i] = 0;
+      }
+    }
+
+    auto lhsIndex = mlir::linearize(lhsCoord, lhsStrides);
+    auto rhsIndex = mlir::linearize(rhsCoord, rhsStrides);
+
+    resultValues.push_back(mapFn(lhsValues[lhsIndex], rhsValues[rhsIndex]));
+  }
+  return mlir::DenseElementsAttr::get(resultType, resultValues);
 }
 
 // Helper to perform constant folding of elementwise unary operators. `floatMap`

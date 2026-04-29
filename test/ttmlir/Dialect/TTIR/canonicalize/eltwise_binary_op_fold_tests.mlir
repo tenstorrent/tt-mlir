@@ -73,8 +73,8 @@ module {
     return %2 : tensor<3xsi32>
   }
 
-  func.func @add_unmatched_type_no_fold() -> tensor<3xf32> {
-    // CHECK-LABEL: @add_unmatched_type_no_fold
+  func.func @add_unmatched_element_type_no_fold() -> tensor<3xf32> {
+    // CHECK-LABEL: @add_unmatched_element_type_no_fold
     // CHECK: "ttir.constant"
     // CHECK: "ttir.constant"
     // CHECK: "ttir.add"
@@ -84,15 +84,52 @@ module {
     return %2 : tensor<3xf32>
   }
 
-  func.func @add_broadcastable_non_splat_no_fold() -> tensor<3x3xf32> {
-    // CHECK-LABEL: @add_broadcastable_non_splat_no_fold
+  func.func @add_broadcastable_splat_lhs() -> tensor<3x3xsi32> {
+    // CHECK-LABEL: @add_broadcastable_splat_lhs
+    // CHECK-NOT: "ttir.ones"
     // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<{{\[\[}}1, 2, 3], {{\[}}1, 2, 3], {{\[}}1, 2, 3]]> : tensor<3x3xsi32>
+    // CHECK-NOT: "ttir.add"
+    %0 = "ttir.ones"() {shape = array<i32: 1, 1>} : () -> tensor<1x1xsi32>
+    %1 = "ttir.constant"() {value = dense<[[0, 1, 2], [0, 1, 2], [0, 1, 2]]> : tensor<3x3xsi32>} : () -> tensor<3x3xsi32>
+    %2 = "ttir.add"(%0, %1) : (tensor<1x1xsi32>, tensor<3x3xsi32>) -> tensor<3x3xsi32>
+    return %2 : tensor<3x3xsi32>
+  }
+
+  func.func @add_broadcastable_splat_rhs() -> tensor<3x3xsi32> {
+    // CHECK-LABEL: @add_broadcastable_splat_rhs
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<{{\[\[}}1, 2, 3], {{\[}}1, 2, 3], {{\[}}1, 2, 3]]> : tensor<3x3xsi32>
+    // CHECK-NOT: "ttir.ones"
+    // CHECK-NOT: "ttir.add"
+    %0 = "ttir.constant"() {value = dense<[[0, 1, 2], [0, 1, 2], [0, 1, 2]]> : tensor<3x3xsi32>} : () -> tensor<3x3xsi32>
+    %1 = "ttir.ones"() {shape = array<i32: 1, 1>} : () -> tensor<1x1xsi32>
+    %2 = "ttir.add"(%0, %1) : (tensor<3x3xsi32>, tensor<1x1xsi32>) -> tensor<3x3xsi32>
+    return %2 : tensor<3x3xsi32>
+  }
+
+  // When one argument is a splat and the other is not, we only fold if the non splat one matches the result shape.
+  func.func @add_broadcastable_splat_nonsplat_no_fold() -> tensor<3x3xsi32> {
+    // CHECK-LABEL: @add_broadcastable_splat_nonsplat_no_fold
+    // CHECK: "ttir.ones"
     // CHECK: "ttir.constant"
     // CHECK: "ttir.add"
-    %0 = "ttir.constant"() {value = dense<[[0.0], [200.15], [201.15]]> : tensor<3x1xf32>} : () -> tensor<3x1xf32>
-    %1 = "ttir.constant"() {value = dense<[[-0.55, 0.0, -1.15]]> : tensor<1x3xf32>} : () -> tensor<1x3xf32>
-    %2 = "ttir.add"(%0, %1) : (tensor<3x1xf32>, tensor<1x3xf32>) -> tensor<3x3xf32>
-    return %2 : tensor<3x3xf32>
+    %0 = "ttir.ones"() {shape = array<i32: 3, 1>} : () -> tensor<3x1xsi32>
+    %1 = "ttir.constant"() {value = dense<[[1, 2, 3]]> : tensor<1x3xsi32>} : () -> tensor<1x3xsi32>
+    %2 = "ttir.add"(%0, %1) : (tensor<3x1xsi32>, tensor<1x3xsi32>) -> tensor<3x3xsi32>
+    return %2 : tensor<3x3xsi32>
+  }
+
+  func.func @add_broadcastable_non_splat() -> tensor<3x3xsi32> {
+    // CHECK-LABEL: @add_broadcastable_non_splat
+    // CHECK: "ttir.constant"
+    // CHECK-SAME: value = dense<{{\[\[}}5, 6, 7], {{\[}}6, 7, 8], {{\[}}7, 8, 9]]> : tensor<3x3xsi32>
+    // CHECK-NOT: "ttir.constant"
+    // CHECK-NOT: "ttir.add"
+    %0 = "ttir.constant"() {value = dense<[[1], [2], [3]]> : tensor<3x1xsi32>} : () -> tensor<3x1xsi32>
+    %1 = "ttir.constant"() {value = dense<[[4, 5, 6]]> : tensor<1x3xsi32>} : () -> tensor<1x3xsi32>
+    %2 = "ttir.add"(%0, %1) : (tensor<3x1xsi32>, tensor<1x3xsi32>) -> tensor<3x3xsi32>
+    return %2 : tensor<3x3xsi32>
   }
 
   func.func @atan2() -> tensor<3xf32> {
