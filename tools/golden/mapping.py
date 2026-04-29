@@ -7595,10 +7595,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.CollectiveBroadcastOp: ttir_collective_broadcast_golden,
     # Sparse MoE operations
     ttir.SparseMatmulOp: ttir_sparse_matmul_golden,
-    ttir.AllToAllDispatchOp: ttir_all_to_all_dispatch_golden,
-    ttir.AllToAllDispatchMetadataOp: ttir_all_to_all_dispatch_metadata_golden,
-    ttir.AllToAllCombineOp: ttir_all_to_all_combine_golden,
-    ttir.MoeExpertTokenRemapOp: ttir_moe_expert_token_remap_golden,
     # Operations with parameter transformations
     ttir.LeakyReluOp: leaky_relu_golden,
     # Attention operations
