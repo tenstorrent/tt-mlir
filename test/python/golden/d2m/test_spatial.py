@@ -24,40 +24,9 @@ from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("d2m")
 
-
-def _greatest_physical_grid(
-    physical_grid_shape: Tuple[int, int], phys_dim_index: int, factor: int
-):
-    assert phys_dim_index < 2
-    for d in range(physical_grid_shape[phys_dim_index], 0, -1):
-        if factor % d == 0:
-            return d
-    assert False, "Failed to find factor for {factor}"
-
-
-def _compute_matmul_layout_config(
-    lhs_shape: List[int],
-    rhs_shape: List[int],
-    grid: Tuple[int, int],
-    block_factors: Tuple[int, int, int],
-    core_range: Tuple[Tuple[int, int], Tuple[int, int]],
-):
-    block_m = lhs_shape[0] // (grid[0] * block_factors[0])
-    block_n = rhs_shape[1] // (grid[1] * block_factors[1])
-    out_block_tiles = [block_m // 32, block_n // 32]
-    core_range_shape = (
-        core_range[1][0] - core_range[0][0] + 1,
-        core_range[1][1] - core_range[0][1] + 1,
-    )
-    lhs_k_physical_grid = _greatest_physical_grid(core_range_shape, 1, block_factors[2])
-    rhs_k_physical_grid = _greatest_physical_grid(core_range_shape, 0, block_factors[2])
-
-    return {
-        "lhs_grid": [grid[0], lhs_k_physical_grid],
-        "rhs_grid": [rhs_k_physical_grid, grid[1]],
-        "out_grid": [grid[0], grid[1]],
-        "out_block_tiles": out_block_tiles,
-    }
+# Spatial tests use a single logical core for the inner matmul generic (grid 1x1,
+# block_factors 1,1,1). Metal tensor grids match that; tile counts follow 32-tile
+# geometry from the full tensor shapes.
 
 
 def _build_virtual_grid_attrs(
@@ -252,26 +221,12 @@ def test_spatial_two_regions_two_matmuls(
     out_shape,
     grid_ranges,
 ):
-    grid = (1, 1)
-    block_factors = (1, 1, 1)
     pipeline_opts = [
         "use-tile-matmul=false",
         "enable-l1-acc=true",
     ]
-    layout_cfg_r0 = _compute_matmul_layout_config(
-        lhs_shape,
-        rhs_shape,
-        grid,
-        block_factors,
-        core_range=grid_ranges[0],
-    )
-    layout_cfg_r1 = _compute_matmul_layout_config(
-        lhs_shape,
-        rhs_shape,
-        grid,
-        block_factors,
-        core_range=grid_ranges[1],
-    )
+    metal_grid = [1, 1]
+    out_block_tiles = [lhs_shape[0] // 32, rhs_shape[1] // 32]
     torch_dtype = torch.bfloat16
 
     def spatial_module(builder: D2MBuilder):
@@ -286,37 +241,31 @@ def test_spatial_two_regions_two_matmuls(
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
             lhs_metal_ty = builder.get_metal_tensor_layout(
                 lhs_shape,
-                grid=layout_cfg_r0["lhs_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
             rhs_metal_ty = builder.get_metal_tensor_layout(
                 rhs_shape,
-                grid=layout_cfg_r0["rhs_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
             out_metal_ty = builder.get_metal_tensor_layout(
                 out_shape,
-                grid=layout_cfg_r0["out_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
             lhs_metal_ty_b = builder.get_metal_tensor_layout(
                 lhs_shape,
-                grid=layout_cfg_r1["lhs_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
             rhs_metal_ty_b = builder.get_metal_tensor_layout(
                 rhs_shape,
-                grid=layout_cfg_r1["rhs_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
             out_metal_ty_b = builder.get_metal_tensor_layout(
                 out_shape,
-                grid=layout_cfg_r1["out_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
@@ -380,14 +329,14 @@ def test_spatial_two_regions_two_matmuls(
                     lhs_m,
                     rhs_m,
                     out0_m,
-                    out_block_shape=layout_cfg_r0["out_block_tiles"],
+                    out_block_shape=out_block_tiles,
                 ),
                 matmul_region_build(
                     builder,
                     lhs_m_b,
                     rhs_m_b,
                     out1_m,
-                    out_block_shape=layout_cfg_r1["out_block_tiles"],
+                    out_block_shape=out_block_tiles,
                 ),
             ]
 
@@ -434,11 +383,6 @@ def test_spatial_two_regions_two_matmuls(
 
 
 @pytest.mark.parametrize(
-    "grid,block_factors,block_shape",
-    [((1, 1), (1, 1, 1), (32, 32, 32))],
-    ids=["1_1"],
-)
-@pytest.mark.parametrize(
     "target",
     [
         "ttmetal",
@@ -448,30 +392,17 @@ def test_single_matmul_offset_core(
     target: str,
     request,
     device,
-    grid,
-    block_factors,
-    block_shape,
 ):
-    # Match test_generic grid0 / block_shape0 / block_factors0.
-    block_m, block_n, block_k = block_shape
-    m = block_m * grid[0] * block_factors[0]
-    n = block_n * grid[1] * block_factors[1]
-    k = block_k * block_factors[2]
-    lhs_shape = [m, k]
-    rhs_shape = [k, n]
-    out_shape = [m, n]
+    lhs_shape = [32, 32]
+    rhs_shape = [32, 32]
+    out_shape = [32, 32]
     grid_range_single_11 = [((1, 1), (1, 1))]
     pipeline_opts = [
         "use-tile-matmul=false",
         "enable-l1-acc=true",
     ]
-    layout_cfg = _compute_matmul_layout_config(
-        lhs_shape,
-        rhs_shape,
-        grid,
-        block_factors,
-        core_range=grid_range_single_11[0],
-    )
+    metal_grid = [1, 1]
+    out_block_tiles = [lhs_shape[0] // 32, rhs_shape[1] // 32]
 
     torch_dtype = torch.bfloat16
 
@@ -487,19 +418,16 @@ def test_single_matmul_offset_core(
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
             lhs_metal_ty = builder.get_metal_tensor_layout(
                 lhs_shape,
-                grid=layout_cfg["lhs_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
             rhs_metal_ty = builder.get_metal_tensor_layout(
                 rhs_shape,
-                grid=layout_cfg["rhs_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
             out_metal_ty = builder.get_metal_tensor_layout(
                 out_shape,
-                grid=layout_cfg["out_grid"],
                 tiled=True,
                 element_dtype=torch_dtype,
             )
@@ -540,7 +468,7 @@ def test_single_matmul_offset_core(
                         lhs_m,
                         rhs_m,
                         out_m,
-                        out_block_shape=layout_cfg["out_block_tiles"],
+                        out_block_shape=out_block_tiles,
                     )
                 ],
                 result_types=[out_m.type],
