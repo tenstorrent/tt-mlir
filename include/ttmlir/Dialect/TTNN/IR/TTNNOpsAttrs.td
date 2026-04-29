@@ -824,19 +824,6 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         OptionalParameter<"CoreRangeSetAttr", "Physical placement of this layout. Non-null for sharded layouts; null for non-sharded (Interleaved/SystemMemory).">:$core_range_set);
   let assemblyFormat = "`<` $linear`,` `<` custom<DimensionList>($grid_shape) `>` `,` (`mesh` `=` $tensor_mesh^ `,`)? $memref (`,` $mem_layout^)? (`,` `core_ranges` `=` $core_range_set^)? (`,` `ignorePhysicalLayout` `=` $ignorePhysicalLayout^)? `>`";
   let extraClassDeclaration = [{
-    // Thin wrapper around the Builder for callers (mostly tests) that prefer
-    // the all-fields-in-one-call style. `deviceGrid` is required only when
-    // the resulting layout is sharded; pass null otherwise.
-    static TTNNLayoutAttr get(::mlir::MLIRContext *context,
-                        ArrayRef<int64_t> tensorShape,
-                        Type elementType,
-                        BufferType bufferType,
-                        ArrayRef<int64_t> gridShape,
-                        ttcore::GridAttr deviceGrid = nullptr,
-                        TensorMemoryLayoutAttr memoryLayoutAttr = nullptr,
-                        ttcore::TensorMeshAttr tensorMeshAttr = nullptr,
-                        ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
     bool isTiled() const;
@@ -862,11 +849,10 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
 
     // Static helper to compute the canonical CoreRangeSet for a sharded layout
     // by mapping the virtual `gridShape` onto physical cores per the
-    // `memLayout` flatten rule
-    // Returns nullptr for non-sharded `memLayout`.
+    // `memLayout` flatten rule.
     static CoreRangeSetAttr computeCanonicalCoreRangeSet(
         ::mlir::MLIRContext *context,
-        TensorMemoryLayoutAttr memLayout,
+        TensorMemoryLayout memLayout,
         ArrayRef<int64_t> gridShape,
         ttcore::GridAttr deviceGrid);
 
@@ -915,8 +901,12 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
       Builder &setMemoryLayout(TensorMemoryLayout memLayout);
       Builder &setGridShape(ArrayRef<int64_t> gridShape);
 
+      // Set CRS explicitly (callers that have already computed a CRS and want
+      // to skip the canonical/exact derivation). Pair with `build()`.
+      Builder &setCoreRangeSet(CoreRangeSetAttr crs);
+
       // Terminators.
-      TTNNLayoutAttr buildWithCanonicalCorePlacement(ttcore::GridAttr deviceGrid);
+      TTNNLayoutAttr buildWithCanonicalCorePlacement(ttcore::DeviceAttr deviceAttr);
       TTNNLayoutAttr buildWithExactCorePlacement();
 
       TTNNLayoutAttr build();

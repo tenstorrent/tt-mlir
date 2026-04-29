@@ -79,8 +79,6 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
   TTNNLayoutAttr layout = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  llvm::ArrayRef<int64_t> gridShape = layoutOverride.grid.value();
-
   // Create element type for the new layout.
   Type elementType = layout.getScalarElementType();
   if (layoutOverride.dataType.has_value()) {
@@ -92,13 +90,13 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
     elementType = ttcore::TileType::get(elementType);
   }
 
-  ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
   TTNNLayoutAttr newLayout =
       TTNNLayoutAttr::Builder(op->getContext(), tensorShape, elementType)
           .setBufferType(layoutOverride.bufferType.value())
           .setMemoryLayout(layoutOverride.tensorMemoryLayout.value())
-          .setGridShape(gridShape)
-          .buildWithCanonicalCorePlacement(deviceGrid);
+          .setGridShape(layoutOverride.grid.value())
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   analysisResult.push_back({newLayout});
 

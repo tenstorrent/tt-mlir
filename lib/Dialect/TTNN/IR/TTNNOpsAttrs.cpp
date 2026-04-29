@@ -295,24 +295,6 @@ uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
                          std::multiplies<uint64_t>());
 }
 
-// Thin wrapper around the Builder. The Builder owns the canonical
-// affine-map / shard-shape derivation (single source of truth); this overload
-// just packages the all-fields-in-one-call style preferred by tests.
-TTNNLayoutAttr TTNNLayoutAttr::get(
-    ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
-    Type elementType, BufferType bufferType, ArrayRef<int64_t> gridShape,
-    mlir::tt::ttcore::GridAttr deviceGrid, TensorMemoryLayoutAttr memLayoutAttr,
-    mlir::tt::ttcore::TensorMeshAttr tensorMesh,
-    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-  return TTNNLayoutAttr::Builder(context, tensorShape, elementType)
-      .setCollapseIntervals(collapseIntervals)
-      .setBufferType(bufferType)
-      .setMemoryLayout(memLayoutAttr)
-      .setGridShape(gridShape)
-      .setTensorMesh(tensorMesh)
-      .buildWithCanonicalCorePlacement(deviceGrid);
-}
-
 llvm::LogicalResult TTNNLayoutAttr::verify(
     llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
     llvm::ArrayRef<int64_t> gridShape, MemRefType memref,
@@ -753,13 +735,14 @@ buildRowMajorCoreRanges(mlir::MLIRContext *ctx, int64_t numCores,
   return ranges;
 }
 
+// Static helper to compute the canonical CoreRangeSet for a sharded layout
+// by mapping the virtual `gridShape` onto physical cores per the
+// `memLayout` flatten rule.
 CoreRangeSetAttr TTNNLayoutAttr::computeCanonicalCoreRangeSet(
-    mlir::MLIRContext *ctx, TensorMemoryLayoutAttr memLayoutAttr,
+    mlir::MLIRContext *ctx, TensorMemoryLayout memLayout,
     ArrayRef<int64_t> gridShape, mlir::tt::ttcore::GridAttr deviceGrid) {
-  if (!memLayoutAttr || !isShardedMemoryLayout(memLayoutAttr.getValue())) {
-    return nullptr;
-  }
-
+  assert(isShardedMemoryLayout(memLayout) &&
+         "CoreRangeSet can only be derived for sharded memory layouts");
   assert(gridShape.size() == 2 &&
          "TTNNLayoutAttr shard grid must be 2D for L1 sharding");
   assert(deviceGrid &&
@@ -771,7 +754,7 @@ CoreRangeSetAttr TTNNLayoutAttr::computeCanonicalCoreRangeSet(
   int64_t workerWidth = deviceGridShape[1];
 
   llvm::SmallVector<CoreRangeAttr> ranges;
-  switch (memLayoutAttr.getValue()) {
+  switch (memLayout) {
   case TensorMemoryLayout::BlockSharded: {
     // Virtual [H, W] maps identity onto physical cores (0,0)-(W-1, H-1).
     ranges.push_back(CoreRangeAttr::get(
@@ -798,6 +781,10 @@ CoreRangeSetAttr TTNNLayoutAttr::computeCanonicalCoreRangeSet(
   return CoreRangeSetAttr::get(ctx, ranges);
 }
 
+// Static helper to compute the CoreRangeSet for a sharded layout
+// with an explicitly specified `gridShape`
+// (corresponds to the legacy `exactGrid` mechanism).
+// `gridShape` is interpreted as a physical core grid shape.
 CoreRangeSetAttr
 TTNNLayoutAttr::computeExactCoreRangeSet(mlir::MLIRContext *ctx,
                                          ArrayRef<int64_t> gridShape) {
@@ -1309,6 +1296,12 @@ TTNNLayoutAttr::Builder::setGridShape(ArrayRef<int64_t> newGridShape) {
   return *this;
 }
 
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setCoreRangeSet(CoreRangeSetAttr crs) {
+  coreRangeSet = crs;
+  return *this;
+}
+
 TTNNLayoutAttr TTNNLayoutAttr::Builder::build() {
   bool resultIsSharded =
       memLayout && isShardedMemoryLayout(memLayout.getValue());
@@ -1339,15 +1332,20 @@ TTNNLayoutAttr TTNNLayoutAttr::Builder::build() {
 }
 
 TTNNLayoutAttr TTNNLayoutAttr::Builder::buildWithCanonicalCorePlacement(
-    ttcore::GridAttr deviceGrid) {
-  coreRangeSet = TTNNLayoutAttr::computeCanonicalCoreRangeSet(
-      context, memLayout, gridShape, deviceGrid);
+    ttcore::DeviceAttr deviceAttr) {
+  if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+    coreRangeSet = TTNNLayoutAttr::computeCanonicalCoreRangeSet(
+        context, memLayout.getValue(), gridShape, deviceAttr.getWorkerGrid());
+  }
 
   return build();
 }
 
 TTNNLayoutAttr TTNNLayoutAttr::Builder::buildWithExactCorePlacement() {
-  coreRangeSet = TTNNLayoutAttr::computeExactCoreRangeSet(context, gridShape);
+  if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+    coreRangeSet = TTNNLayoutAttr::computeExactCoreRangeSet(context, gridShape);
+  }
+
   return build();
 }
 

@@ -37,7 +37,7 @@ public:
   /// When tensorTypePossibleLayouts is provided, reshard candidates are
   /// generated from all possible sharded layouts for each tensor type.
   MemoryLayoutPropagation(
-      func::FuncOp func, ttcore::GridAttr deviceGrid,
+      func::FuncOp func,
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
       size_t beamWidth = 8, size_t maxInputCandidatesPerOperand = 64,
@@ -65,7 +65,7 @@ public:
 
 private:
   func::FuncOp func;
-  ttcore::GridAttr deviceGrid;
+  ttcore::DeviceAttr deviceAttr;
   const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs;
   const TensorTypeLayoutsMap *tensorTypePossibleLayouts;
 

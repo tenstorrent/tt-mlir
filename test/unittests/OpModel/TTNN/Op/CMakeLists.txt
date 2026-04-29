@@ -25,6 +25,7 @@ target_link_libraries(TestOpModelInterface
     MLIRTTCoreDialect
     MLIRTTNNDialect
     MLIRTTTransforms
+    TTMLIRTestUtils
 )
 
 add_executable(TestMatmulBlockShardedConstraint
@@ -50,6 +51,7 @@ target_link_libraries(TestMatmulBlockShardedConstraint
     MLIRTTCoreDialect
     MLIRTTNNDialect
     MLIRTTTransforms
+    TTMLIRTestUtils
 )
 
 add_executable(TestRMSNormWidthSharded
@@ -75,6 +77,7 @@ target_link_libraries(TestRMSNormWidthSharded
     MLIRTTCoreDialect
     MLIRTTNNDialect
     MLIRTTTransforms
+    TTMLIRTestUtils
 )
 
 add_executable(TestD2MOpCostModel
@@ -101,6 +104,7 @@ target_link_libraries(TestD2MOpCostModel
     MLIRTTNNDialect
     MLIRTTTransforms
     TTMLIRTTNNUtils
+    TTMLIRTestUtils
 )
 
 endif()

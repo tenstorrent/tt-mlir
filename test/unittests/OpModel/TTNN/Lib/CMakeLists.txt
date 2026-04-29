@@ -25,6 +25,7 @@ target_link_libraries(TestOpModelLib
     MLIRTTCoreDialect
     MLIRTTNNDialect
     MLIRTTTransforms
+    TTMLIRTestUtils
 )
 
 add_executable(TestOpModelLibMockDevice
@@ -49,6 +50,7 @@ target_link_libraries(TestOpModelLibMockDevice
     MLIRTTCoreDialect
     MLIRTTNNDialect
     MLIRTTTransforms
+    TTMLIRTestUtils
 )
 
 endif()

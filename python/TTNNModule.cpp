@@ -136,44 +136,14 @@ void populateTTNNModule(nb::module_ &m) {
       .def_prop_ro("x", &tt::ttnn::MeshOffsetAttr::getX);
 
   tt_attribute_class<tt::ttnn::TTNNLayoutAttr>(m, "TTNNLayoutAttr")
-      // Compute canonical CRS for a sharded (memLayout, gridShape) on a
-      // worker grid. Returns null for non-sharded memLayout. Exposed so
-      // Python callers can produce a layout that satisfies the
-      // "sharded ⇒ non-null CRS" invariant.
-      .def_static(
-          "compute_canonical_core_range_set",
-          [](MlirContext ctx, unsigned memLayout,
-             std::vector<std::int64_t> gridShape, MlirAttribute deviceGrid) {
-            tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr =
-                tt::ttnn::TensorMemoryLayoutAttr::get(
-                    unwrap(ctx),
-                    static_cast<tt::ttnn::TensorMemoryLayout>(memLayout));
-            tt::ttcore::GridAttr deviceGridAttr =
-                mlir::cast<tt::ttcore::GridAttr>(unwrap(deviceGrid));
-            return wrap(tt::ttnn::TTNNLayoutAttr::computeCanonicalCoreRangeSet(
-                unwrap(ctx), memLayoutAttr, gridShape, deviceGridAttr));
-          },
-          nb::arg("ctx"), nb::arg("memLayout"), nb::arg("grid_shape"),
-          nb::arg("device_grid"))
-      // Compute the CoreRangeSet for an "exact" sharded layout whose
-      // gridShape is already in physical worker-grid coordinates. Emits a
-      // single rectangle at origin sized to gridShape.
-      .def_static(
-          "compute_exact_core_range_set",
-          [](MlirContext ctx, std::vector<std::int64_t> gridShape) {
-            return wrap(tt::ttnn::TTNNLayoutAttr::computeExactCoreRangeSet(
-                unwrap(ctx), gridShape));
-          },
-          nb::arg("ctx"), nb::arg("grid_shape"))
       .def_static(
           "get_with_linear",
           [](MlirContext ctx, MlirAffineMap linear,
              std::vector<std::int64_t> gridShape, MlirType memref,
+             std::optional<MlirAttribute> coreRangeSet,
              std::optional<unsigned> memLayout = std::nullopt,
              std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
-                 std::nullopt,
-             std::optional<MlirAttribute> coreRangeSet = std::nullopt,
-             std::optional<MlirAttribute> deviceGrid = std::nullopt) {
+                 std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
@@ -184,23 +154,10 @@ void populateTTNNModule(nb::module_ &m) {
             if (tensorMesh.has_value()) {
               tensorMeshAttr = tensorMesh.value();
             }
-            // Caller may pass an explicit CRS (e.g. for ttnn-jit "exact"
-            // grids that already encode physical core placement). Otherwise
-            // compute the canonical CRS from `device_grid`. For non-sharded
-            // memLayout both paths yield null.
             tt::ttnn::CoreRangeSetAttr coreRangeSetAttr;
             if (coreRangeSet.has_value()) {
               coreRangeSetAttr =
                   mlir::cast<tt::ttnn::CoreRangeSetAttr>(unwrap(*coreRangeSet));
-            } else {
-              tt::ttcore::GridAttr deviceGridAttr;
-              if (deviceGrid.has_value()) {
-                deviceGridAttr =
-                    mlir::cast<tt::ttcore::GridAttr>(unwrap(*deviceGrid));
-              }
-              coreRangeSetAttr =
-                  tt::ttnn::TTNNLayoutAttr::computeCanonicalCoreRangeSet(
-                      unwrap(ctx), memLayoutAttr, gridShape, deviceGridAttr);
             }
             return wrap(tt::ttnn::TTNNLayoutAttr::get(
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)), gridShape,
@@ -209,35 +166,45 @@ void populateTTNNModule(nb::module_ &m) {
                 /*ignorePhysicalLayout=*/false, coreRangeSetAttr));
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid_shape"),
-          nb::arg("memref"), nb::arg("memLayout") = nb::none(),
-          nb::arg("tensorMesh") = nb::none(),
-          nb::arg("core_range_set") = nb::none(),
-          nb::arg("device_grid") = nb::none())
+          nb::arg("memref"), nb::arg("core_range_set").none(),
+          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<std::int64_t> shape, MlirType type,
              uint32_t bufferType, std::vector<std::int64_t> gridShape,
-             MlirAttribute deviceGrid,
-             std::optional<unsigned> memLayout = std::nullopt) {
+             std::optional<MlirAttribute> coreRangeSet,
+             std::optional<unsigned> memLayout = std::nullopt,
+             std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
+                 std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
-            return wrap(
-                tt::ttnn::TTNNLayoutAttr::Builder(
-                    unwrap(ctx), shape, mlir::cast<Type>(unwrap(type)))
-                    .setBufferType(
-                        static_cast<tt::ttnn::BufferType>(bufferType))
-                    .setMemoryLayout(memLayoutAttr)
-                    .setGridShape(gridShape)
-                    .buildWithCanonicalCorePlacement(
-                        mlir::cast<tt::ttcore::GridAttr>(unwrap(deviceGrid))));
+            tt::ttcore::TensorMeshAttr tensorMeshAttr;
+            if (tensorMesh.has_value()) {
+              tensorMeshAttr = tensorMesh.value();
+            }
+            tt::ttnn::CoreRangeSetAttr coreRangeSetAttr;
+            if (coreRangeSet.has_value()) {
+              coreRangeSetAttr =
+                  mlir::cast<tt::ttnn::CoreRangeSetAttr>(unwrap(*coreRangeSet));
+            }
+            return wrap(tt::ttnn::TTNNLayoutAttr::Builder(
+                            unwrap(ctx), shape, mlir::cast<Type>(unwrap(type)))
+                            .setBufferType(
+                                static_cast<tt::ttnn::BufferType>(bufferType))
+                            .setMemoryLayout(memLayoutAttr)
+                            .setGridShape(gridShape)
+                            .setTensorMesh(tensorMeshAttr)
+                            .setCoreRangeSet(coreRangeSetAttr)
+                            .build());
           },
-          nb::arg("ctx"), nb::arg("shape"), nb::arg("grid_shape"),
-          nb::arg("memrefType"), nb::arg("device_grid"),
-          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
+          nb::arg("ctx"), nb::arg("shape"), nb::arg("type"),
+          nb::arg("buffer_type"), nb::arg("grid_shape"),
+          nb::arg("core_range_set").none(), nb::arg("memLayout") = nb::none(),
+          nb::arg("tensorMesh") = nb::none())
       .def_prop_ro(
           "linear",
           [](tt::ttnn::TTNNLayoutAttr self) { return wrap(self.getLinear()); })

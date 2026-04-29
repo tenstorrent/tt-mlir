@@ -16,6 +16,8 @@
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
+#include "testing/DeviceUtils.h"
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -61,18 +63,22 @@ public:
     return ttcore::GridAttr::get(&context, {8, 8});
   }
 
+  ttcore::DeviceAttr getDeviceAttr() {
+    return mlir::tt::test_utils::getFakeDeviceAttr(&context,
+                                                   /*workerGridShape=*/{8, 8});
+  }
+
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
                                    BufferType bufferType,
                                    TensorMemoryLayout tensorMemoryLayout,
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
-    auto deviceGrid = mlir::tt::ttcore::GridAttr::get(
-        &context, llvm::ArrayRef<int64_t>{8, 8});
-    return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               gridShape, deviceGrid,
-                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                                   &context, tensorMemoryLayout));
+    return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(tensorMemoryLayout)
+        .setGridShape(gridShape)
+        .buildWithCanonicalCorePlacement(getDeviceAttr());
   }
 
   TTNNLayoutAttr
@@ -189,7 +195,7 @@ TEST_F(BeamSearchTest, BeamWidthK1ProducesSingleCandidate) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/1);
   propagation.run();
@@ -219,7 +225,7 @@ TEST_F(BeamSearchTest, BeamWidthK8ProducesMultipleCandidates) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/8);
   propagation.run();
@@ -245,7 +251,7 @@ TEST_F(BeamSearchTest, BeamWidthK8CandidatesSortedByScore) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/8);
   propagation.run();
@@ -274,7 +280,7 @@ TEST_F(BeamSearchTest, BackwardPassLinearChainAllOpsHaveFinalChoice) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/4);
   propagation.run();
@@ -304,7 +310,7 @@ TEST_F(BeamSearchTest, BackwardPassForkPointResolvesWithoutCrash) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/8);
 
@@ -337,7 +343,7 @@ TEST_F(BeamSearchTest, BackwardPassForkPointBothConsumersInBeam) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/4);
   propagation.run();
@@ -364,7 +370,7 @@ TEST_F(BeamSearchTest, BeamWidthK1NoConsolidation) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/1);
   propagation.run();
@@ -423,7 +429,7 @@ TEST_F(BeamSearchTest, BeamWidthK8ComplexGraphDoesNotCrash) {
     legalConfigs[op] = createElementwiseLegalConfigs(shape);
   }
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/8);
 
@@ -462,7 +468,7 @@ TEST_F(BeamSearchTest, NoValidCandidateFallbackToDRAM) {
   legalConfigs[addOp.getOperation()] = {};
   legalConfigs[reluOp.getOperation()] = {};
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/8);
 

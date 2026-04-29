@@ -220,13 +220,29 @@ class TTNNBuilder(Builder):
             else:
                 tensor_memory_layout = ttnn.TensorMemoryLayout.Interleaved
 
-            grid = [1, 1]
+            grid_shape = [1, 1]
+
+            core_range_set = None
+            is_sharded = (
+                tensor_memory_layout is not None
+                and tensor_memory_layout != ttnn.TensorMemoryLayout.Interleaved
+            )
+
+            if is_sharded:
+                start = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
+                end = ttnn.ir.CoreCoordAttr.get(self._ctx, 0, 0)
+                core_range_set = ttnn.ir.CoreRangeSetAttr.get(
+                    self._ctx,
+                    [ttnn.ir.CoreRangeAttr.get(self._ctx, start, end)],
+                )
+
             return ttnn.ir.TTNNLayoutAttr.get(
                 self._ctx,
                 shape,
                 layout_element_type,
                 buffer_type,
-                grid,
+                grid_shape,
+                core_range_set,
                 tensor_memory_layout,
             )
 

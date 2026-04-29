@@ -34,8 +34,7 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
     inputElementType = inputTileType.getElementType();
   }
 
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op.getOperation());
 
   // Create layout attribute for the input tensor using the specific memory
   // config with desired grid.
@@ -45,7 +44,7 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
           .setBufferType(ttnn::BufferType::L1)
           .setMemoryLayout(ttnn::TensorMemoryLayout::HeightSharded)
           .setGridShape(virtualGridSize)
-          .buildWithCanonicalCorePlacement(deviceGrid);
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   ttnn::TTNNLayoutAttr currentInputLayout =
       mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(

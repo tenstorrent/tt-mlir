@@ -110,10 +110,10 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
 RankedTensorType
 RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                 ttnn::TensorMemoryLayout memoryLayout,
-                                mlir::tt::ttcore::GridAttr deviceGrid) {
+                                mlir::tt::ttcore::DeviceAttr deviceAttr) {
   TTNNLayoutAttr newEncoding = TTNNLayoutAttr::Builder(tensorType)
                                    .setMemoryLayout(memoryLayout)
-                                   .buildWithCanonicalCorePlacement(deviceGrid);
+                                   .buildWithCanonicalCorePlacement(deviceAttr);
   return create(tensorType, newEncoding);
 }
 
@@ -137,12 +137,13 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
   return create(tensorType, memrefElementType);
 }
 
-RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
-                                                 ArrayRef<int64_t> gridShape,
-                                                 ttcore::GridAttr deviceGrid) {
+RankedTensorType
+RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                ArrayRef<int64_t> gridShape,
+                                ttcore::DeviceAttr deviceAttr) {
   TTNNLayoutAttr newEncoding = TTNNLayoutAttr::Builder(tensorType)
                                    .setGridShape(gridShape)
-                                   .buildWithCanonicalCorePlacement(deviceGrid);
+                                   .buildWithCanonicalCorePlacement(deviceAttr);
   return create(tensorType, newEncoding);
 }
 

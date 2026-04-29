@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
@@ -73,12 +74,11 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
 // Function generates all possible TTNNLayout attributes for the given tensor
 // type. maxNumGeneratedLayouts limits the number of generated layouts. If
 // maxNumGeneratedLayouts is -1, all possible layouts are returned.
-static std::vector<TTNNLayoutAttr>
-generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
-                           ttcore::GridAttr maxGrid, Type scalarElementType,
-                           bool onlyShardedLayouts = false,
-                           int64_t maxNumGeneratedLayouts = -1,
-                           bool rowMajorAllowed = true) {
+static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
+    mlir::MLIRContext *ctx, RankedTensorType tensorType,
+    ttcore::GridAttr maxGrid, ttcore::DeviceAttr deviceAttr,
+    Type scalarElementType, bool onlyShardedLayouts = false,
+    int64_t maxNumGeneratedLayouts = -1, bool rowMajorAllowed = true) {
 
   std::vector<TTNNLayoutAttr> allPossibleLayouts;
 
@@ -152,7 +152,7 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
                 .setElementType(elementType)
                 .setBufferType(BufferType::L1)
                 .setMemoryLayout(TensorMemoryLayout::BlockSharded)
-                .buildWithCanonicalCorePlacement(maxGrid));
+                .buildWithCanonicalCorePlacement(deviceAttr));
         if (checkIfShardShapeExists(
                 shardedResults.back().getMemref().getShape())) {
           shardedResults.pop_back();
@@ -172,7 +172,7 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
               .setElementType(elementType)
               .setBufferType(BufferType::L1)
               .setMemoryLayout(TensorMemoryLayout::HeightSharded)
-              .buildWithCanonicalCorePlacement(maxGrid));
+              .buildWithCanonicalCorePlacement(deviceAttr));
 
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {
@@ -191,7 +191,7 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
               .setElementType(elementType)
               .setBufferType(BufferType::L1)
               .setMemoryLayout(TensorMemoryLayout::WidthSharded)
-              .buildWithCanonicalCorePlacement(maxGrid));
+              .buildWithCanonicalCorePlacement(deviceAttr));
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {
         shardedResults.pop_back();
@@ -296,10 +296,13 @@ LegalTensorLayoutAnalysis::generateLayouts(RankedTensorType tensorType) {
   assert(!analysisInput.allowedScalarTypes->empty() &&
          "LegalTensorAnalysis requires at least one scalar type");
 
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+
   // Generate layouts for each allowed scalar type
   for (Type scalarType : *analysisInput.allowedScalarTypes) {
     auto layoutsForType = generateAllPossibleLayouts(
-        tensorType.getContext(), tensorType, analysisInput.maxGrid, scalarType,
+        tensorType.getContext(), tensorType, analysisInput.maxGrid, deviceAttr,
+        scalarType,
         /*onlyShardedLayouts*/ false, /*maxNumGeneratedLayouts*/ -1,
         analysisInput.rowMajorAllowed);
 

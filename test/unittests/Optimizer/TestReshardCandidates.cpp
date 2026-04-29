@@ -17,6 +17,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
+#include "testing/DeviceUtils.h"
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -62,9 +64,9 @@ public:
     return ttcore::GridAttr::get(&context, {8, 8});
   }
 
-  mlir::tt::ttcore::GridAttr testDeviceGrid() {
-    return mlir::tt::ttcore::GridAttr::get(&context,
-                                           llvm::ArrayRef<int64_t>{8, 8});
+  ttcore::DeviceAttr getDeviceAttr() {
+    return mlir::tt::test_utils::getFakeDeviceAttr(&context,
+                                                   /*workerGridShape=*/{8, 8});
   }
 
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
@@ -73,10 +75,11 @@ public:
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
-    return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               gridShape, testDeviceGrid(),
-                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                                   &context, tensorMemoryLayout));
+    return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(tensorMemoryLayout)
+        .setGridShape(gridShape)
+        .buildWithCanonicalCorePlacement(getDeviceAttr());
   }
 
   TTNNLayoutAttr
@@ -141,9 +144,11 @@ public:
     size_t shardedIdx = static_cast<size_t>(TensorMemoryLayoutIndex::Sharded);
 
     for (const auto &[memLayout, gridShape] : shardSpecs) {
-      auto layout = TTNNLayoutAttr::get(
-          &context, shape, elementType, BufferType::L1, gridShape,
-          testDeviceGrid(), TensorMemoryLayoutAttr::get(&context, memLayout));
+      auto layout = TTNNLayoutAttr::Builder(&context, shape, elementType)
+                        .setBufferType(BufferType::L1)
+                        .setMemoryLayout(memLayout)
+                        .setGridShape(gridShape)
+                        .buildWithCanonicalCorePlacement(getDeviceAttr());
       pageLayoutArr[tiledIdx][shardedIdx].push_back(layout);
     }
 
@@ -199,8 +204,8 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMapDoesNotCrash) {
   TensorTypeLayoutsMap tensorLayouts =
       buildTensorTypeLayoutsMap(bareType, shape);
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
-                                      &tensorLayouts, /*beamWidth=*/8);
+  MemoryLayoutPropagation propagation(func, legalConfigs, &tensorLayouts,
+                                      /*beamWidth=*/8);
 
   EXPECT_NO_FATAL_FAILURE(propagation.run());
 }
@@ -227,7 +232,7 @@ TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
   legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);
   legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-  MemoryLayoutPropagation propagation(func, getDeviceGrid(), legalConfigs,
+  MemoryLayoutPropagation propagation(func, legalConfigs,
                                       /*tensorTypePossibleLayouts=*/nullptr,
                                       /*beamWidth=*/8);
   propagation.run();
@@ -284,8 +289,8 @@ TEST_F(ReshardCandidatesTest, BeamCandidatesWithTensorLayoutsMoreThanWithout) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    MemoryLayoutPropagation propagation(localFunc, getDeviceGrid(),
-                                        legalConfigs, layouts, /*beamWidth=*/8);
+    MemoryLayoutPropagation propagation(localFunc, legalConfigs, layouts,
+                                        /*beamWidth=*/8);
     propagation.run();
 
     size_t totalCandidates = 0;
@@ -348,9 +353,9 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
     legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
     legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
 
-    MemoryLayoutPropagation propagation(
-        localFunc, getDeviceGrid(), legalConfigs,
-        /*tensorTypePossibleLayouts=*/nullptr, beamWidth);
+    MemoryLayoutPropagation propagation(localFunc, legalConfigs,
+                                        /*tensorTypePossibleLayouts=*/nullptr,
+                                        beamWidth);
     propagation.run();
 
     size_t totalCandidates = 0;

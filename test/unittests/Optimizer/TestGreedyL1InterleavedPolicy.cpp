@@ -11,6 +11,8 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "testing/DeviceUtils.h"
+
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -98,18 +100,18 @@ public:
       gridShape = {8, 8};
     }
 
-    auto deviceGrid = mlir::tt::ttcore::GridAttr::get(
-        &context, llvm::ArrayRef<int64_t>{8, 8});
+    auto deviceAttr = mlir::tt::test_utils::getFakeDeviceAttr(&context, {8, 8});
+    auto layout = TTNNLayoutAttr::Builder(
+                      &context, getTensorRankedType().getShape(),
+                      mlir::tt::ttcore::TileType::get(builder.getF32Type()))
+                      .setBufferType(memorySpace)
+                      .setMemoryLayout(tensorMemoryLayoutAttr)
+                      .setGridShape(gridShape)
+                      .buildWithCanonicalCorePlacement(deviceAttr);
     if (legalConfigs.find(op) == legalConfigs.end()) {
-      legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(),
-          mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          gridShape, deviceGrid, tensorMemoryLayoutAttr)};
+      legalConfigs[op] = std::vector<OpConfig>{layout};
     } else {
-      legalConfigs[op].push_back(TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(),
-          mlir::tt::ttcore::TileType::get(builder.getF32Type()), memorySpace,
-          gridShape, deviceGrid, tensorMemoryLayoutAttr));
+      legalConfigs[op].push_back(layout);
     }
   }
 

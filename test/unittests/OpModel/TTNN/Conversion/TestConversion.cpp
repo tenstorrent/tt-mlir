@@ -58,11 +58,13 @@ TEST_P(ConversionDataType, DataType) {
   const ::tt::tt_metal::DataType &expectedDataType = std::get<1>(GetParam());
 
   llvm::SmallVector<int64_t> tensorShape = {32, 32};
-  auto layout = TTNNLayoutAttr::get(
-      &context, tensorShape,
-      ttcore::TileType::get(&context, {32, 32}, dataType), BufferType::L1,
-      /*gridShape=*/llvm::ArrayRef<int64_t>{8, 8}, CreateWorkerGrid(),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto layout = TTNNLayoutAttr::Builder(
+                    &context, tensorShape,
+                    ttcore::TileType::get(&context, {32, 32}, dataType))
+                    .setBufferType(BufferType::L1)
+                    .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                    .setGridShape(llvm::ArrayRef<int64_t>{8, 8})
+                    .build();
 
   // MLIR -> TTNN conversion
   auto convertedDataType = conversion::getDataType(layout.getDataType());

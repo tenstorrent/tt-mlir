@@ -11,10 +11,11 @@
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Utils.h"
+
+#include "testing/DeviceUtils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -119,10 +120,9 @@ public:
                mlir::tt::ttcore::TileType::get(dtypeSelected))
         .setBufferType(bufferType)
         .setMemoryLayout(memLayoutAttr)
-        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
-                                 virtualGridSelected, physicalGrid))
+        .setGridShape(virtualGridSelected)
         .buildWithCanonicalCorePlacement(
-            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutInt32(
@@ -151,10 +151,9 @@ public:
                                                    tileType)
         .setBufferType(bufferType)
         .setMemoryLayout(memLayoutAttr)
-        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
-                                 virtualGridSelected, physicalGrid))
+        .setGridShape(virtualGridSelected)
         .buildWithCanonicalCorePlacement(
-            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutUInt32(
@@ -193,10 +192,9 @@ public:
                                                    dtypeSelected)
         .setBufferType(bufferType)
         .setMemoryLayout(memLayoutAttr)
-        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
-                                 virtualGridSelected, physicalGrid))
+        .setGridShape(virtualGridSelected)
         .buildWithCanonicalCorePlacement(
-            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayoutInt32(
@@ -222,28 +220,19 @@ public:
                                                    int32DataType)
         .setBufferType(bufferType)
         .setMemoryLayout(memLayoutAttr)
-        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
-                                 virtualGridSelected, physicalGrid))
+        .setGridShape(virtualGridSelected)
         .buildWithCanonicalCorePlacement(
-            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
-  }
-
-  llvm::SmallVector<int64_t>
-  CreateGrid(::mlir::MLIRContext *context,
-             const mlir::tt::ttnn::BufferType bufferType,
-             const mlir::tt::ttnn::TensorMemoryLayout tensorMemoryLayout,
-             const llvm::ArrayRef<int64_t> virtualGridSize,
-             const llvm::ArrayRef<int64_t> physicalGridSize) {
-    llvm::SmallVector<int64_t> gridShape(virtualGridSize);
-    if (!mlir::tt::ttnn::isL1BufferType(bufferType)) {
-      gridShape = {1, 1};
-    }
-    return gridShape;
+            mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGrid));
   }
 
   mlir::tt::ttcore::GridAttr CreateWorkerGrid(
       const llvm::ArrayRef<int64_t> physicalGridSize = GetPhysicalGridSize()) {
     return mlir::tt::ttcore::GridAttr::get(&context, physicalGridSize);
+  }
+
+  mlir::tt::ttcore::DeviceAttr CreateDeviceAttr(
+      const llvm::ArrayRef<int64_t> physicalGridSize = GetPhysicalGridSize()) {
+    return mlir::tt::test_utils::getFakeDeviceAttr(&context, physicalGridSize);
   }
 
   void ExpectLayoutsEQ(mlir::tt::ttnn::TTNNLayoutAttr layoutA,

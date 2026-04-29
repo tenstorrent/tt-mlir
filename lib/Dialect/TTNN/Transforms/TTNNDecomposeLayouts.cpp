@@ -61,7 +61,7 @@ private:
     ttnn::Layout layoutEnum;
     ttcore::DataType dataType;
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
-    ttcore::GridAttr deviceGrid;
+    ttcore::DeviceAttr deviceAttr;
     llvm::SmallVector<int64_t> gridShape;
     llvm::SmallVector<int64_t> shardShape;
 
@@ -86,7 +86,8 @@ private:
           mlir::AffineMap::getMultiDimIdentityMap(gridShape.size(), context);
       ttnn::CoreRangeSetAttr coreRangeSet =
           ttnn::TTNNLayoutAttr::computeCanonicalCoreRangeSet(
-              context, tensorMemoryLayout, gridShape, deviceGrid);
+              context, tensorMemoryLayout.getValue(), gridShape,
+              deviceAttr.getWorkerGrid());
       ttnn::TTNNLayoutAttr layout = ttnn::TTNNLayoutAttr::get(
           context, linear, gridShape, memref, tensorMemoryLayout,
           /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false, coreRangeSet);
@@ -224,8 +225,8 @@ private:
 
     ttcore::DeviceAttr deviceAttr =
         ttcore::lookupDevice(op.getResult().getParentBlock()->getParentOp());
-    input.deviceGrid = deviceAttr.getWorkerGrid();
-    output.deviceGrid = deviceAttr.getWorkerGrid();
+    input.deviceAttr = deviceAttr;
+    output.deviceAttr = deviceAttr;
 
     TTMLIR_DEBUG(ttmlir::LogComponent::General,
                  "Decompose layouts pass for op {} \nInput layout: {} \nOutput "
@@ -340,13 +341,13 @@ private:
         currentInputType, info.output.bufferType);
     newResultType = utils::RankedTensorTypeFactory::create(
         newResultType, info.output.tensorMemoryLayout.getValue(),
-        info.output.deviceGrid);
+        info.output.deviceAttr);
 
     // Respect grid attribute of the output layout. Pass the real device grid
     // so canonical CoreRangeSet derivation for H/W-sharded targets uses the
     // correct worker-grid width.
     newResultType = utils::RankedTensorTypeFactory::create(
-        newResultType, info.output.gridShape, info.output.deviceGrid);
+        newResultType, info.output.gridShape, info.output.deviceAttr);
 
     mlir::Value device = utils::getOrInsertDevice(rewriter, op);
 
@@ -477,7 +478,7 @@ private:
             .setBufferType(info.output.bufferType)
             .setGridShape(info.output.gridShape)
             .setMemoryLayout(info.output.tensorMemoryLayout)
-            .buildWithCanonicalCorePlacement(info.output.deviceGrid);
+            .buildWithCanonicalCorePlacement(info.output.deviceAttr);
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
     mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(
@@ -545,7 +546,7 @@ private:
             .setBufferType(BufferType::DRAM)
             .setMemoryLayout(TensorMemoryLayout::Interleaved)
             .setGridShape({1, 1})
-            .buildWithCanonicalCorePlacement(info.output.deviceGrid);
+            .buildWithCanonicalCorePlacement(info.output.deviceAttr);
     RankedTensorType dramType =
         RankedTensorType::get(shape, inputType.getElementType(), dramEncoding);
 

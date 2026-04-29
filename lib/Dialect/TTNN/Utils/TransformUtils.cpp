@@ -88,7 +88,7 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
   // Get the input operand type.
   RankedTensorType inputToLayoutOpType = inputValue.getType();
 
-  ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
 
   // Create the new encoding for the output tensor type.
   TTNNLayoutAttr::Builder builder(inputLayoutAttr);
@@ -100,7 +100,7 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
     builder.setGridShape(*targetGridShape);
   }
   TTNNLayoutAttr toLayoutOpResultEncoding =
-      builder.buildWithCanonicalCorePlacement(deviceGrid);
+      builder.buildWithCanonicalCorePlacement(deviceAttr);
 
   // Create the output result type with the new data type and encoding.
   RankedTensorType toLayoutOpResultType = RankedTensorTypeFactory::create(

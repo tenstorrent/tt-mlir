@@ -15,6 +15,8 @@
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
+#include "testing/DeviceUtils.h"
+
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
@@ -53,9 +55,8 @@ public:
                                     builder.getF32FloatAttr(cap));
   }
 
-  mlir::tt::ttcore::GridAttr testDeviceGrid() {
-    return mlir::tt::ttcore::GridAttr::get(&context,
-                                           llvm::ArrayRef<int64_t>{8, 8});
+  mlir::tt::ttcore::DeviceAttr testDeviceAttr() {
+    return mlir::tt::test_utils::getFakeDeviceAttr(&context, {8, 8});
   }
 
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
@@ -64,10 +65,11 @@ public:
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
-    return TTNNLayoutAttr::get(&context, tensorShape, elementType, bufferType,
-                               gridShape, testDeviceGrid(),
-                               mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                                   &context, tensorMemoryLayout));
+    return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(tensorMemoryLayout)
+        .setGridShape(gridShape)
+        .buildWithCanonicalCorePlacement(testDeviceAttr());
   }
 
   TTNNLayoutAttr

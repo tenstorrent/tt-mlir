@@ -29,12 +29,13 @@
 namespace mlir::tt::ttnn {
 
 MemoryLayoutPropagation::MemoryLayoutPropagation(
-    func::FuncOp func, ttcore::GridAttr deviceGrid,
+    func::FuncOp func,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth,
     size_t maxInputCandidatesPerOperand, size_t maxReshardCandidatesPerType,
     std::unique_ptr<LayoutPropagationObserver> observer)
-    : func(func), deviceGrid(deviceGrid), legalConfigs(legalConfigs),
+    : func(func), deviceAttr(ttcore::lookupDevice(func)),
+      legalConfigs(legalConfigs),
       tensorTypePossibleLayouts(tensorTypePossibleLayouts),
       beamWidth(beamWidth),
       maxInputCandidatesPerOperand(maxInputCandidatesPerOperand),
@@ -586,8 +587,8 @@ bool MemoryLayoutPropagation::validateReshard(
   MemoryConfigAttr memConfig = MemoryConfigAttr::get(reshardLayout);
 
   auto result = op_constraint_validation::validateOperation<ToMemoryConfigOp>(
-      consumerOp, /*additionalL1Usage=*/0, deviceGrid, inputShape,
-      producerOutputLayout, memConfig, reshardLayout);
+      consumerOp, /*additionalL1Usage=*/0, deviceAttr.getWorkerGrid(),
+      inputShape, producerOutputLayout, memConfig, reshardLayout);
 
   bool valid = result.isSuccess();
 
@@ -624,7 +625,7 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
           .setTensorShape(inputTensorType.getShape())
           .setBufferType(BufferType::L1)
           .setMemoryLayout(TensorMemoryLayout::Interleaved)
-          .setGridShape(deviceGrid.getShape())
+          .setGridShape(deviceAttr.getWorkerGrid().getShape())
           .build();
   // Add one L1-interleaved candidate per L1-sharded producer beam index.
   for (size_t pIdx = 0; pIdx < producerBeam->size(); ++pIdx) {
@@ -1244,7 +1245,7 @@ void MemoryLayoutPropagation::insertReturnDramSpills() {
               .setTensorShape(tensorType.getShape())
               .setBufferType(BufferType::DRAM)
               .setMemoryLayout(TensorMemoryLayout::Interleaved)
-              .buildWithCanonicalCorePlacement(deviceGrid);
+              .build();
       insertReshardOp(returnOp, i, dramLayout);
 
       // insertReshardOp places the new op right before returnOp. Move it to
@@ -1305,7 +1306,7 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
   // and D2M subgraph function body.
   if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
     d2m_optimizer_utils::applyChosenLayoutToD2MSubgraphOp(
-        dispatchOp, chosenLayout, deviceGrid);
+        dispatchOp, chosenLayout, deviceAttr.getWorkerGrid());
 
     // Attach L1 usage annotation for spill management.
     if (chosenLayout.hasL1BufferType() &&
@@ -1424,7 +1425,7 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
           .setBufferType(reshardLayout.getBufferType())
           .setGridShape(reshardLayout.getGridShape())
           .setMemoryLayout(reshardLayout.getMemLayout())
-          .buildWithCanonicalCorePlacement(deviceGrid);
+          .buildWithCanonicalCorePlacement(deviceAttr);
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 
@@ -1441,8 +1442,8 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
 
   // Annotate L1 output usage so L1SpillManagement can track this op.
   if (outputLayout.hasL1BufferType()) {
-    uint64_t l1Usage =
-        utils::getPerCoreL1Usage(outputLayout, deviceGrid.getGridVolume());
+    uint64_t l1Usage = utils::getPerCoreL1Usage(
+        outputLayout, deviceAttr.getWorkerGrid().getGridVolume());
     OpBuilder attrBuilder(memoryReconfigOp->getContext());
     memoryReconfigOp->setAttr("ttnn.output_l1_usage",
                               attrBuilder.getI64IntegerAttr(l1Usage));

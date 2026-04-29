@@ -46,17 +46,17 @@ struct RankedTensorTypeFactory {
   static RankedTensorType create(RankedTensorType tensorType,
                                  ttnn::BufferType bufferType);
 
-  // `deviceGrid` is required only when re-encoding to a sharded layout.
+  // `deviceAttr` is required only when re-encoding to a sharded layout.
   static RankedTensorType
   create(RankedTensorType tensorType, ttnn::TensorMemoryLayout memoryLayout,
-         mlir::tt::ttcore::GridAttr deviceGrid = nullptr);
+         mlir::tt::ttcore::DeviceAttr deviceAttr = nullptr);
 
   static RankedTensorType create(RankedTensorType tensorType,
                                  ttnn::Layout layout);
 
   static RankedTensorType create(RankedTensorType tensorType,
                                  ArrayRef<int64_t> gridShape,
-                                 mlir::tt::ttcore::GridAttr deviceGrid);
+                                 mlir::tt::ttcore::DeviceAttr deviceAttr);
 
   static RankedTensorType create(RankedTensorType tensorType,
                                  mlir::tt::ttcore::DataType);

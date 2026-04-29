@@ -822,7 +822,7 @@ private:
       }
       // For inputs, convert them to system memory/row major if needed
       else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
-        // Convert to system memory using ToLayoutOp.
+        // Convert to system memory using ToLayoutOp
         RankedTensorType systemMemoryTileType =
             utils::RankedTensorTypeFactory::create(
                 tensorType, ttnn::BufferType::SystemMemory);

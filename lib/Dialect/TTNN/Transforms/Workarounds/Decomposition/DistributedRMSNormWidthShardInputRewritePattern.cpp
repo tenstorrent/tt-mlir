@@ -80,9 +80,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   }
   SmallVector<int64_t> virtualGridSize = {1, numCores};
 
-  // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op.getOperation());
 
   // Create layout attribute for the input tensor with width-sharded L1 config.
   ttnn::TTNNLayoutAttr desiredInputLayout =
@@ -91,12 +89,13 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           .setBufferType(ttnn::BufferType::L1)
           .setMemoryLayout(ttnn::TensorMemoryLayout::WidthSharded)
           .setGridShape(virtualGridSize)
-          .buildWithCanonicalCorePlacement(deviceGrid);
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   if (currentInputLayout == desiredInputLayout) {
     return failure();
   }
 
+  // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
   ttnn::MemoryConfigAttr inputMemoryConfig =
       ttnn::MemoryConfigAttr::get(desiredInputLayout);
   RankedTensorType memoryConfigedInputType =
@@ -225,7 +224,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           .setBufferType(ttnn::BufferType::L1)
           .setMemoryLayout(ttnn::TensorMemoryLayout::WidthSharded)
           .setGridShape(statsGridShape)
-          .buildWithCanonicalCorePlacement(deviceGrid);
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   auto statsShapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), statsShape);
   auto statsDtypeAttr =

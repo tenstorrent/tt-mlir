@@ -187,7 +187,7 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
   // Compute canonical CRS for sharded layouts so the resulting attribute
   // satisfies the "sharded ⇒ non-null CRS" invariant.
   CoreRangeSetAttr coreRangeSet = TTNNLayoutAttr::computeCanonicalCoreRangeSet(
-      unwrap(ctx), memLayoutAttr, gridShape, deviceGridAttr);
+      unwrap(ctx), memLayoutAttr.getValue(), gridShape, deviceGridAttr);
   return wrap(TTNNLayoutAttr::get(unwrap(ctx), affineMap, gridShape,
                                   mlir::cast<mlir::MemRefType>(unwrap(memref)),
                                   memLayoutAttr, tensorMeshAttr,

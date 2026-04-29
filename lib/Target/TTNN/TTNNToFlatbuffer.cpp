@@ -152,7 +152,7 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
             ctx, /*tensorShape=*/{},
             ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned))
             .setBufferType(bufferType)
-            .buildWithCanonicalCorePlacement(deviceAttr.getWorkerGrid());
+            .buildWithCanonicalCorePlacement(deviceAttr);
   } else if (mlir::isa<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding())) {
     return getNDTensor(cache, tensorType, deviceAttr);
   } else {
