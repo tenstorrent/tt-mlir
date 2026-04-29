@@ -21,6 +21,17 @@ func.func @fold_i64_by_63(%arg0: tensor<4xi64>) -> tensor<4xi64> {
   return %0 : tensor<4xi64>
 }
 
+// Folds: ui64 shift_right_logical by scalar-32 broadcast via broadcast_in_dim.
+// CHECK-LABEL: @fold_ui64_by_32_broadcast
+func.func @fold_ui64_by_32_broadcast(%arg0: tensor<2xui64>) -> tensor<2xui64> {
+  %c = stablehlo.constant dense<32> : tensor<ui64>
+  %bcast = stablehlo.broadcast_in_dim %c, dims = [] : (tensor<ui64>) -> tensor<2xui64>
+  // CHECK-NOT: stablehlo.shift_right_logical
+  // CHECK: stablehlo.constant dense<0> : tensor<2xui64>
+  %0 = stablehlo.shift_right_logical %arg0, %bcast : tensor<2xui64>
+  return %0 : tensor<2xui64>
+}
+
 // Does NOT fold: shift amount < 32.
 // CHECK-LABEL: @no_fold_below_32
 func.func @no_fold_below_32(%arg0: tensor<2xui64>) -> tensor<2xui64> {

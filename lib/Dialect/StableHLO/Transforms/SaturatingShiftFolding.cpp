@@ -14,27 +14,6 @@ namespace mlir::tt::stablehlo {
 
 namespace {
 
-// Look through stablehlo.broadcast_in_dim to find a backing splat constant.
-// Returns the splat APInt if found, std::nullopt otherwise.
-static std::optional<APInt> getSplatConstant(Value v) {
-  Operation *def = v.getDefiningOp();
-  while (def) {
-    if (auto constOp = dyn_cast<mlir::stablehlo::ConstantOp>(def)) {
-      auto attr = dyn_cast<DenseIntElementsAttr>(constOp.getValue());
-      if (!attr || !attr.isSplat()) {
-        return std::nullopt;
-      }
-      return attr.getSplatValue<APInt>();
-    }
-    if (auto bcast = dyn_cast<mlir::stablehlo::BroadcastInDimOp>(def)) {
-      def = bcast.getOperand().getDefiningOp();
-      continue;
-    }
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
-
 class FoldI64SaturatingRightShift
     : public OpRewritePattern<mlir::stablehlo::ShiftRightLogicalOp> {
 public:
@@ -53,8 +32,18 @@ public:
       return failure();
     }
 
-    std::optional<APInt> shiftAmount = getSplatConstant(op.getRhs());
-    if (!shiftAmount || shiftAmount->ult(32)) {
+    // Look through stablehlo.broadcast_in_dim to find a backing splat constant.
+    Operation *def = op.getRhs().getDefiningOp();
+    while (auto bcast =
+               dyn_cast_or_null<mlir::stablehlo::BroadcastInDimOp>(def)) {
+      def = bcast.getOperand().getDefiningOp();
+    }
+    auto constOp = dyn_cast_or_null<mlir::stablehlo::ConstantOp>(def)
+    if (!constOp) {
+      return failure();
+    }
+    auto attr = dyn_cast<DenseIntElementsAttr>(constOp.getValue());
+    if (!attr || !attr.isSplat() || attr.getSplatValue<APInt>().ult(32)) {
       return failure();
     }
 
