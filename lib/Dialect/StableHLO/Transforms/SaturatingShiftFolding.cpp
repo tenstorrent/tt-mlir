@@ -38,7 +38,8 @@ static std::optional<APInt> getSplatConstant(Value v) {
 class FoldI64SaturatingRightShift
     : public OpRewritePattern<mlir::stablehlo::ShiftRightLogicalOp> {
 public:
-  using OpRewritePattern<mlir::stablehlo::ShiftRightLogicalOp>::OpRewritePattern;
+  using OpRewritePattern<
+      mlir::stablehlo::ShiftRightLogicalOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(mlir::stablehlo::ShiftRightLogicalOp op,
                                 PatternRewriter &rewriter) const override {
