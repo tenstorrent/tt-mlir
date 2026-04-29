@@ -16,7 +16,7 @@ from functools import partial
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
-from golden.utils import mask_torch_inf_nan, get_atol_rtol_pcc
+from golden.metrics import mask_torch_inf_nan, get_atol_rtol_pcc
 
 import _ttmlir_runtime as tt_runtime
 

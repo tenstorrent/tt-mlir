@@ -5,7 +5,7 @@ declare_mlir_python_sources(GoldenSources
   SOURCES
     __init__.py
     mapping.py
-    utils.py
+    metrics.py
 )
 
 add_mlir_python_modules(GoldenPythonModules
