@@ -1506,15 +1506,6 @@ bool d2m::GenericOp::hasTensorSemantics() {
   return any_of(getOperandTypes(), isaTensor);
 }
 
-static bool hasIndexedRowGather(d2m::GenericOp genericOp) {
-  WalkResult result = genericOp.walk([&](Operation *nestedOp) {
-    return mlir::isa<d2m::EmbeddingOp, d2m::IndexedRowCopyOp>(nestedOp)
-               ? WalkResult::interrupt()
-               : WalkResult::advance();
-  });
-  return result.wasInterrupted();
-}
-
 static std::optional<int64_t>
 isNotEqualOrBroadcast(mlir::ArrayRef<int64_t> as, mlir::ArrayRef<int64_t> bs) {
   for (auto [dim, a, b] : llvm::enumerate(as, bs)) {
@@ -1523,6 +1514,19 @@ isNotEqualOrBroadcast(mlir::ArrayRef<int64_t> as, mlir::ArrayRef<int64_t> bs) {
     }
   }
   return std::nullopt;
+}
+
+static bool hasOperandBroadcasting(ArrayRef<AffineMap> indexingMaps) {
+  return llvm::any_of(indexingMaps, [](AffineMap map) {
+    for (unsigned dim = 0; dim < map.getNumDims(); ++dim) {
+      if (!llvm::any_of(map.getResults(), [dim](AffineExpr expr) {
+            return expr.isFunctionOfDim(dim);
+          })) {
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 static mlir::LogicalResult verifyAffineShapesPermutation(
@@ -1796,7 +1800,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   bool hasGrid = mlir::isa<MemRefType>(getOutputs().front().getType()) ||
                  (rankedTensorType && rankedTensorType.getEncoding());
   SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
-  if (hasGrid && !indexingMaps.empty() && !hasIndexedRowGather(*this)) {
+  if (hasGrid && !indexingMaps.empty()) {
     // Validate that all operands have device layouts before calling
     // getInputOutputOperandGridShapes(), which assumes layouts are present.
     for (Value operand : getInputsAndOutputs()) {
@@ -1845,12 +1849,17 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return gridResult;
     }
 
-    SmallVector<SmallVector<int64_t>> scalarShardShapes =
-        getInputOutputOperandShardShapes(/*convertTileToScalar=*/true);
-    LogicalResult shardResult = verifyAffineShapesPermutation(
-        "shard", indexingMaps, scalarShardShapes, emitDiag);
-    if (failed(shardResult)) {
-      return shardResult;
+    // Padded shard extents are only directly comparable when every operand
+    // participates in every loop dimension. Broadcast/reuse maps can legally
+    // have smaller operand shards along the omitted dimensions.
+    if (!hasOperandBroadcasting(indexingMaps)) {
+      SmallVector<SmallVector<int64_t>> scalarShardShapes =
+          getInputOutputOperandShardShapes(/*convertTileToScalar=*/true);
+      LogicalResult shardResult = verifyAffineShapesPermutation(
+          "shard", indexingMaps, scalarShardShapes, emitDiag);
+      if (failed(shardResult)) {
+        return shardResult;
+      }
     }
 
     assert(getNumDpsInits() == 1);
