@@ -208,6 +208,11 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
   assert(baseLayout && "modifyDeviceType requires a layout");
   auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
   auto elementType = newElementType.value_or(baseType.getElementType());
+  ArrayRef<int64_t> tileShape;
+  if (mlir::isa<ttcore::TileType>(elementType)) {
+    tileShape =
+        newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
+  }
 
   bool hasVirtualGrid = existingRemapping && !existingRemapping.isEmpty() &&
                         !existingRemapping.isIdentity();
@@ -246,11 +251,6 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
         baseLayout.getMemoryLayout());
   }
 
-  ArrayRef<int64_t> tileShape;
-  if (mlir::isa<ttcore::TileType>(elementType)) {
-    tileShape =
-        newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
-  }
   return RankedTensorType::get(layout.getDeviceShape(tensorGrid, tileShape),
                                elementType, layout);
 }

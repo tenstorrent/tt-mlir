@@ -325,14 +325,11 @@ SmallVector<int64_t> getPhysicalGridShape(Value tensorOrMemref) {
     if (fwdMap->getNumDims() == shapedType.getRank()) {
       auto fullShape = shapedType.getShape();
       auto physShape = ttmlir::utils::evalShape(*fwdMap, fullShape);
-      unsigned physicalGridRank = 2;
-      if (auto *definingOp = tensorOrMemref.getDefiningOp()) {
-        physicalGridRank =
-            ttcore::lookupDevice(definingOp).getWorkerGrid().getShape().size();
-      }
-      TT_assert(physShape.size() >= physicalGridRank);
+      unsigned shardRank = fullShape.size() / 2;
+      TT_assert(physShape.size() >= shardRank);
+      unsigned gridRank = physShape.size() - shardRank;
       return SmallVector<int64_t>(physShape.begin(),
-                                  physShape.begin() + physicalGridRank);
+                                  physShape.begin() + gridRank);
     }
   }
 
