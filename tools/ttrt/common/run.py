@@ -355,6 +355,11 @@ class Run:
 
         self.logger = logger if logger != None else Logger(self["--log-file"])
         self.logging = self.logger.get_logger()
+
+        # Set runtime logger file to match Python logger file for memory logging
+        if self["--log-file"]:
+            os.environ["TTMLIR_RUNTIME_LOGGER_FILE"] = self["--log-file"]
+
         self.globals = Globals(self.logger)
         self.file_manager = FileManager(self.logger)
         self.artifacts = (
