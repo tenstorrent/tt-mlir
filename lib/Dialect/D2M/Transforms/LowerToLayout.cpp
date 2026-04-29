@@ -341,6 +341,12 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
         needsReblock = needsReblock || reblockVirtualGridShapes;
+        if (reblockVirtualGridShapes &&
+            ttmlir::d2m::utils::grids::requiresVirtualGrid(tensorGrid,
+                                                           targetGridShape)) {
+          tensorGrid =
+              computeVirtualGridBounceShape(tensorGrid, targetGridShape);
+        }
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
         tensorGrid = currentGrid;
