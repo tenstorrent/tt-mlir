@@ -1321,12 +1321,14 @@ def ttir_layer_norm_golden(
     epsilon = unpack_mlir_attr(epsilon)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
+    weight_float = weight.float() if weight is not None else None
+    bias_float = bias.float() if bias is not None else None
 
     return torch.nn.functional.layer_norm(
         input_float,
         normalized_shape=normalized_shape,
-        weight=weight,
-        bias=bias,
+        weight=weight_float,
+        bias=bias_float,
         eps=epsilon,
     ).to(output_dtype)
 
@@ -2119,42 +2121,6 @@ def logical_xor_golden(
     """
     result_bool = torch.logical_xor(input_tensor, other_tensor)
     return result_bool.to(input_tensor.dtype)
-
-
-def logical_left_shift_golden(
-    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, **kwargs
-) -> GoldenMapTensor:
-    """
-    Golden function for logical left shift operation.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to be shifted.
-    shift_tensor : GoldenMapTensor
-        Tensor containing the number of bits to shift.
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor with the same dtype as input_tensor after logical left shift.
-    """
-    # Perform logical left shift
-    # Convert both inputs to int64 to handle both signed and unsigned types
-    input_int64 = input_tensor.to(torch.int64)
-    shift_int64 = shift_tensor.to(torch.int64)
-
-    # Mask input to 32-bit unsigned range (for signed types this converts to unsigned interpretation)
-    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
-
-    # Perform shift in int64 space
-    result = torch.bitwise_left_shift(input_unsigned, shift_int64)
-
-    # Mask result to keep in valid 32-bit range
-    result = torch.bitwise_and(result, 0xFFFFFFFF)
-
-    # Convert back to original dtype
-    return result.to(input_tensor.dtype)
 
 
 def logical_right_shift_golden(
@@ -3598,6 +3564,24 @@ def ttir_logical_right_shift_golden(
     input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
     result = torch.bitwise_right_shift(input_unsigned, shift_int64)
     return torch.bitwise_and(result, 0xFFFFFFFF).to(output_dtype)
+
+
+def ttir_logical_left_shift_golden(
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = shift_tensor.to(torch.int64)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+    result = torch.bitwise_left_shift(input_unsigned, shift_int64)
+    return torch.bitwise_and(result, 0xFFFFFFFF).to(output_dtype)
+
+
+def ttir_right_shift_golden(
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_right_shift(input_tensor, shift_tensor).to(output_dtype)
 
 
 def ttir_slice_golden(
@@ -7505,11 +7489,12 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LessThanOp: ttir_lt_golden,
     # Logical operations
     ttir.LogicalAndOp: ttir_logical_and_golden,
-    ttir.LogicalLeftShiftOp: logical_left_shift_golden,
+    ttir.LogicalLeftShiftOp: ttir_logical_left_shift_golden,
     ttir.LogicalOrOp: ttir_logical_or_golden,
     ttir.LogicalRightShiftOp: ttir_logical_right_shift_golden,
     ttir.LogicalXorOp: logical_xor_golden,
     ttir.LogicalNotOp: ttir_logical_not_golden,
+    ttir.RightShiftOp: ttir_right_shift_golden,
     # Selection operations
     ttir.WhereOp: ttir_where_golden,
     # Bitwise operations

@@ -548,4 +548,24 @@ module {
     %0 = "ttir.rand"() <{dtype = i32, high = 1.280000e+02 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [128 : i32, 96 : i32]}> : () -> tensor<128x96xi32>
     return %0 : tensor<128x96xi32>
   }
+
+  // CHECK-LABEL: func.func @named_logical_shifts
+  func.func @named_logical_shifts(%arg0: tensor<128x96xi32>, %arg1: tensor<128x96xi32>) -> tensor<128x96xi32> {
+    // named elementwise op, logical_left_shift:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_logical_left_shift
+    %0 = "ttir.logical_left_shift"(%arg0, %arg1) : (tensor<128x96xi32>, tensor<128x96xi32>) -> tensor<128x96xi32>
+    // named elementwise op, logical_right_shift:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_logical_right_shift
+    %1 = "ttir.logical_right_shift"(%0, %arg1) : (tensor<128x96xi32>, tensor<128x96xi32>) -> tensor<128x96xi32>
+    // named elementwise op, right_shift:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_right_shift
+    %2 = "ttir.right_shift"(%1, %arg1) : (tensor<128x96xi32>, tensor<128x96xi32>) -> tensor<128x96xi32>
+    return %2 : tensor<128x96xi32>
+  }
 }

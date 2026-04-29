@@ -126,7 +126,9 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                     "unsigned":$numCBs,
                     "unsigned":$numComputeThreads,
                     "unsigned":$numDatamovementThreads,
-                    ArrayRefParameter<"int64_t">:$dramGrid);
+                    ArrayRefParameter<"int64_t">:$dramGrid,
+                    ArrayRefParameter<"CoreCoordAttr">:$dramBankToLogicalWorkerNoc0,
+                    ArrayRefParameter<"CoreCoordAttr">:$dramBankToLogicalWorkerNoc1);
   let assemblyFormat = [{`{` `arch` `=` $arch `,`
                              `grid` `=` custom<DimensionList>($grid) `,`
                              `coord_translation_offsets` `=` custom<DimensionList>($coordTranslationOffsets) `,`
@@ -146,7 +148,9 @@ def TTCore_ChipDescAttr : TTCore_Attr<"ChipDesc", "chip_desc"> {
                              `num_cbs` `=` $numCBs `,`
                              `num_compute_threads` `=` $numComputeThreads `,`
                              `num_datamovement_threads` `=` $numDatamovementThreads `,`
-                             `dram_grid` `=` custom<DimensionList>($dramGrid) `}`}];
+                             `dram_grid` `=` custom<DimensionList>($dramGrid) `,`
+                             `dram_bank_to_logical_worker_noc0` `=` custom<CoreCoordList>($dramBankToLogicalWorkerNoc0) `,`
+                             `dram_bank_to_logical_worker_noc1` `=` custom<CoreCoordList>($dramBankToLogicalWorkerNoc1) `}`}];
 
   let extraClassDeclaration = [{
     unsigned getUsableL1Size() const { return getL1Size() - getL1UnreservedBase(); }
