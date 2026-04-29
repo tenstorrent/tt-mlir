@@ -282,8 +282,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       << asSeq(llvm::to_vector(obj.availableL1AddrRange)) << "\n";
     s << "\ttest-assume-l1-capacity: " << obj.testAssumeL1Capacity << "\n";
     s << "\ttest-buffer-size-policy: " << obj.testBufferSizePolicy << "\n";
-    s << "\ttest-allow-aliased-eltwise-blocking: "
-      << obj.testAllowAliasedEltwiseBlocking << "\n";
     s << "}";
     return s.str();
   }
@@ -743,6 +741,29 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return genericCtx;
   }
 
+  static bool
+  shouldApplyAutoReblocking(d2m::GenericOp genericOp,
+                            ArrayRef<AffineMap> indexingMaps,
+                            ArrayRef<ttcore::IteratorType> iteratorTypes) {
+    const std::optional<std::size_t> reductionDim =
+        allocation::getSingleReductionDim(iteratorTypes);
+    if (!reductionDim.has_value()) {
+      return false;
+    }
+
+    int64_t scalableInputCount = 0;
+    for (auto [operandIndex, indexingMap] : llvm::enumerate(indexingMaps)) {
+      if (genericOp.isOutputOperandIdx(operandIndex)) {
+        continue;
+      }
+      if (indexingMap.isFunctionOfDim(*reductionDim)) {
+        ++scalableInputCount;
+      }
+    }
+
+    return scalableInputCount >= 2;
+  }
+
   // Internal helper used by `analyzeGenericOps()` to create analysis entries
   // for each operand of `genericOp`.
   void createOperandContexts(FuncAnalysisData &analysis,
@@ -772,6 +793,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     SmallVector<int64_t> gridExtents;
     SmallVector<int64_t> shardExtents;
+    SmallVector<int64_t> inputTileFactors;
+    SmallVector<int64_t> outputTileFactors;
 
     if (haveIterationSpaceInfo) {
       // Do some analysis common to all `genericOp` operands.
@@ -782,6 +805,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       const std::size_t rank = genericOp.getNumDims();
 
       std::tie(gridExtents, shardExtents) = getGridAndShardExtents(genericOp);
+      std::tie(inputTileFactors, outputTileFactors) =
+          getOperandTileShapes(genericOp);
 
       SmallVector<int64_t> blockFactors = genericOp.getBlockFactorsValue();
       const SmallVector<int64_t> originalBlockFactors = blockFactors;
@@ -801,6 +826,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       // analysis.
       if (const auto *bfResult = blockFactorAnalysis.lookup(genericOp)) {
         blockFactors = bfResult->reblockedFactors;
+        if (bufferSizePolicy == BufferSizePolicy::Auto &&
+            !shouldApplyAutoReblocking(genericOp, indexingMaps,
+                                       iteratorTypes)) {
+          blockFactors = originalBlockFactors;
+        }
       }
 
       for (std::size_t d = 0; d < rank; ++d) {
@@ -875,9 +905,24 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // To know the exact L1 memory pressure, we need to know the type/size
         // of this operand's stream if one were to be inserted.
 
-        auto [gridShapeRescaled, shardShapeRescaled] =
-            getOperandGridAndShardExtents(genericOp, operandIndex, gridExtents,
-                                          shardExtents);
+        const AffineMap &indexingMap = indexingMaps[operandIndex];
+        const AffineMap canonicalMap = canonicalizeBroadcasts(indexingMap);
+
+        const SmallVector<int64_t> gridShapeRescaled =
+            canonicalMap.compose(gridExtents);
+
+        SmallVector<int64_t> shardShapeRescaled =
+            canonicalMap.compose(shardExtents);
+        // TODO(vroubtsov) not sure if there's a better option right now for
+        // adjusting to input/output tile shape changes:
+        if (operandCtx.isOutput) {
+          for (std::size_t t = 0; t < 2; ++t) {
+            const std::size_t d = shardShapeRescaled.size() - 2 + t;
+            shardShapeRescaled[d] =
+                (shardShapeRescaled[d] * inputTileFactors[t]) /
+                outputTileFactors[t];
+          }
+        }
 
         const auto operandType =
             mlir::cast<MemRefType>(operand.get().getType());
@@ -963,7 +1008,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     BlockFactorAnalysis::Options bfOpts;
     bfOpts.policy = bufferSizePolicy;
     bfOpts.numBuffers = numStreamBuffers;
-    bfOpts.allowAliasedEltwiseBlocking = testAllowAliasedEltwiseBlocking;
     BlockFactorAnalysis blockFactorAnalysis(funcOp, bfOpts);
 
     [[maybe_unused]] int32_t genericsInExplicitDatamovementForm = 0;
@@ -1666,10 +1710,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
   }
 
-  /// @return `true` iff the operand's defining chain includes a non-identity
-  /// view remapping.
+  /// Walk the operand's def chain and check if any ViewLayoutOp has a
+  /// non-identity affine map.
+  /// @return `true` if any ViewLayoutOp in the chain has a non-identity map.
   static bool isNonTrivialView(const OperandContext &operandCtx) {
-    return allocation::hasNonTrivialView(operandCtx.operand->get());
+    for (ChainRoot chainRoot : operandCtx.chainRoots) {
+      for (Operation *op : chainRoot.defChain) {
+        if (auto view = llvm::dyn_cast<d2m::ViewLayoutOp>(op)) {
+          if (!view.getRemapping().isIdentity()) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   struct SharedLoadStoreInfo {
@@ -1827,17 +1881,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                             const OperandContext &operandCtx,
                             MemorySpace memspace) const {
 
-    // Blocked operands must be registered with the memory planner so their
-    // in-generic allocs receive an L1 address. This runs before
-    // reblockGenerics, so the view doesn't exist yet and
-    // isOperandExemptFromStreaming would incorrectly skip the alloc.
-    // Explicit DM generics have no indexing maps and are never reblocked.
-    if (!genericCtx.isExplicitDatamovement &&
-        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
-                                     genericCtx.reblockedFactors)) {
-      return true;
-    }
-
     if (isOperandExemptFromStreaming(operandCtx, memspace)) {
       return false;
     }
@@ -1859,15 +1902,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
   /// @return `true` if `genericOp` requires a stream
   /// for operand @`operandIndex` based on the available indexing space
-  /// information, excluding any blocked-operand forcing.
+  /// information
   bool inferBaseStreamRequirement(d2m::GenericOp genericOp,
                                   const OperandContext &operandCtx,
                                   MemorySpace memspace) const {
     if (useAlwaysStreamPolicy()) {
       return true;
-    }
-    if (genericOp.isDMAOnlyForm()) {
-      return false;
     }
 
     // Non-trivial views need a stream to represent the implied data movement.
@@ -1912,22 +1952,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                               const GenericOpContext &genericCtx,
                               const OperandContext &operandCtx,
                               MemorySpace memspace) const {
-    const bool baseNeedsStream =
+    const bool thisOperandNeedsStream =
         inferBaseStreamRequirement(genericOp, operandCtx, memspace);
-
-    const bool blocked =
-        !genericCtx.isExplicitDatamovement &&
-        allocation::isOperandBlocked(genericOp, operandCtx.operandIndex(),
-                                     genericCtx.reblockedFactors);
-
-    if (blocked) {
-      if (!operandCtx.isOutput) {
-        return true;
-      }
-      return baseNeedsStream || testAllowAliasedEltwiseBlocking;
-    }
-
-    if (!baseNeedsStream) {
+    if (!thisOperandNeedsStream) {
       return false;
     }
 
@@ -1940,6 +1967,40 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     const MemorySpace peerMemspace =
         ttcore::getMemorySpace(sharedPeerCtx->operand->get().getType());
     return inferBaseStreamRequirement(genericOp, *sharedPeerCtx, peerMemspace);
+  }
+
+  static std::tuple</* input */ SmallVector<int64_t>,
+                    /* output */ SmallVector<int64_t>>
+  getOperandTileShapes(d2m::GenericOp genericOp) {
+    const Type inputElementType =
+        mlir::cast<MemRefType>(
+            genericOp.getInputsAndOutputs().front().getType())
+            .getElementType();
+    for (std::size_t operandIndex = 1;
+         operandIndex < genericOp.getOutputs().getBeginOperandIndex();
+         ++operandIndex) {
+      TT_assertv(inputElementType ==
+                     mlir::cast<MemRefType>(
+                         genericOp->getOperand(operandIndex).getType())
+                         .getElementType(),
+                 "expected no change in tile shapes across generic op inputs");
+    }
+
+    const Type outputElementType =
+        mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().back().getType())
+            .getElementType();
+
+    return {getEffectiveTileShape(inputElementType),
+            getEffectiveTileShape(outputElementType)};
+  }
+
+  /// @return tile shape of `elementType` or `{1, 1}` if it isn't a TileType
+  static SmallVector<int64_t> getEffectiveTileShape(Type elementType) {
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+      TT_debug(tileType.getRank() == 2);
+      return SmallVector<int64_t>(tileType.getShape());
+    }
+    return {1, 1};
   }
 
   static void assignAddressAndAlignment(RewriterBase &rewriter,

@@ -219,7 +219,6 @@ def test_binary_ops(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        print_ir=False,
         pipeline_options=pipeline_options,
     )
 
