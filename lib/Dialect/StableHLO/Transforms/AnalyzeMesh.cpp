@@ -352,14 +352,19 @@ public:
     // any analysis. Use the caller-provided meshShape verbatim if it is a
     // 2D shape, otherwise fall back to a 1x1 mesh.
     if (!automaticArgAnalysis) {
-      if (meshShape.size() == 2) {
-        shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
-                                      meshShape[0], meshShape[1]);
-      } else {
-        shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
-                                      /*firstAxisSize=*/1,
-                                      /*secondAxisSize=*/1);
+      llvm::SmallVector<int64_t> finalMeshShape =
+          meshShape.size() == 2
+              ? llvm::SmallVector<int64_t>{meshShape[0], meshShape[1]}
+              : llvm::SmallVector<int64_t>{1, 1};
+
+      if (failed(sharding_utils::checkValidMesh(finalMeshShape))) {
+        rootModule.emitError("Mesh is not valid");
+        signalPassFailure();
+        return;
       }
+
+      shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
+                                    finalMeshShape[0], finalMeshShape[1]);
       return;
     }
 
