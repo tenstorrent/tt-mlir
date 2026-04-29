@@ -84,8 +84,8 @@ module {
     return %2 : tensor<3xf32>
   }
 
-  func.func @add_broadcastible_non_splat_no_fold() -> tensor<3x3xf32> {
-    // CHECK-LABEL: @add_broadcastible_non_splat_no_fold
+  func.func @add_broadcastable_non_splat_no_fold() -> tensor<3x3xf32> {
+    // CHECK-LABEL: @add_broadcastable_non_splat_no_fold
     // CHECK: "ttir.constant"
     // CHECK: "ttir.constant"
     // CHECK: "ttir.add"
