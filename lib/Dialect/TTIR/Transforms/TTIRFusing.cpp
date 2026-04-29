@@ -2913,12 +2913,22 @@ public:
 };
 
 // Pattern to fuse reshape -> broadcast -> reshape into either:
-// - repeat_interleave (when final reshape multiplies the dim left of inserted
-// 1)
-// - repeat (when final reshape multiplies the dim right of inserted 1)
+// - repeat_interleave (when final reshape multiplies the dim left of the
+//   broadcasted size-1 dim)
+// - repeat (when final reshape multiplies the dim at the broadcasted size-1
+//   dim)
 //
-// This pattern is commonly used for GQA (Grouped Query Attention) to expand KV
-// heads to match Q heads.
+// This pattern is commonly used for GQA (Grouped Query Attention) to expand
+// KV heads to match Q heads, and for upsampling-style patterns that interleave
+// elements along a spatial dimension.
+//
+// The match works off the broadcast's input shape (S_b) rather than the first
+// reshape's input shape, so it still applies when consecutive reshapes have
+// been folded together (e.g., the merge reshape of one fused pattern getting
+// glued to the unsqueeze reshape of the next). When the first reshape's input
+// is not already shaped like S_b with the broadcast dim squeezed, a new
+// reshape is inserted; that reshape can then participate as the final reshape
+// of an earlier reshape -> broadcast -> reshape chain.
 class ReshapeBroadcastReshapeToRepeatPattern
     : public mlir::OpRewritePattern<ReshapeOp> {
   using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
@@ -2938,99 +2948,115 @@ public:
       return mlir::failure();
     }
 
-    auto inputType =
-        mlir::cast<RankedTensorType>(firstReshape.getInput().getType());
-    auto intermediateType =
-        mlir::cast<RankedTensorType>(firstReshape.getResult().getType());
+    auto broadcastInputType =
+        mlir::cast<RankedTensorType>(broadcastOp.getInput().getType());
     auto outputType =
         mlir::cast<RankedTensorType>(finalReshape.getResult().getType());
 
-    ArrayRef<int64_t> inputShape = inputType.getShape();
-    ArrayRef<int64_t> intermediateShape = intermediateType.getShape();
+    ArrayRef<int64_t> broadcastInputShape = broadcastInputType.getShape();
     ArrayRef<int64_t> outputShape = outputType.getShape();
     ArrayRef<int64_t> broadcastDims = broadcastOp.getBroadcastDimensions();
 
-    if (intermediateShape.size() != inputShape.size() + 1) {
+    if (broadcastDims.size() != broadcastInputShape.size()) {
       return mlir::failure();
     }
-    if (broadcastDims.size() != intermediateShape.size()) {
-      return mlir::failure();
-    }
-    if (outputShape.size() != inputShape.size()) {
+    // The final reshape must drop exactly one dim (the broadcasted size-1 dim
+    // gets merged with an adjacent dim).
+    if (outputShape.size() + 1 != broadcastInputShape.size()) {
       return mlir::failure();
     }
 
-    // Use broadcast evidence to pick the inserted dim. This avoids ambiguity
-    // when the input shape already contains size-1 dims. This rewrite only
-    // models a single expanded dimension.
-    int64_t insertedDim = -1;
+    // This rewrite only models a single broadcasted dimension.
+    int64_t bcastDim = -1;
     int64_t repeatCount = 1;
     for (size_t i = 0; i < broadcastDims.size(); ++i) {
       if (broadcastDims[i] == 1) {
         continue;
       }
-      if (insertedDim != -1) {
+      if (bcastDim != -1) {
         return mlir::failure();
       }
-      insertedDim = static_cast<int64_t>(i);
+      bcastDim = static_cast<int64_t>(i);
       repeatCount = broadcastDims[i];
     }
     if (repeatCount <= 1) {
       return mlir::failure();
     }
 
-    // Validate that `intermediateShape` is exactly `inputShape` with a single
-    // size-1 dimension inserted at `insertedDim`.
-    if (insertedDim < 0 ||
-        static_cast<size_t>(insertedDim) >= intermediateShape.size()) {
+    // The broadcasted dim must be size-1 in the broadcast input.
+    if (broadcastInputShape[bcastDim] != 1) {
       return mlir::failure();
-    }
-    if (intermediateShape[insertedDim] != 1) {
-      return mlir::failure();
-    }
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-      size_t intermediateIdx = i < static_cast<size_t>(insertedDim) ? i : i + 1;
-      if (intermediateShape[intermediateIdx] != inputShape[i]) {
-        return mlir::failure();
-      }
     }
 
-    // Find which input dimension was multiplied by repeatCount in the output.
-    int64_t changedDim = -1;
-    for (size_t i = 0; i < outputShape.size(); ++i) {
-      if (outputShape[i] == inputShape[i]) {
+    // Logical shape: broadcast input with the broadcasted dim squeezed out.
+    llvm::SmallVector<int64_t> logicalShape;
+    logicalShape.reserve(broadcastInputShape.size() - 1);
+    for (size_t i = 0; i < broadcastInputShape.size(); ++i) {
+      if (static_cast<int64_t>(i) == bcastDim) {
         continue;
       }
-      if (changedDim != -1) {
+      logicalShape.push_back(broadcastInputShape[i]);
+    }
+
+    // Find which logical dim is multiplied by repeatCount in the output.
+    int64_t mergeDim = -1;
+    for (size_t i = 0; i < outputShape.size(); ++i) {
+      if (outputShape[i] == logicalShape[i]) {
+        continue;
+      }
+      if (mergeDim != -1) {
         return mlir::failure();
       }
-      changedDim = static_cast<int64_t>(i);
+      mergeDim = static_cast<int64_t>(i);
     }
-    if (changedDim == -1) {
+    if (mergeDim == -1) {
       return mlir::failure();
     }
-    if (outputShape[changedDim] != inputShape[changedDim] * repeatCount) {
+    if (outputShape[mergeDim] != logicalShape[mergeDim] * repeatCount) {
       return mlir::failure();
     }
 
-    // Decide between repeat_interleave (left-merge) and repeat (right-merge).
-    if (changedDim == insertedDim - 1) {
+    // bcastDim == mergeDim     -> repeat (size-1 inserted at the merge dim,
+    //                             merged rightward)
+    // bcastDim == mergeDim + 1 -> repeat_interleave (size-1 inserted right of
+    //                             the merge dim, merged leftward)
+    bool isRepeat = (bcastDim == mergeDim);
+    bool isRepeatInterleave = (bcastDim == mergeDim + 1);
+    if (!isRepeat && !isRepeatInterleave) {
+      return mlir::failure();
+    }
+
+    // Get a value with `logicalShape`. If the first reshape's input already
+    // has that shape, reuse it; otherwise insert a reshape so the upstream
+    // reshape -> broadcast -> reshape chain can still match in a later
+    // iteration.
+    Value logicalInput = firstReshape.getInput();
+    auto logicalInputType =
+        mlir::cast<RankedTensorType>(logicalInput.getType());
+    if (logicalInputType.getShape() != ArrayRef<int64_t>(logicalShape)) {
+      auto newType =
+          RankedTensorType::get(logicalShape, logicalInputType.getElementType(),
+                                logicalInputType.getEncoding());
+      llvm::SmallVector<int32_t> shapeI32(logicalShape.begin(),
+                                          logicalShape.end());
+      logicalInput = rewriter.create<ReshapeOp>(
+          finalReshape.getLoc(), newType, logicalInput,
+          rewriter.getI32ArrayAttr(shapeI32));
+    }
+
+    if (isRepeatInterleave) {
       rewriter.replaceOpWithNewOp<RepeatInterleaveOp>(
-          finalReshape, outputType, firstReshape.getInput(),
-          static_cast<uint32_t>(repeatCount), static_cast<int32_t>(changedDim));
+          finalReshape, outputType, logicalInput,
+          static_cast<uint32_t>(repeatCount), static_cast<int32_t>(mergeDim));
       return mlir::success();
     }
 
-    if (changedDim == insertedDim) {
-      llvm::SmallVector<int64_t> repeatDims(inputShape.size(), 1);
-      repeatDims[changedDim] = repeatCount;
-      rewriter.replaceOpWithNewOp<RepeatOp>(
-          finalReshape, outputType, firstReshape.getInput(),
-          rewriter.getDenseI64ArrayAttr(repeatDims));
-      return mlir::success();
-    }
-
-    return mlir::failure();
+    llvm::SmallVector<int64_t> repeatDims(logicalShape.size(), 1);
+    repeatDims[mergeDim] = repeatCount;
+    rewriter.replaceOpWithNewOp<RepeatOp>(
+        finalReshape, outputType, logicalInput,
+        rewriter.getDenseI64ArrayAttr(repeatDims));
+    return mlir::success();
   }
 };
 
