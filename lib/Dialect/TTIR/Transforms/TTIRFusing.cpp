@@ -370,15 +370,13 @@ static bool isFullOpWithValue(Value value, float expectedValue,
     return false;
   }
 
-  // Look through ReshapeOps from scalar (rank 0) inputs. Aggressive
-  // simplification keeps scalar constants and the TTIR conversion wraps them
-  // in reshapes (e.g. full(scalar) -> reshape -> implicit broadcast).
-  while (isa<ReshapeOp>(op)) {
-    auto input = op->getOperand(0);
-    if (mlir::cast<RankedTensorType>(input.getType()).getRank() != 0) {
-      break;
-    }
-    op = input.getDefiningOp();
+  // Look through layout ops that preserve splat-ness. FullOp/ZerosOp/OnesOp
+  // produce splat tensors, and reshape/broadcast/permute preserve the splat
+  // value regardless of input rank. These chains can survive into TTIRFusing
+  // when upstream canonicalization or fold-constant-reshape-broadcast does
+  // not run (e.g. on the TTNN pipeline path).
+  while (isa_and_nonnull<ReshapeOp, BroadcastOp, PermuteOp>(op)) {
+    op = op->getOperand(0).getDefiningOp();
     if (!op) {
       return false;
     }
@@ -2652,6 +2650,9 @@ private:
 namespace {
 
 // Fuses: (x * rsqrt(mean(x^2) + epsilon)) * gamma -> RMSNormOp
+// Also fuses the no-gamma variant: x * rsqrt(mean(x^2) + epsilon) -> RMSNormOp
+// (e.g. value-stream RMS normalization in Gemma where there is no learnable
+// scale weight).
 class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
@@ -2691,6 +2692,25 @@ public:
           });
     };
 
+    // Helper: given a candidate inner multiply, see if it has the
+    // x * rsqrt(...) shape. Returns the RsqrtOp and binds the corresponding
+    // x-side raw value via xRaw. Returns nullptr if the multiply does not
+    // match.
+    auto tryMatchInnerMul = [&](MultiplyOp candidate,
+                                mlir::Value &xRaw) -> RsqrtOp {
+      RsqrtOp rsqrt =
+          lookThroughSafeOps(candidate.getLhs()).getDefiningOp<RsqrtOp>();
+      xRaw = candidate.getRhs();
+      if (!rsqrt) {
+        rsqrt =
+            lookThroughSafeOps(candidate.getRhs()).getDefiningOp<RsqrtOp>();
+        xRaw = candidate.getLhs();
+      }
+      return rsqrt;
+    };
+
+    // First try the with-gamma case: outerMul = innerMul * gamma where
+    // innerMul = x * rsqrt(mean(x^2) + eps).
     MultiplyOp innerMul =
         ttmlir::utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
@@ -2699,17 +2719,39 @@ public:
           outerMul.getRhs());
       gammaRaw = outerMul.getLhs();
     }
-    if (!innerMul) {
-      return mlir::failure();
+
+    RsqrtOp rsqrtOp;
+    mlir::Value xRaw;
+    bool hasGamma = false;
+    if (innerMul) {
+      rsqrtOp = tryMatchInnerMul(innerMul, xRaw);
+      hasGamma = static_cast<bool>(rsqrtOp);
     }
 
-    RsqrtOp rsqrtOp =
-        lookThroughSafeOps(innerMul.getLhs()).getDefiningOp<RsqrtOp>();
-    mlir::Value xRaw = innerMul.getRhs();
+    // Fallback: no-gamma case where outerMul itself is x * rsqrt(...).
     if (!rsqrtOp) {
-      rsqrtOp = lookThroughSafeOps(innerMul.getRhs()).getDefiningOp<RsqrtOp>();
-      xRaw = innerMul.getLhs();
+      // If outerMul flows (through 0+ typecasts) into another MultiplyOp,
+      // skip the no-gamma case and let the with-gamma matcher handle the
+      // larger pattern. This avoids racing the greedy rewriter into fusing
+      // the inner multiply of a `(x * rsqrt(...)) * gamma` chain as a
+      // weight-less RMSNormOp.
+      mlir::Value cursor = outerMul.getResult();
+      while (cursor.hasOneUse()) {
+        mlir::Operation *user = *cursor.getUsers().begin();
+        if (mlir::isa<MultiplyOp>(user)) {
+          return mlir::failure();
+        }
+        if (!mlir::isa<TypecastOp>(user)) {
+          break;
+        }
+        cursor = user->getResult(0);
+      }
+
+      rsqrtOp = tryMatchInnerMul(outerMul, xRaw);
+      gammaRaw = nullptr;
+      hasGamma = false;
     }
+
     if (!rsqrtOp) {
       return mlir::failure();
     }
@@ -2770,39 +2812,45 @@ public:
       return mlir::failure();
     }
 
-    mlir::Value gamma = lookThroughSafeOps(gammaRaw);
     llvm::SmallVector<int64_t> normalizedShape{normalizedDimSize};
+    auto inputType = mlir::cast<RankedTensorType>(x.getType());
 
-    // Reshape gamma to match normalized_shape if needed.
-    // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of [2048]).
-    auto gammaType = mlir::cast<RankedTensorType>(gamma.getType());
-    if (gammaType.getShape() != llvm::ArrayRef(normalizedShape)) {
-      // Check if gamma can be squeezed to normalized_shape.
-      // All dimensions except the last must be 1.
-      for (int64_t i = 0; i < gammaType.getRank() - 1; ++i) {
-        if (gammaType.getShape()[i] != 1) {
+    mlir::Value gamma = nullptr;
+    if (hasGamma) {
+      gamma = lookThroughSafeOps(gammaRaw);
+
+      // Reshape gamma to match normalized_shape if needed.
+      // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of
+      // [2048]).
+      auto gammaType = mlir::cast<RankedTensorType>(gamma.getType());
+      if (gammaType.getShape() != llvm::ArrayRef(normalizedShape)) {
+        // Check if gamma can be squeezed to normalized_shape.
+        // All dimensions except the last must be 1.
+        for (int64_t i = 0; i < gammaType.getRank() - 1; ++i) {
+          if (gammaType.getShape()[i] != 1) {
+            return mlir::failure();
+          }
+        }
+        // Check if the last dimension matches.
+        if (gammaType.getShape().back() != normalizedShape[0]) {
           return mlir::failure();
         }
+        // Reshape gamma to normalized_shape.
+        auto reshapedGammaType =
+            RankedTensorType::get(normalizedShape, gammaType.getElementType(),
+                                  gammaType.getEncoding());
+        llvm::SmallVector<int32_t> targetShape(normalizedShape.begin(),
+                                               normalizedShape.end());
+        gamma = rewriter.create<ReshapeOp>(
+            outerMul.getLoc(), reshapedGammaType, gamma,
+            rewriter.getI32ArrayAttr(targetShape));
       }
-      // Check if the last dimension matches.
-      if (gammaType.getShape().back() != normalizedShape[0]) {
+
+      // Although the op can work with different dtypes, this is
+      // the indication that the matching is not correct.
+      if (inputType.getElementType() != gammaType.getElementType()) {
         return mlir::failure();
       }
-      // Reshape gamma to normalized_shape.
-      auto reshapedGammaType = RankedTensorType::get(
-          normalizedShape, gammaType.getElementType(), gammaType.getEncoding());
-      llvm::SmallVector<int32_t> targetShape(normalizedShape.begin(),
-                                             normalizedShape.end());
-      gamma = rewriter.create<ReshapeOp>(outerMul.getLoc(), reshapedGammaType,
-                                         gamma,
-                                         rewriter.getI32ArrayAttr(targetShape));
-    }
-
-    // Although the op can work with different dtypes, this is
-    // the indication that the matching is not correct.
-    auto inputType = mlir::cast<RankedTensorType>(x.getType());
-    if (inputType.getElementType() != gammaType.getElementType()) {
-      return mlir::failure();
     }
 
     // Create RMSNormOp with output shape and dtype matching input.
