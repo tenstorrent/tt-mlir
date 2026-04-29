@@ -1003,9 +1003,8 @@ llvm::Expected<OpConstraints> OpModel<RoundOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        WRAP_OP(::ttnn::round), device, inputSpec, std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+    return QUERY_OP_CONSTRAINTS(::ttnn::round, device, inputSpec, std::nullopt,
+                                detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -1031,9 +1030,8 @@ OpModel<RoundOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        WRAP_OP(::ttnn::round), device, inputSpec, std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout));
+    return QUERY_OP_RUNTIME(::ttnn::round, device, inputSpec, std::nullopt,
+                            detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(query);

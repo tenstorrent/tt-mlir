@@ -321,6 +321,9 @@ INSTANTIATE_TEST_SUITE_P(ErfcTests, OpModelErfcParam,
 INSTANTIATE_TEST_SUITE_P(FloorTests, OpModelFloorParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
+INSTANTIATE_TEST_SUITE_P(RoundTests, OpModelRoundParam,
+                         ::testing::ValuesIn(unaryEltwiseParams));
+
 INSTANTIATE_TEST_SUITE_P(GeluTests, OpModelGeluParam,
                          ::testing::ValuesIn(unaryEltwiseParams));
 
