@@ -431,28 +431,24 @@ inline std::array<int64_t, 2> getEffectiveTileShape(Type elementType) {
 /// `genericOp`.
 inline std::pair<std::array<int64_t, 2>, std::array<int64_t, 2>>
 getGenericInputAndOutputTileShapes(d2m::GenericOp genericOp) {
-  Type inputElementType = genericOp.getIndexedRowGatherDataElementType();
-  if (!inputElementType) {
-    inputElementType = mlir::cast<MemRefType>(
-                           genericOp.getInputsAndOutputs().front().getType())
-                           .getElementType();
-    for (std::size_t operandIndex = 1;
-         operandIndex < genericOp.getOutputs().getBeginOperandIndex();
-         ++operandIndex) {
-      TT_assertv(inputElementType ==
-                     mlir::cast<MemRefType>(
-                         genericOp->getOperand(operandIndex).getType())
-                         .getElementType(),
-                 "expected no change in tile shapes across generic op inputs");
-    }
+  auto getEffectiveOperandTileShape = [](Value operand) {
+    return getEffectiveTileShape(
+        mlir::cast<MemRefType>(operand.getType()).getElementType());
+  };
+
+  std::array<int64_t, 2> inputTileShape =
+      getEffectiveOperandTileShape(genericOp.getInputsAndOutputs().front());
+  for (std::size_t operandIndex = 1;
+       operandIndex < genericOp.getOutputs().getBeginOperandIndex();
+       ++operandIndex) {
+    TT_assertv(inputTileShape ==
+                   getEffectiveOperandTileShape(genericOp->getOperand(
+                       static_cast<unsigned>(operandIndex))),
+               "expected no change in tile shapes across generic op inputs");
   }
 
-  const Type outputElementType =
-      mlir::cast<MemRefType>(genericOp.getInputsAndOutputs().back().getType())
-          .getElementType();
-
-  return {getEffectiveTileShape(inputElementType),
-          getEffectiveTileShape(outputElementType)};
+  return {inputTileShape,
+          getEffectiveOperandTileShape(genericOp.getInputsAndOutputs().back())};
 }
 
 /// @return a bitmask that indicates which dims are blocked.
