@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
@@ -98,16 +99,48 @@ public:
     auto newWeightType =
         ttnn::utils::RankedTensorTypeFactory::create(weightType, dtype);
 
-    // Insert typecast operation to convert weight to target dtype.
-    auto typecastOp = rewriter.create<TypecastOp>(
-        op.getLoc(), newWeightType, weight,
-        ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
+    // Blockfloat targets (BFP_BFloat4, BFP_BFloat8) go through a host-side
+    // typecast via: from_device → typecast (host) → to_device.
+    // The host typecast dispatches to tt-metal's host packer for BFP
+    // formats. Const-eval results are cached at compile time, so the
+    // host roundtrip is paid once per cached weight per program.
+    //
+    // Other targets (e.g. BFloat16 per-tensor override) keep the existing
+    // single-`typecast` device codepath.
+    mlir::Value newWeight;
+    if (dtype == ttcore::DataType::BFP_BFloat4 ||
+        dtype == ttcore::DataType::BFP_BFloat8) {
+      auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(weight.getType()),
+          ttnn::BufferType::SystemMemory);
+      auto fromDevOp =
+          rewriter.create<FromDeviceOp>(op.getLoc(), hostInputType, weight);
 
-    // Update op to use the typecast result and clean up the attribute.
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getBMutable().assign(typecastOp.getResult());
-      op->removeAttr("ttcore.weight_dtype");
-    });
+      auto hostOutputType =
+          ttnn::utils::RankedTensorTypeFactory::create(hostInputType, dtype);
+      auto typecastOp = rewriter.create<TypecastOp>(
+          op.getLoc(), hostOutputType, fromDevOp.getResult(),
+          ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
+
+      mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
+      auto toDevOp = rewriter.create<ToDeviceOp>(op.getLoc(), newWeightType,
+                                                 typecastOp.getResult(), device,
+                                                 /*memory_config=*/nullptr);
+      newWeight = toDevOp.getResult();
+    } else {
+      // Single device typecast for non-blockfloat targets.
+      auto typecastOp = rewriter.create<TypecastOp>(
+          op.getLoc(), newWeightType, weight,
+          ttcore::DataTypeAttr::get(rewriter.getContext(), dtype));
+      newWeight = typecastOp.getResult();
+    }
+
+    // Update op to use the new weight. The per-op "ttcore.weight_dtype"
+    // attribute is intentionally kept: the greedy rewriter may re-match this
+    // op, and without the attribute it would fall back to the global default,
+    // defeating per-op overrides (e.g. bf16 overridden by global bfp_bf8).
+    // The attribute is discardable and harmless in the final IR.
+    rewriter.modifyOpInPlace(op, [&]() { op.getBMutable().assign(newWeight); });
 
     return mlir::success();
   }
