@@ -2030,14 +2030,99 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
+
+    // === BEGIN: Wan VAE Conv3d config heuristic (temporary perf fix) ===
+    // Default tt-metal conv3d config (T=1,H=1,W=1,C_in=32,C_out=32) drops FPU util
+    // to ~0.2% — produces one output voxel per kernel iteration, no L1 reuse.
+    // We pick shape-aware blocks aiming for >=32 output patches/launch and a full
+    // C_in_block (so C_in_num_blocks=1, satisfying c_in_per_core==1). Mirrors
+    // tt-metal's _BLOCKINGS table approach. See conv3d_utilization_bug.md.
+    auto resultShape = mlir::cast<RankedTensorType>(
+                           getTypeConverter()->convertType(op.getResult().getType()))
+                           .getShape();
+    int64_t outH_dim = resultShape[heightDim];
+    int64_t outW_dim = resultShape[widthDim];
+    int64_t outC_dim = resultShape[channelDim];
+
+    int64_t kT_size = weightTy.getDimSize(2);
+    int64_t kH_size = weightTy.getDimSize(3);
+    int64_t kW_size = weightTy.getDimSize(4);
+
+    int64_t inCh_raw = inputShape[channelDim];
+    int64_t inCh_aligned =
+        llvm::divideCeil(inCh_raw, TILE_WIDTH) * TILE_WIDTH;
+    int64_t outCh_aligned =
+        llvm::divideCeil(outC_dim, TILE_WIDTH) * TILE_WIDTH;
+
+    auto pickSpatialBlock = [](int64_t dim) -> uint32_t {
+      if (dim % 8 == 0) {
+        return 8;
+      }
+      if (dim % 4 == 0) {
+        return 4;
+      }
+      if (dim % 2 == 0) {
+        return 2;
+      }
+      return 1;
+    };
+
+    // Pick the largest channel-block that (a) is <= cap, (b) divides aligned
+    // (so weights re-block evenly), (c) is a multiple of TILE_WIDTH.
+    auto pickChannelBlock = [](int64_t aligned, int64_t cap) -> uint32_t {
+      int64_t tw = ttcore::TileType::getDefaultShape()[1];
+      int64_t start = std::min(cap, aligned) / tw * tw;
+      for (int64_t b = start; b >= tw; b -= tw) {
+        if (aligned % b == 0) {
+          return static_cast<uint32_t>(b);
+        }
+      }
+      return static_cast<uint32_t>(tw);
+    };
+
+    uint32_t cInBlockChosen = static_cast<uint32_t>(TILE_WIDTH);
+    ttnn::Conv3dConfigAttr conv3dConfigAttr = nullptr;
+    bool kernelMatch =
+        (kT_size == 3 && kH_size == 3 && kW_size == 3) ||
+        (kT_size == 3 && kH_size == 1 && kW_size == 1) ||
+        (kT_size == 1 && kH_size == 1 && kW_size == 1);
+
+    if (kernelMatch) {
+      // Cap C_in_block / C_out_block to keep weight + activation CBs within
+      // L1 budget. tt-metal's _BLOCKINGS table uses 96-128 for typical 3x3x3
+      // convs and up to 256 for pointwise/temporal paths. With C_in_block
+      // smaller than C_in, C_in_num_blocks > 1 — runtime distributes blocks
+      // across cores and c_in_per_core can still be 1 on a 64+-core grid.
+      int64_t cInCap = (kT_size == 3 && kH_size == 3 && kW_size == 3)
+                           ? int64_t{96}
+                           : int64_t{128};
+      int64_t cOutCap = (kT_size == 3 && kH_size == 3 && kW_size == 3)
+                            ? int64_t{64}
+                            : int64_t{128};
+
+      uint32_t tBlock = 1;
+      uint32_t hBlock = pickSpatialBlock(outH_dim);
+      uint32_t wBlock = pickSpatialBlock(outW_dim);
+      uint32_t cOutBlockChosen = pickChannelBlock(outCh_aligned, cOutCap);
+      cInBlockChosen = pickChannelBlock(inCh_aligned, cInCap);
+
+      conv3dConfigAttr = ttnn::Conv3dConfigAttr::get(
+          rewriter.getContext(),
+          /*weights_dtype=*/std::optional<ttcore::DataType>(),
+          /*t_out_block=*/std::optional<uint32_t>(tBlock),
+          /*w_out_block=*/std::optional<uint32_t>(wBlock),
+          /*h_out_block=*/std::optional<uint32_t>(hBlock),
+          /*c_out_block=*/std::optional<uint32_t>(cOutBlockChosen),
+          /*c_in_block=*/std::optional<uint32_t>(cInBlockChosen),
+          /*compute_with_storage_grid_size=*/
+          std::optional<ttcore::GridAttr>());
+    }
+    // === END: Wan VAE Conv3d config heuristic ===
+
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
-                                                  /*cInBlock=*/TILE_WIDTH);
+                                                  /*cInBlock=*/cInBlockChosen);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2084,8 +2169,8 @@ public:
         op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr, nullptr,
-        nullptr);
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
+        conv3dConfigAttr, nullptr);
 
     if (needsPermute) {
       auto fromNdhwcPermutation =

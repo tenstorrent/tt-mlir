@@ -674,5 +674,11 @@ const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
         ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
-        ttnn::ScatterOp::getOperationName()};
+        ttnn::ScatterOp::getOperationName(),
+        // Conv3d's input must be ROW_MAJOR (see conv3d_device_operation.cpp:49).
+        // RowMajorLayoutPropagation gates the layout fix on the OpModel
+        // constraint query succeeding, which can fail when an explicit
+        // conv3d_config is attached and the singleton mock device's grid
+        // doesn't accommodate our block sizes. Force the workaround instead.
+        ttnn::Conv3dOp::getOperationName()};
 } // namespace mlir::tt::ttnn
