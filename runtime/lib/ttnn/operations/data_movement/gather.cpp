@@ -21,8 +21,14 @@ void run(const ::tt::target::ttnn::GatherOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
+  // Indices must be non negative, otherwise this will break
+  ::ttnn::Tensor newIndex = index;
+  if (index.dtype() == ::tt::tt_metal::DataType::INT32) {
+    newIndex = ::ttnn::typecast(index, ::tt::tt_metal::DataType::UINT32);
+  }
+
   ::ttnn::Tensor out =
-      ::ttnn::gather(input, dim, index, /*sparse_grad=*/false,
+      ::ttnn::gather(input, dim, newIndex, /*sparse_grad=*/false,
                      outputMemoryConfig, std::nullopt, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
