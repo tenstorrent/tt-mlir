@@ -3044,6 +3044,114 @@ public:
   }
 };
 
+class D2MEmbeddingOpRewriter : public OpConversionPattern<ttir::EmbeddingOp>,
+                               D2MNamedRewriterCommon {
+public:
+  D2MEmbeddingOpRewriter(const TypeConverter &typeConverter,
+                         mlir::MLIRContext *ctx,
+                         ttcore::MemorySpace defaultInputMemSpace,
+                         ttcore::MemorySpace defaultOutputMemSpace,
+                         bool ttnnMode, bool collapseTensors,
+                         bool enableMulticastInference)
+      : OpConversionPattern<ttir::EmbeddingOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+  LogicalResult
+  matchAndRewrite(ttir::EmbeddingOp op, ttir::EmbeddingOp::Adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (memorySpaces[0] != ttcore::MemorySpace::DeviceL1 ||
+        memorySpaces[1] != ttcore::MemorySpace::DeviceL1) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding currently supports L1 inputs and outputs only");
+    }
+
+    auto indicesType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+    auto resultType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    if (indicesType.getRank() < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding currently requires at least 2D indices");
+    }
+    if (weightType.getRank() != 2) {
+      return rewriter.notifyMatchFailure(op,
+                                         "D2M embedding requires 2D weight");
+    }
+
+    int64_t numIndices = 1;
+    for (int64_t dim : indicesType.getShape()) {
+      if (ShapedType::isDynamic(dim)) {
+        return rewriter.notifyMatchFailure(
+            op, "D2M embedding requires static index shape");
+      }
+      numIndices *= dim;
+    }
+    int64_t embeddingDim = weightType.getShape().back();
+    if (ShapedType::isDynamic(embeddingDim)) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding requires static embedding dimension");
+    }
+
+    Location loc = op.getLoc();
+    SmallVector<Value> inputs{
+        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter),
+        createOptimalLayoutOp(op.getWeight(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
+
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {resultType});
+    SmallVector<Value> outputs{
+        createOptimalLayoutOp(origOutputs[0], memorySpaces[1],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    if (physicalRank != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M embedding currently requires collapsed 2D layouts");
+    }
+
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<AffineExpr> indicesExprs = {rewriter.getAffineDimExpr(0),
+                                            rewriter.getAffineConstantExpr(0)};
+    AffineMap indicesMap = AffineMap::get(physicalRank, /*symbolCount=*/0,
+                                          indicesExprs, rewriter.getContext());
+    SmallVector<AffineMap> indexingMaps = {indicesMap, identityMap,
+                                           identityMap};
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes), d2m::ThreadType::Datamovement);
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      Region &region = generic->getRegion(0);
+      Block *block = rewriter.createBlock(&region);
+      rewriter.setInsertionPointToStart(block);
+      auto embedding = rewriter.create<d2m::EmbeddingOp>(
+          loc, outputs[0].getType(), inputs[0], inputs[1], outputs[0],
+          rewriter.getI64IntegerAttr(numIndices),
+          rewriter.getI64IntegerAttr(embeddingDim),
+          rewriter.getDenseI64ArrayAttr(indicesType.getShape()));
+      rewriter.create<d2m::YieldOp>(loc, embedding.getResult());
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return success();
+  }
+};
+
 class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   using OpConversionPattern<ttir::MeshShardOp>::OpConversionPattern;
 
@@ -3996,6 +4104,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Arange.
   patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
     defaultOutputMemSpace, ttnnMode,
+    collapseTensors, enableMulticastInference);
+
+  // Embedding.
+  patterns.add<D2MEmbeddingOpRewriter>(
+    typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode,
     collapseTensors, enableMulticastInference);
 
   // Rand.
