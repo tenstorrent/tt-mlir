@@ -8,6 +8,7 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
+#include "ttmlir/Common/GraphTrackerLock.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -88,6 +89,12 @@ struct ProgramCacheState {
 template <class Callable>
 llvm::Expected<::ttnn::graph::ConstraintQueryResponse>
 executeConstraintQuery(Callable &callable) {
+  // Serialize all graph-capture activity against runtime::submit so that
+  // tt-metal's GraphTracker singleton (not internally thread-safe) is
+  // never seen mid-mutation by a concurrent runtime op.  See
+  // ttmlir/Common/GraphTrackerLock.h for full rationale.
+  std::lock_guard<std::mutex> graphTrackerGuard(
+      ::tt::ttmlir::common::graphTrackerLock());
   ::ttnn::graph::ConstraintQueryResponse query;
   // Snapshot GraphTracker depth before the query so we can drain leaked
   // processors on the way out. ScopedGraphCapture's destructor swallows
@@ -116,14 +123,27 @@ executeConstraintQuery(Callable &callable) {
   }
   size_t graphTrackerDepthAfter =
       ::tt::tt_metal::GraphTracker::instance().get_processors().size();
-  if (graphTrackerDepthAfter > graphTrackerDepthBefore) {
-    llvm::errs() << "GraphTracker leaked "
-                 << (graphTrackerDepthAfter - graphTrackerDepthBefore)
-                 << " processor(s) during constraint query (depth "
-                 << graphTrackerDepthBefore << " -> "
-                 << graphTrackerDepthAfter << "); draining.\n";
-    while (::tt::tt_metal::GraphTracker::instance().get_processors().size() >
-           graphTrackerDepthBefore) {
+  // Drain to zero, not just back to graphTrackerDepthBefore.  If a previous
+  // query leaked (depthBefore > 0), keeping the leak would propagate it into
+  // runtime execution: the model's first instrumented op (e.g. ttnn.deallocate)
+  // would dereference the stale processor in track_function_start and segfault.
+  // Optimizer constraint queries are single-threaded and no other code path
+  // should legitimately leave processors on the singleton between calls, so
+  // it's safe to drain unconditionally.
+  if (graphTrackerDepthAfter > 0) {
+    if (graphTrackerDepthAfter > graphTrackerDepthBefore) {
+      llvm::errs() << "GraphTracker leaked "
+                   << (graphTrackerDepthAfter - graphTrackerDepthBefore)
+                   << " processor(s) during constraint query (depth "
+                   << graphTrackerDepthBefore << " -> "
+                   << graphTrackerDepthAfter << "); draining to 0.\n";
+    } else if (graphTrackerDepthBefore > 0) {
+      llvm::errs() << "GraphTracker had " << graphTrackerDepthBefore
+                   << " stale processor(s) on entry to constraint query; "
+                   << "draining to 0 to keep runtime execution clean.\n";
+    }
+    while (
+        !::tt::tt_metal::GraphTracker::instance().get_processors().empty()) {
       ::tt::tt_metal::GraphTracker::instance().pop_processor();
     }
   }
