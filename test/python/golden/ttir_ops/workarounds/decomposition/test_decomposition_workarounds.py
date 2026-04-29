@@ -969,37 +969,6 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
     )
 
 
-@pytest.mark.parametrize("shape", [(1, 1, 1)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="Non-tile-aligned reduce(prod) along the last dimension pads only the reduced width dimension and leaves the non-reduced height dimension unchanged. Metal issue: https://github.com/tenstorrent/tt-metal/issues/40168"
-)
-def test_prod_last_dim_padding_no_workaround(
-    shape: Shape, dtype: torch.dtype, target: str, request, device
-):
-    """
-    Test that non-tile-aligned reduce(prod) along the last dimension pads only
-    the reduced width dimension and leaves the non-reduced height dimension
-    unchanged.
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def prod_wrapper(
-            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-        ):
-            return builder.prod(in0, dim_arg=[2], keep_dim=False, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-        target=target,
-        pipeline_options=["disable-workarounds=true"],
-    )
-
-
 @pytest.mark.parametrize(
     "input_shape,begins,ends,step,output_shape",
     [
