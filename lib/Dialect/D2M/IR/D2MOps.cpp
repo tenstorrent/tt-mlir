@@ -3196,6 +3196,14 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
           ++idx;
         }
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&op)) {
+        // Skip scratch buffers (allocs consumed by d2m.scratch_init). They
+        // are not operand allocs and would otherwise hijack the positional
+        // index used in the no-remote-use fallback below.
+        if (llvm::any_of(allocOp.getResult().getUsers(), [](Operation *user) {
+              return mlir::isa<d2m::ScratchInitOp>(user);
+            })) {
+          continue;
+        }
         LocalBufferAssociation assoc =
             analyzeLocalBufferAssociation(allocOp.getResult());
         if (assoc.hasRemoteUse) {

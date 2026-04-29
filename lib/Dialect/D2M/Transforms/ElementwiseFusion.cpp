@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
@@ -360,20 +361,52 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
 
     // The producer's init tensor.empty (output) is not part of the fused
-    // operands, but we need to ensure it's mapped so that any operations in
-    // the producer that reference it can be cloned properly. Map it to the
-    // consumer's first output tensor.empty.
+    // operands. Create a fresh intermediate tensor.empty for it inside the
+    // fused region rather than aliasing it to the consumer's output buffer.
+    //
+    // Aliasing producer-output to consumer-output is unsafe for chains of
+    // 3+ ops: the consumer-output is later materialized as a single output
+    // circular buffer, and the producer's pack_tile would write into that
+    // CB while a downstream linalg op in the fused region reads from it.
+    // The output CB's read pointer is never advanced by the compute thread
+    // (only the write pointer, via cb_push_back), so on the second outer
+    // loop iteration the unpack pulls stale tiles from the previous
+    // iteration, corrupting the result.
+    //
+    // For 2-op chains this manifested as a benign aliasing because the
+    // single intermediate fit in DST and was never packed to L1. With a
+    // separate intermediate tensor.empty, downstream lowering is free to
+    // either keep it in DST (no cost) or allocate it its own scratch CB
+    // (correct).
     Value prodOutputEmpty =
         GenericOp::getOperandAlloc(*orig.getParent(), prodInitArgNum);
-    unsigned consumerFirstOutputArgNum =
-        consumer.getDpsInitOperand(0)->getOperandNumber();
-    unsigned consumerOutputFusedIdx =
-        sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
-    irMap.map(prodOutputEmpty, fusedTensorEmpties[consumerOutputFusedIdx]);
+    auto shapedType = mlir::cast<ShapedType>(prodOutputEmpty.getType());
+    auto intermediateEmpty = rewriter.create<mlir::tensor::EmptyOp>(
+        fusedOp.getLoc(), shapedType.getShape(), shapedType.getElementType());
+    irMap.map(prodOutputEmpty, intermediateEmpty.getResult());
   };
 
   mapProdRegionEmpties(producer, pb);
   mapConsRegionEmpties(consumer, cb);
+
+  // Build the set of operand-associated tensor.empty values for producer and
+  // consumer. Any tensor.empty in the original regions that is NOT in this set
+  // is an intermediate tensor.empty (e.g. one we created in a previous fusion
+  // for a producer's output) and must be cloned into the fused region rather
+  // than skipped. If we skip an intermediate tensor.empty, downstream linalg
+  // ops in the fused region will retain references to the original (about-to-
+  // be-erased) value, causing the greedy rewriter's eraseOp to assert on
+  // remaining uses.
+  llvm::DenseSet<Value> operandAssociatedEmpties;
+  auto collectOperandEmpties = [&](GenericOp generic, Block &orig) {
+    for (unsigned i = 0; i < generic->getNumOperands(); ++i) {
+      if (Value origEmpty = GenericOp::getOperandAlloc(*orig.getParent(), i)) {
+        operandAssociatedEmpties.insert(origEmpty);
+      }
+    }
+  };
+  collectOperandEmpties(producer, pb);
+  collectOperandEmpties(consumer, cb);
 
   /////////////////////////////////////////////////////////////////////////////
   // Build fused region: clone producer then consumer, map fused operand to
@@ -385,10 +418,17 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // consumer.
   rewriter.setInsertionPointToEnd(&fusedBlock);
 
-  // Clone producer body (skip tensor.empty, d2m.yield, and remote_store to
-  // output). tensor.empty ops have already been created in the fused block.
+  // Clone producer body (skip d2m.yield, operand-associated tensor.empty, and
+  // remote_store to output). Operand-associated tensor.empty ops have already
+  // been created in the fused block; intermediate tensor.empty ops (added by
+  // a previous fusion iteration for a producer's output) must be cloned so
+  // their replacements live inside the new fused region.
   for (Operation &op : pb) {
-    if (isa<YieldOp, mlir::tensor::EmptyOp>(op)) {
+    if (isa<YieldOp>(op)) {
+      continue;
+    }
+    if (auto emptyOp = dyn_cast<mlir::tensor::EmptyOp>(&op);
+        emptyOp && operandAssociatedEmpties.contains(emptyOp.getResult())) {
       continue;
     }
     // Skip remote_store operations that store to the producer's output operand
@@ -464,8 +504,11 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     }
   }
   for (Operation &op : cb.without_terminator()) {
-    // Skip tensor.empty ops - already created in the fused block.
-    if (isa<mlir::tensor::EmptyOp>(op)) {
+    // Skip operand-associated tensor.empty ops - already created in the fused
+    // block. Intermediate tensor.empty ops (from a prior fusion iteration)
+    // are cloned normally so the new fused region owns them.
+    if (auto emptyOp = dyn_cast<mlir::tensor::EmptyOp>(&op);
+        emptyOp && operandAssociatedEmpties.contains(emptyOp.getResult())) {
       continue;
     }
 
@@ -542,6 +585,21 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   }
   rewriter.setInsertionPointToEnd(&fusedBlock);
   rewriter.create<YieldOp>(fusedOp.getLoc(), fusedYields);
+
+  // Tag inner linalg.generic ops with their output indexing map so that
+  // InsertScratchBuffers can transfer the map onto the linalg op's output
+  // memref.alloc. The Allocator uses the d2m.blocking_map attr to reblock
+  // intermediate allocs (those produced by mapProdRegionEmpties above) when
+  // the outer generic's block factors change. Without this, intermediate
+  // allocs keep their fused-region shard shape (e.g. 17x15) while
+  // operand-associated allocs are reblocked to a smaller per-block shape
+  // (e.g. 1x5), which trips linalg's shape verifier.
+  for (Operation &op : fusedBlock) {
+    if (auto linalgOp = dyn_cast<linalg::LinalgOp>(&op)) {
+      AffineMap outputMap = linalgOp.getIndexingMapsArray().back();
+      op.setAttr("d2m.blocking_map", AffineMapAttr::get(outputMap));
+    }
+  }
 
   return fusedOp;
 }

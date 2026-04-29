@@ -119,6 +119,35 @@ static void addScratchToGeneric(GenericOp genericOp) {
   builder.create<ScratchInitOp>(genericOp.getLoc(), scratchAlloc.getResult());
 }
 
+// Transfer d2m.blocking_map attributes from inner linalg ops onto the
+// memref.alloc backing each linalg op's output (DPS init). This is a
+// post-bufferization step: ElementwiseFusion sets d2m.blocking_map on each
+// linalg op (which survives bufferization), but the actual reblocking in
+// the Allocator inspects the attribute on the memref.alloc. The alloc that
+// corresponds to a linalg's DPS init is exactly the intermediate buffer
+// produced by elementwise fusion.
+static void transferBlockingMaps(GenericOp genericOp) {
+  if (genericOp.getNumRegions() == 0) {
+    return;
+  }
+  for (Operation &op : genericOp.getRegion(0).front()) {
+    auto linalgOp = dyn_cast<linalg::GenericOp>(&op);
+    if (!linalgOp) {
+      continue;
+    }
+    auto blockingMap = linalgOp->getAttr("d2m.blocking_map");
+    if (!blockingMap) {
+      continue;
+    }
+    for (OpOperand &init : linalgOp.getDpsInitsMutable()) {
+      if (auto allocOp = init.get().getDefiningOp<memref::AllocOp>()) {
+        allocOp->setAttr("d2m.blocking_map", blockingMap);
+      }
+    }
+    linalgOp->removeAttr("d2m.blocking_map");
+  }
+}
+
 class D2MInsertScratchBuffers
     : public impl::D2MInsertScratchBuffersBase<D2MInsertScratchBuffers> {
   using D2MInsertScratchBuffersBase::D2MInsertScratchBuffersBase;
@@ -133,6 +162,7 @@ class D2MInsertScratchBuffers
 
     for (GenericOp genericOp : genericsToProcess) {
       addScratchToGeneric(genericOp);
+      transferBlockingMaps(genericOp);
     }
   }
 };
