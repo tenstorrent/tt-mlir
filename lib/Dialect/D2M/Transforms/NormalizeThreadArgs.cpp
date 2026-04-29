@@ -40,6 +40,20 @@ static void rewriteOperand(IRRewriter &rewriter, DMAOpInterface dma,
   dmaOperand.set(buf->getResult(0));
 }
 
+static void rewriteOperand(IRRewriter &rewriter, Operation *op,
+                           OpOperand &operand, unsigned operandIndex) {
+  MemRefType memref = mlir::cast<MemRefType>(operand.get().getType());
+  if (operand.get().getDefiningOp()) {
+    std::tie(memref, std::ignore) = applyViews(operand.get().getDefiningOp());
+  }
+  rewriter.setInsertionPoint(op);
+  Operation *buf = rewriter.create<GetArgOp>(
+      op->getLoc(), memref, operandIndex,
+      ResolutionStageAttr::get(rewriter.getContext(),
+                               ResolutionStage::Compile));
+  operand.set(buf->getResult(0));
+}
+
 // For each DMA op inside a generic, if its src or dst directly references one
 // of the generic's ins/outs operands, replace it with a get_arg op.
 static std::optional<unsigned> getCapturedOperandIndex(GenericOp generic,
@@ -62,6 +76,21 @@ static void rewriteCapturedDMAOperands(IRRewriter &rewriter, GenericOp generic,
   }
   if (dstIndex) {
     rewriteOperand(rewriter, dma, dma.getDstMutable(), *dstIndex);
+  }
+}
+
+static void rewriteCapturedIndexedRowCopyOperands(IRRewriter &rewriter,
+                                                  GenericOp generic,
+                                                  IndexedRowCopyOp copyOp) {
+  for (OpOperand &operand : copyOp->getOpOperands()) {
+    if (operand.get() == copyOp.getIndexScratch() ||
+        operand.get() == copyOp.getRowScratch()) {
+      continue;
+    }
+    auto operandIndex = getCapturedOperandIndex(generic, operand.get());
+    if (operandIndex) {
+      rewriteOperand(rewriter, copyOp.getOperation(), operand, *operandIndex);
+    }
   }
 }
 
@@ -107,6 +136,9 @@ public:
       // Rewrite DMA ops that directly capture ins/outs operands.
       generic.walk([&](DMAOpInterface dma) {
         rewriteCapturedDMAOperands(rewriter, generic, dma);
+      });
+      generic.walk([&](IndexedRowCopyOp copyOp) {
+        rewriteCapturedIndexedRowCopyOperands(rewriter, generic, copyOp);
       });
 
       int64_t baseIndex = static_cast<int64_t>(generic.getInputs().size() +

@@ -11,6 +11,7 @@ collapse-tensors-to-2d pipeline tests, and the rearrange op tests.
 """
 
 import itertools
+import math
 import pytest
 import torch
 import einops
@@ -471,6 +472,113 @@ def test_arange(
         **get_request_kwargs(request),
         atol=1e-6,
         check_atol=True,
+    )
+
+
+# ==================== EMBEDDING TESTS ====================
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "indices_shape, weight_shape",
+    [
+        ((1, 32), (1024, 32)),
+        ((1, 64), (1024, 32)),
+        ((1, 32), (1024, 64)),
+        ((1, 32), (2048, 32)),
+        ((2, 16), (1024, 32)),
+        ((4, 8), (128, 16)),
+        ((1, 128), (40960, 128)),
+    ],
+    ids=lambda shape: shape_str(shape),
+)
+def test_embedding(
+    target: str, request, device, indices_shape: Shape, weight_shape: Shape
+):
+    num_indices = math.prod(indices_shape)
+
+    def embedding_module(builder: TTIRBuilder):
+        @builder.func([indices_shape, weight_shape], [torch.int32, torch.float32])
+        def embedding(
+            indices: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            valid_indices = (
+                torch.arange(num_indices, dtype=torch.int32).reshape(indices_shape) * 97
+            ) % weight_shape[0]
+            builder.set_goldens(inputs={indices: valid_indices})
+            return builder.embedding(indices, weight, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        embedding_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        **get_request_kwargs(request),
+    )
+
+
+_EMBEDDING_DTYPE_IDS = {
+    torch.int32: "i32",
+    torch.uint32: "ui32",
+    torch.float32: "f32",
+    torch.bfloat16: "bf16",
+}
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "indices_dtype, weight_dtype",
+    [
+        pytest.param(
+            indices_dtype,
+            weight_dtype,
+            id=f"{_EMBEDDING_DTYPE_IDS[indices_dtype]}_indices_"
+            f"{_EMBEDDING_DTYPE_IDS[weight_dtype]}_table",
+        )
+        for indices_dtype, weight_dtype in itertools.product(
+            [torch.int32, torch.uint32],
+            [torch.float32, torch.bfloat16, torch.int32],
+        )
+    ],
+)
+def test_embedding_supported_dtypes(
+    target: str,
+    request,
+    device,
+    indices_dtype: torch.dtype,
+    weight_dtype: torch.dtype,
+):
+    indices_shape = (2, 3)
+    weight_shape = (16, 5)
+    num_indices = math.prod(indices_shape)
+
+    def embedding_module(builder: TTIRBuilder):
+        @builder.func([indices_shape, weight_shape], [indices_dtype, weight_dtype])
+        def embedding(
+            indices: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            valid_indices = (
+                (
+                    torch.arange(num_indices, dtype=torch.int64).reshape(indices_shape)
+                    * 7
+                )
+                % weight_shape[0]
+            ).to(indices_dtype)
+            builder.set_goldens(inputs={indices: valid_indices})
+            return builder.embedding(indices, weight, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        embedding_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        **get_request_kwargs(request),
     )
 
 
