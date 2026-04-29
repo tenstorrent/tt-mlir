@@ -15,6 +15,44 @@
 
 namespace tt::runtime::ttnn::operations::matmul {
 
+// If the program config already carries the fused activation (kernel-fused
+// path, the only legal one for sharded inputs per
+// ttnn/operations/matmul/matmul.cpp:163), drop the top-level activation
+// string — passing both triggers the
+// `!parameters.user_fused_activation.has_value()` TT_FATAL when input is
+// sharded.  See TTNNOpModel.cpp::OpModel<MatmulOp>::getOpConstraints for the
+// matching beam-search-side fix.
+static bool programCarriesFusedActivation(
+    const std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+        &pc) {
+  if (!pc) {
+    return false;
+  }
+  return std::visit(
+      [](const auto &cfg) -> bool {
+        using T = std::decay_t<decltype(cfg)>;
+        if constexpr (
+            std::is_same_v<
+                T, ::ttnn::operations::matmul::
+                       MatmulMultiCoreReuseMultiCastProgramConfig> ||
+            std::is_same_v<
+                T, ::ttnn::operations::matmul::
+                       MatmulMultiCoreReuseMultiCast1DProgramConfig> ||
+            std::is_same_v<
+                T,
+                ::ttnn::operations::matmul::
+                    MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig> ||
+            std::is_same_v<
+                T,
+                ::ttnn::operations::matmul::
+                    MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig>) {
+          return cfg.fused_activation.has_value();
+        }
+        return false;
+      },
+      *pc);
+}
+
 // ANCHOR: adding_an_op_matmul_runtime_operations
 void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -33,9 +71,11 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
       matmulProgramConfig = utils::createMatmulProgramConfigIfNeeded(op);
 
-  std::optional<std::string> activation =
-      op->activation() ? std::make_optional(op->activation()->str())
-                       : std::nullopt;
+  std::optional<std::string> activation;
+  if (op->activation() &&
+      !programCarriesFusedActivation(matmulProgramConfig)) {
+    activation = op->activation()->str();
+  }
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
   if (op->compute_config()) {
@@ -72,10 +112,6 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
 
   ::ttnn::DataType outputDataType = utils::getDataType(op->out());
 
-  std::optional<std::string> activation =
-      op->activation() ? std::make_optional(op->activation()->str())
-                       : std::nullopt;
-
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
   if (op->compute_config()) {
     computeConfig =
@@ -83,6 +119,11 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   }
 
   auto programConfig = utils::createMatmulProgramConfigIfNeeded(op);
+
+  std::optional<std::string> activation;
+  if (op->activation() && !programCarriesFusedActivation(programConfig)) {
+    activation = op->activation()->str();
+  }
 
   ::ttnn::Tensor output = ::ttnn::linear(
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,

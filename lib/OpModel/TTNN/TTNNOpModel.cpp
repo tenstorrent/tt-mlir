@@ -4808,14 +4808,52 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
-
   // Convert program config attribute
   auto programConfig =
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
+
+  // If the program config already carries the fused activation (kernel-fused
+  // path, the only legal one for sharded inputs per matmul.cpp:163), drop the
+  // top-level activation string — passing both triggers the
+  // `!parameters.user_fused_activation.has_value()` TT_FATAL when input is
+  // sharded, which causes the beam search to spuriously reject every sharded
+  // candidate and fall back to L1 interleaved.
+  auto programCarriesFusedActivation =
+      [](const std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+             &pc) -> bool {
+    if (!pc) {
+      return false;
+    }
+    return std::visit(
+        [](const auto &cfg) -> bool {
+          using T = std::decay_t<decltype(cfg)>;
+          if constexpr (
+              std::is_same_v<
+                  T, ::ttnn::operations::matmul::
+                         MatmulMultiCoreReuseMultiCastProgramConfig> ||
+              std::is_same_v<
+                  T, ::ttnn::operations::matmul::
+                         MatmulMultiCoreReuseMultiCast1DProgramConfig> ||
+              std::is_same_v<
+                  T,
+                  ::ttnn::operations::matmul::
+                      MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig> ||
+              std::is_same_v<
+                  T,
+                  ::ttnn::operations::matmul::
+                      MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig>) {
+            return cfg.fused_activation.has_value();
+          }
+          return false;
+        },
+        *pc);
+  };
+
+  std::optional<std::string> activationStr;
+  if (activation && !programCarriesFusedActivation(programConfig)) {
+    activationStr = activation->str();
+  }
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =
