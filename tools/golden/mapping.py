@@ -1806,7 +1806,7 @@ def sdpa_decode_golden(
     return output.to(query.dtype)
 
 
-def dot_general_golden(
+def stablehlo_dot_general_golden(
     lhs: GoldenMapTensor,
     rhs: GoldenMapTensor,
     batch_dims_lhs,
@@ -1814,29 +1814,6 @@ def dot_general_golden(
     batch_dims_rhs,
     contract_dims_rhs,
 ) -> GoldenMapTensor:
-    """
-    Custom golden function for dot_general operation.
-
-    Parameters
-    ----------
-    lhs : GoldenMapTensor
-        Left-hand side tensor
-    rhs : GoldenMapTensor
-        Right-hand side tensor
-    batch_dims_lhs : List[int]
-        Batch dimensions for left tensor
-    contract_dims_lhs : List[int]
-        Contraction dimensions for left tensor
-    batch_dims_rhs : List[int]
-        Batch dimensions for right tensor
-    contract_dims_rhs : List[int]
-        Contraction dimensions for right tensor
-
-    Returns
-    -------
-    GoldenMapTensor
-        Result of generalized dot product operation
-    """
     non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
     non_batch_dims_rhs = [d for d in range(rhs.dim()) if d not in batch_dims_rhs]
 
@@ -5532,65 +5509,33 @@ def stablehlo_composite_golden(
 
 
 def stablehlo_reduce_golden(
-    *args,
-    body=None,
-    dimensions=None,
-    output_types=None,
-    **_kwargs,
-) -> "GoldenMapTensor":
-    """
-    Golden for ``stablehlo.reduce``.
-
-    A ``stablehlo.reduce`` op takes N inputs and N init values, applies the
-    binary reduction defined by its body region across the specified
-    ``dimensions``, and produces N outputs. This helper supports the common
-    single-input form (one input + one init -> one output) with an arbitrary
-    elementwise body op (e.g. ``stablehlo.add``/``max``/``min``/``mul``/
-    ``and``/``or``). Multi-input reduces with cross-input bodies are not yet
-    supported and will raise.
-
-    Parameters
-    ----------
-    *args
-        Positional golden tensors: first N are inputs, next N are init values.
-    body : func.FuncOp.body region (single block)
-        The reduction body region. Used to detect which torch reduction to use.
-    dimensions : *Sequence[int]*
-        Reduction dimensions.
-    output_types : *Sequence[Type]*
-        Optional MLIR result types (used for dtype casting on outputs).
-    """
-    if body is None or dimensions is None:
+    inputs: List[GoldenMapTensor],
+    init_values: List[GoldenMapTensor],
+    body: Region,
+    dimensions: List[int],
+    output_types: List[Type],
+) -> GoldenMapTensor:
+    if len(inputs) != len(init_values):
         raise ValueError(
-            "stablehlo_reduce_golden requires both `body` and `dimensions` keyword args."
+            "stablehlo_reduce_golden: number of inputs must match number of init_values."
         )
-
-    if len(args) % 2 != 0:
-        raise ValueError(
-            "stablehlo_reduce_golden expects an even number of positional "
-            "tensors (N inputs + N init values)."
-        )
-    num_inputs = len(args) // 2
-    if num_inputs != 1:
+    if len(inputs) != 1:
         raise NotImplementedError(
-            "stablehlo_reduce_golden currently supports single-input reduces "
-            "only; multi-input variadic reduce semantics are not yet golden'd."
+            "stablehlo_reduce_golden currently supports single-input reduces only."
         )
-
-    input_tensor = args[0]
-    dims = list(dimensions)
-
     if len(body.blocks) != 1:
         raise NotImplementedError(
             "stablehlo_reduce_golden: multi-block reduction bodies are not supported."
         )
+
+    input_tensor = inputs[0]
+    dims = list(dimensions)
     body_block = body.blocks[0]
 
-    # Find the single elementwise op preceding the terminator. We classify by
-    # the StableHLO op type so the same map works regardless of source dialect.
+    # Classify by the body op type so dispatch works regardless of source dialect.
     body_op_type = None
     for op in body_block.operations:
-        if isinstance(op, func.ReturnOp) or isinstance(op, stablehlo.ReturnOp):
+        if isinstance(op, (func.ReturnOp, stablehlo.ReturnOp)):
             continue
         body_op_type = type(op)
         break
@@ -5622,10 +5567,9 @@ def stablehlo_reduce_golden(
                 f"stablehlo_reduce_golden: unsupported body op type {body_op_type}."
             )
     else:
-        # Empty `dimensions` means identity (no axes reduced).
         result = input_tensor
 
-    if output_types is not None and len(output_types) >= 1:
+    if len(output_types) >= 1:
         try:
             target_dtype = mlir_type_to_torch_dtype(output_types[0].element_type)
             result = result.to(target_dtype)
@@ -7793,7 +7737,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.Atan2Op: stablehlo_atan2_golden,
     stablehlo.ShiftLeftOp: stablehlo_shift_left_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
-    stablehlo.DotGeneralOp: dot_general_golden,
+    stablehlo.DotGeneralOp: stablehlo_dot_general_golden,
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     stablehlo.ConvolutionOp: stablehlo_convolution_golden,

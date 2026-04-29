@@ -7927,78 +7927,6 @@ class StableHLOBuilder(Builder):
 
         return not_module, not_builder
 
-    # ----- Reduce Operations -----
-
-    def _reduce_op_proxy(
-        self,
-        in0: Operand,
-        dimensions: List[int],
-        init_attr: Attribute,
-        reduce_op_creator: Callable,
-        loc: Optional[Location] = None,
-    ) -> OpView:
-        """
-        Helper method to create a StableHLO reduce operation.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce
-        init_attr : Attribute
-            Initial value attribute
-        reduce_op_creator : Callable
-            Function that creates the reduce operation in the body
-        loc : Optional[Location]
-            Location for the operation
-
-        Returns
-        -------
-        OpView
-            The reduce operation result
-        """
-        with self._ctx, self._loc:
-            if loc is None:
-                id = self._get_next_global_id()
-                loc = self._get_loc_of_extra_file_callee(id=id)
-
-            input_type = RankedTensorType(in0.type)
-            element_type = input_type.element_type
-
-            input_shape = list(input_type.shape)
-            dimensions_set = set(dimensions)
-            output_shape = [
-                input_shape[i]
-                for i in range(len(input_shape))
-                if i not in dimensions_set
-            ]
-
-            output_type = RankedTensorType.get(output_shape, element_type)
-
-            init_value = stablehlo.ConstantOp(init_attr, loc=loc).result
-
-            reduce_op = stablehlo.ReduceOp(
-                [output_type],
-                inputs=[in0],
-                init_values=[init_value],
-                dimensions=dimensions,
-                loc=loc,
-            )
-
-            reduction_type = RankedTensorType.get([], element_type)
-            block = Block.create_at_start(
-                reduce_op.regions[0], [reduction_type, reduction_type]
-            )
-
-            with InsertionPoint(block):
-                reduce_result = reduce_op_creator(
-                    block.arguments[0], block.arguments[1], loc
-                )
-                stablehlo.ReturnOp([reduce_result], loc=loc)
-
-            return reduce_op.result
-
     ############### stablehlo.ReduceOp ###############
 
     @tag(stablehlo.ReduceOp)
@@ -8108,11 +8036,11 @@ class StableHLOBuilder(Builder):
             init_goldens = [self._get_golden_tensor(i) for i in init_values]
             op_golden_function = get_golden_function(stablehlo_op)
             golden_output = op_golden_function(
-                *input_goldens,
-                *init_goldens,
-                body=reduce_op.regions[0],
-                dimensions=dims,
-                output_types=result_types,
+                input_goldens,
+                init_goldens,
+                reduce_op.regions[0],
+                dims,
+                result_types,
             )
 
             results = list(reduce_op.results)
@@ -8170,17 +8098,15 @@ class StableHLOBuilder(Builder):
                 for old_r, new_r in zip(old_inner_op.results, cloned.results):
                     body_value_map[old_r] = new_r
 
-        # Recompute goldens via the registered mapping so the rebuilt op has
-        # the same semantics as the original.
         op_golden_function = get_golden_function(stablehlo.ReduceOp)
         input_goldens = [self._get_golden_tensor(i) for i in new_inputs]
         init_goldens = [self._get_golden_tensor(i) for i in new_init_values]
         golden_output = op_golden_function(
-            *input_goldens,
-            *init_goldens,
-            body=new_region,
-            dimensions=list(old_op.dimensions),
-            output_types=[r.type for r in old_op.results],
+            input_goldens,
+            init_goldens,
+            new_region,
+            list(old_op.dimensions),
+            [r.type for r in old_op.results],
         )
 
         op_map_dictionary: Dict[OpResult, OpResult] = {}
@@ -8288,178 +8214,6 @@ class StableHLOBuilder(Builder):
                 ]
 
         return reduce_module, reduce_builder
-
-    def reduce_sum(
-        self,
-        in0: Operand,
-        dimensions: List[int],
-        keep_dims: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.reduce`` with sum reduction.
-
-        *Sum reduction operation.*
-
-        Reduces the input tensor by summing elements along the specified dimensions.
-
-        Mathematical definition: For each output element, sum all input elements
-        along the specified reduction dimensions.
-
-        .. code-block:: mlir
-
-            // Sum along dimension 0
-            %result = stablehlo.reduce(%input init: %init) applies stablehlo.add across dimensions = [0] :
-                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
-            // Input tensor:
-            // [[1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0]]
-            // Output tensor:
-            // [5.0, 7.0, 9.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce (0-indexed)
-        keep_dims : bool, optional
-            Whether to keep the reduced dimensions with size 1. Default is False.
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor with reduced dimensions
-        """
-        input_type = RankedTensorType(in0.type)
-        element_type = input_type.element_type
-        zero_attr = self._get_zero_attr(element_type)
-
-        def add_creator(arg0, arg1, loc):
-            return stablehlo.AddOp(arg0, arg1, loc=loc).result
-
-        result = self._reduce_op_proxy(in0, dimensions, zero_attr, add_creator)
-
-        input_golden = self._get_golden_tensor(in0)
-        output_golden = torch.sum(input_golden, dim=dimensions, keepdim=keep_dims)
-        self._set_golden_tensor(result, output_golden)
-
-        return result
-
-    def reduce_max(
-        self,
-        in0: Operand,
-        dimensions: List[int],
-        keep_dims: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.reduce`` with max reduction.
-
-        *Max reduction operation.*
-
-        Reduces the input tensor by taking the maximum element along the specified dimensions.
-
-        Mathematical definition: For each output element, find the maximum of all input
-        elements along the specified reduction dimensions.
-
-        .. code-block:: mlir
-
-            // Max along dimension 0
-            %result = stablehlo.reduce(%input init: %init) applies stablehlo.maximum across dimensions = [0] :
-                (tensor<2x3xf32>, tensor<f32>) -> tensor<3xf32>
-            // Input tensor:
-            // [[1.0, 5.0, 3.0],
-            //  [4.0, 2.0, 6.0]]
-            // Output tensor:
-            // [4.0, 5.0, 6.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce (0-indexed)
-        keep_dims : bool, optional
-            Whether to keep the reduced dimensions with size 1. Default is False.
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor with reduced dimensions
-        """
-        input_type = RankedTensorType(in0.type)
-        element_type = input_type.element_type
-        neg_inf_attr = self._get_neg_inf_attr(element_type)
-
-        def max_creator(arg0, arg1, loc):
-            return stablehlo.MaxOp(arg0, arg1, loc=loc).result
-
-        result = self._reduce_op_proxy(in0, dimensions, neg_inf_attr, max_creator)
-
-        input_golden = self._get_golden_tensor(in0)
-        if dimensions:
-            output_golden = torch.amax(input_golden, dim=dimensions, keepdim=keep_dims)
-        else:
-            output_golden = torch.amax(input_golden, keepdim=keep_dims)
-        self._set_golden_tensor(result, output_golden)
-
-        return result
-
-    def reduce_min(
-        self,
-        in0: Operand,
-        dimensions: List[int],
-        keep_dims: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.reduce`` with min reduction.
-
-        *Min reduction operation.*
-
-        Reduces the input tensor by taking the minimum element along the specified dimensions.
-
-        Mathematical definition: For each output element, find the minimum of all input
-        elements along the specified reduction dimensions.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to reduce
-        dimensions : List[int]
-            Dimensions along which to reduce (0-indexed)
-        keep_dims : bool, optional
-            Whether to keep the reduced dimensions with size 1. Default is False.
-        unit_attrs : Optional[List[str]]
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor with reduced dimensions
-        """
-        input_type = RankedTensorType(in0.type)
-        element_type = input_type.element_type
-        pos_inf_attr = self._get_pos_inf_attr(element_type)
-
-        def min_creator(arg0, arg1, loc):
-            return stablehlo.MinOp(arg0, arg1, loc=loc).result
-
-        result = self._reduce_op_proxy(in0, dimensions, pos_inf_attr, min_creator)
-
-        input_golden = self._get_golden_tensor(in0)
-        if dimensions:
-            output_golden = torch.amin(input_golden, dim=dimensions, keepdim=keep_dims)
-        else:
-            output_golden = torch.amin(input_golden, keepdim=keep_dims)
-        self._set_golden_tensor(result, output_golden)
-
-        return result
 
     def pool_2d(
         self,
@@ -9377,43 +9131,12 @@ class StableHLOBuilder(Builder):
         contract_dims_lhs: List[int],
         batch_dims_rhs: List[int],
         contract_dims_rhs: List[int],
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
-    ) -> OpView:
-        """
-        Creates ``stablehlo.dot_general``.
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.dot_general)
 
-        *Generalized dot product operation.*
-
-        Flexible tensor operation that generalizes matrix multiplication by allowing user to specify which
-        dimensions of two tensors to contract. Matrix multiplication is a special case of this operation,
-        where the contraction happens along the last axis of the first tensor and the second-to-last axis of the second tensor.
-        From StableHLO DotGeneral Op https://openxla.org/stablehlo/spec#dot_general
-
-        Parameters
-        ----------
-        in0 : Operand
-            Left-hand side input tensor
-        in1 : Operand
-            Right-hand side input tensor
-        batch_dims_lhs : *List[int]*
-            Batch dimensions for the left-hand side tensor
-        contract_dims_lhs : *List[int]*
-            Contracting dimensions for the left-hand side tensor
-        batch_dims_rhs : *List[int]*
-            Batch dimensions for the right-hand side tensor
-        contract_dims_rhs : *List[int]*
-            Contracting dimensions for the right-hand side tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
-
-        # Create dimension numbers attribute using proper MLIR attribute construction
         dot_dimension_numbers = stablehlo.DotDimensionNumbers.get(
             context=self._ctx,
             lhs_batching_dimensions=batch_dims_lhs,
@@ -9422,16 +9145,11 @@ class StableHLOBuilder(Builder):
             rhs_contracting_dimensions=contract_dims_rhs,
         )
 
-        lhs_rhape = in0.type.shape
-        rhs_shape = in1.type.shape
+        lhs_shape = list(in0.type.shape)
+        rhs_shape = list(in1.type.shape)
 
-        result_shape = []
-        # Add batch dimensions
-        for dim in batch_dims_lhs:
-            result_shape.append(lhs_rhape[dim])
-
-        # add non-batch, non-contract dimensions from lhs and rhs
-        for i, dim_size in enumerate(lhs_rhape):
+        result_shape = [lhs_shape[d] for d in batch_dims_lhs]
+        for i, dim_size in enumerate(lhs_shape):
             if i not in batch_dims_lhs and i not in contract_dims_lhs:
                 result_shape.append(dim_size)
         for i, dim_size in enumerate(rhs_shape):
@@ -9439,28 +9157,40 @@ class StableHLOBuilder(Builder):
                 result_shape.append(dim_size)
 
         result_type = RankedTensorType.get(result_shape, in0.type.element_type)
-        return self._op_proxy(
-            stablehlo.DotGeneralOp,
-            [in0, in1],
-            organize_stablehlo_args=lambda inputs, *_: (
-                result_type,
-                inputs[0],
-                inputs[1],
-            ),
-            organize_golden_args=lambda inputs: (
-                self._get_golden_tensor(inputs[0]),
-                self._get_golden_tensor(inputs[1]),
-            ),
-            stablehlo_kwargs={"dot_dimension_numbers": dot_dimension_numbers},
-            golden_kwargs={
-                "batch_dims_lhs": batch_dims_lhs,
-                "contract_dims_lhs": contract_dims_lhs,
-                "batch_dims_rhs": batch_dims_rhs,
-                "contract_dims_rhs": contract_dims_rhs,
-            },
-            unit_attrs=unit_attrs,
-            sharding_attr=sharding_attr,
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result_type,
+            in0,
+            in1,
+            dot_dimension_numbers=dot_dimension_numbers,
+            loc=loc,
         )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            self._get_golden_tensor(in0),
+            self._get_golden_tensor(in1),
+            batch_dims_lhs,
+            contract_dims_lhs,
+            batch_dims_rhs,
+            contract_dims_rhs,
+        )
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     @parse(stablehlo.DotGeneralOp)
     def dot_general_parser(
@@ -9483,8 +9213,6 @@ class StableHLOBuilder(Builder):
         )
         new_op_result = new_op.result
 
-        # Recompute golden using the existing dot_general_golden mapping. The
-        # DotDimensionNumbers attr exposes the four dimension lists directly.
         op_golden_function = get_golden_function(stablehlo_op)
         golden_output = op_golden_function(
             self._get_golden_tensor(lhs),
