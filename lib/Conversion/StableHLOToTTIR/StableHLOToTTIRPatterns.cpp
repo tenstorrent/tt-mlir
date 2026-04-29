@@ -73,6 +73,7 @@ getPaddingOrDefault(mlir::DenseIntElementsAttr attr, size_t numSpatialDims) {
 enum TypicalInitReductionValue {
   NEG_INF, // It is also used for minimum integer value.
   ZERO,
+  POS_INF, // It is also used for maximum integer value.
 };
 
 // Check if the constant op is initialized with the desired init value.
@@ -105,6 +106,14 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
     desiredI64 = 0;
     desiredI8 = 0;
     desiredI1 = false;
+  } else if (desired == TypicalInitReductionValue::POS_INF) {
+    desiredF32 = std::numeric_limits<float>::infinity();
+    desiredF64 = std::numeric_limits<double>::infinity();
+    desiredBF16 = 0x7f80; // This is +inf in bfloat16 raw bits
+    desiredI32 = std::numeric_limits<int32_t>::max();
+    desiredI64 = std::numeric_limits<int64_t>::max();
+    desiredI8 = std::numeric_limits<int8_t>::max();
+    desiredI1 = true;
   } else {
     return false;
   }
@@ -120,8 +129,9 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
 
     auto denseValues = ::mlir::DenseElementsAttr::get(
         initValueOp.getValueAttr().getShapedType(), values);
-    uint16_t bfloatBits =
-        static_cast<uint16_t>(*denseValues.getRawData().data());
+    uint16_t bfloatBits;
+    std::memcpy(&bfloatBits, denseValues.getRawData().data(),
+                sizeof(uint16_t));
     return bfloatBits == desiredBF16;
   }
   if (initValueOp.getResult().getType().getElementType().isF32()) {
@@ -248,6 +258,10 @@ public:
     }
     if (isArgMax(srcOp, adaptor, rewriter)) {
       return matchAndRewriteInternalArgMax(srcOp, adaptor, rewriter);
+    }
+
+    if (isArgMin(srcOp, adaptor, rewriter)) {
+      return matchAndRewriteInternalArgMin(srcOp, adaptor, rewriter);
     }
 
     return failure();
@@ -641,6 +655,147 @@ private:
     }
 
     return false;
+  }
+
+  // Lower stablehlo.reduce with ArgMin pattern to ttir.argmax applied to the
+  // negated input.  ArgMin(x) == ArgMax(-x) when ties are broken by smallest
+  // index (which TTNN argmax guarantees).
+  LogicalResult
+  matchAndRewriteInternalArgMin(mlir::stablehlo::ReduceOp &srcOp,
+                                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(1).getType()));
+
+    mlir::ArrayAttr dimArg = rewriter.getI32ArrayAttr(
+        llvm::SmallVector<int32_t>(srcOp.getDimensions()));
+
+    // Negate the input so that argmax(-x) == argmin(x).
+    mlir::Value input = adaptor.getInputs().front();
+    auto inputType =
+        mlir::cast<RankedTensorType>(getTypeConverter()->convertType(
+            srcOp.getInputs().front().getType()));
+    mlir::Value negInput = rewriter.create<tt::ttir::NegOp>(
+        srcOp->getLoc(), inputType, input);
+
+    ttir::ArgMaxOp newOp = rewriter.create<tt::ttir::ArgMaxOp>(
+        srcOp->getLoc(), outputType, negInput,
+        false /* keep_dim */, dimArg);
+
+    srcOp->getResults().back().replaceAllUsesWith(newOp->getResults().front());
+    rewriter.eraseOp(srcOp);
+
+    return success();
+  }
+
+  // Verify that a stablehlo.reduce encodes an ArgMin operation.
+  // ArgMin pattern (tt-xla):
+  //   compare LE   → %cmp
+  //   select       → min value
+  //   compare EQ   → %eq
+  //   minimum      → smaller index for ties
+  //   select       → index from LE result
+  //   select       → resolve ties via EQ
+  //   return
+  bool isArgMin(mlir::stablehlo::ReduceOp &srcOp,
+                mlir::stablehlo::ReduceOp::Adaptor &adaptor,
+                ConversionPatternRewriter &rewriter) const {
+    if (!hasValidArgMaxInputs(srcOp.getInputs())) {
+      return false;
+    }
+
+    if (!hasValidArgMaxOutputs(srcOp.getResults())) {
+      return false;
+    }
+
+    if (!hasValidArgMinInitValues(srcOp.getInitValues())) {
+      return false;
+    }
+
+    if (!hasValidArgMinReducerBody(srcOp.getBody())) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool hasValidArgMinInitValues(mlir::OperandRange initValues) const {
+    if (initValues.size() != 2) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.front(),
+                         TypicalInitReductionValue::POS_INF)) {
+      return false;
+    }
+
+    if (!verifyInitValue(initValues.back(), TypicalInitReductionValue::ZERO)) {
+      return false;
+    }
+    return true;
+  }
+
+  // ArgMin reducer body: compare LE, select, compare EQ, minimum, select,
+  // select, return.
+  bool hasValidArgMinReducerBody(mlir::Region &body) const {
+    auto &blocks = body.getBlocks();
+    if (blocks.size() != 1) {
+      return false;
+    }
+
+    auto &operations = blocks.front().getOperations();
+    if (operations.empty()) {
+      return false;
+    }
+
+    mlir::Operation *op = &operations.front();
+    if (!isa<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    mlir::stablehlo::CompareOp cmp0 =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
+    if (cmp0.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::LE) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::CompareOp>(op)) {
+      return false;
+    }
+    mlir::stablehlo::CompareOp cmp1 =
+        mlir::cast<mlir::stablehlo::CompareOp>(op);
+    if (cmp1.getComparisonDirection() !=
+        mlir::stablehlo::ComparisonDirection::EQ) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::MinOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::SelectOp>(op)) {
+      return false;
+    }
+
+    op = op->getNextNode();
+    if (!isa_and_nonnull<mlir::stablehlo::ReturnOp>(op)) {
+      return false;
+    }
+
+    return true;
   }
 
   // Verify that the init value is defined by a constant op and initialize with
