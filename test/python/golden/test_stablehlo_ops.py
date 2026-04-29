@@ -585,24 +585,6 @@ def module_compare_lt(builder: StableHLOBuilder):
         return builder.compare(in0, in1, "LT", unit_attrs=unit_attrs)
 
 
-def module_broadcast_in_dim(builder: StableHLOBuilder):
-    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
-    def broadcast_in_dim(
-        in0: Operand,
-        builder: StableHLOBuilder,
-        broadcast_dimensions: List[int],
-        output_shape: List[int],
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        return builder.broadcast_in_dim(
-            in0,
-            broadcast_dimensions=broadcast_dimensions,
-            output_shape=output_shape,
-            unit_attrs=unit_attrs,
-        )
-
-
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize(
     "test_fn",

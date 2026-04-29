@@ -2152,6 +2152,7 @@ class StableHLOBuilder(Builder):
 
         return floor_module, floor_builder
 
+    @tag(stablehlo.BroadcastInDimOp)
     def broadcast_in_dim(
         self,
         in0: Operand,
@@ -2199,13 +2200,110 @@ class StableHLOBuilder(Builder):
             organize_stablehlo_args=lambda inputs, output, _: (output, inputs[0]),
             output_shape=output_shape,
             output_type=output_type,
-            golden_kwargs={"size": output_shape},
+            golden_kwargs={
+                "broadcast_dimensions": broadcast_dimensions,
+                "output_shape": output_shape,
+            },
             stablehlo_kwargs={
                 "broadcast_dimensions": broadcast_dimensions,
             },
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
+
+    @parse(stablehlo.BroadcastInDimOp)
+    def broadcast_in_dim_parser(
+        self,
+        old_op: stablehlo.BroadcastInDimOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.broadcast_in_dim_parser
+        )
+        in0 = global_dict[old_op.operand]
+        broadcast_dimensions_attr = old_op.broadcast_dimensions
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            in0,
+            broadcast_dimensions_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0,
+            broadcast_dimensions=list(broadcast_dimensions_attr),
+            output_shape=list(new_op_result.type.shape),
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.BroadcastInDimOp)
+    def broadcast_in_dim_split(
+        self,
+        old_op: stablehlo.BroadcastInDimOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.broadcast_in_dim_split
+        )
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            broadcast_in_dim_module = Module.create()
+            broadcast_in_dim_builder = StableHLOBuilder(
+                old_context,
+                old_loc,
+                mesh_name=self._mesh_name,
+                mesh_dict=self._mesh_dict,
+            )
+            op_input_types = [
+                old_op.operand.type,
+            ]
+
+            with InsertionPoint(broadcast_in_dim_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="broadcast_in_dim_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+                    result_type = old_op.result.type
+                    broadcast_dimensions_attr = old_op.broadcast_dimensions
+
+                    new_op = stablehlo_op(
+                        result_type,
+                        operand,
+                        broadcast_dimensions_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    broadcast_in_dim_builder._set_golden_tensor(
+                        new_op_result, old_op_result
+                    )
+                    input0 = self._get_golden_tensor(old_op.operand)
+                    broadcast_in_dim_builder._set_golden_tensor(operand, input0)
+                    broadcast_in_dim_builder._annotate_presharded_arg(operand)
+                    ordered_inputs.append(operand)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                broadcast_in_dim_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return broadcast_in_dim_module, broadcast_in_dim_builder
 
     ################ stablehlo.LogOp ###############
 

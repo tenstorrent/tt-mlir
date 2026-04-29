@@ -5325,6 +5325,24 @@ def stablehlo_reshape_golden(
     return torch.reshape(input_tensor, shape).clone().to(output_dtype)
 
 
+def stablehlo_broadcast_in_dim_golden(
+    input_tensor: GoldenMapTensor,
+    broadcast_dimensions: Union[DenseI64ArrayAttr, List[int], Tuple[int, ...]],
+    output_shape: Union[ArrayAttr, List[int], Tuple[int, ...]],
+) -> GoldenMapTensor:
+    broadcast_dimensions = [
+        int(dim) for dim in unpack_mlir_attr(broadcast_dimensions)
+    ]
+    output_shape = [int(dim) for dim in unpack_mlir_attr(output_shape)]
+
+    intermediate_shape = [1] * len(output_shape)
+    for src_dim, dst_dim in enumerate(broadcast_dimensions):
+        intermediate_shape[dst_dim] = input_tensor.shape[src_dim]
+
+    reshaped = torch.reshape(input_tensor, intermediate_shape)
+    return torch.broadcast_to(reshaped, output_shape).clone()
+
+
 def stablehlo_rsqrt_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -7650,8 +7668,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
-    # bitcast conversion operation
-    stablehlo.BroadcastInDimOp: torch.broadcast_to,
+    stablehlo.BroadcastInDimOp: stablehlo_broadcast_in_dim_golden,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
