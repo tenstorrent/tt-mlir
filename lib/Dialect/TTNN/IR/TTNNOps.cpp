@@ -264,11 +264,9 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
     }
     return success();
   }
-  if (auto exponentAttr = mlir::dyn_cast<FloatAttr>(getRhs())) {
-    if (exponentAttr.getValueAsDouble() < 0.0) {
-      return emitOpError() << "exponent must be non-negative; but got "
-                           << exponentAttr.getValueAsDouble();
-    }
+  if (mlir::dyn_cast<FloatAttr>(getRhs())) {
+    // Negative float exponents (e.g. -0.5 = rsqrt) are supported by the
+    // underlying SFPU kernel (calculate_unary_power handles both branches).
     return success();
   }
 
