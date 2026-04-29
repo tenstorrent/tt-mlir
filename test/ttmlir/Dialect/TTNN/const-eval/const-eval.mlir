@@ -173,8 +173,8 @@ module {
   // CHECK-LABEL: func.func private @creation_ops_const_eval_0
   // CHECK: "ttnn.zeros"
   // CHECK: "ttnn.ones"
-  // CHECK: "ttnn.add"
   // CHECK: "ttnn.arange"
+  // CHECK: "ttnn.matmul"
   // CHECK: "ttnn.add"
 
   // CHECK-LABEL: func.func @creation_ops(
@@ -183,7 +183,7 @@ module {
     %0 = "ttir.zeros"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
     %1 = "ttir.ones"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
 
-    %2 = "ttir.add"(%0, %1) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
+    %2 = "ttir.matmul"(%0, %1) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
 
     %3 = "ttir.arange"() {start = 0 : si64, end = 4 : si64, step = 1 : si64, arange_dimension = 0 : i64} : () -> tensor<4x4xbf16>
     %4 = "ttir.add"(%2, %3) : (tensor<4x4xbf16>, tensor<4x4xbf16>) -> tensor<4x4xbf16>
