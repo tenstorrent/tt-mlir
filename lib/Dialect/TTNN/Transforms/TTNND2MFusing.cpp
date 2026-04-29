@@ -54,10 +54,10 @@ public:
     }
     // Eltwise binary ops.
     if (mlir::isa<AddOp, DivideOp, MultiplyOp, SubtractOp, EqualOp, NotEqualOp,
-                  GreaterEqualOp, GreaterThanOp, LessEqualOp, LessThanOp,
-                  LogicalAndOp, LogicalOrOp, LogicalXorOp, LogicalRightShiftOp,
-                  BitwiseAndOp, BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp,
-                  RemainderOp, LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
+                  GreaterEqualOp, LessEqualOp, LessThanOp, LogicalAndOp,
+                  LogicalOrOp, LogicalXorOp, LogicalRightShiftOp, BitwiseAndOp,
+                  BitwiseOrOp, BitwiseXorOp, MaximumOp, MinimumOp, RemainderOp,
+                  LogicalLeftShiftOp, Atan2Op, PowTensorOp>(op)) {
       return true;
     }
 
