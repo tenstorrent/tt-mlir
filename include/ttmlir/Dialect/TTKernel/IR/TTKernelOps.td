@@ -617,8 +617,14 @@ def TTKernel_ReduceUninitOp : TTKernel_InitOp<"reduce_uninit"> {
        same dimension, this call can be omitted. If this function is not called, the packer will continue to use the edge masks set
        by the latest reduce_init call, which may lead to incorrect packing behavior in subsequent operations.
 
+       The `full_fp32` attribute emits reduce_uninit<true>, which performs the extra cleanup required after some
+       full-fp32 reduce sequences. Without the attribute, lowering emits reduce_uninit(), matching tt-metal's
+       default false behavior.
+
        This function is not in line with our programming mode. To be removed by end of 2025. tt-metal#22904.
     }];
+
+    let arguments = (ins UnitAttr:$full_fp32);
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
