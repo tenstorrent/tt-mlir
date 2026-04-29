@@ -221,6 +221,35 @@ public:
 } // namespace
 
 namespace {
+class TTKernelLoadFromL1OpToEmitCOpRewriter
+    : public OpConversionPattern<ttkernel::LoadFromL1Op> {
+
+public:
+  TTKernelLoadFromL1OpToEmitCOpRewriter(
+      TTKernelToEmitCTypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<ttkernel::LoadFromL1Op>(typeConverter, ctx) {}
+
+  LogicalResult
+  matchAndRewrite(ttkernel::LoadFromL1Op op,
+                  ttkernel::LoadFromL1Op::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto pointerType =
+        mlir::cast<emitc::PointerType>(adaptor.getL1Ptr().getType());
+    auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
+        op->getLoc(),
+        emitc::LValueType::get(op.getContext(), pointerType.getPointee()),
+        adaptor.getL1Ptr(), adaptor.getOffset());
+
+    auto loaded = rewriter.create<emitc::LoadOp>(
+        op->getLoc(), pointerType.getPointee(), subscriptOp);
+    rewriter.replaceOpWithNewOp<emitc::CastOp>(
+        op, getTypeConverter()->convertType(op.getValue().getType()), loaded);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
 class TTKernelToEmitCOpaqueRewriter : public OpConversionPattern<SourceOp> {
 public:
@@ -293,6 +322,15 @@ public:
           emitc::OpaqueAttr::get(op.getContext(), reduceDim));
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), op.getFullFp32() ? "true" : "false"));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceUninitOp>) {
+      // The default `reduce_uninit()` signature already resolves to <false>,
+      // so emit a template arg only when full_fp32 is set.
+      if (!op.getFullFp32()) {
+        return ArrayAttr();
+      }
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "true"));
       return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceInitOp>) {
       // sfpu_reduce_init<PoolType, DataFormat>()
@@ -383,14 +421,15 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), reuseType));
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::WhereTileOp> ||
-                         std::is_same_v<SourceOp,
-                                        ttkernel::BitwiseAndBinaryTilesOp> ||
-                         std::is_same_v<SourceOp,
-                                        ttkernel::BitwiseOrBinaryTilesOp> ||
-                         std::is_same_v<SourceOp,
-                                        ttkernel::BitwiseXorBinaryTilesOp> ||
-                         std::is_same_v<SourceOp, ttkernel::LogicalNotTileOp>) {
+    } else if constexpr (
+        std::is_same_v<SourceOp, ttkernel::WhereTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::BitwiseAndBinaryTilesOp> ||
+        std::is_same_v<SourceOp, ttkernel::BitwiseOrBinaryTilesOp> ||
+        std::is_same_v<SourceOp, ttkernel::BitwiseXorBinaryTilesOp> ||
+        std::is_same_v<SourceOp, ttkernel::BinaryLeftShiftTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::BinaryRightShiftTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::BinaryLogicalRightShiftTileOp> ||
+        std::is_same_v<SourceOp, ttkernel::LogicalNotTileOp>) {
       SmallVector<Attribute, 1> template_args;
       template_args.push_back(
           datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDtype()));
@@ -1372,6 +1411,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AtanTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryBitwiseTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryLeftShiftTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryLogicalRightShiftTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryRightShiftTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryShiftTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinopWithScalarTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseAndBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileInitOp>,
@@ -1576,6 +1619,8 @@ public:
 
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                        funcOp.getContext());
+    patterns.add<TTKernelLoadFromL1OpToEmitCOpRewriter>(typeConverter,
+                                                        funcOp.getContext());
 
     patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(
         typeConverter, funcOp.getContext());

@@ -10,6 +10,7 @@ include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.td"
 include "ttmlir/Dialect/D2M/IR/D2MBase.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsAttrs.td"
 include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.td"
+include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.td"
 
 include "mlir/Dialect/Affine/IR/AffineMemoryOpInterfaces.td"
 include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td"
@@ -577,6 +578,45 @@ def D2M_TileBitwiseXorOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileLogicalLeftShiftOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_logical_left_shift", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Logical Left Shift Op";
+    let description = [{
+        The `tile_logical_left_shift` operation computes an elementwise logical
+        left shift of `lhs` by `rhs` bits between two integer tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileLogicalRightShiftOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_logical_right_shift", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Logical Right Shift Op";
+    let description = [{
+        The `tile_logical_right_shift` operation computes an elementwise logical
+        right shift of `lhs` by `rhs` bits between two integer tiles. Unlike an
+        arithmetic right shift, the sign bit is not propagated; the high-order
+        bits are filled with zeros.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileRightShiftOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_right_shift", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Arithmetic Right Shift Op";
+    let description = [{
+        The `tile_right_shift` operation computes an elementwise arithmetic
+        right shift of `lhs` by `rhs` bits between two integer tiles. The
+        sign bit is propagated for signed integer element types.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{
@@ -902,6 +942,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Tile Tilize Block Op";
     let description = [{
@@ -914,6 +955,13 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutputMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getInputMutable() == &operand;
+      }
     }];
 
     let hasVerifier = 1;
@@ -928,6 +976,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Tile Untilize Block Op";
     let description = [{
@@ -940,6 +989,13 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutputMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getInputMutable() == &operand;
+      }
     }];
 
     let hasVerifier = 1;
@@ -1384,6 +1440,7 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       "getBufferType",
       "hasTensorSemantics"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "Local DMA copy with affine map indexing";
     let description = [{
@@ -1505,6 +1562,14 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
 
       /// Returns the CB port number. Op must be in explicit CB form.
       unsigned getCBPort();
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return llvm::any_of(getDstMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getSrcMutable() == &operand;
+      }
     }];
 
   let extraClassDefinition = [{
@@ -1548,6 +1613,84 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
     let assemblyFormat = [{ $mem_tx attr-dict `:` qualified(type($mem_tx)) }];
 }
 
+def D2M_IndexedRowCopyOp : D2M_GenericRegionDatamovementOp<"indexed_row_copy",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface> ]> {
+    let summary = "D2M indexed row-copy op";
+    let description = [{
+      Data-movement primitive for copying rows from a source table to an output
+      buffer using a tensor of 32-bit row indices. This is the lower-level
+      operation used by embedding, and is shaped so other indexed
+      datamovement ops can share the same NoC lowering path.
+
+      The op is memref-only. Tensor-level semantic ops should bufferize or
+      decompose to this op after choosing scratch circular buffers.
+    }];
+
+    let arguments = (ins
+      DeviceL1MemRef:$indices,
+      DeviceL1MemRef:$src,
+      DeviceL1MemRef:$dst,
+      DeviceL1MemRef:$indexScratch,
+      DeviceL1MemRef:$rowScratch,
+      I64Attr:$numRows,
+      I64Attr:$rowWidth,
+      DenseI64ArrayAttr:$indicesShape
+    );
+
+    let assemblyFormat = [{
+      $indices `,` $src `,` $dst
+      `scratch` $indexScratch `,` $rowScratch
+      `<` $numRows `,` $rowWidth `>`
+      attr-dict `:` type($indices) `,` type($src)
+      `,` type($dst) `,` type($indexScratch) `,` type($rowScratch)
+    }];
+
+    let hasVerifier = 1;
+}
+
+def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "D2M embedding row-gather op";
+    let description = [{
+      Data-movement embedding lookup. The op reads integer indices and a row-major
+      embedding table, then writes the selected table rows to the output buffer.
+
+      The tensor form is emitted by TTIRToD2M with an output tensor operand and
+      a tensor result. During bufferization, this op allocates scratch circular
+      buffers and lowers to `d2m.indexed_row_copy`, which owns the backend row
+      gather implementation.
+    }];
+
+    let arguments = (ins
+      AnyRankedTensor:$indices,
+      AnyRankedTensor:$weight,
+      AnyRankedTensor:$output,
+      I64Attr:$numIndices,
+      I64Attr:$embeddingDim,
+      DenseI64ArrayAttr:$indicesShape
+    );
+    let results = (outs AnyRankedTensor:$result);
+
+    let assemblyFormat = [{
+      $indices `,` $weight `,` $output
+      `<` $numIndices `,` $embeddingDim `>`
+      attr-dict `:` type($indices) `,` type($weight)
+      `,` type($output)
+      `->` type($result)
+    }];
+
+    let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Remote Load/Store Ops (Based on Affine Load/Store)
 //===----------------------------------------------------------------------===//
@@ -1569,6 +1712,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       "hasTensorSemantics",
       "isNotConflicting"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Remote/Aliased Load Op";
     let description = [{
@@ -1824,6 +1968,14 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return {StringAttr::get(getContext(), getMapAttrStrName()),
                 getAffineMapAttr()};
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return llvm::any_of(getLocalBufferMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return false;
+      }
     }];
 }
 
@@ -1842,6 +1994,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       "getBufferType",
       "hasTensorSemantics"
     ]>
+  , D2M_SynchronizableOpInterface
   ]> {
     let summary = "D2M Remote/Aliased Store Op";
     let description = [{
@@ -2030,7 +2183,69 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         return {StringAttr::get(getContext(), getMapAttrStrName()),
                 getAffineMapAttr()};
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return false;
+      }
+
+      bool isConsumer(mlir::OpOperand &operand) {
+        return llvm::any_of(getLocalBufferMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+      }
     }];
+}
+
+def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
+  MemoryEffects<[MemRead, MemWrite]>,
+  AttrSizedOperandSegments,
+  DestinationStyleOpInterface,
+  NoTerminator,
+  SingleBlock,
+  D2M_SynchronizableOpInterface
+  ]> {
+
+  let summary = "D2M Synchronized Region Op";
+  let description = [{
+    This is a generic op to wrap a region of non synchronized ops to be synchronizable.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$consumers, Variadic<AnyRankedTensorOrMemRef>:$producers);
+  let regions = (region SizedRegion<1>:$region);
+
+  let assemblyFormat = [{
+    `consumers` `(` $consumers `)` `producers` `(` $producers `)` $region attr-dict `:` type($consumers) type($producers)
+  }];
+
+  let builders = [
+    OpBuilder<(ins "TypeRange":$resultTypes, "ValueRange":$consumers, "ValueRange":$producers,
+      "function_ref<void(OpBuilder &, Location, ValueRange)>":$regionBuilder),
+    [{
+      build($_builder, $_state, resultTypes, consumers, producers);
+      Region &region = *$_state.regions.front().get();
+      {
+        OpBuilder::InsertionGuard guard($_builder);
+        Block *block = $_builder.createBlock(&region, region.end());
+        for (Value consumer : consumers)
+          block->addArgument(consumer.getType(), consumer.getLoc());
+        for (Value producer : producers)
+          block->addArgument(producer.getType(), producer.getLoc());
+        $_builder.setInsertionPointToStart(block);
+        regionBuilder($_builder, $_state.location, block->getArguments());
+      }
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getProducersMutable(); }
+
+    bool isProducer(mlir::OpOperand &operand) {
+      return llvm::any_of(getProducersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+    }
+
+    bool isConsumer(mlir::OpOperand &operand) {
+      return llvm::any_of(getConsumersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+    }
+  }];
+
 }
 
 //===----------------------------------------------------------------------===//

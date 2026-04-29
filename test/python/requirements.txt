@@ -3,6 +3,7 @@ pydantic
 pytest
 pytest-json-report
 pytest-forked
+pytest-split
 setuptools
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch@https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl; sys_platform == "linux"

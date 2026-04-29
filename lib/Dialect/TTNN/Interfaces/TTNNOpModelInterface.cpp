@@ -1772,6 +1772,11 @@ TypecastOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1);
 
+  if (inputs[0].getBufferType() == BufferType::SystemMemory) {
+    return issueErrorForGetOpConstraints(
+        getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+  }
+
   const auto inputShape = getInput().getType().getShape();
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
@@ -1790,6 +1795,11 @@ llvm::Expected<size_t>
 TypecastOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
+
+  if (inputs[0].getBufferType() == BufferType::SystemMemory) {
+    return issueErrorForGetOpRuntime(
+        getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+  }
 
   const auto inputShape = getInput().getType().getShape();
 

@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Traits.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -4821,7 +4822,7 @@ public:
     return success();
   }
 
-private:
+public:
   // In StableHLO, startIndexMap attribute refers to which dims of input
   // we are indexing (with startIndices). We need these dims to be
   // flattened together to be the first dim of transformed input (that is
@@ -5106,6 +5107,81 @@ private:
                               expectedOutputType.getElementType(),
                               expectedOutputType.getEncoding()),
         reshapedOutput, inverseOutputPermutation);
+  }
+
+  // Multi-dimensional generalization of expandStartIndices. Expands
+  // startIndices [1, M] to [prod(windowSizes), M] where row r carries a flat
+  // offset built from decoding r (row-major) over windowSizes and scaling each
+  // component by the corresponding stride of the flattened indexed operand.
+  // Example: windowSizes=[3,3], partialDimStrides=[12,1]
+  //   row=0 (dh=0,dw=0) -> offset=0
+  //   row=1 (dh=0,dw=1) -> offset=1
+  //   row=3 (dh=1,dw=0) -> offset=12
+  //   row=8 (dh=2,dw=2) -> offset=26
+  static ttir::AddOp
+  expandStartIndicesMultiDim(ConversionPatternRewriter &rewriter, Location loc,
+                             Value startIndices, ArrayRef<int64_t> windowSizes,
+                             ArrayRef<int64_t> partialDimStrides) {
+    auto startIndicesType =
+        mlir::cast<RankedTensorType>(startIndices.getType());
+    auto startIndicesShape = startIndicesType.getShape();
+    assert(startIndicesShape.size() == 2 && startIndicesShape[0] == 1 &&
+           "expandStartIndicesMultiDim expects 2D startIndices [1, M]");
+    assert(windowSizes.size() == partialDimStrides.size());
+
+    int64_t totalWindow = 1;
+    for (int64_t ws : windowSizes) {
+      totalWindow *= ws;
+    }
+    int64_t M = startIndicesShape[1];
+
+    // Compute the flat offset for each window position (row-major over
+    // windowSizes).
+    SmallVector<int64_t> windowOffsets(totalWindow);
+    for (int64_t row = 0; row < totalWindow; ++row) {
+      int64_t flatOffset = 0;
+      int64_t remaining = row;
+      for (int64_t d = static_cast<int64_t>(windowSizes.size()) - 1; d >= 0;
+           --d) {
+        int64_t off_d = remaining % windowSizes[d];
+        remaining /= windowSizes[d];
+        flatOffset += off_d * partialDimStrides[d];
+      }
+      windowOffsets[row] = flatOffset;
+    }
+
+    SmallVector<int64_t> expandedShape = {totalWindow, M};
+    auto elemType = startIndicesType.getElementType();
+    auto expandedType = RankedTensorType::get(expandedShape, elemType,
+                                              startIndicesType.getEncoding());
+
+    // Build offset matrix [totalWindow, M]: row r has all elements =
+    // windowOffsets[r]. The caller routes startIndices through
+    // flattenStartIndices, which always produces float-typed indices, so we
+    // only need the float construction path here.
+    SmallVector<float> matrixData(totalWindow * M);
+    for (int64_t row = 0; row < totalWindow; ++row) {
+      float v = static_cast<float>(windowOffsets[row]);
+      for (int64_t col = 0; col < M; ++col) {
+        matrixData[row * M + col] = v;
+      }
+    }
+    auto offsetAttr =
+        DenseElementsAttr::get(expandedType, llvm::ArrayRef(matrixData));
+
+    auto offsetConstant = rewriter.create<ttir::ConstantOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_windowOffsetConstant"),
+        expandedType, offsetAttr);
+
+    SmallVector<int64_t> broadcastDimensions = {totalWindow, 1};
+    auto broadcastedStartIndices = rewriter.create<ttir::BroadcastOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_broadcastStartIndices"),
+        expandedType, startIndices,
+        rewriter.getDenseI64ArrayAttr(broadcastDimensions));
+
+    return rewriter.create<ttir::AddOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_expandedStartIndices"),
+        expandedType, broadcastedStartIndices, offsetConstant);
   }
 };
 
@@ -5618,6 +5694,273 @@ private:
       slices.push_back(slice);
     }
     return slices;
+  }
+};
+
+// Decomposes a stablehlo.gather that has two or more indexed dimensions with
+// partial slice sizes (1 < sliceSize < dimSize). Generalizes
+// StableHLOGatherToEmbeddingPattern's single-partial-dim path to N-D windows:
+// flattens the partial indexed dims into a single dim (reusing permuteInput
+// and reshapeInput), combines multi-component indices into a 1-D flat index
+// (flattenStartIndices + reshapeStartIndices), builds one N-D window-offset
+// constant and broadcast-adds it to produce expanded indices, runs a single
+// ttir.embedding, then reshapes and permutes the output into place.
+//
+// Match conditions:
+// - At least two partial indexed dims
+// - No batching dims, no collapsed_slice_dims
+// - Non-indexed dims are fully sliced
+// - All indexed dims are partial (not mixed with full-N/N)
+// - Partial indexed dims are contiguous in operand layout
+// - offset_dims are the leading output positions
+//
+// Example:
+// operand: tensor<1x12x12x768xbf16>, indices: tensor<16x12x2xi32>
+// start_index_map = [1, 2], offset_dims = [0, 1, 2, 3]
+// slice_sizes = [1, 3, 3, 768]
+// -> flat operand [144, 768], flat indices [1, 192], expand to [9, 192]
+//    with offsets (dh*12 + dw), single ttir.embedding -> [9, 192, 768],
+//    reshape + permute to tensor<1x3x3x768x16x12xbf16>
+class StableHLOGatherMultiPartialFlattenPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+public:
+  StableHLOGatherMultiPartialFlattenPattern(TypeConverter &typeConverter,
+                                            MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::GatherOp>(typeConverter, context,
+                                                       /*benefit=*/1) {}
+
+private:
+  // Identifies the partial indexed dims (1 < sliceSize < inputDim) in operand
+  // order. Used both for legality checking and for the main transformation.
+  static SmallVector<int64_t>
+  getPartialIndexedDims(mlir::stablehlo::GatherOp srcOp) {
+    auto startIndexMap = srcOp.getDimensionNumbers().getStartIndexMap();
+    auto operandShape = srcOp.getOperand().getType().getShape();
+    auto sliceSizes = srcOp.getSliceSizes();
+    SmallVector<int64_t> partialDims;
+    for (int64_t d : startIndexMap) {
+      if (sliceSizes[d] > 1 && sliceSizes[d] < operandShape[d]) {
+        partialDims.push_back(d);
+      }
+    }
+    return partialDims;
+  }
+
+  LogicalResult checkBasicLegality(mlir::stablehlo::GatherOp srcOp,
+                                   ArrayRef<int64_t> partialDims,
+                                   PatternRewriter &rewriter) const {
+    auto dimNumbers = srcOp.getDimensionNumbers();
+    auto startIndexMap = dimNumbers.getStartIndexMap();
+    auto offsetDims = dimNumbers.getOffsetDims();
+    auto collapsedSliceDims = dimNumbers.getCollapsedSliceDims();
+    auto operandType = srcOp.getOperand().getType();
+    auto operandShape = operandType.getShape();
+    auto sliceSizes = srcOp.getSliceSizes();
+
+    // Only handle the multi-partial case; let existing patterns handle others.
+    if (partialDims.size() < 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Not a multi-partial-slice gather; defer to other patterns");
+    }
+    if (!dimNumbers.getOperandBatchingDims().empty() ||
+        !dimNumbers.getStartIndicesBatchingDims().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Operand/start-indices batching dims not supported");
+    }
+    if (!collapsedSliceDims.empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "collapsed_slice_dims not supported by this pattern");
+    }
+    for (int64_t i = 0; i < operandType.getRank(); ++i) {
+      if (llvm::is_contained(startIndexMap, i)) {
+        continue;
+      }
+      if (sliceSizes[i] != operandShape[i]) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Non-indexed dim must be fully sliced for this pattern");
+      }
+    }
+    if (startIndexMap.size() != partialDims.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "All indexed dims must be partial for this pattern");
+    }
+    // After the size check above, partialDims and startIndexMap must be equal:
+    // partialDims is built by iterating startIndexMap in order and keeping
+    // only partial dims, so equal sizes implies equal contents.
+    assert(SmallVector<int64_t>(startIndexMap.begin(), startIndexMap.end()) ==
+               SmallVector<int64_t>(partialDims.begin(), partialDims.end()) &&
+           "partialDims must equal startIndexMap when all indexed dims are "
+           "partial");
+    for (size_t i = 0; i + 1 < partialDims.size(); ++i) {
+      if (partialDims[i] + 1 != partialDims[i + 1]) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Partial indexed dims must be contiguous in operand layout");
+      }
+    }
+    // offset_dims must be the leading output positions [0, 1, ..., rank-1] so
+    // the batch dims follow the offset dims (keeps output permutation simple).
+    for (int64_t i = 0; i < static_cast<int64_t>(offsetDims.size()); ++i) {
+      if (offsetDims[i] != i) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "offset_dims must be the leading output positions for "
+                   "this pattern");
+      }
+    }
+    return success();
+  }
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::GatherOp srcOp,
+                  mlir::stablehlo::GatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto partialDims = getPartialIndexedDims(srcOp);
+    if (failed(checkBasicLegality(srcOp, partialDims, rewriter))) {
+      return failure();
+    }
+
+    auto dimNumbers = srcOp.getDimensionNumbers();
+    int64_t indexVectorDim = dimNumbers.getIndexVectorDim();
+    auto sliceSizes = srcOp.getSliceSizes();
+
+    auto operandType =
+        mlir::cast<RankedTensorType>(srcOp.getOperand().getType());
+    auto indicesType =
+        mlir::cast<RankedTensorType>(srcOp.getStartIndices().getType());
+    auto operandShape = operandType.getShape();
+    auto indicesShape = indicesType.getShape();
+
+    Location loc = srcOp.getLoc();
+
+    // Reuse shared helpers from StableHLOGatherToEmbeddingPattern to flatten
+    // the operand's indexed dims, combine multi-component indices into a flat
+    // 1-D index, and reshape indices to 2-D.
+    auto input = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+        adaptor.getOperands()[0]);
+    auto inputPermuted = StableHLOGatherToEmbeddingPattern::permuteInput(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permuteInput"),
+        input, partialDims);
+    auto reshapedInput = StableHLOGatherToEmbeddingPattern::reshapeInput(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeInput"),
+        inputPermuted, partialDims.size());
+
+    auto startIndices = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+        adaptor.getOperands()[1]);
+    auto flattenedIndices =
+        StableHLOGatherToEmbeddingPattern::flattenStartIndices(
+            rewriter, inputPermuted.getType().getShape(), srcOp.getOperand(),
+            startIndices, partialDims, indexVectorDim);
+    auto reshapedIndices =
+        StableHLOGatherToEmbeddingPattern::reshapeStartIndices(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(loc, "_reshapeStartIndices"),
+            mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+                flattenedIndices.getResult()));
+
+    // Expand indices over the N-D window in a single shot: build a constant
+    // offset tensor of shape [prod(windowSizes), M] carrying the flat offset
+    // dh*stride_h + dw*stride_w + ... for each window position, and
+    // broadcast-add it to the reshaped base indices.
+    SmallVector<int64_t> windowSizes;
+    SmallVector<int64_t> partialDimSizes;
+    windowSizes.reserve(partialDims.size());
+    partialDimSizes.reserve(partialDims.size());
+    for (int64_t pd : partialDims) {
+      windowSizes.push_back(sliceSizes[pd]);
+      partialDimSizes.push_back(operandShape[pd]);
+    }
+    SmallVector<int64_t> partialDimStrides =
+        mlir::computeStrides(partialDimSizes);
+
+    auto expandedIndices =
+        StableHLOGatherToEmbeddingPattern::expandStartIndicesMultiDim(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(loc, "_expandStartIndices"),
+            reshapedIndices, windowSizes, partialDimStrides);
+
+    // Single embedding call: weights [K, C], indices [totalWindow, M],
+    // output [totalWindow, M, C].
+    auto expandedIndicesType =
+        mlir::cast<RankedTensorType>(expandedIndices.getResult().getType());
+    SmallVector<int64_t> embeddingOutShape(
+        expandedIndicesType.getShape().begin(),
+        expandedIndicesType.getShape().end());
+    embeddingOutShape.push_back(reshapedInput.getType().getShape()[1]);
+    auto embeddingOutType = RankedTensorType::get(
+        embeddingOutShape, reshapedInput.getType().getElementType(),
+        reshapedInput.getType().getEncoding());
+    auto embeddingOp = rewriter.create<ttir::EmbeddingOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_embedding"),
+        embeddingOutType, expandedIndices.getResult(), reshapedInput);
+
+    // Reshape embedding output to the intermediate layout:
+    //   [w_0, ..., w_{k-1},  batch_0, ..., batch_{m-1},
+    //    nonIndexedOp_0, ..., nonIndexedOp_{p-1}]
+    // where batch dims are indicesShape with indexVectorDim removed (in the
+    // order flattenStartIndices produced) and non-indexed operand dims are
+    // in operand order (the order reshapeInput flattened them in).
+    SmallVector<int64_t> intermediateShape;
+    intermediateShape.reserve(windowSizes.size() + (indicesShape.size() - 1) +
+                              (operandShape.size() - partialDims.size()));
+    for (int64_t ws : windowSizes) {
+      intermediateShape.push_back(ws);
+    }
+    for (int64_t i = 0; i < static_cast<int64_t>(indicesShape.size()); ++i) {
+      if (i != indexVectorDim) {
+        intermediateShape.push_back(indicesShape[i]);
+      }
+    }
+    for (int64_t i = 0; i < static_cast<int64_t>(operandShape.size()); ++i) {
+      if (!llvm::is_contained(partialDims, i)) {
+        intermediateShape.push_back(operandShape[i]);
+      }
+    }
+    auto intermediateOutput = ttir::utils::createReshapeOp(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshapeOutput"),
+        mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+            embeddingOp.getResult()),
+        intermediateShape);
+
+    // Build permutation by walking the three intermediate-shape segments
+    // (window dims, batch dims, non-indexed operand dims) and writing each
+    // intermediate axis to the output axis it should land at.
+    auto resultType = mlir::cast<RankedTensorType>(srcOp.getType());
+    int64_t outputRank = resultType.getRank();
+    int64_t operandRank = operandType.getRank();
+    int64_t numWindow = static_cast<int64_t>(windowSizes.size());
+    int64_t numBatch = static_cast<int64_t>(indicesShape.size()) - 1;
+
+    SmallVector<int64_t> permutation(outputRank);
+    int64_t partialBegin = partialDims.front();
+
+    // Window block (intermediate axes [0, numWindow)) lands on result positions
+    // [partialBegin, partialBegin + numWindow) — the partial-indexed operand
+    // axes.
+    for (int64_t j = 0; j < numWindow; ++j) {
+      permutation[partialBegin + j] = j;
+    }
+    // Batch block (intermediate axes [numWindow, numWindow + numBatch)) lands
+    // on result positions [operandRank, outputRank).
+    for (int64_t b = 0; b < numBatch; ++b) {
+      permutation[operandRank + b] = numWindow + b;
+    }
+    // Non-indexed-operand block lands on the remaining result positions in
+    // operand order: axes [0, partialBegin) and
+    // [partialBegin + numWindow, operandRank).
+    int64_t intIdx = numWindow + numBatch;
+    for (int64_t i = 0; i < partialBegin; ++i) {
+      permutation[i] = intIdx++;
+    }
+    for (int64_t i = partialBegin + numWindow; i < operandRank; ++i) {
+      permutation[i] = intIdx++;
+    }
+
+    auto finalOutput = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_permuteOutput"), resultType,
+        intermediateOutput, permutation);
+
+    rewriter.replaceOp(srcOp, finalOutput.getResult());
+    return success();
   }
 };
 } // namespace
@@ -8339,6 +8682,7 @@ static void addGatherOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOGatherToGatherDimPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToSliceRepeatConcatPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToEmbeddingPattern>(typeConverter, ctx);
+  patterns.add<StableHLOGatherMultiPartialFlattenPattern>(typeConverter, ctx);
 }
 
 static void addIotaOpConversionPattern(MLIRContext *ctx,

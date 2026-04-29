@@ -169,6 +169,46 @@ std::uint32_t dataTypeElementSize(::tt::target::DataType dataType) {
   }
 }
 
+bool isBlockFormatDataType(::tt::target::DataType dataType) {
+  switch (dataType) {
+  case ::tt::target::DataType::BFP_Float8:
+  case ::tt::target::DataType::BFP_BFloat8:
+  case ::tt::target::DataType::BFP_Float4:
+  case ::tt::target::DataType::BFP_BFloat4:
+  case ::tt::target::DataType::BFP_Float2:
+  case ::tt::target::DataType::BFP_BFloat2:
+    return true;
+  default:
+    return false;
+  }
+}
+
+uint64_t blockFormatTileSizeBytes(::tt::target::DataType dataType) {
+  // BFP formats are only valid for 32x32 tiles.
+  constexpr uint64_t kTileElements = 32 * 32;
+  constexpr uint64_t kBfpExpGroupSize = 16;
+  constexpr uint64_t kBfpExpBytesPerTile = kTileElements / kBfpExpGroupSize;
+
+  auto tileSizeBytes = [](uint64_t mantissaBits) {
+    return (kTileElements * mantissaBits) / 8 + kBfpExpBytesPerTile;
+  };
+
+  switch (dataType) {
+  case ::tt::target::DataType::BFP_Float8:
+  case ::tt::target::DataType::BFP_BFloat8:
+    return tileSizeBytes(8);
+  case ::tt::target::DataType::BFP_Float4:
+  case ::tt::target::DataType::BFP_BFloat4:
+    return tileSizeBytes(4);
+  case ::tt::target::DataType::BFP_Float2:
+  case ::tt::target::DataType::BFP_BFloat2:
+    return tileSizeBytes(2);
+  default:
+    LOG_FATAL("Not a block format data type");
+    return 0;
+  }
+}
+
 bool isSupportedDataType(::tt::target::DataType dataType) {
   switch (dataType) {
   case ::tt::target::DataType::Float32:

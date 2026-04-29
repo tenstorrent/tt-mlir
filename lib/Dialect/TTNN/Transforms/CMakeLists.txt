@@ -42,6 +42,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp
+        TTNNKVCacheDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
@@ -64,8 +65,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
         Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.cpp
         Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.cpp
-        Workarounds/Decomposition/LayerNormPreAllGatherZeroPadRewritePattern.cpp
-        Workarounds/Decomposition/LayerNormPostAllGatherDecompositionRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/PadHighDimRewritePattern.cpp

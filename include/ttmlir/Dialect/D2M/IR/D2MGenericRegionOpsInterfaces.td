@@ -1,0 +1,160 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#ifndef TTMLIR_D2M_DIALECT_D2M_IR_D2MGENERICREGIONOPSINTERFACES_TD
+#define TTMLIR_D2M_DIALECT_D2M_IR_D2MGENERICREGIONOPSINTERFACES_TD
+
+include "mlir/IR/OpBase.td"
+include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.td"
+
+def D2M_SynchronizableOpInterface : OpInterface<"SynchronizableOpInterface"> {
+  let description = [{
+     Define a base interface for synchronizable ops in the generic region.
+  }];
+
+  let cppNamespace = "::mlir::tt::d2m";
+
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{Returns true if the given operand is a producer (i.e. written
+                 to) for synchronization purposes.}],
+      /*retTy=*/"bool",
+      /*methodName=*/"isProducer",
+      /*args=*/(ins "mlir::OpOperand &":$operand),
+      /*methodBody=*/""
+    >,
+    InterfaceMethod<
+      /*desc=*/[{Returns true if the given operand is a consumer (i.e. read
+                 from) for synchronization purposes.}],
+      /*retTy=*/"bool",
+      /*methodName=*/"isConsumer",
+      /*args=*/(ins "mlir::OpOperand &":$operand),
+      /*methodBody=*/""
+    >,
+  ];
+
+}
+
+// Mirror D2M DMA interface into d2m namespace for d2m ops
+
+def D2M_DMAOpInterface : OpInterface<"DMAOpInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let methods = [
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getSrc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getDst">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getSrcMutable">,
+    InterfaceMethod<[{}], "::mlir::OpOperand&", "getDstMutable">,
+    InterfaceMethod<[{}], "::mlir::Location", "getLoc">,
+    InterfaceMethod<[{}], "::mlir::TypedValue<::mlir::Type>", "getResult">,
+  ];
+}
+
+// Interface for CB-based DMA ops that run on the DM thread (RemoteLoadOp,
+// RemoteStoreOp, LocalCopyOp).
+def D2M_ShardDMAOpInterface : OpInterface<"ShardDMAOpInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let description = [{
+    Implemented by the shard-level DMA ops (RemoteLoadOp, RemoteStoreOp,
+    LocalCopyOp) that run on the datamovement thread before lowering to fully
+    indexed form.  Provides a uniform getCBPort() accessor so scheduling and
+    thread-splitting passes do not need to enumerate individual op types.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/"Return the CB port number for this DMA operation. "
+               "The op must be in explicit CB form (getCb() != nullptr). ",
+      /*retTy=*/"unsigned",
+      /*methodName=*/"getCBPort"
+    >,
+  ];
+}
+
+// Parent interface used to verify D2M region ops are nested in d2m.generic or func.func
+
+def D2M_GenericParent : OpInterface<"GenericParent"> {
+  let cppNamespace = "::mlir::tt::d2m";
+
+  let verify = [{
+    return detail::verifyGenericParent($_op);
+  }];
+}
+
+// Interface denoting which operands of an op must be sourced from dst register
+
+def D2M_OperandLoadStoreRegisterOpInterface : OpInterface<"OperandLoadStoreRegisterOpInterface"> {
+  let cppNamespace = "::mlir::tt::d2m";
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        This interface denotes which op operand indices require their operands to be
+        sourced from the destination register. It is primarily used by the
+        insert-dst-register-access pass to autogenerate copynests to and from dst.
+      }],
+      /*retTy=*/"::mlir::SmallVector<int64_t>",
+      /*methodName=*/"getOperandsLoadFromDstRegister",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return ::mlir::SmallVector<int64_t>{};"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether this operation should use the destination register in place.
+        When true, the operation can read from and write to the same register location.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"getDstRegInPlace",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether this operation supports both tile+tile and tile+scalar operands.
+        For such operations, the in-place behavior depends on whether rhs is a scalar.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"supportsTileOrScalarRhs",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return false;"
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns whether the operand at the given index is a scalar.
+        A scalar is defined as NOT a tile AND is int/float.
+        This is used to skip loading scalar operands from the destination register.
+      }],
+      /*retTy=*/"bool",
+      /*methodName=*/"isScalarOperand",
+      /*args=*/(ins "int64_t":$operandIdx),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        if ($_op.supportsTileOrScalarRhs() && operandIdx == 1) {
+          auto rhsOperand = $_op->getOperand(1);
+          auto rhsType = rhsOperand.getType();
+          // Check if rhs is a scalar: NOT a tile AND is int/float
+          return !llvm::isa<::mlir::tt::ttcore::TileType>(rhsType) &&
+                 rhsType.isIntOrFloat();
+        }
+        return false;
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the number of DST scratch slices this op needs beyond its
+        operand/output slices. Only 0 or 1 are supported today: when 1, the
+        insert-dst-register-access pass reserves a slice from the DST
+        allocator and records its index on the op via `dst_scratch_index`
+        for the lowering to consume.
+      }],
+      /*retTy=*/"int64_t",
+      /*methodName=*/"getNumDstScratchSlices",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return 0;"
+    >,
+  ];
+}
+
+#endif // TTMLIR_D2M_DIALECT_D2M_IR_D2MGENERICREGIONOPSINTERFACES_TD

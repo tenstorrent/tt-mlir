@@ -1516,6 +1516,19 @@ isNotEqualOrBroadcast(mlir::ArrayRef<int64_t> as, mlir::ArrayRef<int64_t> bs) {
   return std::nullopt;
 }
 
+static bool hasOperandBroadcasting(ArrayRef<AffineMap> indexingMaps) {
+  return llvm::any_of(indexingMaps, [](AffineMap map) {
+    for (unsigned dim = 0; dim < map.getNumDims(); ++dim) {
+      if (!llvm::any_of(map.getResults(), [dim](AffineExpr expr) {
+            return expr.isFunctionOfDim(dim);
+          })) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
 static mlir::LogicalResult verifyAffineShapesPermutation(
     const char *shapeName, mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes,
@@ -1836,12 +1849,17 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return gridResult;
     }
 
-    SmallVector<SmallVector<int64_t>> scalarShardShapes =
-        getInputOutputOperandShardShapes(/*convertTileToScalar=*/true);
-    LogicalResult shardResult = verifyAffineShapesPermutation(
-        "shard", indexingMaps, scalarShardShapes, emitDiag);
-    if (failed(shardResult)) {
-      return shardResult;
+    // Padded shard extents are only directly comparable when every operand
+    // participates in every loop dimension. Broadcast/reuse maps can legally
+    // have smaller operand shards along the omitted dimensions.
+    if (!hasOperandBroadcasting(indexingMaps)) {
+      SmallVector<SmallVector<int64_t>> scalarShardShapes =
+          getInputOutputOperandShardShapes(/*convertTileToScalar=*/true);
+      LogicalResult shardResult = verifyAffineShapesPermutation(
+          "shard", indexingMaps, scalarShardShapes, emitDiag);
+      if (failed(shardResult)) {
+        return shardResult;
+      }
     }
 
     assert(getNumDpsInits() == 1);
@@ -2378,6 +2396,8 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
       if (remoteStoreOp.hasResultForm()) {
         remoteStoreOp.getResult().setType(remoteStoreOp.getMemref().getType());
       }
+    } else if (auto embeddingOp = mlir::dyn_cast<d2m::EmbeddingOp>(&clonedOp)) {
+      embeddingOp.getResult().setType(embeddingOp.getOutput().getType());
     } else if (auto dstOp =
                    mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
       unsigned numIns = dstOp.getNumDpsInputs();
