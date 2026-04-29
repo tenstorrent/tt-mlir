@@ -136,8 +136,6 @@ bool incompatibleWithOverride(
   return false;
 }
 
-// Skip operations that don't have nontrivial output tensors.
-
 void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
   Type scalarElementType = baseLayout.getScalarElementType();
 
