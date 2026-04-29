@@ -7510,6 +7510,25 @@ public:
       operandIndex++;
     }
 
+    // PyTorch SDPA accepts 2D (S, S) or 3D (B, S, S) attention masks, but
+    // ttir.scaled_dot_product_attention requires a 4D mask. Prepend broadcast
+    // dimensions of size 1 to bring the mask up to rank 4.
+    if (attentionMask) {
+      auto maskType =
+          mlir::cast<RankedTensorType>(attentionMask.getType());
+      int64_t maskRank = maskType.getRank();
+      if (maskRank < 4) {
+        SmallVector<int64_t> newShape(4 - maskRank, 1);
+        newShape.append(maskType.getShape().begin(), maskType.getShape().end());
+        auto newMaskType =
+            RankedTensorType::get(newShape, maskType.getElementType());
+        auto shapeAttr = rewriter.getI32ArrayAttr(
+            SmallVector<int32_t>(newShape.begin(), newShape.end()));
+        attentionMask = rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), newMaskType, attentionMask, shapeAttr);
+      }
+    }
+
     rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
         srcOp, outputType, query, key, value, attentionMask, isCausalAttr,
         scaleAttr, /*slidingWindowSize=*/slidingWindowSizeAttr,
