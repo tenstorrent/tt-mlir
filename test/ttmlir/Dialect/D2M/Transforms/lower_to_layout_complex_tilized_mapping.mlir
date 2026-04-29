@@ -40,3 +40,15 @@ func.func @bfp_tiled_reblock_uses_bf16_scalar_bridge() -> tensor<4x4x2x2x!ttcore
   %result = d2m.to_layout %src_tensor, %dst_tensor : tensor<8x8x1x1x!ttcore.tile<32x32, bfp_bf8>, #bfp_src> into tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst> -> tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst>
   return %result : tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst>
 }
+
+// CHECK-LABEL: func.func @f32_to_bfp_reblock_keeps_conversion_bridge
+// CHECK: d2m.tile_tilize_block
+// CHECK: d2m.tile_untilize_block
+// CHECK: tensor<4x4x64x64xbf16
+// CHECK: d2m.tile_tilize_block
+func.func @f32_to_bfp_reblock_keeps_conversion_bridge() -> tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst> {
+  %src_tensor = d2m.empty() : tensor<8x8x32x32xf32, #bfp_src>
+  %dst_tensor = d2m.empty() : tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst>
+  %result = d2m.to_layout %src_tensor, %dst_tensor : tensor<8x8x32x32xf32, #bfp_src> into tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst> -> tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst>
+  return %result : tensor<4x4x2x2x!ttcore.tile<32x32, bfp_bf8>, #bfp_dst>
+}

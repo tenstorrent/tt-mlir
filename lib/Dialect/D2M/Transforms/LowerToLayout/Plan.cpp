@@ -117,10 +117,10 @@ bool needsMasking(ttcore::MetalLayoutAttr layout, RankedTensorType tensorType) {
   return false;
 }
 
-// Some layout fields describe how an already-materialized physical buffer
-// should be interpreted. If those fields are the only differences, no data
-// movement is required.
-bool canReinterpretLayout(const PlanState &current, const PlanState &target) {
+// Return true when the current buffer can be retagged with the target encoding
+// via d2m.view_layout {reinterpretLayout = true}; no data movement is required.
+bool canUseReinterpretLayoutView(const PlanState &current,
+                                 const PlanState &target) {
   if (!current.hasLayout() || !target.hasLayout()) {
     return false;
   }
@@ -295,8 +295,9 @@ void emitTilizedReshardDecomposition(
       ctx, currentType, currentLayout, targetGridShape, currentRemapping,
       ttcore::MemorySpace::DeviceL1, /*newTensorGrid=*/{}, scalarType,
       /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
-  plan.push_back(UntilizeStep{
-      makeOutputSpec(untilizedType, currentVgmForward, currentVgmInverse)});
+  plan.push_back(
+      UntilizeStep{currentType, makeOutputSpec(untilizedType, currentVgmForward,
+                                               currentVgmInverse)});
 
   auto scalarTargetLayout = ttcore::MetalLayoutAttr::get(
       ctx, targetLayout.getLogicalShape(), targetLayout.getDimAlignments(),
@@ -319,7 +320,7 @@ void emitTilizedReshardDecomposition(
                                   tileShape),
       targetType.getElementType(), targetLayout);
   plan.push_back(TilizeStep{
-      llvm::to_vector(tileShape),
+      llvm::to_vector(tileShape), scalarTargetType,
       makeOutputSpec(tiledType, targetVgmForward, targetVgmInverse)});
 }
 
@@ -380,7 +381,8 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
         tgt.type.getElementType(), *current.getLayout());
     auto output =
         makeOutputSpec(tiledType, current.vgmForward, current.vgmInverse);
-    plan.push_back(TilizeStep{llvm::to_vector(tileShape), output});
+    plan.push_back(
+        TilizeStep{llvm::to_vector(tileShape), current.type, output});
     updateStateFromOutput(current, output, current.remapping);
   }
 
@@ -395,7 +397,7 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
         /*newTileShape=*/std::nullopt, /*reblockVirtualGridShapes=*/false);
     auto output = makeOutputSpec(scalarTypeRanked, current.vgmForward,
                                  current.vgmInverse);
-    plan.push_back(UntilizeStep{output});
+    plan.push_back(UntilizeStep{current.type, output});
     updateStateFromOutput(current, output, current.remapping);
   }
 
@@ -407,7 +409,7 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
     updateStateFromOutput(current, output);
   }
 
-  if (canReinterpretLayout(current, tgt) && current.type != tgt.type) {
+  if (canUseReinterpretLayoutView(current, tgt) && current.type != tgt.type) {
     // Metadata-only changes that do not require data mutation can be erased:
     // downstream ops may continue to use the existing physical buffer/layout,
     // which avoids creating type-only views that later lowering does not need.
@@ -549,14 +551,20 @@ namespace {
 
 // Return true iff the adjacent pair (a; b) reduces to nothing.
 bool cancels(const Step &a, const Step &b) {
-  // Tilize; Untilize → ∅ and Untilize; Tilize → ∅.
-  if (std::holds_alternative<TilizeStep>(a) &&
-      std::holds_alternative<UntilizeStep>(b)) {
-    return true;
+  // Tilize; Untilize → ∅ only when the round trip returns to the exact input
+  // type. This prevents erasing required scalar bridge conversions such as
+  // f32 → bfp_bf8 tile → bf16.
+  if (const auto *tilize = std::get_if<TilizeStep>(&a)) {
+    if (const auto *untilize = std::get_if<UntilizeStep>(&b)) {
+      return tilize->inputType && untilize->output.type &&
+             tilize->inputType == untilize->output.type;
+    }
   }
-  if (std::holds_alternative<UntilizeStep>(a) &&
-      std::holds_alternative<TilizeStep>(b)) {
-    return true;
+  if (const auto *untilize = std::get_if<UntilizeStep>(&a)) {
+    if (const auto *tilize = std::get_if<TilizeStep>(&b)) {
+      return untilize->inputType && tilize->output.type &&
+             untilize->inputType == tilize->output.type;
+    }
   }
   return false;
 }

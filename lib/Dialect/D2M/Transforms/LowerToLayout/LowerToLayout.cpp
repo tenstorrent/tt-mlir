@@ -659,6 +659,11 @@ public:
           utils::getVirtualGridForwardMapping(value).value_or(AffineMap());
       AffineMap currentInverse =
           utils::getVirtualGridInverseMapping(value).value_or(AffineMap());
+      // View remappings are semantic view metadata. Do not reuse such values as
+      // generic outs buffers, even when their type and VGM match the spec.
+      if (utils::getAssociatedRemapping(value)) {
+        return false;
+      }
       return currentForward == spec.vgmForward &&
              currentInverse == spec.vgmInverse;
     };

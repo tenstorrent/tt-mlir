@@ -72,10 +72,12 @@ struct DRAMToL1Step {
 
 struct TilizeStep {
   llvm::SmallVector<int64_t> tileShape = {};
+  RankedTensorType inputType = {};
   OutputBufferSpec output = {};
 };
 
 struct UntilizeStep {
+  RankedTensorType inputType = {};
   OutputBufferSpec output = {};
 };
 
@@ -95,6 +97,9 @@ struct RemapStep {
   AffineMap remapping = {};
 };
 
+// Emits a d2m.view_layout with reinterpretLayout=true. This is for
+// metadata-only type changes on an already-materialized buffer; it does not
+// perform data movement.
 struct ReinterpretLayoutStep {
   RankedTensorType outputType = {};
 };
