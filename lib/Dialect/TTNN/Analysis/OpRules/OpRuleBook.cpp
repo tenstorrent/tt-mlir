@@ -80,6 +80,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static MeshPartitionRuleBook meshPartition;
   static RmsNormRuleBook rmsNorm;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
+  static FillCacheRuleBook fillCache;
+  static PagedFillCacheRuleBook pagedFillCache;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -115,6 +117,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
+    reg(FillCacheOp::getOperationName(), &fillCache);
+    reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;
