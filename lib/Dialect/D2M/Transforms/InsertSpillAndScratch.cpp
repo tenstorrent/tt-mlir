@@ -92,8 +92,7 @@ static int64_t estimateScratchDemand(ArrayRef<IntermediateAllocInfo> infos) {
     if (!info.producer) {
       continue;
     }
-    if (llvm::is_contained(info.producer->scratchShape,
-                           ShapedType::kDynamic)) {
+    if (llvm::is_contained(info.producer->scratchShape, ShapedType::kDynamic)) {
       return ShapedType::kDynamic;
     }
     demand += ttmlir::utils::volume<int64_t>(info.producer->scratchShape);
@@ -878,10 +877,12 @@ static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
 
 static bool containsUnsafeFusedConsumer(ArrayRef<affine::AffineForOp> loops) {
   return llvm::any_of(loops, [](affine::AffineForOp loop) {
-    return loop.walk([](Operation *op) {
-      return isa<TileDivOp, TileWhereOp>(op) ? WalkResult::interrupt()
-                                             : WalkResult::advance();
-    }).wasInterrupted();
+    return loop
+        .walk([](Operation *op) {
+          return isa<TileDivOp, TileWhereOp>(op) ? WalkResult::interrupt()
+                                                 : WalkResult::advance();
+        })
+        .wasInterrupted();
   });
 }
 

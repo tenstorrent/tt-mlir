@@ -74,10 +74,10 @@ private:
       auto memrefType = mlir::cast<MemRefType>(allocOp.getResult().getType());
       assert(!llvm::is_contained(memrefType.getShape(), ShapedType::kDynamic) &&
              "scratch memrefs must be static");
-      allocations.push_back({allocOp, static_cast<int64_t>(allocOp.getSlot()),
-                             ttmlir::utils::volume<int64_t>(
-                                 memrefType.getShape()),
-                             /*elementOffset=*/0});
+      allocations.push_back(
+          {allocOp, static_cast<int64_t>(allocOp.getSlot()),
+           ttmlir::utils::volume<int64_t>(memrefType.getShape()),
+           /*elementOffset=*/0});
     });
 
     if (allocations.empty()) {
