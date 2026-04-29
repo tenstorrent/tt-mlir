@@ -300,6 +300,71 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       return bestGrid;
     }
 
+    llvm::SmallVector<int64_t>
+    computeNocAlignedScalarGrid(RankedTensorType type,
+                                ArrayRef<int64_t> targetGridShape,
+                                uint64_t minTransferBytes) const {
+      auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          type.getEncoding());
+      if (!layout || mlir::isa<ttcore::TileType>(type.getElementType())) {
+        return layout ? llvm::to_vector(layout.getGridShape(type))
+                      : llvm::SmallVector<int64_t>{};
+      }
+
+      llvm::SmallVector<int64_t> grid =
+          llvm::to_vector(layout.getGridShape(type));
+      if (grid.size() != 2 || targetGridShape.size() != 2) {
+        return grid;
+      }
+
+      ArrayRef<int64_t> shardShape = layout.getShardShape(type);
+      uint64_t elementSizeBytes =
+          ttcore::getElementSizeBytes(type.getElementType());
+      if (shardShape.empty() ||
+          static_cast<uint64_t>(shardShape.back()) * elementSizeBytes >=
+              minTransferBytes) {
+        return grid;
+      }
+
+      // Keep scalar D2H bounce transfers aligned by reducing the x-grid until
+      // each core owns enough contiguous innermost data for one NOC transfer.
+      llvm::SmallVector<int64_t> physicalShape;
+      physicalShape.reserve(grid.size());
+      for (auto [gridDim, shardDim] : llvm::zip_equal(grid, shardShape)) {
+        physicalShape.push_back(gridDim * shardDim);
+      }
+
+      int64_t originalVolume =
+          ttmlir::utils::volume(llvm::ArrayRef<int64_t>(grid));
+      llvm::SmallVector<int64_t> bestGrid = grid;
+      int64_t bestVolume = 0;
+      int64_t maxY = std::min(targetGridShape[0], grid[0]);
+      int64_t maxX = std::min(targetGridShape[1], grid[1]);
+      for (int64_t y = 1; y <= maxY; ++y) {
+        if (physicalShape[0] % y != 0) {
+          continue;
+        }
+        for (int64_t x = 1; x <= maxX; ++x) {
+          if (physicalShape[1] % x != 0) {
+            continue;
+          }
+
+          uint64_t shardLastDimBytes =
+              static_cast<uint64_t>(physicalShape[1] / x) * elementSizeBytes;
+          int64_t volume = y * x;
+          if (shardLastDimBytes < minTransferBytes || volume > originalVolume ||
+              volume <= bestVolume) {
+            continue;
+          }
+
+          bestGrid = {y, x};
+          bestVolume = volume;
+        }
+      }
+
+      return bestGrid;
+    }
+
     // Create a device tensor type from a system tensor type.
     // For virtual grids (ND or exceeding device bounds), the data must bounce
     // through DRAM interleaved because the host cannot directly scatter data
@@ -1231,6 +1296,18 @@ public:
             /*newTensorGrid=*/llvm::ArrayRef<int64_t>(physicalGridShape),
             /*newElementType=*/{},
             /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
+        auto alignedGrid = typeBuilder.computeNocAlignedScalarGrid(
+            reblocked, targetGridShape, /*minTransferBytes=*/16);
+        if (alignedGrid !=
+            mlir::cast<ttcore::MetalLayoutAttr>(reblocked.getEncoding())
+                .getGridShape(reblocked)) {
+          reblocked = typeBuilder.modifyDeviceType(
+              currentInfo.type, *currentInfo.layout, targetGridShape,
+              existingRemapping, ttcore::MemorySpace::DeviceL1,
+              /*newTensorGrid=*/llvm::ArrayRef<int64_t>(alignedGrid),
+              /*newElementType=*/{},
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
+        }
         auto reblockedEmpty = createEmpty(reblocked);
         currentValue = lowerMappingChange(rewriter, currentValue,
                                           reblockedEmpty, op.getLoc());
