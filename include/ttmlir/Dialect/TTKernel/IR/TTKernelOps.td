@@ -1230,6 +1230,76 @@ def TTKernel_BitwiseXorBinaryTilesOp : TTKernel_SFPUOp<"bitwise_xor_binary_tile"
     }];
 }
 
+def TTKernel_BinaryShiftTileInitOp : TTKernel_InitOp<"binary_shift_tile_init"> {
+    let summary = "Init function for binary shift tile operations (left / right / logical right). Refer to documentation for any init function.";
+    let description = [{
+      Must be run before binary_left_shift_tile, binary_right_shift_tile, or binary_logical_right_shift_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryLeftShiftTileOp : TTKernel_SFPUOp<"binary_left_shift_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise left shift between two tiles";
+    let description = [{
+      Performs element-wise computation of a left shift operation
+      DST[odst_index] <- DST[dst0_index] << DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryRightShiftTileOp : TTKernel_SFPUOp<"binary_right_shift_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise arithmetic right shift between two tiles";
+    let description = [{
+      Performs element-wise computation of an arithmetic right shift
+      operation DST[odst_index] <- DST[dst0_index] >> DST[dst1_index]
+      (sign-preserving) on DST register operands. The DST register buffer must
+      be in acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryLogicalRightShiftTileOp : TTKernel_SFPUOp<"binary_logical_right_shift_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise logical right shift between two tiles";
+    let description = [{
+      Performs element-wise computation of a logical right shift operation
+      DST[odst_index] <- DST[dst0_index] >> DST[dst1_index] (zero-filled)
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index,
+                         IndexLike:$dst1_index,
+                         IndexLike:$odst_index,
+                         TTCore_DataTypeAttr:$dtype);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `,` $dtype `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_BinopWithScalarTileInitOp : TTKernel_InitOp<"binop_with_scalar_tile_init"> {
     let summary = "Init function for binary operations with scalar tile operations.";
     let description = [{
