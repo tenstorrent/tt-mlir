@@ -155,6 +155,8 @@ getUnaryWithParams(UnaryWithParamAttr attr) {
           {TTMLIRUnaryOpType::Fill, TTNNUnaryOpType::FILL},
           {TTMLIRUnaryOpType::PreluSfpu, TTNNUnaryOpType::PRELU_SFPU},
           {TTMLIRUnaryOpType::ZeroPoint, TTNNUnaryOpType::ZERO_POINT},
+          {TTMLIRUnaryOpType::Log1p, TTNNUnaryOpType::LOG1P},
+          {TTMLIRUnaryOpType::Asinh, TTNNUnaryOpType::ASINH},
       };
 
   auto it = opTypeMap.find(attr.getOpType());
