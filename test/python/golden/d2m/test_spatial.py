@@ -194,6 +194,23 @@ def matmul_region_build(
     return _build
 
 
+def all_gather_region_build(
+    _builder: D2MBuilder,
+    _input_tensor: Operand,
+    _out: Operand,
+    *,
+    gather_dim: int = 0,
+) -> Callable[[], None]:
+    """Stub: define one spatial region for all_gather (remote load/store, mesh dim)."""
+
+    def _build():
+        raise NotImplementedError(
+            f"all_gather_region_build: not implemented (gather_dim={gather_dim})."
+        )
+
+    return _build
+
+
 @pytest.mark.parametrize(
     "lhs_shape,rhs_shape,out_shape",
     [
