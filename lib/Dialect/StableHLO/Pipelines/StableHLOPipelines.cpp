@@ -57,6 +57,9 @@ void createStableHLOPipeline(OpPassManager &pm,
     AutoShardingPassOptions searchOptions;
     searchOptions.dumpVariants = options.autoShardingDumpVariants;
     searchOptions.dumpDir = options.autoShardingDumpDir;
+    searchOptions.maxConstraintCandidates =
+        options.autoShardingMaxConstraintCandidates;
+    searchOptions.manualRef = options.autoShardingManualRef;
     pm.addPass(createAutoShardingPass(searchOptions));
   }
 

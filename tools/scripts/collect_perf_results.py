@@ -34,9 +34,9 @@ import csv
 import glob
 import os
 import re
-import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Derive TTMLIR_ROOT from this script's location: tools/scripts/ -> repo root
@@ -54,6 +54,9 @@ TTCORE_ATTR_RE = re.compile(
 )
 TTCORE_SHARD_STATUS_RE = re.compile(
     r"ttcore\.shard_status = #ttcore\.shard_status<[^>]*>"
+)
+TTCORE_LOCAL_SHAPE_RE = re.compile(
+    r"ttcore\.local_shape = #ttcore<local_shape local_shape = tensor<[^>]*>>"
 )
 MARK_ARG_RE = re.compile(
     r"\s+(%\S+) = stablehlo\.custom_call @tt\.mark_argument\((%\S+)\)"
@@ -91,6 +94,7 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
         in ApplyArgumentShardStatusPass)
       - ttcore.shard_status attributes (prevents duplicate dict key crash when
         re-running the pipeline on winner MLIR that already has shard_status)
+      - ttcore.local_shape attributes
       - stablehlo.custom_call @tt.mark_argument ops (can't be legalized to TTNN);
         each is replaced by forwarding its input SSA value to all users.
         Replacements are scoped per function to avoid cross-function SSA conflicts.
@@ -108,18 +112,21 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
     content = re.sub(r"\s*\{" + TTCORE_SHARD_STATUS_RE.pattern + r"\}", "", content)
     content = re.sub(TTCORE_SHARD_STATUS_RE.pattern + r"\s*,\s*", "", content)
 
+    # --- ttcore.local_shape ---
+    content = re.sub(r",\s*" + TTCORE_LOCAL_SHAPE_RE.pattern, "", content)
+    content = re.sub(r"\s*\{" + TTCORE_LOCAL_SHAPE_RE.pattern + r"\}", "", content)
+    content = re.sub(TTCORE_LOCAL_SHAPE_RE.pattern + r"\s*,\s*", "", content)
+
     # --- tt.mark_argument custom calls (scoped per function) ---
-    # Track brace depth to correctly find the function-closing '}'.
-    # The old FUNC_END_RE regex was fooled by '}' inside reduce/region bodies.
+    # Track brace depth so nested regions (e.g. reducer bodies) don't
+    # prematurely end the function block.
     lines = content.split("\n")
     out_lines: list[str] = []
     func_buf: list[str] | None = None
     brace_depth = 0
 
     for line in lines:
-        if FUNC_START_RE.match(line):
-            if func_buf is not None:
-                out_lines.extend(_strip_mark_args_in_block(func_buf))
+        if func_buf is None and FUNC_START_RE.match(line):
             func_buf = [line]
             brace_depth = line.count("{") - line.count("}")
             continue
@@ -129,6 +136,7 @@ def preprocess_mlir(input_path: str, output_path: Path) -> None:
             if brace_depth <= 0:
                 out_lines.extend(_strip_mark_args_in_block(func_buf))
                 func_buf = None
+                brace_depth = 0
             continue
         out_lines.append(line)
 
@@ -158,9 +166,13 @@ def run_cmd(cmd: list[str], label: str, log_path: Path | None = None) -> bool:
 
 
 def run_auto_sharding(
-    clean_input: str, mesh_shape: str, dump_dir: Path, dump_variants: bool
-) -> str | None:
-    """Run the auto-sharding pass and return path to the winner MLIR."""
+    clean_input: str,
+    mesh_shape: str,
+    dump_dir: Path,
+    dump_variants: bool,
+    manual_ref: str = "",
+) -> tuple[str | None, float]:
+    """Run the auto-sharding pass and return (path to winner MLIR, elapsed seconds)."""
     dump_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline_opts = (
@@ -168,6 +180,8 @@ def run_auto_sharding(
     )
     if dump_variants:
         pipeline_opts += " dump-variants=true"
+    if manual_ref:
+        pipeline_opts += f" manual-ref={manual_ref}"
 
     cmd = [
         str(TTMLIR_OPT),
@@ -182,12 +196,16 @@ def run_auto_sharding(
     print(f"  Dump dir: {dump_dir}")
     print(f"{'='*60}")
 
+    t_start = time.monotonic()
     result = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
+    elapsed = time.monotonic() - t_start
+
     with open(log_path, "w") as f:
         f.write(f"=== COMMAND ===\n{' '.join(cmd)}\n\n")
         f.write(f"=== STDOUT ===\n{result.stdout}\n\n")
         f.write(f"=== STDERR ===\n{result.stderr}\n\n")
         f.write(f"=== EXIT CODE: {result.returncode} ===\n")
+        f.write(f"=== ELAPSED: {elapsed:.2f}s ===\n")
 
     if result.returncode != 0:
         print(f"  ERROR: auto-sharding search failed (exit {result.returncode})")
@@ -195,26 +213,37 @@ def run_auto_sharding(
             for line in result.stderr.strip().splitlines()[-5:]:
                 print(f"    {line}")
         print(f"  See log: {log_path}")
-        return None
+        return None, elapsed
 
-    winners = sorted(
+    # Prefer the CCL file (already lowered with manual_computation + CCLs)
+    # over the hints file. The CCL file's sdy.manual_computation triggers
+    # the "solved graph" path in the full stablehlo-pipeline, which correctly
+    # preserves shardings. The hints file's open shardings can be overridden
+    # by early pipeline passes (AnalyzeMesh, etc.).
+    ccl_files = sorted(
+        glob.glob(str(dump_dir / "**/winner_stablehlo_with_ccls.mlir"), recursive=True)
+    )
+    if ccl_files:
+        winner = ccl_files[-1]
+        print(f"  Winner (CCL): {winner}")
+        print(f"  Auto-sharding search took {elapsed:.2f}s")
+        return winner, elapsed
+
+    hints_files = sorted(
         glob.glob(str(dump_dir / "**/winner_stablehlo_with_hints.mlir"), recursive=True)
     )
-    if not winners:
-        print("  ERROR: no winner_stablehlo_with_hints.mlir found after auto-sharding")
-        return None
+    if hints_files:
+        winner = hints_files[-1]
+        print(f"  Winner (hints, CCL not available): {winner}")
+        print(f"  Auto-sharding search took {elapsed:.2f}s")
+        return winner, elapsed
 
-    winner = winners[-1]
-    print(f"  Winner: {winner}")
-    return winner
+    print("  ERROR: no winner MLIR found after auto-sharding")
+    return None, elapsed
 
 
 def lower_to_flatbuffer(
-    input_mlir: str,
-    output_dir: Path,
-    label: str,
-    mesh_shape: str,
-    preprocess: bool = False,
+    input_mlir: str, output_dir: Path, label: str, mesh_shape: str
 ) -> Path | None:
     """Lower a StableHLO MLIR graph through the full pipeline to a flatbuffer."""
     d = output_dir / label
@@ -226,12 +255,8 @@ def lower_to_flatbuffer(
     ttnn = d / "03_ttnn.mlir"
     flatbuffer = d / f"04_graph_{label}.ttnn"
 
-    if preprocess:
-        print(f"  Preprocessing {input_mlir} ...")
-        preprocess_mlir(input_mlir, preprocessed)
-    else:
-        print(f"  Copying {input_mlir} ...")
-        shutil.copy(input_mlir, preprocessed)
+    print(f"  Preprocessing {input_mlir} ...")
+    preprocess_mlir(input_mlir, preprocessed)
 
     steps = [
         (
@@ -350,8 +375,7 @@ def op_count_from_csv(csv_path: Path) -> int:
         return max(0, sum(1 for _ in f) - 1)
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+def main():
     parser = argparse.ArgumentParser(
         description="Compare perf of manual vs auto-sharding configurations"
     )
@@ -387,11 +411,42 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Dump each auto-sharding variant IR to disk for inspection",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
 
+    output_dir = (
+        Path(args.output_dir) if args.output_dir else GENERATED_DIR / "perf_comparison"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-def compile_and_profile(graphs: dict, output_dir: Path, mesh_shape: str) -> dict:
-    """Compile each graph through the full pipeline and run ttrt perf."""
+    auto_input = args.auto_input
+    auto_sharding_time: float | None = None
+
+    if not args.skip_auto_sharding:
+        input_stem = Path(args.auto_input).stem
+        auto_sharding_dir = GENERATED_DIR / "auto_sharding" / input_stem
+        winner, auto_sharding_time = run_auto_sharding(
+            args.auto_input,
+            args.mesh_shape,
+            auto_sharding_dir,
+            args.dump_variants,
+            manual_ref=args.manual_input,
+        )
+        if winner is None:
+            print("\nAuto-sharding search failed. Aborting.")
+            sys.exit(1)
+        auto_input = winner
+
+    graphs = {
+        "manual_sharding": {
+            "input": args.manual_input,
+            "description": "Manual sharding",
+        },
+        "auto_sharding": {
+            "input": auto_input,
+            "description": "Auto-sharding winner",
+        },
+    }
+
     results = {}
 
     for label, info in graphs.items():
@@ -407,11 +462,7 @@ def compile_and_profile(graphs: dict, output_dir: Path, mesh_shape: str) -> dict
             continue
 
         flatbuffer = lower_to_flatbuffer(
-            info["input"],
-            output_dir,
-            label,
-            mesh_shape,
-            preprocess=(label == "auto_sharding"),
+            info["input"], output_dir, label, args.mesh_shape
         )
         if flatbuffer is None:
             results[label] = {"status": "LOWER_FAILED"}
@@ -433,11 +484,6 @@ def compile_and_profile(graphs: dict, output_dir: Path, mesh_shape: str) -> dict
             "flatbuffer": str(flatbuffer),
         }
 
-    return results
-
-
-def print_comparison(results: dict, graphs: dict, output_dir: Path) -> None:
-    """Print and save the performance comparison summary."""
     print(f"\n\n{'='*70}")
     print("PERFORMANCE COMPARISON: Manual vs Auto-Sharding")
     print(f"{'='*70}\n")
@@ -446,6 +492,19 @@ def print_comparison(results: dict, graphs: dict, output_dir: Path) -> None:
     summary_lines.append("Performance Comparison: Manual vs Auto-Sharding")
     summary_lines.append("=" * 55)
     summary_lines.append("")
+
+    if auto_sharding_time is not None:
+        minutes, secs = divmod(auto_sharding_time, 60)
+        if minutes >= 1:
+            summary_lines.append(
+                f"  Auto-sharding search time: {int(minutes)}m {secs:.2f}s "
+                f"({auto_sharding_time:.2f}s total)"
+            )
+        else:
+            summary_lines.append(
+                f"  Auto-sharding search time: {auto_sharding_time:.2f}s"
+            )
+        summary_lines.append("")
 
     for label, info in graphs.items():
         r = results.get(label, {})
@@ -505,42 +564,6 @@ def print_comparison(results: dict, graphs: dict, output_dir: Path) -> None:
     with open(summary_path, "w") as f:
         f.write(summary_text + "\n")
     print(f"\nSummary saved to: {summary_path}")
-
-
-def main():
-    args = parse_args()
-
-    output_dir = (
-        Path(args.output_dir) if args.output_dir else GENERATED_DIR / "perf_comparison"
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    auto_input = args.auto_input
-
-    if not args.skip_auto_sharding:
-        input_stem = Path(args.auto_input).stem
-        auto_sharding_dir = GENERATED_DIR / "auto_sharding" / input_stem
-        winner = run_auto_sharding(
-            args.auto_input, args.mesh_shape, auto_sharding_dir, args.dump_variants
-        )
-        if winner is None:
-            print("\nAuto-sharding search failed. Aborting.")
-            sys.exit(1)
-        auto_input = winner
-
-    graphs = {
-        "manual_sharding": {
-            "input": args.manual_input,
-            "description": "Manual sharding",
-        },
-        "auto_sharding": {
-            "input": auto_input,
-            "description": "Auto-sharding winner",
-        },
-    }
-
-    results = compile_and_profile(graphs, output_dir, args.mesh_shape)
-    print_comparison(results, graphs, output_dir)
 
 
 if __name__ == "__main__":

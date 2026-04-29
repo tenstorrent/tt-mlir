@@ -58,6 +58,18 @@ struct StableHLOPipelineOptions
       llvm::cl::desc("Directory to dump variants into (default: /tmp/)."),
       llvm::cl::init("/tmp/")};
 
+  Option<int64_t> autoShardingMaxConstraintCandidates{
+      *this, OptionNames::maxConstraintCandidates,
+      llvm::cl::desc("Maximum number of intermediate ops to consider for "
+                     "sharding constraints (0 disables)."),
+      llvm::cl::init(5)};
+
+  Option<std::string> autoShardingManualRef{
+      *this, OptionNames::manualRef,
+      llvm::cl::desc("Path to manual-sharding MLIR file for comparison "
+                     "in auto-sharding summary."),
+      llvm::cl::init("")};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,

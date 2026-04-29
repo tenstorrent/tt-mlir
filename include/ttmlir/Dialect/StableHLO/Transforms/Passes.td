@@ -274,6 +274,13 @@ def AutoShardingPass : Pass<"auto-sharding", "::mlir::ModuleOp"> {
     Option<"dumpDir", "dump-dir", "std::string",
            /*default=*/"\"/tmp/\"",
            "Directory to dump variants into (default: /tmp/)">,
+    Option<"maxConstraintCandidates", "max-constraint-candidates", "int64_t",
+           /*default=*/"5",
+           "Maximum number of intermediate ops to consider for "
+           "sharding constraints (0 disables)">,
+    Option<"manualRef", "manual-ref", "std::string",
+           /*default=*/"\"\"",
+           "Path to manual-sharding MLIR file for comparison in summary">,
   ];
 
   let dependentDialects = [
