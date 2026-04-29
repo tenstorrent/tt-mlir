@@ -488,7 +488,7 @@ TEST_F(CanonicalizeTest, VgmOnlyChangeProducesRebufferStep) {
   EXPECT_EQ(std::get<RebufferStep>(plan[0]).output.vgmInverse, vgm);
 }
 
-TEST_F(CanonicalizeTest, HostReturnDefersVgmClearUntilGridCollapse) {
+TEST_F(CanonicalizeTest, HostReturnTransfersDirectlyFromVirtualGrid) {
   auto uncollapsed = makeCollapsedIntervals(context, {});
   Type elemType = Float32Type::get(&context);
   RankedTensorType srcType = makeTensorType(
@@ -508,9 +508,9 @@ TEST_F(CanonicalizeTest, HostReturnDefersVgmClearUntilGridCollapse) {
 
   Plan plan = canonicalize(PlanState{srcType, remap, vgm, vgm},
                            PlanState{tgtType}, {8, 8}, &context);
-  ASSERT_EQ(plan.size(), 2u);
-  ASSERT_TRUE(std::holds_alternative<ReshardStep>(plan[0]));
-  ASSERT_TRUE(std::holds_alternative<DeviceToHostStep>(plan[1]));
+  ASSERT_EQ(plan.size(), 1u);
+  ASSERT_TRUE(std::holds_alternative<DeviceToHostStep>(plan[0]));
+  EXPECT_EQ(std::get<DeviceToHostStep>(plan[0]).outputType, tgtType);
 }
 
 } // namespace mlir::tt::d2m
