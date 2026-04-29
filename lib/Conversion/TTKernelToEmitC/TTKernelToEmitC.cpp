@@ -294,6 +294,15 @@ public:
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), op.getFullFp32() ? "true" : "false"));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceUninitOp>) {
+      // The default `reduce_uninit()` signature already resolves to <false>,
+      // so emit a template arg only when full_fp32 is set.
+      if (!op.getFullFp32()) {
+        return ArrayAttr();
+      }
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(op.getContext(), "true"));
+      return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::SFPUReduceInitOp>) {
       // sfpu_reduce_init<PoolType, DataFormat>()
       SmallVector<Attribute, 2> template_args;
