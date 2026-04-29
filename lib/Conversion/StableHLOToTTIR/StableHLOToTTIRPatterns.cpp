@@ -5794,7 +5794,18 @@ private:
 
     // Checks that apply to single dimensional scatter.
 
-    if (!multiDimensionalScatter && indexShape.size() > updateShape.size()) {
+    // Allow indices.rank == updates.rank + 1 when the extra trailing dimension
+    // is the index_vector_dim of size 1 (scalar index vectors produced by XLA
+    // for single-dimension boolean-masked or integer-indexed assignment, e.g.
+    // tensor[mask] = val).  extractElementWiseScatterIndices squeezes it away.
+    bool hasTrailingIndexVectorDim =
+        !multiDimensionalScatter &&
+        indexShape.size() == updateShape.size() + 1 &&
+        indexVectorDim == static_cast<uint32_t>(indexShape.size() - 1) &&
+        indexShape.back() == 1;
+
+    if (!multiDimensionalScatter && indexShape.size() > updateShape.size() &&
+        !hasTrailingIndexVectorDim) {
       return rewriter.notifyMatchFailure(
           op, "TTIR scatter requires indices.rank <= updates.rank. Please add "
               "support for rank promotion if needed.");
@@ -6123,6 +6134,15 @@ private:
       llvm::SmallVector<int64_t> newShape(indexShape.begin(), indexShape.end());
       newShape.resize(updateShape.size(), 1);
 
+      indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
+                                                 indexTensor, newShape);
+      indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
+      indexShape = newShape;
+    } else if (indexShape.size() > updateShape.size()) {
+      // Squeeze trailing size-1 index_vector_dim so indices rank matches
+      // updates rank (e.g. [K, 1] -> [K] for scalar single-dim scatter).
+      llvm::SmallVector<int64_t> newShape(indexShape.begin(),
+                                          indexShape.end() - 1);
       indexTensor = ttir::utils::createReshapeOp(rewriter, op.getLoc(),
                                                  indexTensor, newShape);
       indexType = mlir::cast<RankedTensorType>(indexTensor.getType());
