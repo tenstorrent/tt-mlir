@@ -80,9 +80,6 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   }
   SmallVector<int64_t> virtualGridSize = {1, numCores};
 
-  auto memLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-      rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
-
   // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
@@ -92,13 +89,14 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(), inputType.getShape(),
                                     ttcore::TileType::get(inputElementType))
           .setBufferType(ttnn::BufferType::L1)
-          .setMemoryLayout(memLayoutAttr)
+          .setMemoryLayout(ttnn::TensorMemoryLayout::WidthSharded)
           .setGridShape(virtualGridSize)
           .buildWithCanonicalCorePlacement(deviceGrid);
 
   if (currentInputLayout == desiredInputLayout) {
     return failure();
   }
+
   ttnn::MemoryConfigAttr inputMemoryConfig =
       ttnn::MemoryConfigAttr::get(desiredInputLayout);
   RankedTensorType memoryConfigedInputType =
@@ -220,15 +218,12 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // on core (0,0) in L1. The fused kernel writes partial RMS statistics here
   // and exchanges them across devices via the allgather.
   SmallVector<int64_t> statsGridShape = {1, 1};
-  auto statsMemLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-      rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
-
   SmallVector<int64_t> statsShape = {1, 1, 32, 32};
   ttnn::TTNNLayoutAttr statsLayout =
       ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(), statsShape,
                                     ttcore::TileType::get(statsElementType))
           .setBufferType(ttnn::BufferType::L1)
-          .setMemoryLayout(statsMemLayoutAttr)
+          .setMemoryLayout(ttnn::TensorMemoryLayout::WidthSharded)
           .setGridShape(statsGridShape)
           .buildWithCanonicalCorePlacement(deviceGrid);
 

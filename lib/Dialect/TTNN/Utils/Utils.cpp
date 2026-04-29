@@ -100,13 +100,10 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                newEncoding);
 }
 
-RankedTensorType
-RankedTensorTypeFactory::create(RankedTensorType tensorType,
-                                ttnn::BufferType bufferType,
-                                mlir::tt::ttcore::GridAttr deviceGrid) {
-  TTNNLayoutAttr newEncoding = TTNNLayoutAttr::Builder(tensorType)
-                                   .setBufferType(bufferType)
-                                   .buildWithCanonicalCorePlacement(deviceGrid);
+RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
+                                                 ttnn::BufferType bufferType) {
+  TTNNLayoutAttr newEncoding =
+      TTNNLayoutAttr::Builder(tensorType).setBufferType(bufferType).build();
   return create(tensorType, newEncoding);
 }
 

@@ -110,8 +110,7 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
                                                   targetTensorDataType)),
       toLayoutOpResultEncoding);
 
-  // Create the output memory config attribute. The encoding's memLayout and
-  // bufferType match the target ones (it was built from them).
+  // Create the output memory config attribute.
   ttnn::MemoryConfigAttr outputMemConfigAttr = ttnn::MemoryConfigAttr::get(
       mlir::cast<TTNNLayoutAttr>(toLayoutOpResultType.getEncoding()));
 

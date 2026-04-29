@@ -34,10 +34,6 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
     inputElementType = inputTileType.getElementType();
   }
 
-  auto memLayoutAttr = mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-      rewriter.getContext(), ttnn::TensorMemoryLayout::HeightSharded);
-
-  // Apply ToMemoryConfigOp to convert the input tensor to the desired layout.
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
 
@@ -47,7 +43,7 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
       ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(), inputType.getShape(),
                                     ttcore::TileType::get(inputElementType))
           .setBufferType(ttnn::BufferType::L1)
-          .setMemoryLayout(memLayoutAttr)
+          .setMemoryLayout(ttnn::TensorMemoryLayout::HeightSharded)
           .setGridShape(virtualGridSize)
           .buildWithCanonicalCorePlacement(deviceGrid);
 
@@ -59,6 +55,8 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
   if (currentInputLayout == desiredInputLayout) {
     return failure();
   }
+
+  // Apply ToMemoryConfigOp to convert the input tensor to the desired layout.
   ttnn::MemoryConfigAttr inputMemoryConfig =
       ttnn::MemoryConfigAttr::get(desiredInputLayout);
   RankedTensorType memoryConfigedInputType =

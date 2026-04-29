@@ -711,13 +711,12 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
   OpConfig testConfig = originalConfig;
   if (testConfig.outputLayout) {
     auto tensorType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
     testConfig.outputLayout =
         TTNNLayoutAttr::Builder(testConfig.outputLayout)
             .setTensorShape(tensorType.getShape())
             .setBufferType(BufferType::DRAM)
             .setMemoryLayout(TensorMemoryLayout::Interleaved)
-            .buildWithCanonicalCorePlacement(deviceGrid);
+            .build();
   }
 
   return op_constraint_validation::validateOperation(op, inputLayouts,

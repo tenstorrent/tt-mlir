@@ -29,20 +29,17 @@ namespace {
 // Helper function to create a system memory layout attribute for the given
 // tensor type.
 //
-static TTNNLayoutAttr
-createSystemMemoryLayoutAttr(RankedTensorType type,
-                             ttcore::GridAttr deviceGrid) {
+static TTNNLayoutAttr createSystemMemoryLayoutAttr(RankedTensorType type) {
   return TTNNLayoutAttr::Builder(type)
       .setBufferType(BufferType::SystemMemory)
       .setLayout(Layout::RowMajor)
-      .buildWithCanonicalCorePlacement(deviceGrid);
+      .build();
 }
 
 // Helper function to convert a tensor type to system memory type.
 //
-static RankedTensorType toSystemMemoryType(RankedTensorType ty,
-                                           ttcore::GridAttr deviceGrid) {
-  TTNNLayoutAttr newLayout = createSystemMemoryLayoutAttr(ty, deviceGrid);
+static RankedTensorType toSystemMemoryType(RankedTensorType ty) {
+  TTNNLayoutAttr newLayout = createSystemMemoryLayoutAttr(ty);
   return RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
 }
 
@@ -83,8 +80,7 @@ static bool shouldTransferArgumentToDevice(BlockArgument blockArgument) {
 // An argument is considered to be a const-eval input if it is
 // consumed only by LoadCachedOps.
 //
-static SmallVector<BlockArgument>
-moveConstEvalArgsToHost(func::FuncOp funcOp, ttcore::GridAttr deviceGrid) {
+static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
   SmallVector<Type> argumentTypes;
   SmallVector<BlockArgument> convertedArguments;
 
@@ -119,7 +115,7 @@ moveConstEvalArgsToHost(func::FuncOp funcOp, ttcore::GridAttr deviceGrid) {
 
     // Convert the argument to system memory type.
     //
-    auto systemMemoryTensorType = toSystemMemoryType(tensorType, deviceGrid);
+    auto systemMemoryTensorType = toSystemMemoryType(tensorType);
 
     blockArgument.setType(systemMemoryTensorType);
     argumentTypes.push_back(systemMemoryTensorType);
@@ -143,8 +139,7 @@ moveConstEvalArgsToHost(func::FuncOp funcOp, ttcore::GridAttr deviceGrid) {
 //
 static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
                                            size_t argumentIndex,
-                                           RankedTensorType systemMemoryType,
-                                           ttcore::GridAttr deviceGrid) {
+                                           RankedTensorType systemMemoryType) {
   SmallVector<Type> constEvalArgumentTypes(
       constEvalFuncOp.getFunctionType().getInputs());
 
@@ -213,9 +208,6 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    ttcore::DeviceAttr device = ttcore::lookupDevice(moduleOp);
-    TT_assertv(device, "Device not found");
-
     moduleOp->walk([&](func::FuncOp funcOp) {
       // We only want to process forward functions.
       //
@@ -227,7 +219,7 @@ public:
       // const-eval inputs to system memory.
       //
       SmallVector<BlockArgument> convertedArguments =
-          moveConstEvalArgsToHost(funcOp, device.getWorkerGrid());
+          moveConstEvalArgsToHost(funcOp);
 
       // Next, we need to update all const-eval functions accordingly.
       //
@@ -267,7 +259,7 @@ public:
               mlir::cast<RankedTensorType>(convertedArgument.getType());
 
           convertArgumentOfConstEvalFunc(constEvalFuncOp, argumentIndex,
-                                         convertedType, device.getWorkerGrid());
+                                         convertedType);
         }
       }
     });

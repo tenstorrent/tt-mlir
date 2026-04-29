@@ -43,12 +43,10 @@ struct RankedTensorTypeFactory {
   static RankedTensorType create(RankedTensorType tensorType,
                                  Type memrefElementType);
 
-  // `deviceGrid` is required only when re-encoding to a sharded layout; pass
-  // a null GridAttr (the default) for non-sharded targets.
-  static RankedTensorType
-  create(RankedTensorType tensorType, ttnn::BufferType bufferType,
-         mlir::tt::ttcore::GridAttr deviceGrid = nullptr);
+  static RankedTensorType create(RankedTensorType tensorType,
+                                 ttnn::BufferType bufferType);
 
+  // `deviceGrid` is required only when re-encoding to a sharded layout.
   static RankedTensorType
   create(RankedTensorType tensorType, ttnn::TensorMemoryLayout memoryLayout,
          mlir::tt::ttcore::GridAttr deviceGrid = nullptr);
@@ -56,10 +54,6 @@ struct RankedTensorTypeFactory {
   static RankedTensorType create(RankedTensorType tensorType,
                                  ttnn::Layout layout);
 
-  // Re-encode `tensorType` with `gridShape` as the new shard grid. `deviceGrid`
-  // is the physical worker grid used to derive the canonical CoreRangeSet for
-  // sharded layouts. Pass the actual device's worker grid here, not a
-  // synthesized GridAttr built from `gridShape`.
   static RankedTensorType create(RankedTensorType tensorType,
                                  ArrayRef<int64_t> gridShape,
                                  mlir::tt::ttcore::GridAttr deviceGrid);

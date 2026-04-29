@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
@@ -140,9 +141,6 @@ public:
 };
 } // namespace
 
-// This rewriter only emits non-sharded targets (DRAM interleaved /
-// SystemMemory). CRS derivation returns null for those, so deviceGrid is
-// unused and defaults to a null GridAttr.
 static std::optional<RankedTensorType>
 createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
                   BufferType desiredBufferType, bool tiled) {
@@ -153,9 +151,6 @@ createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
   TTNNLayoutAttr ttnnLayoutAttr = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
-
-  // Get mesh sharding
-  ttcore::TensorMeshAttr desiredTensorMesh = ttnnLayoutAttr.getTensorMesh();
 
   // Get the current element type (i.e bf16/TileType etc)
   Type currElementType = ttnnLayoutAttr.getElementType();
@@ -185,17 +180,13 @@ createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
   }
 
   // Create a new ttnn layout with the desired buffer type, element type and
-  // memory layout. deviceGrid is null because this helper only produces
-  // non-sharded targets.
-  TTNNLayoutAttr encoding =
-      TTNNLayoutAttr::Builder(rewriter.getContext(), ty.getShape(),
-                              desiredElementType)
-          .setCollapseIntervals(g_defaultCollapseDims)
-          .setBufferType(desiredBufferType)
-          .setMemoryLayout(desiredMemLayoutAttr)
-          .setGridShape(ttnnLayoutAttr.getGridShape())
-          .setTensorMesh(desiredTensorMesh)
-          .buildWithCanonicalCorePlacement(/*deviceGrid=*/ttcore::GridAttr{});
+  // memory layout
+  TTNNLayoutAttr encoding = TTNNLayoutAttr::Builder(ttnnLayoutAttr)
+                                .setTensorShape(ty.getShape())
+                                .setBufferType(desiredBufferType)
+                                .setElementType(desiredElementType)
+                                .setMemoryLayout(desiredMemLayoutAttr)
+                                .build();
 
   return mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
                                      encoding);
@@ -322,8 +313,7 @@ public:
       return failure();
     }
 
-    // Create a FromDevice operation for each operand. SystemMemory is
-    // non-sharded — `createToLayoutOp` doesn't touch deviceGrid here.
+    // Create a FromDevice operation for each operand.
     SmallVector<Value, 4> fromDeviceOperands;
     size_t locIdx = 0;
     for (auto operand : callOp.getOperands()) {

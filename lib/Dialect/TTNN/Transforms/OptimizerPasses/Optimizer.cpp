@@ -845,7 +845,7 @@ private:
               .setTensorShape(tensorShape)
               .setBufferType(BufferType::DRAM)
               .setMemoryLayout(TensorMemoryLayout::Interleaved)
-              .buildWithCanonicalCorePlacement(deviceGrid);
+              .build();
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorShape, tensorType.getElementType(), dramLayout);
 
@@ -957,7 +957,8 @@ private:
           TTNNLayoutAttr::Builder(tensorType)
               .setBufferType(BufferType::L1)
               .setMemoryLayout(TensorMemoryLayout::Interleaved)
-              .buildWithCanonicalCorePlacement(deviceGrid);
+              .setGridShape(deviceGrid.getShape())
+              .build();
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorType.getShape(), tensorType.getElementType(),
           l1InterleavedLayout);

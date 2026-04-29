@@ -337,7 +337,7 @@ private:
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
-        currentInputType, info.output.bufferType, info.output.deviceGrid);
+        currentInputType, info.output.bufferType);
     newResultType = utils::RankedTensorTypeFactory::create(
         newResultType, info.output.tensorMemoryLayout.getValue(),
         info.output.deviceGrid);

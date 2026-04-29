@@ -360,7 +360,6 @@ private:
     // allocation strategy.
     llvm::SmallVector<mlir::Type> inputTypes;
     llvm::SmallVector<mlir::Type> traceInputSlotTypes;
-    ttcore::GridAttr deviceGrid = ttcore::lookupDevice(funcOp).getWorkerGrid();
     for (size_t i = 0; i < traceFunc.getNumArguments(); i++) {
       mlir::Value traceFuncArg = traceFunc.getArgument(i);
 
@@ -385,7 +384,7 @@ private:
       // 1. Host-side type (system memory) for the function signature
       // 2. Device-side slot type (DRAM) for persistent trace storage
       RankedTensorType inputArgType = utils::RankedTensorTypeFactory::create(
-          originalRankedTensorType, BufferType::SystemMemory, deviceGrid);
+          originalRankedTensorType, BufferType::SystemMemory);
 
       inputTypes.push_back(inputArgType);
 
@@ -393,7 +392,7 @@ private:
       // This slot persists on device across trace executions.
       RankedTensorType dramTraceInputSlotType =
           utils::RankedTensorTypeFactory::create(originalRankedTensorType,
-                                                 BufferType::DRAM, deviceGrid);
+                                                 BufferType::DRAM);
 
       traceInputSlotTypes.push_back(dramTraceInputSlotType);
     }
@@ -686,10 +685,8 @@ private:
           return funcOp.emitError("ToLayoutOp changed data type for argument ")
                  << argIdx << ", expected only buffer type change";
         }
-        ttcore::GridAttr deviceGrid =
-            ttcore::lookupDevice(funcOp).getWorkerGrid();
         auto newArgType = utils::RankedTensorTypeFactory::create(
-            currentTensorType, targetLayoutAttr.getBufferType(), deviceGrid);
+            currentTensorType, targetLayoutAttr.getBufferType());
         newArgType = utils::RankedTensorTypeFactory::create(
             newArgType, targetLayoutAttr.getLayout());
 

@@ -62,17 +62,13 @@ private:
   ::mlir::RankedTensorType getPreparedBiasType(Value bias,
                                                Type newElementType) {
     auto oldType = mlir::cast<mlir::RankedTensorType>(bias.getType());
-    auto oldLayout = mlir::cast<ttnn::TTNNLayoutAttr>(oldType.getEncoding());
 
-    ttcore::GridAttr deviceGrid =
-        ttcore::lookupDevice(bias.getDefiningOp()).getWorkerGrid();
     auto newLayout =
         ttnn::TTNNLayoutAttr::Builder(&getContext(), oldType.getShape(),
                                       ttcore::TileType::get(newElementType))
             .setBufferType(BufferType::DRAM)
             .setMemoryLayout(ttnn::TensorMemoryLayout::Interleaved)
-            .setGridShape(oldLayout.getGridShape())
-            .buildWithCanonicalCorePlacement(deviceGrid);
+            .build();
 
     return mlir::RankedTensorType::get(oldType.getShape(), newElementType,
                                        newLayout);
