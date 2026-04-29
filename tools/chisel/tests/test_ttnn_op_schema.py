@@ -8,11 +8,11 @@ real Python OpView surface — `dir(cls)` — exposed by mlir-tblgen.
 
 For each TTNN op:
   * every OPERAND_NAMES / ATTRIBUTE_NAMES / RESULT_NAMES entry must be a
-    member of the OpView class (asserted);
-  * any remaining names in `dir(cls)` that aren't on the base `mlir.ir.OpView`
-    and aren't the four schema-stamped sentinels (OPERATION_NAME plus the
-    three *_NAMES tuples) are reported back as the "leftovers" — names the
-    OpView exposes that the schema doesn't classify.
+    member of the OpView class;
+  * `dir(cls)` must contain no public names beyond the schema entries, the
+    base `mlir.ir.OpView` surface, and the four schema-stamped sentinels
+    (OPERATION_NAME plus the three *_NAMES tuples) — any leftover is a name
+    the OpView exposes that the schema fails to classify.
 """
 import inspect
 

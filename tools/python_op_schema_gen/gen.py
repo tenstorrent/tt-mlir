@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Generate a Python op-schema sidecar from llvm-tblgen --dump-json output.
-Tblgen JSON refrence used from the: https://llvm.org/docs/TableGen/BackEnds.html#json-reference.
+Tblgen JSON reference used from the: https://llvm.org/docs/TableGen/BackEnds.html#json-reference.
 
 Emits a module exposing OP_SCHEMA[<full-op-name>] = {
     "operands":   ("input", "index", "source"),
@@ -62,7 +62,7 @@ class OpDag(BaseModel):
 
 
 class OpRecord(BaseModel):
-    """A def record we've already accepted via is_ttnn_op."""
+    """A def record we've already accepted via is_dialect_op."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -88,7 +88,7 @@ def _expect_json_v1(records: dict) -> None:
     )
 
 
-def _get_type(arg_def: Optional[dict]) -> Optional[str]:
+def _get_def_name(arg_def: Optional[dict]) -> Optional[str]:
     """Return the target record name of a def-ref dict, else None."""
     if not isinstance(arg_def, dict):
         return None
@@ -102,8 +102,6 @@ def _unwrap_arg(name: str, records: dict) -> str:
     """If `name` refers to an Arg<...> wrapper record, return the inner
     constraint's name; otherwise return `name` unchanged.
 
-    The Arg wrapper carries description/decorator metadata around a real Constraint.
-    Classification cares about the constraint, not the metadata.
     Current TTNNOps.td does not nest Arg wrappers, so a single hop is enough.
     """
     rec = records.get(name)
@@ -142,7 +140,7 @@ def is_dialect_op(rec) -> bool:
         return False
     if "Op" not in rec.get("!superclasses", []):
         return False
-    return _get_type(rec.get("opDialect")) == DIALECT_RECORD
+    return _get_def_name(rec.get("opDialect")) == DIALECT_RECORD
 
 
 def collect(records: dict):
@@ -203,11 +201,11 @@ def emit(schema: dict, out_path: str) -> None:
         "OP_SCHEMA = {",
     ]
     for op_name in sorted(schema):
-        s = schema[op_name]
+        entry = schema[op_name]
         lines.append(f"    {op_name!r}: {{")
-        lines.append(f"        'operands':   {s['operands']!r},")
-        lines.append(f"        'attributes': {s['attributes']!r},")
-        lines.append(f"        'results':    {s['results']!r},")
+        lines.append(f"        'operands':   {entry['operands']!r},")
+        lines.append(f"        'attributes': {entry['attributes']!r},")
+        lines.append(f"        'results':    {entry['results']!r},")
         lines.append("    },")
     lines.append("}")
     lines.append("")
