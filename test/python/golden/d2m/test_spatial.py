@@ -14,14 +14,21 @@ from builder.base.builder_utils import Operand
 from builder.d2m.d2m_builder import D2MBuilder
 from conftest import get_request_kwargs
 from test_utils import make_shard_shape
-from ttmlir.dialects import arith, d2m, tensor, ttcore
+from ttmlir.dialects import affine, arith, d2m, tensor, ttcore
 from ttmlir.ir import (
     AffineConstantExpr,
     AffineDimExpr,
     AffineMap,
     AffineMapAttr,
+    ArrayAttr,
+    Attribute,
+    Context,
     DenseI64ArrayAttr,
+    F32Type,
     IndexType,
+    InsertionPoint,
+    IntegerAttr,
+    IntegerType,
     RankedTensorType,
     Type,
 )
@@ -169,6 +176,52 @@ def d2m_mesh_shard_devices(
     return d2m.mesh_shard(shard_result_type, host_tensor, st, sd, ss, sdims)
 
 
+# Post-ttir-to-d2m layouts and view remappings for 1x8 mesh all_gather
+# (working/spatial_builder/all_gather/sample.mlir).
+_AG_L1_8x8 = (
+    "#ttcore.metal_layout<logical_shape = 8x8, dim_alignments = 1x1, "
+    "collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, "
+    "undef, l1, sharded>"
+)
+_AG_L1_256x256 = (
+    "#ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, "
+    "collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, "
+    "undef, l1, sharded>"
+)
+_AG_L1_256x2048 = (
+    "#ttcore.metal_layout<logical_shape = 256x2048, dim_alignments = 32x32, "
+    "collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, "
+    "undef, l1, sharded>"
+)
+_AG_VIEW_MAP_S = (
+    "affine_map<(d0, d1, d2, d3) -> (d0 * 4 + d2 + d3 floordiv 8, d3 mod 8, 0, 0)>"
+)
+_AG_VIEW1_MAP_S = (
+    "affine_map<(d0, d1, d2, d3) -> (d0 * 4 + d2 + (d1 * 8 + d3) floordiv 64, "
+    "(d1 + d3 floordiv 8) mod 8, 0, d3 mod 8)>"
+)
+
+
+def _ag_parse_ty(ctx: Context, assembly: str) -> Type:
+    return Type.parse(assembly, ctx)
+
+
+def d2m_mesh_shard_devices_shard_to_full(
+    mesh_tensor: Operand,
+    full_host_result_ty: RankedTensorType,
+    shard_shape: Sequence[int],
+    shard_dims: Sequence[int],
+) -> Operand:
+    ctx = mesh_tensor.context
+    st = ttcore.ir.MeshShardTypeAttr.get(ctx, ttcore.ir.MeshShardType.Devices)
+    sd = ttcore.ir.MeshShardDirectionAttr.get(
+        ctx, ttcore.ir.MeshShardDirection.ShardToFull
+    )
+    ss = DenseI64ArrayAttr.get(list(shard_shape), ctx)
+    sdims = DenseI64ArrayAttr.get(list(shard_dims), ctx)
+    return d2m.mesh_shard(full_host_result_ty, mesh_tensor, st, sd, ss, sdims)
+
+
 def matmul_region_build(
     builder: D2MBuilder,
     lhs: Operand,
@@ -222,33 +275,93 @@ def matmul_region_build(
 
 
 def all_gather_region_build(
-    _builder: D2MBuilder,
-    _input_tensor: Operand,
-    _out: Operand,
+    builder: D2MBuilder,
+    view_in: Operand,
+    view_out: Operand,
+    start_sem: Operand,
+    end_sem: Operand,
     *,
-    gather_dim: int = 0,
+    num_mesh_devices: int = 8,
 ) -> Callable[[], None]:
-    """Stub for one spatial region that should emit the fabric ring all_gather generic.
+    """One spatial region: fabric ring all_gather d2m.generic (sample.mlir lines 26-50).
 
-    Lowering reference: lib/Conversion/TTIRToD2M/TTIRToD2M.cpp (D2MAllGatherRewriter).
-    That path builds global semaphores, optional d2m.view_layout stream types,
-    d2m.generic with fabricConnectionConfig (#ttcore.fabric_connection_config<
-    noc_index = noc0, topology = ring, cluster_axis = ..., routing_mode =
-    unidir_ring_torus, num_links = 1>), d2m.device_synchronize, remote_load /
-    remote_store with fabric destination args, d2m.semaphore_wait, d2m.yield_,
-    wrapped in d2m.spatial_yield.
-
-    Upstream host sharding should match test/python/golden/d2m/test_allgather.py:
-    mesh_shard FullToShard Devices with shard_dims on the last len(mesh_shape)
-    logical dims and shard_shape from make_shard_shape.
-
-    gather_dim is the logical tensor dimension to all_gather (not yet wired).
+    Callers must create global semaphores and view_layout stream tensors outside
+    the region (same as TTIRToD2M D2MAllGatherRewriter). Mesh is expected 1xN with
+    cluster_axis = 1 in the fabric config (see sample.mlir).
     """
 
     def _build():
-        raise NotImplementedError(
-            f"all_gather_region_build: not implemented (gather_dim={gather_dim})."
+        ctx = view_in.context
+        idx_ty = IndexType.get(ctx)
+        i32_ty = IntegerType.get_signless(32)
+        c0 = arith.constant(idx_ty, 0)
+        c1 = arith.constant(idx_ty, 1)
+        c7 = arith.constant(idx_ty, 7)
+        c8 = arith.constant(idx_ty, num_mesh_devices)
+        fabric = Attribute.parse(
+            "#ttcore.fabric_connection_config<"
+            "noc_index = noc0, topology = ring, cluster_axis = 1, "
+            "routing_mode = unidir_ring_torus, num_links = 1>",
+            ctx,
         )
+        grid_attr = Attribute.parse("#ttcore.grid<2x1>", ctx)
+        block_factors = DenseI64ArrayAttr.get([], ctx)
+        empty_iter = ArrayAttr.get([], context=ctx)
+        threads = ArrayAttr.get(
+            [Attribute.parse("#d2m.thread<unified>", ctx)], context=ctx
+        )
+        d0 = AffineDimExpr.get(0, ctx)
+        d1 = AffineDimExpr.get(1, ctx)
+        d2 = AffineDimExpr.get(2, ctx)
+        map2 = AffineMap.get(3, 0, [d1], ctx)
+        map3 = AffineMap.get(3, 0, [d0 + d2], ctx)
+        num_recv = num_mesh_devices - 1
+
+        ag_generic = d2m.GenericOp(
+            [view_out.type],
+            [view_in],
+            [view_out],
+            [start_sem, end_sem],
+            grid_attr,
+            block_factors,
+            [],
+            empty_iter,
+            threads,
+            1,
+            fabricConnectionConfig=fabric,
+        )
+        ag_generic.regions[0].blocks.append()
+        gblock = ag_generic.regions[0].blocks[0]
+        with InsertionPoint(gblock):
+            mesh_row = d2m.mesh_position(0)
+            core0 = d2m.core_index(0)
+            core1 = d2m.core_index(1)
+            d2m.device_synchronize(
+                start_sem,
+                [mesh_row, c0],
+                [c1, c8],
+                IntegerAttr.get(i32_ty, num_recv),
+                [core0, core1],
+            )
+            core0_1 = d2m.core_index(0)
+            c0_2 = arith.constant(idx_ty, 0)
+            loaded = builder.remote_load(view_in, [core0_1, c0_2])
+            mesh_col = d2m.mesh_position(1)
+            idx_row = affine.apply(map2, [mesh_col, core0_1, c0_2])
+            idx_col = affine.apply(map3, [mesh_col, core0_1, c0_2])
+            stored = d2m.remote_store(
+                view_out.type,
+                view_out,
+                [idx_row, idx_col],
+                [mesh_row, c0],
+                [c1, c8],
+                [core0_1, c0_2],
+                local_buffer=loaded,
+                semaphore=end_sem,
+            )
+            d2m.semaphore_wait(end_sem, c7)
+            d2m.yield_([stored])
+        d2m.spatial_yield([ag_generic.result])
 
     return _build
 
@@ -612,20 +725,10 @@ def test_single_matmul_offset_core(
     )
 
 
+@pytest.mark.parametrize("mesh_shape", [(1, 8)], ids=["1x8"])
 @pytest.mark.parametrize(
-    "mesh_shape,fabric_config",
-    [
-        pytest.param(
-            (1, 1),
-            None,
-            id="1x1_mesh_shard_only_shape",
-        ),
-        pytest.param(
-            (1, 2),
-            tt_runtime.runtime.FabricConfig.FABRIC_1D_RING,
-            id="1x2_ring",
-        ),
-    ],
+    "fabric_config",
+    [tt_runtime.runtime.FabricConfig.FABRIC_1D_RING],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_spatial_matmul_and_all_gather_single_tile(
@@ -635,47 +738,35 @@ def test_spatial_matmul_and_all_gather_single_tile(
     mesh_shape: Tuple[int, int],
     fabric_config,
 ):
-    """Bring-up target: one spatial region matmul, second region fabric ring all_gather.
+    """Matmul on one core range plus fabric ring all_gather aligned with sample.mlir.
 
-    Sharding for the gather operand follows test/python/golden/d2m/test_allgather.py
-    (last len(mesh_shape) tensor dims, make_shard_shape, FullToShard then gather
-    then ShardToFull). The all_gather body must mirror D2MAllGatherRewriter in
-    TTIRToD2M.cpp (global semaphores, view_layout streams, fabric generic).
+    The all_gather path matches post-ttir-to-d2m IR for func @all_gather on a
+    1x8 mesh (256x2048 f32 per-device shard -> 256x16384 full). See
+    working/spatial_builder/all_gather/sample.mlir. Matmul stays a small bf16
+    single-tile case on a separate spatial region.
 
-    The (1, 1) case is collected on single-chip system_desc so the test stays
-    visible; it skips immediately. The (1, 2) case is deselected when the system
-    has fewer than two chips (see filter_valid_mesh_shape in conftest).
-
-    Skipped until all_gather_region_build is implemented and multi-chip execution
-    is validated.
+    Requires eight devices in system_desc (deselected otherwise). Uses ring
+    fabric like test_allgather.py (mesh-topology=linear,ring).
     """
-    if mesh_shape[0] * mesh_shape[1] < 2:
-        pytest.skip(
-            "all_gather needs a mesh with at least two devices (use mesh_shape (1, 2))."
-        )
-    pytest.skip(
-        "Bring-up: implement fabric ring all_gather in all_gather_region_build; "
-        "requires 2-chip system_desc, mesh (1,2), and FABRIC_1D_RING (see TTIRToD2M "
-        "D2MAllGatherRewriter + test_allgather.py mesh_shard pattern). "
-        f"fabric_config={fabric_config}."
-    )
-
-    # --- Intended layout (for implementer; unreachable while skipped) ---
-    torch_dtype = torch.bfloat16
     mesh_dict = OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])])
-    test_shape = (32, 32)
-    rank_in = len(test_shape)
+    num_mesh_devices = mesh_shape[0] * mesh_shape[1]
+
+    mm_shape = (32, 32)
+    ag_shard_logical = (256, 256)
+    ag_mesh_logical = (256, 2048)
+    ag_full_host = (256, 16384)
+    rank_in = 2
     rank_mesh = len(mesh_shape)
     shard_dims = list(range(rank_in - rank_mesh, rank_in))
     shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
-    full_ag_shape = list(test_shape)
-    for d, factor in zip(shard_dims, mesh_shape):
-        full_ag_shape[d] *= factor
+
+    torch_dtype_mm = torch.bfloat16
+    torch_dtype_ag = torch.float32
     grid = (1, 1)
     block_factors = (1, 1, 1)
-    lhs_shape = list(test_shape)
-    rhs_shape = list(test_shape)
-    out_shape = list(test_shape)
+    lhs_shape = list(mm_shape)
+    rhs_shape = list(mm_shape)
+    out_shape = list(mm_shape)
     grid_ranges = [
         ((0, 0), (0, 0)),
         ((1, 1), (1, 1)),
@@ -686,8 +777,8 @@ def test_spatial_matmul_and_all_gather_single_tile(
 
     def spatial_module(builder: D2MBuilder):
         @builder.func(
-            [lhs_shape, rhs_shape, full_ag_shape],
-            [torch_dtype, torch_dtype, torch_dtype],
+            [lhs_shape, rhs_shape, list(ag_full_host)],
+            [torch_dtype_mm, torch_dtype_mm, torch_dtype_ag],
         )
         def main(
             lhs: Operand,
@@ -697,52 +788,87 @@ def test_spatial_matmul_and_all_gather_single_tile(
             unit_attrs: List[str] = None,
         ):
             ctx = lhs.context
+            f32 = F32Type.get(ctx)
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
-            ag_shard_ty = builder.get_metal_tensor_layout(
-                list(test_shape),
-                grid=[1, 1],
-                tiled=True,
-                element_dtype=torch_dtype,
+            host_ag_full_ty = RankedTensorType.get(list(ag_full_host), f32)
+
+            ag_shard_mesh_ty = Type.parse(
+                f"tensor<{ag_shard_logical[0]}x{ag_shard_logical[1]}xf32, "
+                f'#ttcore.tensor_mesh<"mesh">>',
+                ctx,
             )
+            assert isinstance(ag_shard_mesh_ty, RankedTensorType)
             ag_sharded = d2m_mesh_shard_devices(
-                ag_full, ag_shard_ty, shard_shape, shard_dims
+                ag_full, ag_shard_mesh_ty, shard_shape, shard_dims
             )
-            ag_gather_host_ty = RankedTensorType.get(
-                full_ag_shape, ag_full.type.element_type
+
+            sem_ty = _ag_parse_ty(ctx, f"tensor<8x8x1x1xui32, {_AG_L1_8x8}>")
+            sem_empty_a = d2m.empty(sem_ty)
+            sem_empty_b = d2m.empty(sem_ty)
+            sem_ty_gs = Type.parse("!d2m.global_semaphore", ctx)
+            start_sem = d2m.create_global_semaphore(
+                sem_empty_a, value=0, results=[sem_ty_gs]
             )
-            ag_gather_metal_ty = builder.get_metal_tensor_layout(
-                list(full_ag_shape),
-                grid=[1, 1],
-                tiled=True,
-                element_dtype=torch_dtype,
+            end_sem = d2m.create_global_semaphore(
+                sem_empty_b, value=0, results=[sem_ty_gs]
             )
+
+            ag_mesh_init_ty = Type.parse(
+                f"tensor<{ag_mesh_logical[0]}x{ag_mesh_logical[1]}xf32, "
+                f'#ttcore.tensor_mesh<"mesh">>',
+                ctx,
+            )
+            ag_mesh_init = d2m.empty(ag_mesh_init_ty)
+
+            tile_in_ty = _ag_parse_ty(
+                ctx,
+                f"tensor<8x8x1x1x!ttcore.tile<32x32, f32>, {_AG_L1_256x256}>",
+            )
+            tile_in_empty = d2m.empty(tile_in_ty)
+            ag_tile_in = d2m.to_layout([tile_in_ty], ag_sharded, tile_in_empty)
+
+            tile_out_ty = _ag_parse_ty(
+                ctx,
+                f"tensor<8x8x1x8x!ttcore.tile<32x32, f32>, {_AG_L1_256x2048}>",
+            )
+            tile_out_empty = d2m.empty(tile_out_ty)
+            ag_tile_out = d2m.to_layout([tile_out_ty], ag_mesh_init, tile_out_empty)
+
+            view_in_ty = _ag_parse_ty(
+                ctx,
+                f"tensor<2x1x4x8x!ttcore.tile<32x32, f32>, {_AG_L1_256x256}>",
+            )
+            view_out_ty = _ag_parse_ty(
+                ctx,
+                f"tensor<2x8x4x8x!ttcore.tile<32x32, f32>, {_AG_L1_256x2048}>",
+            )
+            map0 = Attribute.parse(_AG_VIEW_MAP_S, ctx)
+            map1 = Attribute.parse(_AG_VIEW1_MAP_S, ctx)
+            ag_view_in = d2m.view_layout(view_in_ty, ag_tile_in, map0)
+            ag_view_out = d2m.view_layout(view_out_ty, ag_tile_out, map1)
 
             lhs_metal_ty = builder.get_metal_tensor_layout(
                 lhs_shape,
                 grid=layout_cfg_r0["lhs_grid"],
                 tiled=True,
-                element_dtype=torch_dtype,
+                element_dtype=torch_dtype_mm,
             )
             rhs_metal_ty = builder.get_metal_tensor_layout(
                 rhs_shape,
                 grid=layout_cfg_r0["rhs_grid"],
                 tiled=True,
-                element_dtype=torch_dtype,
+                element_dtype=torch_dtype_mm,
             )
             out_metal_ty = builder.get_metal_tensor_layout(
                 out_shape,
                 grid=layout_cfg_r0["out_grid"],
                 tiled=True,
-                element_dtype=torch_dtype,
+                element_dtype=torch_dtype_mm,
             )
 
             r0_start = grid_ranges[0][0]
-            r1_start = grid_ranges[1][0]
             r0_vg_inv, r0_vg_fwd = _build_virtual_grid_attrs(
                 ctx, tensor_rank=len(lhs_metal_ty.shape), core_start=r0_start
-            )
-            r1_vg_inv, r1_vg_fwd = _build_virtual_grid_attrs(
-                ctx, tensor_rank=len(ag_gather_metal_ty.shape), core_start=r1_start
             )
 
             lhs_m = prepare_metal_input(
@@ -752,15 +878,6 @@ def test_spatial_matmul_and_all_gather_single_tile(
                 builder, rhs, rhs_metal_ty, r0_vg_inv, r0_vg_fwd, unit_attrs=unit_attrs
             )
             out0_m = prepare_metal_output(out_metal_ty, r0_vg_inv, r0_vg_fwd)
-            ag_in_m = prepare_metal_input(
-                builder,
-                ag_sharded,
-                ag_shard_ty,
-                r1_vg_inv,
-                r1_vg_fwd,
-                unit_attrs=unit_attrs,
-            )
-            ag_out_m = prepare_metal_output(ag_gather_metal_ty, r1_vg_inv, r1_vg_fwd)
 
             region_builders = [
                 matmul_region_build(
@@ -772,31 +889,42 @@ def test_spatial_matmul_and_all_gather_single_tile(
                 ),
                 all_gather_region_build(
                     builder,
-                    ag_in_m,
-                    ag_out_m,
-                    gather_dim=1,
+                    ag_view_in,
+                    ag_view_out,
+                    start_sem,
+                    end_sem,
+                    num_mesh_devices=num_mesh_devices,
                 ),
             ]
 
             spatial_results = builder.spatial(
-                [lhs_m, rhs_m, ag_in_m],
-                [out0_m, ag_out_m],
+                [lhs_m, rhs_m, ag_view_in],
+                [out0_m, ag_view_out],
                 grid_ranges,
                 region_builders,
-                result_types=[out0_m.type, ag_out_m.type],
+                result_types=[out0_m.type, ag_view_out.type],
                 unit_attrs=unit_attrs,
             )
             r0_m, r1_m = spatial_results[0], spatial_results[1]
+
             res_mm = builder.to_layout(
                 r0_m, output_type=host_out_ty, unit_attrs=unit_attrs
             )
-            res_ag = builder.to_layout(
-                r1_m, output_type=ag_gather_host_ty, unit_attrs=unit_attrs
+
+            mesh_after_ty = Type.parse(
+                f"tensor<{ag_mesh_logical[0]}x{ag_mesh_logical[1]}xf32, "
+                f'#ttcore.tensor_mesh<"mesh">>',
+                ctx,
+            )
+            mesh_after_empty = d2m.empty(mesh_after_ty)
+            ag_mesh_tensor = d2m.to_layout([mesh_after_ty], r1_m, mesh_after_empty)
+            res_ag = d2m_mesh_shard_devices_shard_to_full(
+                ag_mesh_tensor, host_ag_full_ty, shard_shape, shard_dims
             )
 
-            lhs_g = torch.randn(lhs_shape, dtype=torch_dtype)
-            rhs_g = torch.randn(rhs_shape, dtype=torch_dtype)
-            ag_full_g = torch.randn(full_ag_shape, dtype=torch_dtype)
+            lhs_g = torch.randn(lhs_shape, dtype=torch_dtype_mm)
+            rhs_g = torch.randn(rhs_shape, dtype=torch_dtype_mm)
+            ag_full_g = torch.randn(list(ag_full_host), dtype=torch_dtype_ag)
             golden_mm = lhs_g @ rhs_g
             builder.set_goldens(
                 {lhs: lhs_g, rhs: rhs_g, ag_full: ag_full_g},
@@ -809,6 +937,7 @@ def test_spatial_matmul_and_all_gather_single_tile(
         target=target,
         device=device,
         mesh_dict=mesh_dict,
+        pipeline_options=["mesh-topology=linear,ring"],
         custom_pipeline="ttir-to-ttmetal-pipeline{use-tile-matmul=false enable-l1-acc=true}",
         print_ir=False,
         check_pcc=False,
