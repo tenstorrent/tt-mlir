@@ -43,10 +43,13 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
 
   // Create layout attribute for the input tensor using the specific memory
   // config with desired grid.
-  ttnn::TTNNLayoutAttr desiredInputLayout = ttnn::TTNNLayoutAttr::get(
-      rewriter.getContext(), inputType.getShape(),
-      ttcore::TileType::get(inputElementType), ttnn::BufferType::L1,
-      virtualGridSize, deviceGrid, memLayoutAttr);
+  ttnn::TTNNLayoutAttr desiredInputLayout =
+      ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(), inputType.getShape(),
+                                    ttcore::TileType::get(inputElementType))
+          .setBufferType(ttnn::BufferType::L1)
+          .setMemoryLayout(memLayoutAttr)
+          .setGridShape(virtualGridSize)
+          .buildWithCanonicalCorePlacement(deviceGrid);
 
   ttnn::TTNNLayoutAttr currentInputLayout =
       mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(

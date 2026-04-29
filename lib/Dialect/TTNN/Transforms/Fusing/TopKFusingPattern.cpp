@@ -86,7 +86,9 @@ RankedTensorType computeTopKResultType(RankedTensorType inputType,
   Attribute encoding = nullptr;
   if (auto inputLayout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputType.getEncoding())) {
-    encoding = inputLayout.withElementType(elementType, shape);
+    encoding = TTNNLayoutAttr(TTNNLayoutAttr::Builder(inputLayout)
+                                  .setTensorShape(shape)
+                                  .setElementType(elementType));
   }
 
   return RankedTensorType::get(shape, elementType, encoding);

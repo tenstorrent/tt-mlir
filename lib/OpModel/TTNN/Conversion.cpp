@@ -666,12 +666,15 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
     gridShape = getLogicalGridShape(tensorSpec.memory_config(), deviceGrid);
   }
 
-  // Build a deviceGrid attr from the ArrayRef so the high-level get() can
-  // derive the canonical CoreRangeSet for sharded layouts.
+  // Build a deviceGrid attr from the ArrayRef so the Builder can derive the
+  // canonical CoreRangeSet for sharded layouts.
   ttcore::GridAttr deviceGridAttr = ttcore::GridAttr::get(context, deviceGrid);
 
-  return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridShape,
-                             deviceGridAttr, memoryLayoutAttr);
+  return TTNNLayoutAttr::Builder(context, shape, elementType)
+      .setBufferType(bufferType)
+      .setMemoryLayout(memoryLayoutAttr)
+      .setGridShape(gridShape)
+      .buildWithCanonicalCorePlacement(deviceGridAttr);
 }
 
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>

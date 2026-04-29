@@ -35,7 +35,7 @@ module {
     // CHECK: %[[MATMUL_2_OUT:.*]] = "ttnn.matmul"(%[[D2M_SUBGRAPH_OUT]], %arg4)
     // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>{{(, core_ranges = <\[[^]]*\]>)?}}>>
     // CHECK: %[[MATMUL_2_SPILLED:.*]] = "ttnn.to_layout"(%[[MATMUL_2_OUT]])
-    // CHECK-SAME: memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+    // CHECK-SAME: memref<2x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     return %4 : tensor<64x64xbf16, #layout>
     // CHECK: return %[[MATMUL_2_SPILLED]]
   }

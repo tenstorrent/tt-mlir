@@ -225,11 +225,15 @@ void populateTTNNModule(nb::module_ &m) {
                   unwrap(ctx),
                   static_cast<tt::ttnn::TensorMemoryLayout>(memLayout.value()));
             }
-            return wrap(tt::ttnn::TTNNLayoutAttr::get(
-                unwrap(ctx), shape, mlir::cast<Type>(unwrap(type)),
-                static_cast<tt::ttnn::BufferType>(bufferType), gridShape,
-                mlir::cast<tt::ttcore::GridAttr>(unwrap(deviceGrid)),
-                memLayoutAttr));
+            return wrap(
+                tt::ttnn::TTNNLayoutAttr::Builder(
+                    unwrap(ctx), shape, mlir::cast<Type>(unwrap(type)))
+                    .setBufferType(
+                        static_cast<tt::ttnn::BufferType>(bufferType))
+                    .setMemoryLayout(memLayoutAttr)
+                    .setGridShape(gridShape)
+                    .buildWithCanonicalCorePlacement(
+                        mlir::cast<tt::ttcore::GridAttr>(unwrap(deviceGrid))));
           },
           nb::arg("ctx"), nb::arg("shape"), nb::arg("grid_shape"),
           nb::arg("memrefType"), nb::arg("device_grid"),

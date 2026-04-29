@@ -451,7 +451,8 @@ TEST_P(MlirToTtnnConversionMemoryConfig, MemoryConfig) {
     EXPECT_TRUE(memoryConfig.is_sharded());
     EXPECT_TRUE(memoryConfig.shard_spec().has_value());
 
-    auto partialLayout = layout.withIgnorePhysicalLayout(true);
+    auto partialLayout = TTNNLayoutAttr(
+        TTNNLayoutAttr::Builder(layout).setIgnorePhysicalLayout(true));
     EXPECT_TRUE(partialLayout.getIgnorePhysicalLayout());
     EXPECT_TRUE(partialLayout.hasShardedTensorMemoryLayout());
 

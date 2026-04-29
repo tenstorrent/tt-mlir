@@ -115,10 +115,12 @@ TEST_F(OpModelTest, MatmulActivationWithIgnorePhysicalLayout) {
   matmul.setActivation(llvm::StringRef("sigmoid"));
 
   // Create sharded output layout with IgnorePhysicalLayout=true
-  auto outputLayout = CreateTiledLayout(outputShape, BufferType::L1,
-                                        TensorMemoryLayout::BlockSharded,
-                                        llvm::SmallVector<int64_t>{2, 2})
-                          .withIgnorePhysicalLayout(true);
+  auto outputLayout =
+      TTNNLayoutAttr(TTNNLayoutAttr::Builder(
+                         CreateTiledLayout(outputShape, BufferType::L1,
+                                           TensorMemoryLayout::BlockSharded,
+                                           llvm::SmallVector<int64_t>{2, 2}))
+                         .setIgnorePhysicalLayout(true));
 
   auto deviceGrid = CreateWorkerGrid();
 

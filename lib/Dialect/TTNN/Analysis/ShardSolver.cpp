@@ -382,13 +382,17 @@ ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
-  inputLayout =
-      inputLayout.withBufferType(BufferType::DRAM, deviceGrid)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid);
+  inputLayout = TTNNLayoutAttr::Builder(inputLayout)
+                    .setTensorShape(tensorShape)
+                    .setBufferType(BufferType::DRAM)
+                    .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                    .build();
 
   if (rowMajorInputOverride) {
-    inputLayout = inputLayout.withLayout(Layout::RowMajor, tensorShape);
+    inputLayout = TTNNLayoutAttr::Builder(inputLayout)
+                      .setTensorShape(tensorShape)
+                      .setLayout(Layout::RowMajor)
+                      .build();
   }
 
   if (customCheckShardCompatible) {
@@ -472,7 +476,8 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr layoutForComparison = firstOpLayout;
 
     if (shouldUseIgnorePhysicalLayout(firstOp)) {
-      firstOpLayout = firstOpLayout.withIgnorePhysicalLayout(true);
+      firstOpLayout =
+          TTNNLayoutAttr::Builder(firstOpLayout).setIgnorePhysicalLayout(true);
     }
 
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,

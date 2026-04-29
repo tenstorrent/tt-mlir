@@ -162,8 +162,8 @@ private:
   void addL1InterleavedFallbacks(
       std::vector<InputCandidate> &candidates, Operation *op,
       const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
-      Operation *producerOp, TTNNLayoutAttr currentLayout, size_t resultIdx,
-      size_t maxCandidates);
+      TTNNLayoutAttr currentLayout, RankedTensorType inputTensorType,
+      size_t resultIdx, size_t maxCandidates);
 
   /// Apply per-op input layout filters, removing candidates that the op
   /// cannot consume efficiently.

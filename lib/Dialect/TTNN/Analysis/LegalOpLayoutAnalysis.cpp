@@ -93,11 +93,12 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
   }
 
   ttcore::GridAttr deviceGrid = ttcore::lookupDevice(op).getWorkerGrid();
-  TTNNLayoutAttr newLayout = TTNNLayoutAttr::get(
-      op->getContext(), tensorShape, elementType,
-      layoutOverride.bufferType.value(), gridShape, deviceGrid,
-      TensorMemoryLayoutAttr::get(op->getContext(),
-                                  layoutOverride.tensorMemoryLayout.value()));
+  TTNNLayoutAttr newLayout =
+      TTNNLayoutAttr::Builder(op->getContext(), tensorShape, elementType)
+          .setBufferType(layoutOverride.bufferType.value())
+          .setMemoryLayout(layoutOverride.tensorMemoryLayout.value())
+          .setGridShape(gridShape)
+          .buildWithCanonicalCorePlacement(deviceGrid);
 
   analysisResult.push_back({newLayout});
 

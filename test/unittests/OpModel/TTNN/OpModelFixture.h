@@ -114,12 +114,15 @@ public:
                                    &context, tensorMemoryLayout);
     const auto dtypeSelected =
         dtype.has_value() ? dtype.value() : builder.getBF16Type();
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, mlir::tt::ttcore::TileType::get(dtypeSelected),
-        bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(
+               &context, tensorShape,
+               mlir::tt::ttcore::TileType::get(dtypeSelected))
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
+                                 virtualGridSelected, physicalGrid))
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutInt32(
@@ -144,11 +147,14 @@ public:
     auto tileType =
         mlir::tt::ttcore::TileType::get(&context, {32, 32}, int32DataType);
 
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, tileType, bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(&context, tensorShape,
+                                                   tileType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
+                                 virtualGridSelected, physicalGrid))
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateTiledLayoutUInt32(
@@ -183,11 +189,14 @@ public:
     const auto dtypeSelected =
         dtype.has_value() ? dtype.value() : builder.getBF16Type();
 
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, dtypeSelected, bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(&context, tensorShape,
+                                                   dtypeSelected)
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
+                                 virtualGridSelected, physicalGrid))
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
   }
 
   mlir::tt::ttnn::TTNNLayoutAttr CreateRowMajorLayoutInt32(
@@ -209,11 +218,14 @@ public:
 
     auto int32DataType = mlir::IntegerType::get(&context, 32);
 
-    return mlir::tt::ttnn::TTNNLayoutAttr::get(
-        &context, tensorShape, int32DataType, bufferType,
-        CreateGrid(&context, bufferType, tensorMemoryLayout,
-                   virtualGridSelected, physicalGrid),
-        mlir::tt::ttcore::GridAttr::get(&context, physicalGrid), memLayoutAttr);
+    return mlir::tt::ttnn::TTNNLayoutAttr::Builder(&context, tensorShape,
+                                                   int32DataType)
+        .setBufferType(bufferType)
+        .setMemoryLayout(memLayoutAttr)
+        .setGridShape(CreateGrid(&context, bufferType, tensorMemoryLayout,
+                                 virtualGridSelected, physicalGrid))
+        .buildWithCanonicalCorePlacement(
+            mlir::tt::ttcore::GridAttr::get(&context, physicalGrid));
   }
 
   llvm::SmallVector<int64_t>

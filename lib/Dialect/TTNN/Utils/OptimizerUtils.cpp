@@ -79,8 +79,8 @@ llvm::SmallVector<OpConfig> getUniqueTestConfigsForMatmulLinear(
 
     auto &group = groups[key];
     if (!group.partialLayout) {
-      TTNNLayoutAttr layout = config.outputLayout;
-      group.partialLayout = layout.withIgnorePhysicalLayout(true);
+      group.partialLayout = TTNNLayoutAttr::Builder(config.outputLayout)
+                                .setIgnorePhysicalLayout(true);
     }
     if (group.seenAttrs.insert(config.opSpecificAttrs).second) {
       group.uniqueAttrs.push_back(config.opSpecificAttrs);

@@ -997,9 +997,11 @@ TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
-                                        TensorMemoryLayout::BlockSharded)
-                          .withIgnorePhysicalLayout(true);
+  auto outputLayout =
+      TTNNLayoutAttr(TTNNLayoutAttr::Builder(
+                         CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                           TensorMemoryLayout::BlockSharded))
+                         .setIgnorePhysicalLayout(true));
   auto linear =
       builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
                                mlir::ValueRange{inputA, inputB, bias});
@@ -1096,9 +1098,11 @@ TEST_F(OpModelBase, MatmulOpInterfacePartialOutput) {
   auto inputB = createEmptyTensor(tensorShapeB);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
-                                        TensorMemoryLayout::BlockSharded)
-                          .withIgnorePhysicalLayout(true);
+  auto outputLayout =
+      TTNNLayoutAttr(TTNNLayoutAttr::Builder(
+                         CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                           TensorMemoryLayout::BlockSharded))
+                         .setIgnorePhysicalLayout(true));
   auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
                                          mlir::ValueRange{inputA, inputB});
 

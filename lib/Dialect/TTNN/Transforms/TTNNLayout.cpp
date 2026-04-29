@@ -98,9 +98,13 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
   }
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
-  return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
-                             tensorGridShape, deviceGrid, memoryLayoutAttr,
-                             tensorMeshAttr, collapseDimsRef);
+  return TTNNLayoutAttr::Builder(ctx, type.getShape(), elementType)
+      .setCollapseIntervals(collapseDimsRef)
+      .setBufferType(bufferType)
+      .setMemoryLayout(memoryLayoutAttr)
+      .setGridShape(tensorGridShape)
+      .setTensorMesh(tensorMeshAttr)
+      .buildWithCanonicalCorePlacement(deviceGrid);
 }
 
 static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
@@ -183,10 +187,15 @@ createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
   // Create a new ttnn layout with the desired buffer type, element type and
   // memory layout. deviceGrid is null because this helper only produces
   // non-sharded targets.
-  TTNNLayoutAttr encoding = rewriter.getAttr<TTNNLayoutAttr>(
-      ty.getShape(), desiredElementType, desiredBufferType,
-      ttnnLayoutAttr.getGridShape(), /*deviceGrid=*/ttcore::GridAttr{},
-      desiredMemLayoutAttr, desiredTensorMesh, g_defaultCollapseDims);
+  TTNNLayoutAttr encoding =
+      TTNNLayoutAttr::Builder(rewriter.getContext(), ty.getShape(),
+                              desiredElementType)
+          .setCollapseIntervals(g_defaultCollapseDims)
+          .setBufferType(desiredBufferType)
+          .setMemoryLayout(desiredMemLayoutAttr)
+          .setGridShape(ttnnLayoutAttr.getGridShape())
+          .setTensorMesh(desiredTensorMesh)
+          .buildWithCanonicalCorePlacement(/*deviceGrid=*/ttcore::GridAttr{});
 
   return mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
                                      encoding);
@@ -434,8 +443,9 @@ private:
         inputLayout.getLayout() == resultLayout.getLayout()) {
       return failure();
     }
-    TTNNLayoutAttr newLayout =
-        resultLayout.withLayout(inputLayout.getLayout(), resultType.getShape());
+    TTNNLayoutAttr newLayout = TTNNLayoutAttr::Builder(resultLayout)
+                                   .setTensorShape(resultType.getShape())
+                                   .setLayout(inputLayout.getLayout());
     rewriter.modifyOpInPlace(op, [&]() {
       op->getResult(0).setType(RankedTensorType::get(
           resultType.getShape(), resultType.getElementType(), newLayout));

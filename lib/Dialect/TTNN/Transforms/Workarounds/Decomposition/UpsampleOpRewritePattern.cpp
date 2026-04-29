@@ -58,10 +58,12 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
   SmallVector<int64_t> paddedShape(inputType.getShape());
   paddedShape[CHANNEL] = paddedChannelSize;
 
+  ttnn::TTNNLayoutAttr paddedLayout =
+      ttnn::TTNNLayoutAttr::Builder(
+          mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding()))
+          .setTensorShape(paddedShape);
   auto paddedType = RankedTensorType::get(
-      paddedShape, inputType.getElementType(),
-      mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
-          .withTensorShape(paddedShape));
+      paddedShape, inputType.getElementType(), paddedLayout);
 
   auto padOp = rewriter.create<ttnn::PadOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getInput().getLoc(), "pad"),
@@ -73,10 +75,12 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
   llvm::SmallVector<int64_t> upsamplePaddedShape(outputType.getShape());
   upsamplePaddedShape[CHANNEL] = paddedChannelSize;
 
+  ttnn::TTNNLayoutAttr upsamplePaddedLayout =
+      ttnn::TTNNLayoutAttr::Builder(
+          mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding()))
+          .setTensorShape(upsamplePaddedShape);
   auto upsampledPaddedType = RankedTensorType::get(
-      upsamplePaddedShape, outputType.getElementType(),
-      mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
-          .withTensorShape(upsamplePaddedShape));
+      upsamplePaddedShape, outputType.getElementType(), upsamplePaddedLayout);
 
   auto paddedUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
       srcOp.getLoc(), upsampledPaddedType, padOp, srcOp.getScaleFactorAttr(),

@@ -473,13 +473,11 @@ private:
     ttnn::MemoryConfigAttr memoryConfigAttr =
         info.output.createMemoryConfigAttr(op.getContext());
     TTNNLayoutAttr newLayout =
-        utils::getLayoutAttrFromTensor(currentInputType)
-            .withBufferType(info.output.bufferType, info.output.deviceGrid)
-            .withGridShape(currentInputType.getShape(), info.output.gridShape,
-                           info.output.deviceGrid)
-            .withMemoryLayout(info.output.tensorMemoryLayout,
-                              info.output.deviceGrid)
-            .withShardShape(info.output.shardShape);
+        TTNNLayoutAttr::Builder(currentInputType)
+            .setBufferType(info.output.bufferType)
+            .setGridShape(info.output.gridShape)
+            .setMemoryLayout(info.output.tensorMemoryLayout)
+            .buildWithCanonicalCorePlacement(info.output.deviceGrid);
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
     mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(
@@ -542,11 +540,12 @@ private:
     // ttnn.copy (to_memory_config) doesn't support u16 (tt-metal#41689),
     // so u16 tensors use a host round-trip (from_device → to_device).
     TTNNLayoutAttr dramEncoding =
-        inputEncoding.withBufferType(BufferType::DRAM, info.output.deviceGrid)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved,
-                              info.output.deviceGrid)
-            .withGridShape(shape, llvm::ArrayRef<int64_t>{1, 1},
-                           info.output.deviceGrid);
+        TTNNLayoutAttr::Builder(inputEncoding)
+            .setTensorShape(shape)
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .setGridShape({1, 1})
+            .buildWithCanonicalCorePlacement(info.output.deviceGrid);
     RankedTensorType dramType =
         RankedTensorType::get(shape, inputType.getElementType(), dramEncoding);
 

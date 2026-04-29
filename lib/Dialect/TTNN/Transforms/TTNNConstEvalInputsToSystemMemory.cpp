@@ -32,9 +32,10 @@ namespace {
 static TTNNLayoutAttr
 createSystemMemoryLayoutAttr(RankedTensorType type,
                              ttcore::GridAttr deviceGrid) {
-  auto currentLayout = mlir::cast<TTNNLayoutAttr>(type.getEncoding());
-  return currentLayout.withBufferType(BufferType::SystemMemory, deviceGrid)
-      .withLayout(Layout::RowMajor, type.getShape());
+  return TTNNLayoutAttr::Builder(type)
+      .setBufferType(BufferType::SystemMemory)
+      .setLayout(Layout::RowMajor)
+      .buildWithCanonicalCorePlacement(deviceGrid);
 }
 
 // Helper function to convert a tensor type to system memory type.

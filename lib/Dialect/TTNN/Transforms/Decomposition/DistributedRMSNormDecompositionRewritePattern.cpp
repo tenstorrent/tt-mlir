@@ -147,9 +147,10 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   statsShape.back() = 1;
   auto inputEncoding =
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
-  RankedTensorType statsType =
-      RankedTensorType::get(statsShape, inputType.getElementType(),
-                            inputEncoding.withTensorShape(statsShape));
+  ttnn::TTNNLayoutAttr statsEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding).setTensorShape(statsShape);
+  RankedTensorType statsType = RankedTensorType::get(
+      statsShape, inputType.getElementType(), statsEncoding);
 
   ArrayAttr dimArg = rewriter.getI32ArrayAttr({static_cast<int32_t>(rank - 1)});
   auto localMeanOp = rewriter.create<ttnn::MeanOp>(
@@ -160,9 +161,11 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
   SmallVector<int64_t> gatheredShape(statsShape.begin(), statsShape.end());
   gatheredShape.back() = numDevices;
-  RankedTensorType gatheredType =
-      RankedTensorType::get(gatheredShape, inputType.getElementType(),
-                            inputEncoding.withTensorShape(gatheredShape));
+  ttnn::TTNNLayoutAttr gatheredEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding)
+          .setTensorShape(gatheredShape);
+  RankedTensorType gatheredType = RankedTensorType::get(
+      gatheredShape, inputType.getElementType(), gatheredEncoding);
 
   auto allGatherOp = rewriter.create<ttnn::AllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_all_gather"), gatheredType,

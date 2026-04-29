@@ -105,26 +105,26 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
 
     if (!onlyShardedLayouts) {
       // DRAM
-      allPossibleLayouts.push_back(TTNNLayoutAttr::get(
-          ctx, tensorShape, elementType, BufferType::DRAM,
-          /*gridShape=*/llvm::ArrayRef<int64_t>{1, 1}, maxGrid,
-          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
+      allPossibleLayouts.push_back(
+          TTNNLayoutAttr::Builder(ctx, tensorShape, elementType)
+              .setBufferType(BufferType::DRAM)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .setGridShape({1, 1})
+              .build());
 
       // L1 Interleaved - It must be tiled.
       // TODO(odjuricic): Check that this is always the case.
       if (mlir::isa<ttcore::TileType>(elementType)) {
-        allPossibleLayouts.push_back(TTNNLayoutAttr::get(
-            ctx, tensorShape, elementType, BufferType::L1, maxGrid.getShape(),
-            maxGrid,
-            TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
+        allPossibleLayouts.push_back(
+            TTNNLayoutAttr::Builder(ctx, tensorShape, elementType)
+                .setBufferType(BufferType::L1)
+                .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                .setGridShape(maxGrid.getShape())
+                .build());
       }
     }
 
     // L1 Sharded
-    TTNNLayoutAttr shardedBase =
-        layoutAttr.withBufferType(BufferType::L1, maxGrid)
-            .withMemoryLayout(TensorMemoryLayout::BlockSharded, maxGrid)
-            .withElementType(elementType, tensorShape);
 
     // We can cache shard shape and then discard larger grids with same shard
     std::unordered_set<std::pair<int64_t, int64_t>,
@@ -146,10 +146,13 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     for (int height = 1; height <= maxGrid.getShape()[0]; ++height) {
       for (int width = 1; width <= maxGrid.getShape()[1]; ++width) {
         shardedResults.push_back(
-            shardedBase
-                .withGridShape(tensorType,
-                               llvm::ArrayRef<int64_t>{height, width}, maxGrid)
-                .withMemoryLayout(TensorMemoryLayout::BlockSharded, maxGrid));
+            TTNNLayoutAttr::Builder(layoutAttr)
+                .setTensorShape(tensorShape)
+                .setGridShape({height, width})
+                .setElementType(elementType)
+                .setBufferType(BufferType::L1)
+                .setMemoryLayout(TensorMemoryLayout::BlockSharded)
+                .buildWithCanonicalCorePlacement(maxGrid));
         if (checkIfShardShapeExists(
                 shardedResults.back().getMemref().getShape())) {
           shardedResults.pop_back();
@@ -163,10 +166,13 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     // Height Sharded
     for (int height = 1; height <= numCores; ++height) {
       shardedResults.push_back(
-          shardedBase
-              .withGridShape(tensorType, llvm::ArrayRef<int64_t>{height, 1},
-                             maxGrid)
-              .withMemoryLayout(TensorMemoryLayout::HeightSharded, maxGrid));
+          TTNNLayoutAttr::Builder(layoutAttr)
+              .setTensorShape(tensorShape)
+              .setGridShape({height, 1})
+              .setElementType(elementType)
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+              .buildWithCanonicalCorePlacement(maxGrid));
 
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {
@@ -179,10 +185,13 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     // Width Sharded
     for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(
-          shardedBase
-              .withGridShape(tensorType, llvm::ArrayRef<int64_t>{1, width},
-                             maxGrid)
-              .withMemoryLayout(TensorMemoryLayout::WidthSharded, maxGrid));
+          TTNNLayoutAttr::Builder(layoutAttr)
+              .setTensorShape(tensorShape)
+              .setGridShape({1, width})
+              .setElementType(elementType)
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::WidthSharded)
+              .buildWithCanonicalCorePlacement(maxGrid));
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {
         shardedResults.pop_back();

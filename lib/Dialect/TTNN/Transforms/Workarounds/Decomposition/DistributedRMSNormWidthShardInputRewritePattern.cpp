@@ -88,10 +88,13 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       ttcore::lookupDevice(op.getOperation()).getWorkerGrid();
 
   // Create layout attribute for the input tensor with width-sharded L1 config.
-  ttnn::TTNNLayoutAttr desiredInputLayout = ttnn::TTNNLayoutAttr::get(
-      rewriter.getContext(), inputType.getShape(),
-      ttcore::TileType::get(inputElementType), ttnn::BufferType::L1,
-      virtualGridSize, deviceGrid, memLayoutAttr);
+  ttnn::TTNNLayoutAttr desiredInputLayout =
+      ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(), inputType.getShape(),
+                                    ttcore::TileType::get(inputElementType))
+          .setBufferType(ttnn::BufferType::L1)
+          .setMemoryLayout(memLayoutAttr)
+          .setGridShape(virtualGridSize)
+          .buildWithCanonicalCorePlacement(deviceGrid);
 
   if (currentInputLayout == desiredInputLayout) {
     return failure();
@@ -143,8 +146,10 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     weightLayout =
         mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(weightType.getEncoding());
     if (weightLayout && weightLayout.isTiled()) {
-      ttnn::TTNNLayoutAttr rowMajorLayout = weightLayout.withLayout(
-          ttnn::Layout::RowMajor, weightType.getShape());
+      ttnn::TTNNLayoutAttr rowMajorLayout =
+          ttnn::TTNNLayoutAttr::Builder(weightLayout)
+              .setTensorShape(weightType.getShape())
+              .setLayout(ttnn::Layout::RowMajor);
       RankedTensorType rowMajorWeightType =
           weightType.cloneWithEncoding(rowMajorLayout);
       auto weightMemConfig = ttnn::MemoryConfigAttr::get(
@@ -219,10 +224,13 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       rewriter.getContext(), ttnn::TensorMemoryLayout::WidthSharded);
 
   SmallVector<int64_t> statsShape = {1, 1, 32, 32};
-  ttnn::TTNNLayoutAttr statsLayout = ttnn::TTNNLayoutAttr::get(
-      rewriter.getContext(), statsShape,
-      ttcore::TileType::get(statsElementType), ttnn::BufferType::L1,
-      statsGridShape, deviceGrid, statsMemLayoutAttr);
+  ttnn::TTNNLayoutAttr statsLayout =
+      ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(), statsShape,
+                                    ttcore::TileType::get(statsElementType))
+          .setBufferType(ttnn::BufferType::L1)
+          .setMemoryLayout(statsMemLayoutAttr)
+          .setGridShape(statsGridShape)
+          .buildWithCanonicalCorePlacement(deviceGrid);
 
   auto statsShapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), statsShape);
   auto statsDtypeAttr =

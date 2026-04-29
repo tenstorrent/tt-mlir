@@ -62,9 +62,10 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
   // (= 64 = 2 * TILE_WIDTH).
   SmallVector<int64_t> statsShape(inputShape.begin(), inputShape.end());
   statsShape.back() = ttnn::LAYER_NORM_STATS_WIDTH;
-  RankedTensorType statsType =
-      RankedTensorType::get(statsShape, inputType.getElementType(),
-                            inputEncoding.withTensorShape(statsShape));
+  ttnn::TTNNLayoutAttr statsEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding).setTensorShape(statsShape);
+  RankedTensorType statsType = RankedTensorType::get(
+      statsShape, inputType.getElementType(), statsEncoding);
 
   auto dtypeAttr = ttcore::DataTypeAttr::get(
       rewriter.getContext(),
@@ -87,9 +88,11 @@ LogicalResult DistributedLayerNormDecompositionRewritePattern::matchAndRewrite(
 
   SmallVector<int64_t> gatheredShape(statsShape.begin(), statsShape.end());
   gatheredShape.back() = ttnn::LAYER_NORM_STATS_WIDTH * numDevices;
-  RankedTensorType gatheredType =
-      RankedTensorType::get(gatheredShape, inputType.getElementType(),
-                            inputEncoding.withTensorShape(gatheredShape));
+  ttnn::TTNNLayoutAttr gatheredEncoding =
+      ttnn::TTNNLayoutAttr::Builder(inputEncoding)
+          .setTensorShape(gatheredShape);
+  RankedTensorType gatheredType = RankedTensorType::get(
+      gatheredShape, inputType.getElementType(), gatheredEncoding);
 
   auto allGatherOp = rewriter.create<ttnn::AllGatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_all_gather"), gatheredType,

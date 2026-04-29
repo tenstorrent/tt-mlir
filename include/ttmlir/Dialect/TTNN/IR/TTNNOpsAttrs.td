@@ -824,16 +824,9 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         OptionalParameter<"CoreRangeSetAttr", "Physical placement of this layout. Non-null for sharded layouts; null for non-sharded (Interleaved/SystemMemory).">:$core_range_set);
   let assemblyFormat = "`<` $linear`,` `<` custom<DimensionList>($grid_shape) `>` `,` (`mesh` `=` $tensor_mesh^ `,`)? $memref (`,` $mem_layout^)? (`,` `core_ranges` `=` $core_range_set^)? (`,` `ignorePhysicalLayout` `=` $ignorePhysicalLayout^)? `>`";
   let extraClassDeclaration = [{
-    static TTNNLayoutAttr get(::mlir::MLIRContext *context,
-                        AffineMap linear,
-                        ArrayRef<int64_t> gridShape, MemRefType memref,
-                        TensorMemoryLayoutAttr mem_layout,
-                        ttcore::TensorMeshAttr tensor_mesh);
-
-    // `deviceGrid` is the worker-grid attribute used to derive the canonical
-    // CoreRangeSet for sharded `memoryLayoutAttr`. It is required only when
-    // the resulting layout is sharded; for SystemMemory / DRAM /
-    // L1-Interleaved layouts, callers may pass a null GridAttr.
+    // Thin wrapper around the Builder for callers (mostly tests) that prefer
+    // the all-fields-in-one-call style. `deviceGrid` is required only when
+    // the resulting layout is sharded; pass null otherwise.
     static TTNNLayoutAttr get(::mlir::MLIRContext *context,
                         ArrayRef<int64_t> tensorShape,
                         Type elementType,
@@ -842,47 +835,7 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
                         ttcore::GridAttr deviceGrid = nullptr,
                         TensorMemoryLayoutAttr memoryLayoutAttr = nullptr,
                         ttcore::TensorMeshAttr tensorMeshAttr = nullptr,
-                        ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}},
-                        bool ignorePhysicalLayout = false);
-
-    // `deviceGrid` is required only when the resulting layout is sharded; pass
-    // a null GridAttr for non-sharded targets (DRAM / SystemMemory /
-    // L1-Interleaved).
-    TTNNLayoutAttr withGridShape(ArrayRef<int64_t> tensorShape,
-                        ArrayRef<int64_t> gridShape,
-                        ttcore::GridAttr deviceGrid = nullptr,
                         ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-
-    TTNNLayoutAttr withGridShape(RankedTensorType ty,
-                        ArrayRef<int64_t> gridShape,
-                        ttcore::GridAttr deviceGrid = nullptr,
-                        ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-
-    TTNNLayoutAttr withBufferType(BufferType bufferType,
-                        ttcore::GridAttr deviceGrid = nullptr);
-
-    // Switching to HeightSharded/WidthSharded auto-projects the current grid
-    // to the canonical [vol, 1] / [1, vol] shape before deriving the
-    // CoreRangeSet, so callers can chain cloners in any order. The per-core
-    // shard memref is preserved. `deviceGrid` is required only when the
-    // resulting layout is sharded.
-    TTNNLayoutAttr withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr,
-                        ttcore::GridAttr deviceGrid = nullptr);
-    TTNNLayoutAttr withMemoryLayout(TensorMemoryLayout memLayout,
-                        ttcore::GridAttr deviceGrid = nullptr);
-
-    TTNNLayoutAttr withElementType(Type elementType,
-                        ArrayRef<int64_t> tensorShape,
-                        ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals = {{0, -1}});
-
-    TTNNLayoutAttr withLayout(Layout layout,
-                        ArrayRef<int64_t> tensorShape);
-
-    TTNNLayoutAttr withShardShape(llvm::SmallVector<int64_t> shardShape);
-
-    TTNNLayoutAttr withTensorShape(ArrayRef<int64_t> tensorShape);
-
-    TTNNLayoutAttr withIgnorePhysicalLayout(bool ignorePhysicalLayout);
 
     bool isSystemBufferType() const { return ::mlir::tt::ttnn::isSystemBufferType(getBufferType()); }
     bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
@@ -924,6 +877,74 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
     static CoreRangeSetAttr computeExactCoreRangeSet(
         ::mlir::MLIRContext *context,
         ArrayRef<int64_t> gridShape);
+
+    // Transient mutable accumulator that produces an immutable uniqued
+    // `TTNNLayoutAttr`. The single `deviceGrid` argument is paid once at the
+    // terminator (`buildWithCanonicalCorePlacement`), instead of being threaded through every
+    // placement-affecting setter. See `lib/Dialect/TTNN/IR/TTNNLayoutBuilder.cpp`.
+    class Builder {
+    public:
+      // Snapshot ctor. The stored tensorShape starts empty; callers that
+      // build into a tensor must `setTensorShape(...)` before `build()` /
+      // `buildWith{Canonical,Exact}CorePlacement(...)`. Useful as-is for
+      // non-shape-using mutations like setIgnorePhysicalLayout / setTensorMesh.
+      explicit Builder(TTNNLayoutAttr layout);
+
+      // Convenience: snapshot from a RankedTensorType whose encoding is a
+      // TTNNLayoutAttr. Equivalent to
+      // `Builder(layout).setTensorShape(type.getShape())`.
+      explicit Builder(RankedTensorType type);
+
+      // From scratch. Defaults: bufferType=DRAM, memLayout=Interleaved,
+      // gridShape={1,1}, tensorMesh=null.
+      Builder(::mlir::MLIRContext *ctx, ArrayRef<int64_t> tensorShape,
+              Type elementType);
+
+      // Placement-preserving setters.
+      Builder &setElementType(Type elementType);
+      Builder &setLayout(Layout layout);
+      Builder &setTensorShape(ArrayRef<int64_t> tensorShape);
+      Builder &setTensorMesh(ttcore::TensorMeshAttr mesh);
+      Builder &setIgnorePhysicalLayout(bool ignore);
+      Builder &setCollapseIntervals(
+          ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals);
+
+      // Placement-affecting setters: drop CRS, mark dirty.
+      Builder &setBufferType(BufferType bufferType);
+      Builder &setMemoryLayout(TensorMemoryLayoutAttr memLayout);
+      Builder &setMemoryLayout(TensorMemoryLayout memLayout);
+      Builder &setGridShape(ArrayRef<int64_t> gridShape);
+
+      // Terminators.
+      TTNNLayoutAttr buildWithCanonicalCorePlacement(ttcore::GridAttr deviceGrid);
+      TTNNLayoutAttr buildWithExactCorePlacement();
+
+      TTNNLayoutAttr build();
+
+      // Implicit conversion: lets a placement-preserving chain stand on its
+      // own (`Builder(layout, shape).setElementType(t)` evaluates to a
+      // `TTNNLayoutAttr` without an explicit `.build()`). For chains that
+      // touched a placement-affecting setter without finalizing via
+      // buildWithCanonicalCorePlacement/buildWithExactCorePlacement, build() asserts.
+      operator TTNNLayoutAttr() { return build(); }
+
+      BufferType getBufferType() const;
+      TensorMemoryLayoutAttr getMemLayout() const;
+      ArrayRef<int64_t> getGridShape() const;
+      Type getElementType() const;
+
+    private:
+      ::mlir::MLIRContext *context;
+      llvm::SmallVector<int64_t> tensorShape;
+      llvm::SmallVector<std::pair<std::int64_t, std::int64_t>> collapseIntervals;
+      Type elementType;
+      BufferType bufferType;
+      llvm::SmallVector<int64_t> gridShape;
+      TensorMemoryLayoutAttr memLayout;
+      ttcore::TensorMeshAttr tensorMesh;
+      bool ignorePhysicalLayout;
+      CoreRangeSetAttr coreRangeSet;
+    };
   }];
 
   let genVerifyDecl = 1;

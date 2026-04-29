@@ -66,12 +66,13 @@ private:
 
     ttcore::GridAttr deviceGrid =
         ttcore::lookupDevice(bias.getDefiningOp()).getWorkerGrid();
-    auto newLayout = ttnn::TTNNLayoutAttr::get(
-        &getContext(), oldType.getShape(),
-        ttcore::TileType::get(newElementType), BufferType::DRAM,
-        oldLayout.getGridShape(), deviceGrid,
-        ttnn::TensorMemoryLayoutAttr::get(
-            &getContext(), ttnn::TensorMemoryLayout::Interleaved));
+    auto newLayout =
+        ttnn::TTNNLayoutAttr::Builder(&getContext(), oldType.getShape(),
+                                      ttcore::TileType::get(newElementType))
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(ttnn::TensorMemoryLayout::Interleaved)
+            .setGridShape(oldLayout.getGridShape())
+            .buildWithCanonicalCorePlacement(deviceGrid);
 
     return mlir::RankedTensorType::get(oldType.getShape(), newElementType,
                                        newLayout);

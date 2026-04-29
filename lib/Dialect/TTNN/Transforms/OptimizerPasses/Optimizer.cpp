@@ -841,8 +841,11 @@ private:
 
       // Create a new tensor type with DRAM layout.
       TTNNLayoutAttr dramLayout =
-          layoutAttr.withBufferType(BufferType::DRAM, deviceGrid)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid);
+          TTNNLayoutAttr::Builder(layoutAttr)
+              .setTensorShape(tensorShape)
+              .setBufferType(BufferType::DRAM)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .buildWithCanonicalCorePlacement(deviceGrid);
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorShape, tensorType.getElementType(), dramLayout);
 
@@ -949,12 +952,12 @@ private:
     for (Operation *spilledOp : spillToL1InterleavedOps) {
       RankedTensorType tensorType =
           mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
-      TTNNLayoutAttr layoutAttr =
-          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
       TTNNLayoutAttr l1InterleavedLayout =
-          layoutAttr.withBufferType(BufferType::L1, deviceGrid)
-              .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid);
+          TTNNLayoutAttr::Builder(tensorType)
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .buildWithCanonicalCorePlacement(deviceGrid);
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorType.getShape(), tensorType.getElementType(),
           l1InterleavedLayout);

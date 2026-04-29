@@ -90,9 +90,8 @@ RankedTensorTypeFactory::create(RankedTensorType tensorType,
 
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                                  Type memrefElementType) {
-  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
   TTNNLayoutAttr newEncoding =
-      oldEncoding.withElementType(memrefElementType, tensorType.getShape());
+      TTNNLayoutAttr::Builder(tensorType).setElementType(memrefElementType);
   Type newElementType = memrefElementType;
   if (ttcore::TileType tileType = dyn_cast<ttcore::TileType>(newElementType)) {
     newElementType = tileType.getElementType();
@@ -105,9 +104,9 @@ RankedTensorType
 RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                 ttnn::BufferType bufferType,
                                 mlir::tt::ttcore::GridAttr deviceGrid) {
-  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding =
-      oldEncoding.withBufferType(bufferType, deviceGrid);
+  TTNNLayoutAttr newEncoding = TTNNLayoutAttr::Builder(tensorType)
+                                   .setBufferType(bufferType)
+                                   .buildWithCanonicalCorePlacement(deviceGrid);
   return create(tensorType, newEncoding);
 }
 
@@ -115,9 +114,9 @@ RankedTensorType
 RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                 ttnn::TensorMemoryLayout memoryLayout,
                                 mlir::tt::ttcore::GridAttr deviceGrid) {
-  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding =
-      oldEncoding.withMemoryLayout(memoryLayout, deviceGrid);
+  TTNNLayoutAttr newEncoding = TTNNLayoutAttr::Builder(tensorType)
+                                   .setMemoryLayout(memoryLayout)
+                                   .buildWithCanonicalCorePlacement(deviceGrid);
   return create(tensorType, newEncoding);
 }
 
@@ -130,9 +129,8 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
         mlir::tt::ttcore::elementTypeToDataType(quantType);
     Type memrefElementType =
         utils::getElementType(tensorType.getContext(), layout, dataType);
-    TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
     TTNNLayoutAttr newEncoding =
-        oldEncoding.withElementType(memrefElementType, tensorType.getShape());
+        TTNNLayoutAttr::Builder(tensorType).setElementType(memrefElementType);
     return RankedTensorType::get(tensorType.getShape(), quantType, newEncoding);
   }
   ttcore::DataType dataType =
@@ -145,9 +143,9 @@ RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
 RankedTensorType RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                                  ArrayRef<int64_t> gridShape,
                                                  ttcore::GridAttr deviceGrid) {
-  TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding =
-      oldEncoding.withGridShape(tensorType.getShape(), gridShape, deviceGrid);
+  TTNNLayoutAttr newEncoding = TTNNLayoutAttr::Builder(tensorType)
+                                   .setGridShape(gridShape)
+                                   .buildWithCanonicalCorePlacement(deviceGrid);
   return create(tensorType, newEncoding);
 }
 
@@ -163,7 +161,8 @@ RankedTensorType
 RankedTensorTypeFactory::create(RankedTensorType tensorType,
                                 ArrayRef<int64_t> tensorShape) {
   TTNNLayoutAttr oldEncoding = getLayoutAttrFromTensor(tensorType);
-  TTNNLayoutAttr newEncoding = oldEncoding.withTensorShape(tensorShape);
+  TTNNLayoutAttr newEncoding =
+      TTNNLayoutAttr::Builder(oldEncoding).setTensorShape(tensorShape);
   return RankedTensorType::get(tensorShape, tensorType.getElementType(),
                                newEncoding);
 }

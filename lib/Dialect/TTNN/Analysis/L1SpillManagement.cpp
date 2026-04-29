@@ -1126,9 +1126,11 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
       continue;
     }
     TTNNLayoutAttr dramLayout =
-        layoutAttr.withBufferType(BufferType::DRAM, deviceGrid)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid)
-            .withTensorShape(tensorType.getShape());
+        TTNNLayoutAttr::Builder(layoutAttr)
+            .setTensorShape(tensorType.getShape())
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .build();
     RankedTensorType newType =
         utils::RankedTensorTypeFactory::create(tensorType, dramLayout);
     opResult.setType(newType);
@@ -1249,15 +1251,12 @@ void L1SpillManagement<MemoryTracker>::spillToDram(Value result,
   }
 
   // Create DRAM interleaved layout.
-  // Use withTensorShape to recompute the memref dimensions from the full tensor
-  // shape. A plain withBufferType(DRAM) would preserve the per-core shard
-  // dimensions in the memref, producing an incorrect layout (e.g., 32x4 tiles
-  // instead of 2048x4 for a 65536x128 tensor that was height-sharded on 64
-  // cores).
   TTNNLayoutAttr dramLayout =
-      layoutAttr.withBufferType(BufferType::DRAM, deviceGrid)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved, deviceGrid)
-          .withTensorShape(tensorType.getShape());
+      TTNNLayoutAttr::Builder(layoutAttr)
+          .setTensorShape(tensorType.getShape())
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(TensorMemoryLayout::Interleaved)
+          .build();
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    SPILL_TO_DRAM: {0}, new layout: {1}",
                ttmlir::opToString(defOp), dramLayout);
