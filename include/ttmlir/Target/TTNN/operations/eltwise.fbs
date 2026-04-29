@@ -309,7 +309,9 @@ enum UnaryOpType: uint32 {
   Dropout,
   Fill,
   PreluSfpu,
-  ZeroPoint
+  ZeroPoint,
+  Log1p,
+  Asinh
 }
 
 table UnaryWithParam {

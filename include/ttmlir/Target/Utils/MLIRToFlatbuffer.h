@@ -664,7 +664,9 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::UnaryOpType unaryOpType) {
       {MlirUnaryOpType::Dropout, FbUnaryOpType::Dropout},
       {MlirUnaryOpType::Fill, FbUnaryOpType::Fill},
       {MlirUnaryOpType::PreluSfpu, FbUnaryOpType::PreluSfpu},
-      {MlirUnaryOpType::ZeroPoint, FbUnaryOpType::ZeroPoint}};
+      {MlirUnaryOpType::ZeroPoint, FbUnaryOpType::ZeroPoint},
+      {MlirUnaryOpType::Log1p, FbUnaryOpType::Log1p},
+      {MlirUnaryOpType::Asinh, FbUnaryOpType::Asinh}};
 
   auto it = opTypeMap.find(unaryOpType);
   if (it != opTypeMap.end()) {

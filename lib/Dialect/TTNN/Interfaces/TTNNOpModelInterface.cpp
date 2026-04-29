@@ -87,7 +87,7 @@ llvm::Expected<bool> checkDeviceWorkerGrid(mlir::Operation *op) {
 }
 
 template <typename TargetTy,
-          std::enable_if_t<std::is_integral_v<TargetTy>> * = nullptr>
+          typename = std::enable_if_t<std::is_integral_v<TargetTy>>>
 llvm::SmallVector<TargetTy> convertAttr(mlir::ArrayAttr arrayAttr) {
   return llvm::map_to_vector(arrayAttr, [](mlir::Attribute attr) {
     return mlir::cast<mlir::IntegerAttr>(attr).getInt();

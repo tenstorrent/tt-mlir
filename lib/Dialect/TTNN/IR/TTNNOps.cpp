@@ -200,7 +200,7 @@ UnaryOpType LogOp::getUnaryOpType() { return UnaryOpType::Log; }
 
 llvm::SmallVector<mlir::FloatAttr> LogOp::getParams() { return {}; }
 
-UnaryOpType Log1pOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+UnaryOpType Log1pOp::getUnaryOpType() { return UnaryOpType::Log1p; }
 
 llvm::SmallVector<mlir::FloatAttr> Log1pOp::getParams() { return {}; }
 
@@ -214,7 +214,7 @@ llvm::SmallVector<mlir::FloatAttr> LeakyReluOp::getParams() {
   return {getParameterAttr()};
 }
 
-UnaryOpType AsinhOp::getUnaryOpType() { return UnaryOpType::Unknown; }
+UnaryOpType AsinhOp::getUnaryOpType() { return UnaryOpType::Asinh; }
 
 llvm::SmallVector<mlir::FloatAttr> AsinhOp::getParams() { return {}; }
 
