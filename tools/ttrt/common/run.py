@@ -355,7 +355,6 @@ class Run:
 
         self.logger = logger if logger != None else Logger(self["--log-file"])
         self.logging = self.logger.get_logger()
-
         self.globals = Globals(self.logger)
         self.file_manager = FileManager(self.logger)
         self.artifacts = (
