@@ -39,6 +39,29 @@ makeTensorType(MLIRContext &context, ArrayRef<int64_t> logicalShape,
                                elementType, layout);
 }
 
+struct FormatRoundTripTypes {
+  MLIRContext context;
+  RankedTensorType scalarType;
+  RankedTensorType tiledType;
+
+  FormatRoundTripTypes() {
+    context.loadDialect<ttcore::TTCoreDialect>();
+    Type f32 = Float32Type::get(&context);
+    scalarType = RankedTensorType::get({32, 32}, f32);
+    tiledType = RankedTensorType::get({1, 1}, ttcore::TileType::get(f32));
+  }
+};
+
+TilizeStep makeTilizeStep(RankedTensorType inputType,
+                          RankedTensorType outputType) {
+  return TilizeStep{{32, 32}, inputType, OutputBufferSpec{outputType}};
+}
+
+UntilizeStep makeUntilizeStep(RankedTensorType inputType,
+                              RankedTensorType outputType) {
+  return UntilizeStep{inputType, OutputBufferSpec{outputType}};
+}
+
 struct CanonicalizeTest : public ::testing::Test {
   MLIRContext context;
 
@@ -64,56 +87,93 @@ TEST(PlanScaffoldTest, EmptyPlanMinimizesToEmpty) {
 // Cancellation rules.
 
 TEST(MinimizerCancelTest, TilizeUntilize) {
-  Plan p{TilizeStep{{32, 32}}, UntilizeStep{}};
+  FormatRoundTripTypes types;
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
+         makeUntilizeStep(types.tiledType, types.scalarType)};
   EXPECT_TRUE(minimize(std::move(p)).empty());
 }
 
 TEST(MinimizerCancelTest, UntilizeTilize) {
-  Plan p{UntilizeStep{}, TilizeStep{{32, 32}}};
+  FormatRoundTripTypes types;
+  Plan p{makeUntilizeStep(types.tiledType, types.scalarType),
+         makeTilizeStep(types.scalarType, types.tiledType)};
   EXPECT_TRUE(minimize(std::move(p)).empty());
 }
 
+TEST(MinimizerCancelTest, NoCancelWhenRoundTripChangesScalarType) {
+  MLIRContext context;
+  context.loadDialect<ttcore::TTCoreDialect>();
+  auto f32Type = RankedTensorType::get({32, 32}, Float32Type::get(&context));
+  auto bf16Type = RankedTensorType::get({32, 32}, BFloat16Type::get(&context));
+  auto bfpTile =
+      ttcore::TileType::get(&context, {32, 32}, ttcore::DataType::BFP_BFloat8);
+  auto bfpTiledType = RankedTensorType::get({1, 1}, bfpTile);
+
+  Plan p{
+      makeTilizeStep(f32Type, bfpTiledType),
+      makeUntilizeStep(bfpTiledType, bf16Type),
+  };
+  auto result = minimize(std::move(p));
+  EXPECT_EQ(result.size(), 2u);
+  EXPECT_TRUE(std::holds_alternative<TilizeStep>(result[0]));
+  EXPECT_TRUE(std::holds_alternative<UntilizeStep>(result[1]));
+}
+
 TEST(MinimizerCancelTest, NoCancelWithDifferentKindBetween) {
+  FormatRoundTripTypes types;
   // Tilize; Mask; Untilize is not a cancellation candidate; Mask blocks it.
-  Plan p{TilizeStep{{32, 32}}, MaskStep{ttcore::OOBVal::Zero, {4, 4}},
-         UntilizeStep{}};
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
+         MaskStep{ttcore::OOBVal::Zero, {4, 4}},
+         makeUntilizeStep(types.tiledType, types.scalarType)};
   auto result = minimize(std::move(p));
   EXPECT_EQ(result.size(), 3u);
 }
 
 TEST(MinimizerCancelTest, ChainedPairsCollapse) {
+  FormatRoundTripTypes types;
   // (Tilize; Untilize); (Tilize; Untilize) → ∅
-  Plan p{TilizeStep{{32, 32}}, UntilizeStep{}, TilizeStep{{32, 32}},
-         UntilizeStep{}};
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
+         makeUntilizeStep(types.tiledType, types.scalarType),
+         makeTilizeStep(types.scalarType, types.tiledType),
+         makeUntilizeStep(types.tiledType, types.scalarType)};
   EXPECT_TRUE(minimize(std::move(p)).empty());
 }
 
 TEST(MinimizerCancelTest, NestedCancellationViaAdjacency) {
+  FormatRoundTripTypes types;
   // Tilize; (Untilize; Tilize); Untilize → cancellations from the inside out.
-  Plan p{TilizeStep{{32, 32}}, UntilizeStep{}, TilizeStep{{32, 32}},
-         UntilizeStep{}};
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
+         makeUntilizeStep(types.tiledType, types.scalarType),
+         makeTilizeStep(types.scalarType, types.tiledType),
+         makeUntilizeStep(types.tiledType, types.scalarType)};
   EXPECT_TRUE(minimize(std::move(p)).empty());
 }
 
 TEST(MinimizerCancelTest, ReCheckAfterEraseCollapsesOuterPair) {
+  FormatRoundTripTypes types;
   // Tilize; Tilize; Untilize; Untilize — the inner (Tilize;Untilize) cancels
   // first, leaving (Tilize;Untilize) as the new adjacency that also cancels.
   // Exercises the left-neighbor re-check after erase.
-  Plan p{TilizeStep{{32, 32}}, TilizeStep{{32, 32}}, UntilizeStep{},
-         UntilizeStep{}};
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
+         makeTilizeStep(types.scalarType, types.tiledType),
+         makeUntilizeStep(types.tiledType, types.scalarType),
+         makeUntilizeStep(types.tiledType, types.scalarType)};
   EXPECT_TRUE(minimize(std::move(p)).empty());
 }
 
 TEST(MinimizerCancelTest, NoCancelAcrossReshardGap) {
+  FormatRoundTripTypes types;
   // Tilize; Reshard; Untilize — the Reshard blocks the cancel pair.
-  Plan p{TilizeStep{{32, 32}}, ReshardStep{{2, 2}, {32, 32}, {}},
-         UntilizeStep{}};
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
+         ReshardStep{{2, 2}, {32, 32}, {}},
+         makeUntilizeStep(types.tiledType, types.scalarType)};
   auto result = minimize(std::move(p));
   EXPECT_EQ(result.size(), 3u);
 }
 
 TEST(MinimizerCancelTest, SingleStepStaysSingle) {
-  Plan p{TilizeStep{{32, 32}}};
+  FormatRoundTripTypes types;
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType)};
   auto result = minimize(std::move(p));
   EXPECT_EQ(result.size(), 1u);
   EXPECT_TRUE(std::holds_alternative<TilizeStep>(result[0]));
@@ -158,17 +218,20 @@ TEST(MinimizerFuseTest, F6MaskMerge) {
 }
 
 TEST(MinimizerFuseTest, NoFuseBetweenUnrelatedKinds) {
-  Plan p{TilizeStep{{32, 32}}, MaskStep{ttcore::OOBVal::Zero, {4, 4}}};
+  FormatRoundTripTypes types;
+  Plan p{makeTilizeStep(types.scalarType, types.tiledType),
+         MaskStep{ttcore::OOBVal::Zero, {4, 4}}};
   auto result = minimize(std::move(p));
   EXPECT_EQ(result.size(), 2u);
 }
 
 TEST(MinimizerFuseTest, NoFuseReshardAcrossTilize) {
+  FormatRoundTripTypes types;
   // Reshard; Tilize; Reshard — the Tilize between prevents the Reshards from
   // fusing. (Commutation rules may let them merge later, but not at this pass.)
   Plan p{
       ReshardStep{{2, 2}, {32, 32}, {}},
-      TilizeStep{{32, 32}},
+      makeTilizeStep(types.scalarType, types.tiledType),
       ReshardStep{{4, 4}, {32, 32}, {}},
   };
   auto result = minimize(std::move(p));
@@ -253,12 +316,13 @@ TEST(MinimizerCommuteTest, InterleavedFuseAndCommuteFullyReduce) {
 // Fixpoint driver.
 
 TEST(MinimizerFixpointTest, CancelEnablesFusion) {
+  FormatRoundTripTypes types;
   // Reshard; Tilize; Untilize; Reshard → Reshard; Reshard (after cancel) →
   // Reshard (after fuse).
   Plan p{
       ReshardStep{{2, 2}, {32, 32}, {}},
-      TilizeStep{{32, 32}},
-      UntilizeStep{},
+      makeTilizeStep(types.scalarType, types.tiledType),
+      makeUntilizeStep(types.tiledType, types.scalarType),
       ReshardStep{{4, 4}, {32, 32}, {}},
   };
   auto result = minimize(std::move(p));
@@ -287,6 +351,30 @@ TEST_F(CanonicalizeTest, DetectsCollapsedIntervalOnlyMappingChange) {
   ASSERT_EQ(plan.size(), 1u);
   ASSERT_TRUE(std::holds_alternative<ReshardStep>(plan[0]));
   EXPECT_EQ(std::get<ReshardStep>(plan[0]).collapsedIntervals, collapsedB);
+}
+
+TEST_F(CanonicalizeTest, BfpBridgeRoundTripDoesNotCancel) {
+  auto collapsed = makeCollapsedIntervals(context, {0, 1, 1, 2});
+  RankedTensorType srcType = makeTensorType(
+      context, {256, 256}, {256, 256}, collapsed, {8, 8}, ttcore::OOBVal::Undef,
+      ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded,
+      Float32Type::get(&context));
+  Type bfpTile =
+      ttcore::TileType::get(&context, {32, 32}, ttcore::DataType::BFP_BFloat8);
+  RankedTensorType tgtType =
+      makeTensorType(context, {256, 256}, {128, 128}, collapsed, {4, 4},
+                     ttcore::OOBVal::Undef, ttcore::MemorySpace::DeviceL1,
+                     ttcore::TensorMemoryLayout::Sharded, bfpTile);
+
+  Plan plan = minimize(
+      canonicalize(PlanState{srcType}, PlanState{tgtType}, {8, 8}, &context));
+  ASSERT_EQ(plan.size(), 4u);
+  EXPECT_TRUE(std::holds_alternative<TilizeStep>(plan[0]));
+  ASSERT_TRUE(std::holds_alternative<UntilizeStep>(plan[1]));
+  EXPECT_EQ(std::get<UntilizeStep>(plan[1]).output.type.getElementType(),
+            BFloat16Type::get(&context));
+  EXPECT_TRUE(std::holds_alternative<ReshardStep>(plan[2]));
+  EXPECT_TRUE(std::holds_alternative<TilizeStep>(plan[3]));
 }
 
 TEST_F(CanonicalizeTest, CollapseOnlyPhysicalNoopErasesToLayout) {
