@@ -18,6 +18,28 @@ namespace mlir::tt::ttir {
 
 namespace {
 
+/// Reshape \p v to rank \p inputRank by prefixing leading dimensions of size 1
+/// when its rank is smaller (e.g. weight/bias shaped like normalized_shape).
+/// Used for optional affine params in RMSNorm and LayerNorm decompositions so
+/// multiply/add broadcast correctly against the full input tensor.
+static Value reshapeBroadcastParamToInputRank(Location loc,
+                                              PatternRewriter &rewriter,
+                                              Value v, int64_t inputRank) {
+  auto vType = cast<RankedTensorType>(v.getType());
+  if (vType.getRank() == inputRank) {
+    return v;
+  }
+  SmallVector<int64_t> newShape(inputRank - vType.getRank(), 1);
+  newShape.append(vType.getShape().begin(), vType.getShape().end());
+  auto reshapedType = RankedTensorType::get(newShape, vType.getElementType(),
+                                            vType.getEncoding());
+  SmallVector<int32_t> shapeI32(newShape.begin(), newShape.end());
+  return rewriter
+      .create<ReshapeOp>(loc, reshapedType, v,
+                         rewriter.getI32ArrayAttr(shapeI32))
+      .getResult();
+}
+
 //===----------------------------------------------------------------------===//
 // RMSNorm pattern
 //===----------------------------------------------------------------------===//
@@ -70,28 +92,121 @@ struct DecomposeRMSNormPattern : public OpRewritePattern<RMSNormOp> {
 
     Value result = normalized.getResult();
 
-    auto reshapeToInputRank = [&](Value v) -> Value {
-      auto vType = cast<RankedTensorType>(v.getType());
-      if (vType.getRank() == rank) {
-        return v;
-      }
-      SmallVector<int64_t> newShape(rank - vType.getRank(), 1);
-      newShape.append(vType.getShape().begin(), vType.getShape().end());
-      auto reshapedType = RankedTensorType::get(
-          newShape, vType.getElementType(), vType.getEncoding());
-      SmallVector<int32_t> shapeI32(newShape.begin(), newShape.end());
-      return rewriter.create<ReshapeOp>(loc, reshapedType, v,
-                                        rewriter.getI32ArrayAttr(shapeI32));
-    };
-
     if (op.getWeight()) {
-      Value weight = reshapeToInputRank(op.getWeight());
+      Value weight =
+          reshapeBroadcastParamToInputRank(loc, rewriter, op.getWeight(), rank);
       result = rewriter.create<MultiplyOp>(loc, inputType, result, weight)
                    .getResult();
     }
 
     if (op.getBias()) {
-      Value bias = reshapeToInputRank(op.getBias());
+      Value bias =
+          reshapeBroadcastParamToInputRank(loc, rewriter, op.getBias(), rank);
+      result = rewriter.create<AddOp>(loc, inputType, result, bias).getResult();
+    }
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// LayerNorm pattern
+//
+// The TTMetal/D2M path does not lower ttir.layer_norm as a single fused op.
+// This pattern expands it into primitive TTIR ops (mean, subtract, multiply,
+// add, rsqrt) so existing lowerings apply.
+//
+// Definition matches LayerNormOp docs: subtract mean over normalized dims,
+// divide by sqrt(var + epsilon), then optional gamma/beta.
+//
+// Means use one dimension per MeanOp (iterated in reverse over reduceDims) to
+// avoid multi-dim reduction issues seen on TTMetal for some shapes.
+//===----------------------------------------------------------------------===//
+
+struct DecomposeLayerNormPattern : public OpRewritePattern<LayerNormOp> {
+  using OpRewritePattern<LayerNormOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(LayerNormOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value x = op.getInput();
+    auto inputType = cast<RankedTensorType>(x.getType());
+    int64_t rank = inputType.getRank();
+
+    // `normalized_shape` lists the trailing k input dims over which LayerNorm
+    // computes mean/variance (see LayerNormOp::verify).
+    ArrayRef<int64_t> normalizedShape = op.getNormalizedShape();
+    const int64_t normRank = static_cast<int64_t>(normalizedShape.size());
+
+    SmallVector<int64_t> reducedShape(inputType.getShape());
+    for (int64_t i = 0; i < normRank; ++i) {
+      reducedShape[rank - normRank + i] = 1;
+    }
+    auto reducedType = RankedTensorType::get(
+        reducedShape, inputType.getElementType(), inputType.getEncoding());
+
+    SmallVector<int32_t> reduceDims;
+    reduceDims.reserve(normRank);
+    for (int64_t i = 0; i < normRank; ++i) {
+      reduceDims.push_back(static_cast<int32_t>(rank - normRank + i));
+    }
+
+    auto createSequentialMeanKeepDims = [&](Value input) -> Value {
+      Value reduced = input;
+      auto currentType = cast<RankedTensorType>(reduced.getType());
+
+      // Use single-dim mean reductions to avoid backend issues observed with
+      // multi-dim reduction attributes on TTMetal.
+      for (size_t idx = reduceDims.size(); idx-- > 0;) {
+        int32_t dim = reduceDims[idx];
+        SmallVector<int64_t> nextShape(currentType.getShape());
+        nextShape[dim] = 1;
+        auto nextType = RankedTensorType::get(
+            nextShape, currentType.getElementType(), currentType.getEncoding());
+        reduced = rewriter
+                      .create<MeanOp>(loc, nextType, reduced,
+                                      rewriter.getBoolAttr(true),
+                                      rewriter.getI32ArrayAttr({dim}))
+                      .getResult();
+        currentType = nextType;
+      }
+      return reduced;
+    };
+
+    Value meanVal = createSequentialMeanKeepDims(x);
+
+    auto centered = rewriter.create<SubtractOp>(loc, inputType, x, meanVal);
+    auto centeredSquared = rewriter.create<MultiplyOp>(
+        loc, inputType, centered.getResult(), centered.getResult());
+
+    Value varianceVal =
+        createSequentialMeanKeepDims(centeredSquared.getResult());
+
+    float epsilon = op.getEpsilon().convertToFloat();
+    auto epsOp = rewriter.create<FullOp>(loc, reducedType,
+                                         rewriter.getF32FloatAttr(epsilon));
+
+    auto varPlusEps = rewriter.create<AddOp>(loc, reducedType, varianceVal,
+                                             epsOp.getResult());
+
+    auto rsqrt = rewriter.create<RsqrtOp>(loc, reducedType, varPlusEps);
+
+    auto normalized = rewriter.create<MultiplyOp>(
+        loc, inputType, centered.getResult(), rsqrt.getResult());
+
+    Value result = normalized.getResult();
+
+    if (op.getWeight()) {
+      Value weight =
+          reshapeBroadcastParamToInputRank(loc, rewriter, op.getWeight(), rank);
+      result = rewriter.create<MultiplyOp>(loc, inputType, result, weight)
+                   .getResult();
+    }
+
+    if (op.getBias()) {
+      Value bias =
+          reshapeBroadcastParamToInputRank(loc, rewriter, op.getBias(), rank);
       result = rewriter.create<AddOp>(loc, inputType, result, bias).getResult();
     }
 
@@ -359,6 +474,7 @@ public:
     // on subsequent iterations.
     patterns.add<DecomposeSDPAPattern>(&getContext(), /*benefit=*/2);
     patterns.add<DecomposeRMSNormPattern>(&getContext(), /*benefit=*/1);
+    patterns.add<DecomposeLayerNormPattern>(&getContext(), /*benefit=*/1);
     patterns.add<DecomposeSoftmaxPattern>(&getContext(), /*benefit=*/0);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
