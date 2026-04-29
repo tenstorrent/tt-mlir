@@ -38,7 +38,7 @@ public:
                dyn_cast_or_null<mlir::stablehlo::BroadcastInDimOp>(def)) {
       def = bcast.getOperand().getDefiningOp();
     }
-    auto constOp = dyn_cast_or_null<mlir::stablehlo::ConstantOp>(def)
+    auto constOp = dyn_cast_or_null<mlir::stablehlo::ConstantOp>(def);
     if (!constOp) {
       return failure();
     }
