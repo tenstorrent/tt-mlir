@@ -5439,9 +5439,10 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
       return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
                          "query num heads");
     }
-    if (attentionMaskType.getShape()[2] != seqLen) {
-      return emitOpError(
-          "Attention mask at dim 2 must match query sequence length");
+    if (attentionMaskType.getShape()[2] != 1 &&
+        attentionMaskType.getShape()[2] != seqLen) {
+      return emitOpError("Attention mask at dim 2 must be 1 (broadcast) or "
+                         "match query sequence length");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "
