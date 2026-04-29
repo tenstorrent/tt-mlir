@@ -2,14 +2,35 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import os
+from pathlib import Path
+
+import json
+import re
 
 import pytest
+from _ttmlir_runtime import binary as rt_binary
+
+from chisel.ops import IRModule
+
+
+def _json_as_dict(json_string):
+    if json_string == "":
+        return {}
+    json_string = re.sub(r"\bnan\b", "NaN", json_string)
+    json_string = re.sub(r"\binf\b", "Infinity", json_string)
+    return json.loads(json_string)
 
 
 def pytest_addoption(parser):
     parser.addoption(
         "--binary",
         help="Path to a .ttnn file or directory to search recursively.",
+    )
+    parser.addoption(
+        "--dump-ir",
+        action="store_true",
+        default=False,
+        help="Write the MLIR embedded in each flatbuffer to a .mlir file next to it.",
     )
 
 
@@ -45,3 +66,25 @@ def pytest_generate_tests(metafunc):
             else:
                 pytest.fail(f"No .ttnn flatbuffers found under '{binary_opt}'.")
         metafunc.parametrize("binary_path", paths)
+
+
+@pytest.fixture
+def binary(binary_path):
+    return rt_binary.load_binary_from_path(binary_path)
+
+
+@pytest.fixture
+def ir_module(binary):
+    mlir_json = _json_as_dict(binary.get_mlir_as_json())
+    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
+    return IRModule(mlir_source=mlir_json["source"], functions=functions)
+
+
+@pytest.fixture
+def mlir_source_path(request, binary, binary_path):
+    """Path to a sidecar .mlir next to the binary; written only if --dump-ir is set."""
+    out = Path(binary_path).with_suffix(".mlir")
+    if request.config.getoption("--dump-ir"):
+        mlir_json = _json_as_dict(binary.get_mlir_as_json())
+        out.write_text(mlir_json.get("source", ""))
+    return out

@@ -18,22 +18,19 @@ from ttmlir.ir import (
 )
 
 
-def get_op_outputs(op: Operation) -> list[OpResult]:
-    """Extract output tensors (results with shape and element_type) from a MLIR operation."""
-    return [
-        result
-        for result in op.results
-        if hasattr(result.type, "shape") and hasattr(result.type, "element_type")
-    ]
+def _is_tensor_like(value: Value) -> bool:
+    """True if a MLIR Value carries a tensor-shaped type (has shape + element_type)."""
+    return hasattr(value.type, "shape") and hasattr(value.type, "element_type")
 
 
 def get_op_inputs(op: Operation) -> list[Value]:
     """Extract input tensors (operands with shape and element_type) from a MLIR operation."""
-    return [
-        operand
-        for operand in op.operands
-        if hasattr(operand.type, "shape") and hasattr(operand.type, "element_type")
-    ]
+    return [operand for operand in op.operands if _is_tensor_like(operand)]
+
+
+def get_op_outputs(op: Operation) -> list[OpResult]:
+    """Extract output tensors (results with shape and element_type) from a MLIR operation."""
+    return [result for result in op.results if _is_tensor_like(result)]
 
 
 class IRModule:
@@ -62,13 +59,11 @@ class IRModule:
             ops, outputs = self._extract_function_ops(name)
             self._function_ops[name] = ops
             self._function_outputs[name] = outputs
-        self._asm_state: dict[str, AsmState] = {
-            name: AsmState(self._functions[name]) for name in functions
-        }
+        self._asm_state = AsmState(self.module.operation)
 
-    def get_asm_state(self, function_name: str) -> AsmState:
-        """AsmState for the given function (speeds up get_name calls)."""
-        return self._asm_state[function_name]
+    def get_asm_state(self) -> AsmState:
+        """AsmState for the whole binary (speeds up get_name calls)."""
+        return self._asm_state
 
     def get_function(self, function_name: str) -> func.FuncOp:
         """The func.FuncOp for the given function."""
