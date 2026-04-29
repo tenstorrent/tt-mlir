@@ -1866,9 +1866,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     if (useAlwaysStreamPolicy()) {
       return true;
     }
-    if (genericOp.isDMAOnlyForm()) {
-      return false;
-    }
 
     // Non-trivial views need a stream to represent the implied data movement.
     if (isNonTrivialView(operandCtx)) {
