@@ -5219,6 +5219,22 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    // Validate that the slices sum to the expected output size.  When the
+    // indexed dimension is collapsed in the output (collapsedSliceDims) or
+    // when the index tensor has a shape that differs from the "replicate
+    // padding" assumption, the computed concat may not match the gather result
+    // type.  Fall back to the embedding pattern in that case.
+    int64_t concatSizeSum = 0;
+    for (Value v : slicesToConcat) {
+      concatSizeSum +=
+          mlir::cast<RankedTensorType>(v.getType()).getDimSize(indexedDim);
+    }
+    if (outputType.getDimSize(indexedDim) != concatSizeSum) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Computed concat size does not match gather output type; "
+                 "not a replicate-padding gather");
+    }
+
     Value result = rewriter.create<ttir::ConcatOp>(
         srcOp.getLoc(), outputType, slicesToConcat,
         rewriter.getSI32IntegerAttr(static_cast<int32_t>(indexedDim)));
