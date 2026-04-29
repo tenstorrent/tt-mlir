@@ -524,6 +524,21 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @reduce_uninit_full_fp32
+    func.func @reduce_uninit_full_fp32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "reduce_uninit"() {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.reduce_uninit"() <{full_fp32}> : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @reduce_uninit_default
+    func.func @reduce_uninit_default() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "reduce_uninit"()
+      // CHECK-NOT: template_args
+      "ttkernel.reduce_uninit"() : () -> ()
+      return
+    }
+
     // CHECK-LABEL: func @reduce_init_avg
     func.func @reduce_init_avg() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles

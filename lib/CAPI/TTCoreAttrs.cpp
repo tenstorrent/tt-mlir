@@ -42,12 +42,28 @@ MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned dramUnreservedEnd, MlirAttribute *supportedDataTypes,
     MlirAttribute *supportedTileSizes, unsigned dstPhysicalSizeTiles,
     unsigned numCBs, unsigned numComputeThreads,
-    unsigned numDatamovementThreads, int64_t *dramGrid, size_t dramGridSize) {
+    unsigned numDatamovementThreads, int64_t *dramGrid, size_t dramGridSize,
+    MlirAttribute *dramBankToLogicalWorkerNoc0,
+    MlirAttribute *dramBankToLogicalWorkerNoc1) {
   std::vector<int64_t> gridVec(grid, grid + gridSize);
   std::vector<int64_t> coordTranslationOffsetsVec(
       coordTranslationOffsets,
       coordTranslationOffsets + coordTranslationOffsetsSize);
   std::vector<int64_t> dramGridVec(dramGrid, dramGrid + dramGridSize);
+  // Caller must pass numDramChannels entries in each bank-to-worker array
+  // (one per DRAM bank).
+  std::vector<CoreCoordAttr> dramBankNoc0Vec;
+  dramBankNoc0Vec.reserve(numDramChannels);
+  for (unsigned i = 0; i < numDramChannels; ++i) {
+    dramBankNoc0Vec.push_back(
+        mlir::cast<CoreCoordAttr>(unwrap(dramBankToLogicalWorkerNoc0[i])));
+  }
+  std::vector<CoreCoordAttr> dramBankNoc1Vec;
+  dramBankNoc1Vec.reserve(numDramChannels);
+  for (unsigned i = 0; i < numDramChannels; ++i) {
+    dramBankNoc1Vec.push_back(
+        mlir::cast<CoreCoordAttr>(unwrap(dramBankToLogicalWorkerNoc1[i])));
+  }
   return wrap(ChipDescAttr::get(
       unwrap(ctx), mlir::dyn_cast<ArchAttr>(unwrap(arch)), gridVec,
       coordTranslationOffsetsVec, l1Size, numDramChannels, dramChannelSize,
@@ -57,7 +73,7 @@ MlirAttribute ttmlirTTChipDescAttrGet(
       mlir::dyn_cast<DataTypeAttr>(unwrap(*supportedDataTypes)),
       mlir::dyn_cast<TileSizeAttr>(unwrap(*supportedTileSizes)),
       dstPhysicalSizeTiles, numCBs, numComputeThreads, numDatamovementThreads,
-      dramGridVec));
+      dramGridVec, dramBankNoc0Vec, dramBankNoc1Vec));
 }
 
 MlirAttribute ttmlirTTChipCoordAttrGet(MlirContext ctx, unsigned rack,

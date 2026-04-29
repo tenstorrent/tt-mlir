@@ -29,6 +29,7 @@ set(TTMLIR_LIBS
   MLIRPass
   MLIRSupport
   MLIRRegisterAllPasses
+  MLIRLinalgSynchronizableOpInterfaceImpl
 )
 
 set(SHARDY_LIBS)

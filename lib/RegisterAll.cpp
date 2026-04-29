@@ -55,6 +55,7 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Transforms/Passes.h"
+#include "ttmlir/Dialect/Linalg/Transforms/SynchronizableOpInterfaceImpl.h"
 
 #if TTMLIR_ENABLE_STABLEHLO
 #include "shardy/dialect/mpmd/ir/register.h"
@@ -135,6 +136,7 @@ void mlir::tt::registerAllExtensions(mlir::DialectRegistry &registry) {
   registerAllToLLVMIRTranslations(registry);
   tensor::registerSubsetOpInterfaceExternalModels(registry);
   linalg::registerSubsetOpInterfaceExternalModels(registry);
+  linalg::registerSynchronizableOpInterfaceExternalModels(registry);
 }
 
 void mlir::tt::registerAllPasses() {

@@ -759,6 +759,9 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileBitwiseAndOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseAndBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseOrOp,   std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseOrBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseXorOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseXorBinaryTilesOp>>,
+  std::pair<d2m::TileLogicalLeftShiftOp,  std::pair<ttkernel::BinaryShiftTileInitOp, ttkernel::BinaryLeftShiftTileOp>>,
+  std::pair<d2m::TileLogicalRightShiftOp, std::pair<ttkernel::BinaryShiftTileInitOp, ttkernel::BinaryLogicalRightShiftTileOp>>,
+  std::pair<d2m::TileRightShiftOp,        std::pair<ttkernel::BinaryShiftTileInitOp, ttkernel::BinaryRightShiftTileOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::BinaryMaxTileInitOp,       ttkernel::BinaryMaxTileOp>>,
   std::pair<d2m::TileMinimumOp,     std::pair<ttkernel::BinaryMinTileInitOp,       ttkernel::BinaryMinTileOp>>,
@@ -1320,7 +1323,11 @@ public:
           /*allowHoisting*/ false);
       if constexpr (std::is_same_v<SFPUOp, ttkernel::BitwiseAndBinaryTilesOp> ||
                     std::is_same_v<SFPUOp, ttkernel::BitwiseOrBinaryTilesOp> ||
-                    std::is_same_v<SFPUOp, ttkernel::BitwiseXorBinaryTilesOp>) {
+                    std::is_same_v<SFPUOp, ttkernel::BitwiseXorBinaryTilesOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BinaryLeftShiftTileOp> ||
+                    std::is_same_v<SFPUOp, ttkernel::BinaryRightShiftTileOp> ||
+                    std::is_same_v<SFPUOp,
+                                   ttkernel::BinaryLogicalRightShiftTileOp>) {
         const auto dtype =
             mlir::cast<ttcore::TileType>(op.getLhs().getType()).getDataType();
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
@@ -2908,6 +2915,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseAndOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseOrOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseXorOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileLogicalLeftShiftOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileLogicalRightShiftOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileRightShiftOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMinimumOp>,

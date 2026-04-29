@@ -1793,6 +1793,16 @@ def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
     let hasVerifier = 1;
 }
 
+def TTIR_RightShiftOp : TTIR_ElementwiseBinaryOp<"right_shift"> {
+    let summary = "Eltwise Arithmetic Right Shift operation";
+    let description = [{
+      The `right_shift` operation performs an elementwise arithmetic right shift
+      on the elements of the first tensor by the corresponding shift amounts in the
+      second tensor.
+    }];
+    let hasVerifier = 1;
+}
+
 def TTIR_LogicalLeftShiftOp : TTIR_ElementwiseBinaryOp<"logical_left_shift"> {
     let summary = "Eltwise Logical Left Shift operation";
     let description = [{

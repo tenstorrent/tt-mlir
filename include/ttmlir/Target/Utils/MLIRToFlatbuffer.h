@@ -317,6 +317,11 @@ inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::Dim2d(tileSize.getY(), tileSize.getX());
 }
 
+inline ::tt::target::Dim2d toFlatbuffer(FlatbufferObjectCache &cache,
+                                        ttcore::CoreCoordAttr coreCoord) {
+  return ::tt::target::Dim2d(coreCoord.getY(), coreCoord.getX());
+}
+
 inline ::tt::target::ChipCapability
 toFlatbuffer(FlatbufferObjectCache &,
              ttcore::ChipCapabilityAttr capabilityAttr) {
@@ -428,7 +433,9 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttcore::ChipDescAttr chipDesc) {
       toFlatbuffer(cache, chipDesc.getSupportedTileSizes()),
       chipDesc.getDstPhysicalSizeTiles(), chipDesc.getNumCBs(),
       chipDesc.getNumComputeThreads(), chipDesc.getNumDatamovementThreads(),
-      &dramGridSize);
+      &dramGridSize,
+      toFlatbuffer(cache, chipDesc.getDramBankToLogicalWorkerNoc0()),
+      toFlatbuffer(cache, chipDesc.getDramBankToLogicalWorkerNoc1()));
 }
 
 inline ::tt::target::CPURole toFlatbuffer(FlatbufferObjectCache &,
