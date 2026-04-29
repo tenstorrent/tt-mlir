@@ -2373,9 +2373,18 @@ def gather_golden(
     # ---- validate attrs ----
     rank = x0.dim()
     assert len(slice_sizes) == rank, "slice_sizes must match operand dimensions"
-    assert set(collapsed_slice_dims) == set(
-        start_index_map
-    ), "gather golden assumes collapsed_slice_dims == start_index_map"
+    # Two patterns this golden supports:
+    # - Embedding-style: collapsed_slice_dims == start_index_map (all indexed
+    #   dims have slice size 1 and are removed from the output).
+    # - Window-style: collapsed_slice_dims is empty (the indexed dims keep their
+    #   slice as a window in the output).
+    assert (
+        set(collapsed_slice_dims) == set(start_index_map)
+        or len(collapsed_slice_dims) == 0
+    ), (
+        "gather golden assumes collapsed_slice_dims == start_index_map (embedding-"
+        "style) or collapsed_slice_dims is empty (window-style)"
+    )
     assert (
         len(operand_batching_dims) == 0 and len(start_indices_batching_dims) == 0
     ), "Batching dims not supported in this golden"
@@ -2483,9 +2492,16 @@ def gather_golden(
     for s_i in range(slice_rank):
         desired_index_for_current[batch_rank + s_i] = offset_dims[s_i]
 
-    # Permute if needed
-    if desired_index_for_current != list(range(result_rank)):
-        gathered = gathered.permute(*desired_index_for_current)
+    # desired_index_for_current[i] = j says current axis i should end up at
+    # output axis j (source -> target). torch.permute expects the inverse
+    # (output[i] = input[perm[i]], i.e. target -> source), so invert before
+    # passing it in.
+    inverse_perm = [0] * result_rank
+    for src, tgt in enumerate(desired_index_for_current):
+        inverse_perm[tgt] = src
+
+    if inverse_perm != list(range(result_rank)):
+        gathered = gathered.permute(*inverse_perm)
 
     return gathered.to(device=device)
 
