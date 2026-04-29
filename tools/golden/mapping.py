@@ -3205,29 +3205,17 @@ def stablehlo_xor_golden(
         return torch.bitwise_xor(input_tensor, other_tensor)
 
 
-def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for StableHLO not operation.
+def stablehlo_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
-    Supports both logical NOT (for boolean tensors) and bitwise NOT (for integer tensors).
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to invert.
-    **kwargs : dict
-        Keyword arguments (unused for this operation).
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor containing the NOT of input_tensor.
-    """
     if input_tensor.dtype == torch.bool:
-        result_bool = torch.logical_not(input_tensor)
-        return result_bool.to(input_tensor.dtype)
+        result = torch.logical_not(input_tensor)
     else:
-        return torch.bitwise_not(input_tensor)
+        result = torch.bitwise_not(input_tensor)
+
+    return result.to(output_dtype)
 
 
 ################ Golden Utilities ###############
@@ -5339,6 +5327,32 @@ def stablehlo_reshape_golden(
     shape = unpack_mlir_attr(shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.reshape(input_tensor, shape).clone().to(output_dtype)
+
+
+def stablehlo_broadcast_in_dim_golden(
+    input_tensor: GoldenMapTensor,
+    broadcast_dimensions_attr: DenseI64ArrayAttr,
+    output_shape: List[int],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    broadcast_dimensions = unpack_mlir_attr(broadcast_dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    # broadcast_dimensions specifies which dimensions of the output correspond to input dimensions
+    # We need to reshape the input to match the output rank first, then broadcast
+    input_shape = list(input_tensor.shape)
+
+    # Create a shape with 1s for all dimensions, then fill in the input dimensions
+    expanded_shape = [1] * len(output_shape)
+    for i, dim_idx in enumerate(broadcast_dimensions):
+        expanded_shape[dim_idx] = input_shape[i]
+
+    # Reshape input to the expanded shape
+    reshaped = input_tensor.reshape(expanded_shape)
+
+    # Now broadcast to the target shape
+    result = torch.broadcast_to(reshaped, output_shape)
+    return result.to(output_dtype)
 
 
 def stablehlo_rsqrt_golden(
@@ -7667,7 +7681,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
     # bitcast conversion operation
-    stablehlo.BroadcastInDimOp: torch.broadcast_to,
+    stablehlo.BroadcastInDimOp: stablehlo_broadcast_in_dim_golden,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
