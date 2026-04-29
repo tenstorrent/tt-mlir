@@ -106,6 +106,13 @@ def compare_system_descriptors(
                 if key == "erisc_l1_unreserved_base":
                     continue
 
+                # Skip the optimal DRAM bank-to-logical-worker assignment.
+                if key in (
+                    "dram_bank_to_logical_worker_noc0",
+                    "dram_bank_to_logical_worker_noc1",
+                ):
+                    continue
+
                 new_path = f"{path}.{key}" if path else key
                 _deep_compare(obj1[key], obj2[key], new_path, differences)
 

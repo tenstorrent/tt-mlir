@@ -6159,11 +6159,6 @@ private:
           "TTIR single dimensional scatter requires index_vector_dim to be 1");
     }
 
-    if (!multiDimensionalScatter && scatterDimsToOperandDims[0] != 0) {
-      return rewriter.notifyMatchFailure(
-          op, "TTIR single dimensional scatter currently only supports "
-              "scattering along dimension 0");
-    }
     return success();
   }
 

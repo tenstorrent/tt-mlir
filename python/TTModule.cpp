@@ -191,7 +191,17 @@ void populateTTModule(nb::module_ &m) {
              unsigned dramUnreservedEnd, MlirAttribute supportedDataTypes,
              MlirAttribute supportedTileSizes, unsigned dstPhysicalSizeTiles,
              unsigned numCBs, unsigned numComputeThreads,
-             unsigned numDatamovementThreads) {
+             unsigned numDatamovementThreads, std::vector<int64_t> dramGrid,
+             const std::vector<MlirAttribute> &dramBankToLogicalWorkerNoc0,
+             const std::vector<MlirAttribute> &dramBankToLogicalWorkerNoc1) {
+            auto unwrapCoreCoords = [](const std::vector<MlirAttribute> &v) {
+              std::vector<tt::ttcore::CoreCoordAttr> out;
+              out.reserve(v.size());
+              for (const MlirAttribute &a : v) {
+                out.push_back(mlir::cast<tt::ttcore::CoreCoordAttr>(unwrap(a)));
+              }
+              return out;
+            };
             return wrap(tt::ttcore::ChipDescAttr::get(
                 unwrap(ctx), mlir::cast<tt::ttcore::ArchAttr>(unwrap(arch)),
                 grid, coordTranslationOffsets, l1Size, numDramChannels,
@@ -203,8 +213,9 @@ void populateTTModule(nb::module_ &m) {
                 mlir::cast<tt::ttcore::TileSizeAttr>(
                     unwrap(supportedTileSizes)),
                 dstPhysicalSizeTiles, numCBs, numComputeThreads,
-                numDatamovementThreads,
-                {1, static_cast<int64_t>(numDramChannels)}));
+                numDatamovementThreads, dramGrid,
+                unwrapCoreCoords(dramBankToLogicalWorkerNoc0),
+                unwrapCoreCoords(dramBankToLogicalWorkerNoc1)));
           })
       .def_prop_ro("usable_l1_size", &tt::ttcore::ChipDescAttr::getUsableL1Size)
       .def_prop_ro("usable_dram_channel_size",

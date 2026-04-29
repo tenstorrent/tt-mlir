@@ -35,7 +35,9 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipDescAttrGet(
     unsigned dramUnreservedEnd, MlirAttribute *supportedDataTypes,
     MlirAttribute *supportedTileSizes, unsigned dstPhysicalSizeTiles,
     unsigned numCBs, unsigned numComputeThreads,
-    unsigned numDatamovementThreads, int64_t *dramGrid, size_t dramGridSize);
+    unsigned numDatamovementThreads, int64_t *dramGrid, size_t dramGridSize,
+    MlirAttribute *dramBankToLogicalWorkerNoc0,
+    MlirAttribute *dramBankToLogicalWorkerNoc1);
 
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTChipCoordAttrGet(
     MlirContext ctx, unsigned rack, unsigned shelf, unsigned y, unsigned x);
