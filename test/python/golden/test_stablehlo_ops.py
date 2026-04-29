@@ -1887,10 +1887,10 @@ def test_reduce_window_op(test_fn: Callable, target: str, request, device):
 
 
 @pytest.mark.parametrize(
-    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes",
+    "input_shape,input_dtype,indices_shape,start_index_map,offset_dims,slice_sizes,collapsed_slice_dims",
     [
         # Simple 1D indices - f32.
-        ((100, 50), torch.float32, (10,), [0], [1], [1, 50]),
+        ((100, 50), torch.float32, (10,), [0], [1], [1, 50], [0]),
         pytest.param(
             (8, 16, 32),
             torch.float32,
@@ -1899,11 +1899,23 @@ def test_reduce_window_op(test_fn: Callable, target: str, request, device):
             [1],
             # Complex indices - f32.
             [1, 16, 1],
+            [0, 2],
+        ),
+        pytest.param(
+            (1, 12, 12, 768),
+            torch.float32,
+            (16, 12, 2),
+            [1, 2],
+            [0, 1, 2, 3],
+            [1, 3, 3, 768],
+            # Multi-partial indexed dims - f32.
+            [],
         ),
     ],
     ids=[
         "simple_1d-f32",
         "complex_indices-f32",
+        "multi_partial-f32",
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -1914,6 +1926,7 @@ def test_gather(
     start_index_map: List[int],
     offset_dims: List[int],
     slice_sizes: List[int],
+    collapsed_slice_dims: List[int],
     target: str,
     request,
     device,
@@ -1923,7 +1936,6 @@ def test_gather(
         def gather_func(in0: Operand, builder: StableHLOBuilder):
             indices = builder.constant(torch.zeros(indices_shape, dtype=torch.int32))
 
-            collapsed_slice_dims = start_index_map
             operand_batching_dims = []
             start_indices_batching_dims = []
 

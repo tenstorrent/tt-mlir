@@ -11,7 +11,7 @@ from datetime import datetime
 import random
 import re
 
-default_duration = 150.0  # default duration in seconds if not found in _test_durations
+default_duration = 1800.0  # default duration in seconds if not found in _test_durations
 do_array_unroll_for = [
     "runs-on",
     "image",
