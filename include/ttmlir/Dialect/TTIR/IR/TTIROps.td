@@ -2406,11 +2406,12 @@ def TTIR_GroupNormOp : TTIR_NamedOp<"group_norm", [AttrSizedOperandSegments]> {
     is normalized by subtracting the mean and dividing by the standard deviation,
     then optionally scaled and shifted by weight (gamma) and bias (beta).
 
-    Input tensor is expected to have shape [N, 1, H*W, C], where C is the dimension
-    along which groups are formed. Groups are formed using the tensor's last dimension.
+    Input tensor must be at least 4D. Common shapes include [N, C, H, W] (4D) and
+    [N, C, D, H, W] (5D for 3D convolutions). During TTIR-to-TTNN conversion, inputs
+    are permuted and reshaped to [N, 1, H*W, C] based on the channel_dim attribute.
 
     Inputs:
-    - `input` (Tensor): The input tensor to be normalized (4D, shape [N, 1, H*W, C]).
+    - `input` (Tensor): The input tensor to be normalized (at least 4D).
     - `input_mask` (Optional Tensor): When processing the inputs, the mask is used to
       only look at the elements of the current group. Defaults to None.
     - `weight` (Optional Tensor): The scale parameter (gamma). If provided, the
