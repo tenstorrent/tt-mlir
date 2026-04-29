@@ -56,6 +56,19 @@ struct RmsNormRuleBook : OpRuleBook {
                           const OpConfig &config,
                           llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                           bool requiresReshard) const override;
+
+  /// When operand 0 is sharded, require the output hint to use the same
+  /// shard spec (mem layout, grid, shard shape) so the sharded layernorm
+  /// kernel takes the `skip_write_back=true` path and never runs
+  /// `write_resharded_data` (the integrated input→output NoC reshard inside
+  /// `writer_unary_sharded_ln`). That post-norm reshard deadlocks on certain
+  /// grid pairs — workers stuck on `cb_wait_front`/`noc_async_write` — see
+  /// tt-metal `reshard_writer.hpp::write_resharded_data`. Interleaved inputs
+  /// take the multi-core (non-sharded) factory which has no such reshard,
+  /// so any output is fine.
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 };
 
 } // namespace mlir::tt::ttnn
