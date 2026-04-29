@@ -29,7 +29,7 @@ public:
     }
     return opt.error("Invalid value '" + arg.str() +
                      "' for weight dtype. Valid values are: none, bfp_bf8, "
-                     "bfp_bf4");
+                     "bfp_bf4, bfp_bf2");
   }
 
   void print(raw_ostream &os, const mlir::tt::ttnn::WeightDtype &value) {

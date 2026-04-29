@@ -383,12 +383,14 @@ def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
 def TTNN_WeightDtypeNone : I32EnumAttrCase<"None", 0, "none">;
 def TTNN_WeightDtypeBfpBf8 : I32EnumAttrCase<"BFP_BFloat8", 1, "bfp_bf8">;
 def TTNN_WeightDtypeBfpBf4 : I32EnumAttrCase<"BFP_BFloat4", 2, "bfp_bf4">;
+def TTNN_WeightDtypeBfpBf2 : I32EnumAttrCase<"BFP_BFloat2", 3, "bfp_bf2">;
 
 def TTNN_WeightDtype : I32EnumAttr<"WeightDtype", "Weight data type for conversion",
                            [
                             TTNN_WeightDtypeNone,
                             TTNN_WeightDtypeBfpBf8,
                             TTNN_WeightDtypeBfpBf4,
+                            TTNN_WeightDtypeBfpBf2,
                            ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

@@ -428,7 +428,7 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   list<Option> options = [
     Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::WeightDtype",
            /*default=*/"::mlir::tt::ttnn::WeightDtype::None",
-           "Target data type for weight conversion (bfp_bf8, bfp_bf4).">,
+           "Target data type for weight conversion (bfp_bf8, bfp_bf4, bfp_bf2).">,
   ];
 }
 

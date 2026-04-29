@@ -379,8 +379,9 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::values(
           clEnumValN(WeightDtype::None, "none", "Disabled"),
           clEnumValN(WeightDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
-          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4",
-                     "BFP BFloat4 format")),
+          clEnumValN(WeightDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format"),
+          clEnumValN(WeightDtype::BFP_BFloat2, "bfp_bf2",
+                     "BFP BFloat2 format")),
       llvm::cl::init(WeightDtype::None)};
 
   // ComputeKernelConfig options
