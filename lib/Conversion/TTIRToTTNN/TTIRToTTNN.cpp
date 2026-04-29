@@ -3357,9 +3357,17 @@ private:
 
   // Determine if the decode op should be used based on query sequence length.
   // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
+  // Additionally, the decode kernel requires the KV sequence length to be a
+  // multiple of 32 (k_chunk_size constraint), so fall through to regular SDPA
+  // when the KV sequence length does not satisfy this.
   bool shouldUseDecode(ttir::ScaledDotProductAttentionOp op) const {
     auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
-    return queryType.getDimSize(kSeqLenDim) == 1;
+    if (queryType.getDimSize(kSeqLenDim) != 1) {
+      return false;
+    }
+    auto keyType = mlir::cast<RankedTensorType>(op.getKey().getType());
+    int64_t kvSeqLen = keyType.getDimSize(kSeqLenDim);
+    return kvSeqLen % 32 == 0;
   }
 
   // Broadcast attention mask's head dimension to match the number of heads.
@@ -3420,13 +3428,41 @@ private:
   }
 
   // Lower to standard SDPA op (simple 1:1 mapping).
+  // Expand broadcast query-position dimension of attention mask (dim 2) from 1
+  // to seqLen.  The TTNN SDPA kernel asserts mask_shape[2] == q_shape[2], so
+  // masks with shape (B, H, 1, S) must be expanded to (B, H, seqLen, S)
+  // before being passed to the kernel.
+  Value expandMaskQueryDim(Value mask, int64_t seqLen,
+                           ConversionPatternRewriter &rewriter,
+                           Location loc) const {
+    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+    if (maskType.getDimSize(kSeqLenDim) == seqLen) {
+      return mask;
+    }
+    SmallVector<int64_t> expandedShape(maskType.getShape());
+    expandedShape[kSeqLenDim] = seqLen;
+    auto expandedType =
+        ttnn::utils::RankedTensorTypeFactory::create(maskType, expandedShape);
+    auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+        maskType.getShape(), expandedShape);
+    auto shapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
+    return rewriter.create<ttnn::RepeatOp>(loc, expandedType, mask, shapeAttr);
+  }
+
   LogicalResult lowerToSDPAOp(ttir::ScaledDotProductAttentionOp op,
                               OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
+    Value mask = adaptor.getAttentionMask();
+    if (mask) {
+      auto queryType =
+          mlir::cast<RankedTensorType>(adaptor.getQuery().getType());
+      int64_t seqLen = queryType.getDimSize(kSeqLenDim);
+      mask = expandMaskQueryDim(mask, seqLen, rewriter, op.getLoc());
+    }
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+        mask, op.getIsCausal(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink(),
         /*memory_config=*/nullptr);
 
