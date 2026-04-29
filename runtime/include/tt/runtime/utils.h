@@ -170,6 +170,10 @@ inline std::shared_ptr<void> unsafeBorrowShared(T *ptr) {
 
 std::uint32_t dataTypeElementSize(::tt::target::DataType dataType);
 
+bool isBlockFormatDataType(::tt::target::DataType dataType);
+
+uint64_t blockFormatTileSizeBytes(::tt::target::DataType dataType);
+
 bool isSupportedDataType(::tt::target::DataType dataType);
 
 ::tt::target::DataType

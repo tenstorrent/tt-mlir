@@ -6,9 +6,9 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Dialect/TTNN/Utils/WeightDtypeParser.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -149,6 +149,11 @@ private:
   std::optional<ttcore::DataType> targetDtype;
 };
 
+// Only block formats (bfp_bf8, bfp_bf4) are supported as global overrides
+// because models already arrive from frontends in bf16 — there is no need for a
+// global bf16 override. Per-tensor overrides (via ttcore.weight_dtype op
+// attribute) do support bf16 to let individual weights opt out of a
+// global block-format conversion.
 class TTNNWeightDtypeConversionPass
     : public impl::TTNNWeightDtypeConversionBase<
           TTNNWeightDtypeConversionPass> {
@@ -156,28 +161,11 @@ public:
   using impl::TTNNWeightDtypeConversionBase<
       TTNNWeightDtypeConversionPass>::TTNNWeightDtypeConversionBase;
 
-  // Maps the global pipeline WeightDtype enum to a DataType. Only block
-  // formats (bfp_bf8, bfp_bf4) are supported as global overrides because
-  // models already arrive from frontends in bf16 — there is no need for a
-  // global bf16 override. Per-tensor overrides (via ttcore.weight_dtype op
-  // attribute) do support bf16 to let individual weights opt out of a
-  // global block-format conversion.
-  static ttcore::DataType weightDtypeToDataType(WeightDtype wd) {
-    switch (wd) {
-    case WeightDtype::BFP_BFloat8:
-      return ttcore::DataType::BFP_BFloat8;
-    case WeightDtype::BFP_BFloat4:
-      return ttcore::DataType::BFP_BFloat4;
-    default:
-      llvm_unreachable("Invalid WeightDtype for conversion");
-    }
-  }
-
   void runOnOperation() final {
     // Resolve global target dtype (std::nullopt if not specified).
     std::optional<ttcore::DataType> globalDtype;
-    if (targetDtype != WeightDtype::None) {
-      globalDtype = weightDtypeToDataType(targetDtype);
+    if (targetDtype != BFPDtype::None) {
+      globalDtype = bfpDtypeToDataType(targetDtype);
     }
 
     mlir::RewritePatternSet patterns(&getContext());
