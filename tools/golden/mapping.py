@@ -2673,6 +2673,14 @@ def update_cache_golden(
     """
     Custom golden function for update_cache operation.
 
+    Matches TTNN ``update_cache`` semantics:
+      cache shape: [num_users, num_heads, max_seq_len, head_dim]
+      input shape: [1, num_heads, num_input_users, head_dim]
+      update_index: scalar position in the cache sequence dimension
+    The update writes:
+      cache[batch_offset + b, h, update_index, d] = input[0, h, b, d]
+    for ``b`` in ``[0, num_input_users)``.
+
     Parameters
     ----------
     cache_tensor : GoldenMapTensor
@@ -2680,9 +2688,9 @@ def update_cache_golden(
     update_tensor : GoldenMapTensor
         Tensor containing update data
     indices_tensor : GoldenMapTensor
-        Tensor containing update indices
+        Tensor containing the (scalar) update index
     batch_offset : IntegerAttr, optional
-        Batch offset attribute (ignored in golden computation)
+        Offset along the cache batch dimension where the input batch starts
     output_type_mlir : Type, optional
         MLIR output type (ignored in golden computation)
     **kwargs : dict
@@ -2695,15 +2703,24 @@ def update_cache_golden(
     """
     result = cache_tensor.clone()
 
-    # indices_tensor contains the position(s) in the sequence dimension
-    # where update_tensor values should be written
     indices = indices_tensor.shard_at(0).to(torch.long)
-    seq_len = update_tensor.shape[2]
+    update_idx = int(indices.flatten()[0].item())
+
+    batch_offset_val = 0
+    if batch_offset is not None:
+        unpacked = unpack_mlir_attr(batch_offset)
+        batch_offset_val = int(unpacked) if unpacked is not None else 0
+
     for device_id, shard in result.shard_map.items():
         update_data = update_tensor.shard_at(device_id)
-        for i in range(seq_len):
-            idx = indices[i].item()
-            shard[:, :, idx, :] = update_data[:, :, i, :]
+        num_input_users = update_data.shape[2]
+        # update_data[0, h, b, d] -> shard[batch_offset + b, h, update_idx, d]
+        shard[
+            batch_offset_val : batch_offset_val + num_input_users,
+            :,
+            update_idx,
+            :,
+        ] = update_data[0].permute(1, 0, 2)
     return result
 
 
