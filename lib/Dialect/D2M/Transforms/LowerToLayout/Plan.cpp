@@ -216,6 +216,11 @@ modifyDeviceType(MLIRContext *ctx, RankedTensorType baseType,
   if (newTensorGrid.has_value()) {
     tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
     needsReblock = needsReblock || reblockVirtualGridShapes;
+    if (reblockVirtualGridShapes &&
+        ttmlir::d2m::utils::grids::requiresVirtualGrid(tensorGrid,
+                                                       targetGridShape)) {
+      tensorGrid = computeVirtualGridBounceShape(tensorGrid, targetGridShape);
+    }
   } else {
     tensorGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
     needsReblock =
