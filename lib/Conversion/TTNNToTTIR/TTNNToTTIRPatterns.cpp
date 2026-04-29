@@ -293,7 +293,9 @@ addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TanhOp,
                                                   mlir::tt::ttir::TanhOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::LogOp,
-                                                  mlir::tt::ttir::LogOp>>(
+                                                  mlir::tt::ttir::LogOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::RoundOp,
+                                                  mlir::tt::ttir::RoundOp>>(
           typeConverter, ctx);
 }
 
