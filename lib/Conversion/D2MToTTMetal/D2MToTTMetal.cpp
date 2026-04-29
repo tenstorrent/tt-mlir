@@ -520,8 +520,8 @@ public:
 /// over-approximated to the full worker grid (see TTMetalToFlatbuffer
 /// circular_buffer_config).
 /// - Remap kernel-arg indices for merged enqueue: BufferAddress,
-/// LocalSemaphore, GlobalSemaphore, and CBPort. Runtime resolves CBPort by
-/// indexing the merged `cbs` list, then reads that entry's hardware port.
+/// GlobalSemaphore, and CBPort. Runtime resolves CBPort by indexing the merged
+/// `cbs` list, then reads that entry's hardware port.
 class SpatialOpRewriter : public OpConversionPattern<d2m::SpatialOp> {
 public:
   using OpConversionPattern<d2m::SpatialOp>::OpConversionPattern;
@@ -692,10 +692,6 @@ private:
                                       size_t mergedCbSlotBase) {
     size_t operandIndex = kernelArg.getOperandIndex();
     if (kernelArg.getType() == ttkernel::ArgType::BufferAddress) {
-      if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
-        operandIndex = *unified;
-      }
-    } else if (kernelArg.getType() == ttkernel::ArgType::LocalSemaphore) {
       if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }

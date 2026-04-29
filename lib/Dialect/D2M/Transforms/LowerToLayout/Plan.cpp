@@ -31,10 +31,6 @@ static void updateStateFromOutput(PlanState &state,
   state.vgmInverse = output.vgmInverse;
 }
 
-// ============================================================================
-// PlanState accessors
-// ============================================================================
-
 std::optional<ttcore::MetalLayoutAttr> PlanState::getLayout() const {
   if (!type) {
     return std::nullopt;
@@ -64,10 +60,6 @@ llvm::ArrayRef<int64_t> PlanState::getGridShape() const {
   assert(layout && "Cannot get grid shape without layout");
   return layout->getGridShape(type);
 }
-
-// ============================================================================
-// Layout / intermediate-type utilities
-// ============================================================================
 
 namespace {
 
@@ -326,10 +318,6 @@ void emitTilizedReshardDecomposition(
 
 } // namespace
 
-// ============================================================================
-// canonicalize
-// ============================================================================
-
 Plan canonicalize(const PlanState &src, const PlanState &tgt,
                   ArrayRef<int64_t> targetGridShape, MLIRContext *ctx) {
   Plan plan;
@@ -542,10 +530,6 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
 
   return plan;
 }
-
-// ============================================================================
-// minimize
-// ============================================================================
 
 namespace {
 

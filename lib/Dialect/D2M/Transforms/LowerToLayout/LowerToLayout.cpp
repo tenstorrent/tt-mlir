@@ -642,10 +642,8 @@ public:
     return state;
   }
 
-  // Materialize `plan` as IR, threading `op.getInput()` through each Step's
-  // lowering helper. The output buffer of the final Step is `op.getOutput()`
-  // whenever its type matches — that's how the ToLayoutOp's destination gets
-  // wired without any special-case branching here.
+  // Materialize `plan` as IR by applying each Step to the value produced by the
+  // previous Step.
   Value emit(PatternRewriter &rewriter, ToLayoutOp op, const Plan &plan) const {
     Value currentValue = op.getInput();
     Location loc = op.getLoc();

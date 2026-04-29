@@ -36,12 +36,6 @@ struct PlanState {
   llvm::ArrayRef<int64_t> getGridShape() const; // requires hasLayout()
 };
 
-// A Plan is a sequence of atomic Steps that transforms a tensor from one
-// PlanState into another. Each Step changes one aspect of the tensor (memory
-// space, tile form, grid/alignment, VGM, or OOB region). Plans are produced by
-// `canonicalize`, simplified by `minimize`, and lowered to IR by the pass's
-// `emit`.
-
 struct OutputBufferSpec {
   RankedTensorType type = {};
   AffineMap vgmForward = {};
@@ -110,6 +104,11 @@ struct MaskStep {
   OutputBufferSpec output = {};
 };
 
+// A `Step` is one atomic layout transformation: memory space, tile form,
+// grid/alignment, VGM, remapping, or OOB region. A `Plan` is the ordered
+// sequence that transforms a tensor from one `PlanState` to another. Plans are
+// produced by `canonicalize`, simplified by `minimize`, and materialized by the
+// LowerToLayout pass.
 using Step = std::variant<HostToDeviceStep, HostToBounceBufferStep,
                           DeviceToHostStep, L1ToDRAMStep, DRAMToL1Step,
                           TilizeStep, UntilizeStep, RebufferStep, ReshardStep,
@@ -117,14 +116,13 @@ using Step = std::variant<HostToDeviceStep, HostToBounceBufferStep,
 
 using Plan = llvm::SmallVector<Step>;
 
-// Produce the canonical sequence of atomic Steps that transforms `src` into
-// `tgt`. Pure: no IR, no side effects. The result is deterministic and may
-// contain redundant adjacent pairs which `minimize` is responsible for
-// collapsing.
+// Build a deterministic lowering plan from `src` to `tgt`. The plan describes
+// required layout changes but is not guaranteed minimal.
 Plan canonicalize(const PlanState &src, const PlanState &tgt,
                   llvm::ArrayRef<int64_t> targetGridShape, MLIRContext *ctx);
 
-// Apply cancellation, fusion, and commutation rules until fixpoint.
+// Simplify a lowering plan by applying cancellation, fusion, and commutation
+// rules until fixpoint.
 Plan minimize(Plan plan);
 
 } // namespace mlir::tt::d2m
