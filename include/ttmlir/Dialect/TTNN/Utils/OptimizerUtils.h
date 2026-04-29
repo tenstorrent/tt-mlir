@@ -34,7 +34,7 @@ inline bool opHasTensorResult(mlir::Operation *op) {
 /// Returns true for in-place ops with no tensor result that still need
 /// input layout validation and upstream reshard propagation in the beam search.
 inline bool isSinkOp(mlir::Operation *op) {
-  return llvm::isa<FillCacheOp, PagedUpdateCacheOp>(op);
+  return llvm::isa<FillCacheOp, PagedFillCacheOp, PagedUpdateCacheOp>(op);
 }
 
 /// Returns true if this op should participate in the greedy beam search —

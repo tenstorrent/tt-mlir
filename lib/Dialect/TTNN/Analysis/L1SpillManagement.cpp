@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Support/Logger.h"
@@ -498,18 +499,14 @@ typename L1SpillManagement<MemoryTracker>::ScheduleData
 L1SpillManagement<MemoryTracker>::buildScheduleData() {
   ScheduleData data;
 
-  // Build schedule (ops in IR order = topological order).
+  // Build schedule (ops in IR order = topological order). Include sink ops
+  // (paged_fill_cache / paged_update_cache / fill_cache) even though they
+  // have no tensor result — their operand uses must be visible to
+  // computeLastUsePositions so that values consumed only by a cache write
+  // (e.g. per-layer KV typecasts) are kept alive in L1 until the cache
+  // write actually executes, not freed at the layer-local to_memory_config.
   func->walk([&](Operation *op) {
-    if (op->getNumResults() == 0) {
-      return;
-    }
-    if (isa<EmptyOp>(op)) {
-      return;
-    }
-    bool hasTensorResult = llvm::any_of(op->getResults(), [](OpResult r) {
-      return mlir::isa<RankedTensorType>(r.getType());
-    });
-    if (!hasTensorResult) {
+    if (!optimizer_utils::isBeamSearchTarget(op)) {
       return;
     }
     data.schedule.push_back(op);
@@ -982,6 +979,15 @@ void L1SpillManagement<MemoryTracker>::run() {
     Operation *op = data.schedule[pos];
 
     processDeadTensors(pos, data);
+
+    // Sink ops (paged_fill_cache / paged_update_cache / fill_cache) are in
+    // the schedule only so computeLastUsePositions sees their operand uses
+    // (which keeps their L1-resident input tensors alive in the tracker
+    // until the cache write actually executes). They have no tensor result,
+    // so addResultsToLiveSet / extractOpConfigFromIR / validate do not apply.
+    if (optimizer_utils::isSinkOp(op)) {
+      continue;
+    }
 
     // ToLayoutOp with L1 output: workaround-inserted and always immediately
     // consumed by the target op. MemoryLayoutPropagation skips these, so
