@@ -53,6 +53,9 @@ public:
       return true;
     }
     // Eltwise binary ops.
+    // Note: ttnn.gt is not allowed to be fused because there's an issue with
+    // insertDstRegisterAccess pass and it was blocking gpt-oss bringup.
+    // This is tracked in: https://github.com/tenstorrent/tt-mlir/issues/8193
     if (mlir::isa<AddOp, DivideOp, MultiplyOp, SubtractOp, EqualOp, NotEqualOp,
                   GreaterEqualOp, LessEqualOp, LessThanOp, LogicalAndOp,
                   LogicalOrOp, LogicalXorOp, LogicalRightShiftOp, BitwiseAndOp,
