@@ -279,6 +279,9 @@ public:
   static TTNNOperandsWorkarounds createConstantOpOperandsWorkarounds();
 
   // Create workarounds for WhereOp operands.
+  // tt-metal where only supports si32 and float types natively.
+  // Integer operands (i8, ui8, ui32) are cast to si32.
+  // Float predicate mismatches are cast to match input type.
   static TTNNOperandsWorkarounds
   createWhereOpOperandsWorkarounds(mlir::Operation::operand_range inputs);
 
