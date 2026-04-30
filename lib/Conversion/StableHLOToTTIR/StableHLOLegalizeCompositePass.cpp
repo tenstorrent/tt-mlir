@@ -674,7 +674,27 @@ public:
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
     if (hasAttnMask) {
-      sdpaOperands.push_back(adaptor.getOperands()[3]);
+      Value maskOperand = adaptor.getOperands()[3];
+      auto maskType = mlir::cast<RankedTensorType>(maskOperand.getType());
+      // Q has shape [batch, heads, seqLen, headDim].
+      auto queryType =
+          mlir::cast<RankedTensorType>(adaptor.getOperands()[0].getType());
+      int64_t seqLen = queryType.getDimSize(2);
+      // Expand mask from [B, H, 1, K] to [B, H, seqLen, K] when the frontend
+      // broadcasts the same mask over all query positions. The TTIR SDPA
+      // verifier requires dim 2 to equal seqLen exactly.
+      if (maskType.getDimSize(2) == 1 && seqLen > 1) {
+        llvm::SmallVector<int64_t> expandedShape(maskType.getShape());
+        expandedShape[2] = seqLen;
+        auto expandedType = RankedTensorType::get(
+            expandedShape, maskType.getElementType(), maskType.getEncoding());
+        llvm::SmallVector<int64_t> broadcastDims(maskType.getRank(), 1);
+        broadcastDims[2] = seqLen;
+        maskOperand = rewriter.create<ttir::BroadcastOp>(
+            srcOp.getLoc(), expandedType, maskOperand,
+            rewriter.getDenseI64ArrayAttr(broadcastDims));
+      }
+      sdpaOperands.push_back(maskOperand);
     }
 
     // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
