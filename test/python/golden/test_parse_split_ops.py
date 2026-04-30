@@ -79,6 +79,13 @@ def test_sdy_parsing_ops(mlir_snippet, request, device):
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="stablehlo")
 
 
+@pytest.mark.parametrize("mlir_snippet", ["sdy_manual_computation.mlir"])
+def test_sdy_manual_computation_split(mlir_snippet, request, device):
+    mlir_ir_string = sdy_mlir_snippets[mlir_snippet]
+    mlir_module, builder = load_mlir_file(mlir_ir_string, target="stablehlo")
+    split_modules = split_mlir_file(mlir_module, builder, target="stablehlo")
+
+
 @pytest.mark.parametrize("mlir_snippet", stablehlo_mlir_snippets.keys())
 def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = stablehlo_mlir_snippets[mlir_snippet]
