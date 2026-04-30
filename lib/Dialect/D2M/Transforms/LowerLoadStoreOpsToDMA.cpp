@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -58,6 +59,38 @@ static std::pair<Value, Value> getPreallocatedSemaphores(Operation *op) {
   TT_assertv(sem1, "Could not find senderFinished semaphore in additionalArgs");
 
   return {sem0, sem1};
+}
+
+static SmallVector<Value>
+mapVirtualToPhysicalCoreIndex(OpBuilder &builder, Location loc,
+                              ttcore::GridAttr grid,
+                              ValueRange virtualCoreIndex) {
+  SmallVector<Value> physicalCoreIndex(virtualCoreIndex.begin(),
+                                       virtualCoreIndex.end());
+  AffineMap map = grid.getVirtToPhysicalMap();
+  if (map.isEmpty()) {
+    return physicalCoreIndex;
+  }
+
+  TT_assertv(map.getNumInputs() == virtualCoreIndex.size(),
+             "Expected virtual-to-physical grid map input rank to match core "
+             "index rank.");
+  unsigned firstCoreResult =
+      map.getNumResults() == virtualCoreIndex.size() ? 0 : 1;
+  TT_assertv(map.getNumResults() >= firstCoreResult + virtualCoreIndex.size(),
+             "Expected virtual-to-physical grid map to have enough core "
+             "coordinate results.");
+
+  physicalCoreIndex.clear();
+  physicalCoreIndex.reserve(virtualCoreIndex.size());
+  for (unsigned i = 0; i < virtualCoreIndex.size(); ++i) {
+    AffineMap selectedMap = AffineMap::get(
+        map.getNumDims(), map.getNumSymbols(),
+        {map.getResult(firstCoreResult + i)}, builder.getContext());
+    physicalCoreIndex.push_back(builder.create<affine::AffineApplyOp>(
+        loc, selectedMap, virtualCoreIndex));
+  }
+  return physicalCoreIndex;
 }
 
 namespace {
@@ -141,6 +174,10 @@ public:
     rewriter.create<scf::IfOp>(
         loc, isSender,
         [&](OpBuilder &builder, Location loc) {
+          SmallVector<Value> physicalMcastStartIndex =
+              mapVirtualToPhysicalCoreIndex(builder, loc, genericOp.getGrid(),
+                                            mcastStartIndex);
+
           // Sender: shard-level DMA read from remote.
           Value dmaTx = builder.create<DMAReadOp>(loc, remoteMemref,
                                                   gridIndices, localMemref);
@@ -157,13 +194,13 @@ public:
           // ReserveOp) as both source and destination - this is the Producer
           // buffer that was just filled by the DMA read above.
           Value mcastTx = builder.create<DMAWriteOp>(
-              loc, localMemref, localMemref, remoteLoad.getMcastStartIndex(),
+              loc, localMemref, localMemref, physicalMcastStartIndex,
               remoteLoad.getMcastShape());
           builder.create<DMAWaitOp>(loc, mcastTx);
 
           // Signal receivers that sender is finished.
           builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                         remoteLoad.getMcastStartIndex(),
+                                         physicalMcastStartIndex,
                                          remoteLoad.getMcastShape(),
                                          /*startDevice=*/ValueRange(),
                                          /*deviceMcastShape=*/ValueRange());
@@ -192,8 +229,11 @@ public:
             }
           }
 
+          SmallVector<Value> physicalSenderCoreIndex =
+              mapVirtualToPhysicalCoreIndex(builder, loc, genericOp.getGrid(),
+                                            senderCoreIndex);
           builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
-                                         senderCoreIndex);
+                                         physicalSenderCoreIndex);
           builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
                                           zeroIdx);
 
