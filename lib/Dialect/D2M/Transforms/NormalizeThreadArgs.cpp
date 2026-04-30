@@ -107,7 +107,6 @@ public:
         rewriteCapturedIndexedRowCopyOperands(rewriter, generic, copyOp);
       });
 
-      
       for (auto [i, arg] : llvm::enumerate(generic.getOperands())) {
         Type argType = arg.getType();
 
