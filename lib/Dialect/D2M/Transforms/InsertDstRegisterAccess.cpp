@@ -669,7 +669,37 @@ public:
     // 5. Fix the passing of intermediate results through the DST.
     fixDstIntermediateResults(rewriter, loc, dst, dstIntermediates);
 
+    // 6. When there's no outermost compute loop (loop was canonicalized away),
+    // the acquire_dst may have been placed at the start of the region before
+    // remote_load ops. Move it to just before its first use to ensure compute
+    // ops are contiguous (important for SplitUnifiedThread which separates out
+    // contiguous regions of compute ops into synchronized regions).
+    // When there IS an outermost compute loop, the insertion point was already
+    // set correctly (inside or before the loop body), so no move is needed.
+    if (!outermostInnerComputeLoop) {
+      if (Operation *firstUser = findFirstUserInBlock(acquireDst)) {
+        acquireDst->moveBefore(firstUser);
+      }
+    }
+
     return true;
+  }
+
+  // Find the first user of an operation's result within the same block.
+  static Operation *findFirstUserInBlock(Operation *op) {
+    Operation *firstUser = nullptr;
+    Block *opBlock = op->getBlock();
+    for (Value result : op->getResults()) {
+      for (Operation *user : result.getUsers()) {
+        if (user->getBlock() != opBlock) {
+          continue;
+        }
+        if (!firstUser || user->isBeforeInBlock(firstUser)) {
+          firstUser = user;
+        }
+      }
+    }
+    return firstUser;
   }
 
   static bool hasAcquireDstOp(Region &region) {

@@ -1335,13 +1335,13 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
   }
 
   // Create new op with memref operands.
-  auto newOp = rewriter.create<ArangeBlockOp>(
-      getLoc(), *maybeIndexTileBuffer, *maybeOutputBuffer, getNumElements(),
-      getStart(), getStep());
+  rewriter.create<ArangeBlockOp>(getLoc(), *maybeIndexTileBuffer,
+                                 *maybeOutputBuffer, getNumElements(),
+                                 getStart(), getStep());
 
   // Replace uses and erase (DPS pattern - result aliases output buffer).
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
-                                                     newOp.getResult());
+                                                     *maybeOutputBuffer);
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
