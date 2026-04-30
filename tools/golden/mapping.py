@@ -2706,10 +2706,9 @@ def update_cache_golden(
     indices = indices_tensor.shard_at(0).to(torch.long)
     update_idx = int(indices.flatten()[0].item())
 
-    batch_offset_val = 0
-    if batch_offset is not None:
-        unpacked = unpack_mlir_attr(batch_offset)
-        batch_offset_val = int(unpacked) if unpacked is not None else 0
+    batch_offset_val = (
+        int(unpack_mlir_attr(batch_offset)) if batch_offset is not None else 0
+    )
 
     for device_id, shard in result.shard_map.items():
         update_data = update_tensor.shard_at(device_id)
@@ -3425,7 +3424,6 @@ def ttir_gelu_backward_golden(grad, input, approximate="none"):
     # implicit broadcasting (ONEDNN limitation). Broadcast inputs explicitly.
     grad, input = torch.broadcast_tensors(grad, input)
     return torch.ops.aten.gelu_backward(grad, input, approximate=approximate)
-
 
 
 def ttir_gelu_golden(

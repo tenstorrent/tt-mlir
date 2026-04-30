@@ -11583,7 +11583,7 @@ class TTIRBuilder(Builder):
         with old_ctx, old_loc:
             gelu_module = Module.create()
             gelu_builder = TTIRBuilder(
-                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
             )
             op_input_types = [old_op.input.type]
 
