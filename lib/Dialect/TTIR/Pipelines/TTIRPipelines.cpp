@@ -71,9 +71,6 @@ void createStableHLOToTTIRPipeline(
     pm.addPass(
         ::mlir::stablehlo::createStablehloAggressiveSimplificationPass());
   }
-  // Fold i64/ui64 shift_right_logical by >= 32 to zero before
-  // ElementTypeNormalization demotes 64-bit integers to 32-bit
-  pm.addPass(mlir::tt::stablehlo::createSaturatingShiftFoldingPass());
   // Expand complex math ops (e.g. mul, sqrt, log) into real arithmetic before
   // converting complex types to float-pair representation.
   pm.addPass(::mlir::stablehlo::createStablehloComplexMathExpanderPass());

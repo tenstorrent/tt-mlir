@@ -596,20 +596,6 @@ def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
   ];
 }
 
-def SaturatingShiftFoldingPass : Pass<"stablehlo-saturating-shift-folding", "::mlir::ModuleOp"> {
-  let summary = "Fold i64/ui64 shift_right_logical by >= 32 to a zero constant.";
-  let description = [{
-    This pass runs at the StableHLO level before normalization. It folds:
-      stablehlo.shift_right_logical %x, splat-constant<C>
-        : tensor<...xi64>  (or ui64)
-    where C >= 32, to a zero `stablehlo.constant` of the same type.
-  }];
-
-  let dependentDialects = [
-    "::mlir::stablehlo::StablehloDialect"
-  ];
-}
-
 def FuseDistributedCustomCallsPass : Pass<"fuse-distributed-custom-calls", "::mlir::ModuleOp">
 {
   let summary = "Fuse custom_call ops with surrounding CCL ops into distributed op variants.";
