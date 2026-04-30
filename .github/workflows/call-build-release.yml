@@ -110,7 +110,7 @@ jobs:
           -B ${{ steps.strings.outputs.build-output-dir }} \
           -DCMAKE_CXX_COMPILER=clang++-20 \
           -DCMAKE_C_COMPILER=clang-20 \
-          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_INSTALL_PREFIX=${{  steps.strings.outputs.install-output-dir }} \
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
           -DTTMLIR_ENABLE_RUNTIME=ON \

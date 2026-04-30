@@ -43,7 +43,7 @@ jobs:
     secrets: inherit
     with:
       docker-image: ${{ needs.build-image.outputs.docker-image }}
-  test:
+  test-1:
     needs: [ prepare-run, build-image, release-build ]
     if: needs.prepare-run.outputs.skip_build != 'true'
     uses: ./.github/workflows/call-test.yml
@@ -52,23 +52,15 @@ jobs:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
       timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
-  save-durations:
-    needs: test
-    runs-on: ubuntu-latest
-    if: success() && github.ref == 'refs/heads/main'
-    steps:
-      - name: Set test durations
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          echo "This is main branch, getting test durations"
-          rm -rf _test_durations_d
-          rm -rf _test_durations
-          gh run download ${{ github.run_id }} --repo tenstorrent/tt-mlir --pattern "test-durations*" --dir _test_durations_d
-          find _test_durations_d -name "_test_duration" -exec cat {} + > _test_durations
-          gh variable set test_durations --body "$(cat _test_durations)" --repo tenstorrent/tt-mlir
-          rm -rf _test_durations*
+  test-2:
+    needs: [ prepare-run, build-image, release-build ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-test.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+      test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
+      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
   docs:
     if: github.ref == 'refs/heads/main'
     needs: build-image
