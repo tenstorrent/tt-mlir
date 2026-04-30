@@ -1738,6 +1738,16 @@ private:
     auto rootRhsType = mlir::cast<RankedTensorType>(rootOp.getB().getType());
     int64_t rootRhsRank = rootRhsType.getRank();
 
+    // For LinearOp, record the root bias rank. Candidates with a different
+    // bias rank would produce an invalid concat in createConcatenatedBias.
+    int64_t rootBiasRank = -1;
+    if constexpr (std::is_same_v<OpType, LinearOp>) {
+      if (Value rootBias = rootOp.getBias()) {
+        rootBiasRank =
+            mlir::cast<RankedTensorType>(rootBias.getType()).getRank();
+      }
+    }
+
     for (Operation *user : sharedLHS.getUsers()) {
       auto op = dyn_cast<OpType>(user);
       if (!op || op.getA() != sharedLHS) {
@@ -1762,6 +1772,19 @@ private:
           rhsType.getShape().slice(0, rootRhsRank - 2) !=
               rootRhsType.getShape().slice(0, rootRhsRank - 2)) {
         continue;
+      }
+
+      // For LinearOp, skip candidates whose bias rank differs from the root.
+      // Mixing bias ranks would create an invalid ttir.concat.
+      if constexpr (std::is_same_v<OpType, LinearOp>) {
+        if (rootBiasRank >= 0) {
+          Value opBias = op.getBias();
+          if (!opBias ||
+              mlir::cast<RankedTensorType>(opBias.getType()).getRank() !=
+                  rootBiasRank) {
+            continue;
+          }
+        }
       }
 
       // Track if transpose_b differs - if mixed, we'll need to insert permutes
