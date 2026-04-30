@@ -154,7 +154,7 @@ def _compute_core_range_set_for_grid(ctx, grid_shape):
     `grid_shape` (height, width)."""
     assert len(grid_shape) == 2, "Only 2D grids are supported"
     start = ttnn.ir.CoreCoordAttr.get(ctx, 0, 0)
-    end = ttnn.ir.CoreCoordAttr.get(ctx, grid_shape[0] - 1, grid_shape[1] - 1)
+    end = ttnn.ir.CoreCoordAttr.get(ctx, grid_shape[1] - 1, grid_shape[0] - 1)
     return ttnn.ir.CoreRangeSetAttr.get(
         ctx,
         [ttnn.ir.CoreRangeAttr.get(ctx, start, end)],

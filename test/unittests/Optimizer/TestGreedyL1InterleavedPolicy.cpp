@@ -11,8 +11,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-#include "testing/DeviceUtils.h"
-
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -100,7 +98,6 @@ public:
       gridShape = {8, 8};
     }
 
-    auto deviceAttr = mlir::tt::test_utils::getFakeDeviceAttr(&context, {8, 8});
     auto layout = TTNNLayoutAttr::Builder(
                       &context, getTensorRankedType().getShape(),
                       mlir::tt::ttcore::TileType::get(builder.getF32Type()))

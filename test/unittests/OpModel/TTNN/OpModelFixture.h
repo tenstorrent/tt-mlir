@@ -64,6 +64,7 @@ public:
   llvm::SmallVector<int64_t> GetVirtualGridShape(
       const llvm::ArrayRef<int64_t> &tensorShape,
       const mlir::tt::ttnn::TensorMemoryLayout &tensorMemoryLayout,
+      const mlir::tt::ttnn::BufferType &bufferType,
       const llvm::ArrayRef<int64_t> &gridPhyCores = GetPhysicalGridSize()) {
 
     auto tilePaddedShape =
@@ -91,6 +92,11 @@ public:
       assert(shapeInTiles.size() == 2);
       return {std::min(gridPhyCores[0], shapeInTiles[0]),
               std::min(gridPhyCores[1], shapeInTiles[1])};
+    case mlir::tt::ttnn::TensorMemoryLayout::Interleaved:
+      if (mlir::tt::ttnn::isL1BufferType(bufferType)) {
+        return {gridPhyCores[0], gridPhyCores[1]};
+      }
+      return {1, 1};
     default:
       return {gridPhyCores[0], gridPhyCores[1]};
     }
@@ -107,7 +113,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
@@ -136,7 +142,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
@@ -179,7 +185,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}
@@ -207,7 +213,7 @@ public:
     const auto &virtualGridSelected =
         virtualGrid.has_value()
             ? virtualGrid.value()
-            : GetVirtualGridShape(tensorShape, tensorMemoryLayout);
+            : GetVirtualGridShape(tensorShape, tensorMemoryLayout, bufferType);
 
     auto memLayoutAttr = bufferType == mlir::tt::ttnn::BufferType::SystemMemory
                              ? mlir::tt::ttnn::TensorMemoryLayoutAttr{}

@@ -14,7 +14,6 @@ target_link_libraries(OptimizerTests
     MLIRTTTransforms
     MLIRTTNNAnalysis
     MLIRTTNNValidation
-    TTMLIRTestUtils
 )
 
 if (TTMLIR_ENABLE_OPMODEL)
@@ -31,6 +30,5 @@ if (TTMLIR_ENABLE_OPMODEL)
         MLIRTTTransforms
         MLIRTTNNAnalysis
         MLIRTTNNValidation
-        TTMLIRTestUtils
     )
 endif()

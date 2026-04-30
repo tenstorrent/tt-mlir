@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -11,8 +12,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Utils.h"
-
-#include "testing/DeviceUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -47,10 +46,6 @@ public:
 
   llvm::SmallVector<int64_t, 2> getTensorShape() {
     return {TensorDimX, TensorDimY};
-  }
-
-  mlir::tt::ttcore::DeviceAttr testDeviceAttr() {
-    return mlir::tt::test_utils::getFakeDeviceAttr(&context, {8, 8});
   }
 
   mlir::RankedTensorType getTensorRankedType() {
@@ -107,13 +102,14 @@ public:
       BufferType memorySpace, TensorMemoryLayout tensorMemoryLayout,
       int gridWidth, int gridHeight) {
     llvm::SmallVector<int64_t> gridShape{gridWidth, gridHeight};
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     auto layout =
         TTNNLayoutAttr::Builder(&context, getTensorRankedType().getShape(),
                                 builder.getF32Type())
             .setBufferType(memorySpace)
             .setMemoryLayout(tensorMemoryLayout)
             .setGridShape(gridShape)
-            .buildWithCanonicalCorePlacement(testDeviceAttr());
+            .buildWithCanonicalCorePlacement(deviceAttr);
     if (legalConfigs.find(op) == legalConfigs.end()) {
       legalConfigs[op] = std::vector<OpConfig>{layout};
     } else {

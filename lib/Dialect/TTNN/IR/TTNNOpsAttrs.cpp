@@ -155,6 +155,89 @@ verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
   return ::llvm::success();
 }
 
+// Calculate the logical shape of the shard.
+//
+// Shard is defined as a piece of the tensor that is mapped to a single grid
+// core. This function returns the shard shape for tensors with BLOCK SHARDED
+// tensor memory layout.
+//
+// All examples assume that the tensor is mapped to a 8x8 grid.
+// Example: tensor<32x32xbf16> -> {4, 4}
+// Example: tensor<65x65xbf16> -> {9, 9}
+//
+// return The logical shard shape in case of block sharded tensor memory layout.
+static llvm::SmallVector<int64_t>
+calculateLogicalShardShapeForSharding(llvm::ArrayRef<int64_t> tensorShape,
+                                      mlir::AffineMap linear,
+                                      llvm::ArrayRef<int64_t> gridShape) {
+  assert(linear.getNumResults() == gridShape.size());
+  mlir::SmallVector<std::int64_t> physicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
+  mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
+  for (size_t i = 0; i < linear.getNumResults(); ++i) {
+    shardShape[i] = (physicalShape[i] + gridShape[i] - 1) / gridShape[i];
+  }
+  return shardShape;
+}
+
+// Calculate the logical shape of the shard.
+//
+// Shard is defined as a piece of the tensor that is mapped to a single grid
+// core. This function returns the shard shape for tensors with INTERLEAVED
+// tensor memory layout. Returned shard shape is in scalar elements.
+//
+// All examples assume that the tensor is mapped to a 8x8 grid.
+// Examples for TileType:
+// Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {32, 32}
+// Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {32, 128}
+// Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {32, 64}
+//
+// Examples for RowMajor:
+// Example: tensor<1x1024xbf16> -> {1, 16}
+// Example: tensor<512x512xbf16> -> {1, 4096}
+// Example: tensor<32x2049xbf16> -> {1, 1025}
+//
+// return The logical shard shape in case of interleaved tensor memory layout.
+static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(
+    llvm::ArrayRef<int64_t> tensorShape, mlir::Type elementType,
+    mlir::AffineMap linear, llvm::ArrayRef<int64_t> gridShape) {
+  assert(linear.getNumResults() == gridShape.size());
+
+  mlir::SmallVector<std::int64_t> physicalShape =
+      ttmlir::utils::evalShape(linear, tensorShape);
+
+  uint64_t numOfGridUnits = std::accumulate(gridShape.begin(), gridShape.end(),
+                                            1, std::multiplies<std::int64_t>());
+
+  // Create shard shape with all dims set to 1 except the last one which is
+  // set to shardVolume.
+  mlir::SmallVector<std::int64_t> shardShape;
+  shardShape.resize(gridShape.size() - 1, 1);
+
+  if (!mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
+    // If RowMajor, single shard should be TensorVolume / NumCores rounded up.
+    // So in case of tensor<5120x1024xbf16> on 8x8 grid we have
+    // 5120*1024/64 = 81920 -> shard shape is <1x81920xbf16>
+    int64_t tensorVolume =
+        std::accumulate(physicalShape.begin(), physicalShape.end(), 1,
+                        std::multiplies<int64_t>());
+    int64_t shardVolume = (tensorVolume + numOfGridUnits - 1) / numOfGridUnits;
+    shardShape.push_back(shardVolume);
+    return shardShape;
+  }
+
+  // TileType case
+  mlir::SmallVector<std::int64_t> physicalTiledShape =
+      mlir::cast<mlir::tt::ttcore::TileType>(elementType)
+          .getTiledShape(physicalShape);
+  uint64_t numOfTiles =
+      std::accumulate(physicalTiledShape.begin(), physicalTiledShape.end(), 1,
+                      std::multiplies<std::int64_t>());
+  shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
+  return mlir::cast<mlir::tt::ttcore::TileType>(elementType)
+      .getScalarShape(shardShape);
+}
+
 // Get the buffer type (DRAM/L1/SystemMemory)
 BufferType TTNNLayoutAttr::getBufferType() const {
   return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()).getValue();
@@ -781,23 +864,6 @@ CoreRangeSetAttr TTNNLayoutAttr::computeCanonicalCoreRangeSet(
   return CoreRangeSetAttr::get(ctx, ranges);
 }
 
-// Static helper to compute the CoreRangeSet for a sharded layout
-// with an explicitly specified `gridShape`
-// (corresponds to the legacy `exactGrid` mechanism).
-// `gridShape` is interpreted as a physical core grid shape.
-CoreRangeSetAttr
-TTNNLayoutAttr::computeExactCoreRangeSet(mlir::MLIRContext *ctx,
-                                         ArrayRef<int64_t> gridShape) {
-  // gridShape is already the physical worker-grid footprint. Emit a single
-  // rectangle at origin sized to the grid.
-  assert(gridShape.size() == 2 &&
-         "TTNNLayoutAttr shard grid must be 2D for L1 sharding");
-  return CoreRangeSetAttr::get(
-      ctx, CoreRangeAttr::get(
-               ctx, CoreCoordAttr::get(ctx, 0, 0),
-               CoreCoordAttr::get(ctx, gridShape[1] - 1, gridShape[0] - 1)));
-}
-
 NDShardSpecAttr NDShardSpecAttr::get(TTNNNDLayoutAttr layout) {
   auto shardGrid = layout.getGrid();
   auto *context = layout.getContext();
@@ -1099,78 +1165,10 @@ mlir::Type TTNNNDLayoutAttr::getElementType() const {
 
 namespace mlir::tt::ttnn {
 
-namespace {
-
-// Calculate the logical shape of the shard for sharded memory layouts.
-//
-// All examples assume that the tensor is mapped to a 8x8 grid.
-// Example: tensor<32x32xbf16> -> {4, 4}
-// Example: tensor<65x65xbf16> -> {9, 9}
-llvm::SmallVector<int64_t>
-calculateLogicalShardShapeForSharding(mlir::ArrayRef<int64_t> tensorShape,
-                                      mlir::AffineMap linear,
-                                      llvm::ArrayRef<int64_t> gridShape) {
-  assert(linear.getNumResults() == gridShape.size());
-  mlir::SmallVector<std::int64_t> physicalShape =
-      ttmlir::utils::evalShape(linear, tensorShape);
-  mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
-  for (size_t i = 0; i < linear.getNumResults(); ++i) {
-    shardShape[i] = (physicalShape[i] + gridShape[i] - 1) / gridShape[i];
-  }
-  return shardShape;
-}
-
-// Calculate the logical shape of the shard for L1-Interleaved memory layout.
-//
-// All examples assume that the tensor is mapped to a 8x8 grid.
-// Examples for TileType:
-// Example: tensor<1x1024xbf16> ( -> 32 tiles ) -> {32, 32}
-// Example: tensor<512x512xbf16> ( -> 256 tiles ) -> {32, 128}
-// Example: tensor<32x2049xbf16> ( -> 65 tiles ) -> {32, 64}
-//
-// Examples for RowMajor:
-// Example: tensor<1x1024xbf16> -> {1, 16}
-// Example: tensor<512x512xbf16> -> {1, 4096}
-// Example: tensor<32x2049xbf16> -> {1, 1025}
-llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(
-    mlir::ArrayRef<int64_t> tensorShape, mlir::Type elementType,
-    mlir::AffineMap linear, llvm::ArrayRef<int64_t> gridShape) {
-  assert(linear.getNumResults() == gridShape.size());
-
-  mlir::SmallVector<std::int64_t> physicalShape =
-      ttmlir::utils::evalShape(linear, tensorShape);
-
-  uint64_t numOfGridUnits = std::accumulate(gridShape.begin(), gridShape.end(),
-                                            1, std::multiplies<std::int64_t>());
-
-  mlir::SmallVector<std::int64_t> shardShape;
-  shardShape.resize(gridShape.size() - 1, 1);
-
-  if (!mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
-    int64_t tensorVolume =
-        std::accumulate(physicalShape.begin(), physicalShape.end(), 1,
-                        std::multiplies<int64_t>());
-    int64_t shardVolume = (tensorVolume + numOfGridUnits - 1) / numOfGridUnits;
-    shardShape.push_back(shardVolume);
-    return shardShape;
-  }
-
-  mlir::SmallVector<std::int64_t> physicalTiledShape =
-      mlir::cast<mlir::tt::ttcore::TileType>(elementType)
-          .getTiledShape(physicalShape);
-  uint64_t numOfTiles =
-      std::accumulate(physicalTiledShape.begin(), physicalTiledShape.end(), 1,
-                      std::multiplies<std::int64_t>());
-  shardShape.push_back((numOfTiles + numOfGridUnits - 1) / numOfGridUnits);
-  return mlir::cast<mlir::tt::ttcore::TileType>(elementType)
-      .getScalarShape(shardShape);
-}
-
-llvm::SmallVector<int64_t> deriveShardShape(ArrayRef<int64_t> physicalShape,
-                                            Type elementType, AffineMap linear,
-                                            ArrayRef<int64_t> gridShape,
-                                            BufferType bufferType,
-                                            TensorMemoryLayoutAttr memLayout) {
+static llvm::SmallVector<int64_t>
+deriveShardShape(ArrayRef<int64_t> physicalShape, Type elementType,
+                 AffineMap linear, ArrayRef<int64_t> gridShape,
+                 BufferType bufferType, TensorMemoryLayoutAttr memLayout) {
   if (bufferType == BufferType::L1 && memLayout &&
       memLayout.getValue() == TensorMemoryLayout::Interleaved) {
     return calculateLogicalShardShapeForL1Interleaved(
@@ -1179,8 +1177,6 @@ llvm::SmallVector<int64_t> deriveShardShape(ArrayRef<int64_t> physicalShape,
   return calculateLogicalShardShapeForSharding(physicalShape, linear,
                                                gridShape);
 }
-
-} // namespace
 
 TTNNLayoutAttr::Builder::Builder(TTNNLayoutAttr layout)
     : context(layout.getContext()),
@@ -1303,14 +1299,13 @@ TTNNLayoutAttr::Builder::setCoreRangeSet(CoreRangeSetAttr crs) {
 }
 
 TTNNLayoutAttr TTNNLayoutAttr::Builder::build() {
-  bool resultIsSharded =
-      memLayout && isShardedMemoryLayout(memLayout.getValue());
+  bool isSharded = memLayout && isShardedMemoryLayout(memLayout.getValue());
 
-  if (resultIsSharded) {
+  if (isSharded) {
     assert(coreRangeSet &&
            "coreRangeSet must be set for sharded memory layouts. Use "
-           "buildWithCanonicalCorePlacement, buildWithExactCorePlacement, or "
-           "set coreRangeSet explicitly before calling build().");
+           "buildWithCanonicalCorePlacement, "
+           "or provide coreRangeSet explicitly before calling build().");
   }
 
   llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
@@ -1336,14 +1331,6 @@ TTNNLayoutAttr TTNNLayoutAttr::Builder::buildWithCanonicalCorePlacement(
   if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
     coreRangeSet = TTNNLayoutAttr::computeCanonicalCoreRangeSet(
         context, memLayout.getValue(), gridShape, deviceAttr.getWorkerGrid());
-  }
-
-  return build();
-}
-
-TTNNLayoutAttr TTNNLayoutAttr::Builder::buildWithExactCorePlacement() {
-  if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
-    coreRangeSet = TTNNLayoutAttr::computeExactCoreRangeSet(context, gridShape);
   }
 
   return build();

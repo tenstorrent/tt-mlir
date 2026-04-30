@@ -283,8 +283,8 @@ TEST_P(ShardSpecFixture, ShardSpec) {
   const auto phyGridShape = std::get<3>(GetParam());
   const auto expected_shard_shape = std::get<4>(GetParam());
 
-  auto virtualGrid =
-      GetVirtualGridShape(tensorShape, tensorMemoryLayout, phyGridShape);
+  auto virtualGrid = GetVirtualGridShape(tensorShape, tensorMemoryLayout,
+                                         bufferType, phyGridShape);
 
   const auto layout = CreateTiledLayout(
       tensorShape, bufferType, tensorMemoryLayout, virtualGrid, phyGridShape);

@@ -8,6 +8,5 @@ if (TTMLIR_ENABLE_OPMODEL)
         PRIVATE
         MLIRTTNNValidation
         MLIRTTTransforms
-        TTMLIRTestUtils
     )
 endif()

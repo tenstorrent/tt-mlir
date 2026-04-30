@@ -47,6 +47,7 @@ protected:
     // Create a simple module with a function
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToEnd(module->getBody());
+    mlir::tt::ttcore::registerDevice(module.get());
 
     // Create a function
     auto funcType = builder.getFunctionType({}, {});

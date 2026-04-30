@@ -647,22 +647,33 @@ protected:
   mlir::Value createScaler(mlir::ConversionPatternRewriter &rewriter,
                            mlir::Location loc, mlir::RankedTensorType inputType,
                            double fillValue = 1.0) const {
-
+    mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Type elementType = inputType.getElementType();
     mlir::Attribute encoding = nullptr;
 
     if (auto ttnnLayout = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
             inputType.getEncoding())) {
+      llvm::SmallVector<int64_t> gridShape{1, 1};
       auto tileType = ttcore::TileType::get(
           elementType, ttcore::TileType::getDefaultShape());
+      auto memref = mlir::MemRefType::get(
+          {1, 1}, tileType, mlir::MemRefLayoutAttrInterface{},
+          ttnnLayout.getMemref().getMemorySpace());
 
-      encoding = ttnn::TTNNLayoutAttr::Builder(
-                     rewriter.getContext(), ttcore::TileType::getDefaultShape(),
-                     tileType)
-                     .setBufferType(ttnnLayout.getBufferType())
-                     .setMemoryLayout(ttnnLayout.getMemLayout())
-                     .setGridShape({1, 1})
-                     .buildWithExactCorePlacement();
+      auto memLayout = ttnnLayout.getMemLayout();
+      ttnn::CoreRangeSetAttr coreRangeSet{};
+      if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+        coreRangeSet = ttnn::CoreRangeSetAttr::get(
+            ctx, ttnn::CoreRangeAttr::get(
+                     ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                     ttnn::CoreCoordAttr::get(ctx, gridShape[1] - 1,
+                                              gridShape[0] - 1)));
+      }
+
+      encoding = ttnn::TTNNLayoutAttr::get(
+          rewriter.getContext(), rewriter.getMultiDimIdentityMap(2),
+          /*gridShape=*/gridShape, memref, ttnnLayout.getMemLayout(),
+          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false, coreRangeSet);
     }
 
     mlir::RankedTensorType scalerType = mlir::RankedTensorType::get(

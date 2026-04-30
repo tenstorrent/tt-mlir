@@ -7,8 +7,8 @@
 #dram_interleaved_encoding_in = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x96x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #dram_interleaved_encoding_in_unary_tensor = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1x!ttcore.tile<32x32, u32>, #dram>, <interleaved>>
 
-#l1_height_sharded = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <32x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,31)>]>>
-#l1_height_sharded_batch_8 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (0,7)>]>>
+#l1_height_sharded = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 1024 + d1 * 32 + d2, d3), <32x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,3)>]>>
+#l1_height_sharded_batch_8 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>>
 
 module {
   func.func @forward_no_batch_slice(%input: tensor<1x1x32x3072xbf16, #dram_interleaved_encoding_in>) -> (tensor<1x32x32x32xbf16, #l1_height_sharded>, tensor<1x32x32x32xbf16, #l1_height_sharded>, tensor<1x32x32x32xbf16, #l1_height_sharded>) {

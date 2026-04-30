@@ -27,7 +27,7 @@ module {
 #l1 = #ttnn.buffer_type<l1>
 #dram_interleaved_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
-#height_sharded_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <8x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
+#height_sharded_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 32 + d1 * 32 + d2, d3), <8x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 0)>]>>
 #result_encoding = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 30 + d1 * 30 + d2, d3), <8x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 0)>]>>
 #height_sharded_mem_config = #ttnn.memory_config<#l1, <height_sharded>, #ttnn.shard_spec<#ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 0)>]>, <32x32>, <row_major>>>
 

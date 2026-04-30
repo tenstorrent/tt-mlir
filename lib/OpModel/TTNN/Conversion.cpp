@@ -242,6 +242,22 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
   return getCoreRangeSet(coreRangeSetAttr);
 }
 
+CoreRangeSetAttr
+getCoreRangeSet(MLIRContext *context,
+                const ::tt::tt_metal::CoreRangeSet &coreRangeSet) {
+  llvm::SmallVector<CoreRangeAttr> ranges;
+  ranges.reserve(coreRangeSet.ranges().size());
+  for (const ::tt::tt_metal::CoreRange &coreRange : coreRangeSet.ranges()) {
+    ranges.push_back(
+        CoreRangeAttr::get(context,
+                           CoreCoordAttr::get(context, coreRange.start_coord.x,
+                                              coreRange.start_coord.y),
+                           CoreCoordAttr::get(context, coreRange.end_coord.x,
+                                              coreRange.end_coord.y)));
+  }
+  return CoreRangeSetAttr::get(context, ranges);
+}
+
 std::optional<::tt::tt_metal::ShardSpec>
 getShardSpec(const TTNNLayoutAttr &layout) {
   if (layout.getIgnorePhysicalLayout()) {
@@ -627,32 +643,6 @@ getLogicalGridShape(const ::tt::tt_metal::MemoryConfig &memoryConfig,
   return {gridPhyCores[0], gridPhyCores[1]};
 }
 
-// Synthesize a minimal `ttcore::DeviceAttr` from a worker-grid shape so OpModel
-// paths can hand a DeviceAttr to TTNN APIs that require one. Only the worker
-// grid is consumed downstream (for canonical CRS derivation); other fields are
-// placeholders.
-static ttcore::DeviceAttr
-synthesizeDeviceAttrFromWorkerGrid(MLIRContext *context,
-                                   llvm::ArrayRef<int64_t> workerGridShape) {
-  auto deviceIdx = mlir::getAffineConstantExpr(0, context);
-  auto shardOffset = mlir::getAffineConstantExpr(0, context);
-  auto d0 = mlir::getAffineDimExpr(0, context);
-  auto d1 = mlir::getAffineDimExpr(1, context);
-  auto d2 = mlir::getAffineDimExpr(2, context);
-  auto virtToPhysicalMap = mlir::AffineMap::get(
-      /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1}, context);
-  auto physicalToVirtMap = mlir::AffineMap::get(
-      /*dimCount=*/3, /*symbolCount=*/0, {d1, d2}, context);
-  auto map4 = mlir::AffineMap::get(
-      /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1, shardOffset},
-      context);
-  auto workerGrid = ttcore::GridAttr::get(context, workerGridShape,
-                                          virtToPhysicalMap, physicalToVirtMap);
-  auto dramGrid = ttcore::GridAttr::get(context, {1, 1});
-  return ttcore::DeviceAttr::get(context, workerGrid, dramGrid, map4, map4, {1},
-                                 {0}, {});
-}
-
 TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
                                            const ::ttnn::TensorSpec &tensorSpec,
                                            llvm::ArrayRef<int64_t> deviceGrid) {
@@ -692,17 +682,19 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
     gridShape = getLogicalGridShape(tensorSpec.memory_config(), deviceGrid);
   }
 
-  // The Builder needs a DeviceAttr to derive the canonical CoreRangeSet for
-  // sharded layouts. OpModel paths only carry the worker-grid shape, so
-  // synthesize a minimal DeviceAttr from it.
-  ttcore::DeviceAttr deviceAttr =
-      synthesizeDeviceAttrFromWorkerGrid(context, deviceGrid);
+  CoreRangeSetAttr coreRangeSet{};
+  if (tensorSpec.memory_config().is_sharded() &&
+      tensorSpec.memory_config().shard_spec().has_value()) {
+    coreRangeSet = getCoreRangeSet(
+        context, tensorSpec.memory_config().shard_spec().value().grid);
+  }
 
   return TTNNLayoutAttr::Builder(context, shape, elementType)
       .setBufferType(bufferType)
       .setMemoryLayout(memoryLayoutAttr)
       .setGridShape(gridShape)
-      .buildWithCanonicalCorePlacement(deviceAttr);
+      .setCoreRangeSet(coreRangeSet)
+      .build();
 }
 
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>

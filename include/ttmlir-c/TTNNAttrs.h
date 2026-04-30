@@ -83,16 +83,9 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNMeshShapeAttrGet(MlirContext ctx,
                                                             int64_t y,
                                                             int64_t x);
 
-// Build a TTNNLayoutAttr.
-//
-// `grid` is the shard grid (a ttcore::GridAttr). For non-sharded targets
-// (DRAM / SystemMemory / L1-Interleaved) `deviceGrid` may be null; for
-// sharded targets it must be the worker-grid GridAttr so the canonical
-// CoreRangeSet can be derived. Passing a null `deviceGrid` along with a
-// sharded `memLayout` will fail verification.
 MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(
     MlirContext ctx, MlirAffineMap linear, MlirAttribute grid, MlirType memref,
-    unsigned memLayout, MlirAttribute deviceGrid);
+    unsigned memLayout, MlirAttribute coreRangeSet);
 
 #ifdef __cplusplus
 }

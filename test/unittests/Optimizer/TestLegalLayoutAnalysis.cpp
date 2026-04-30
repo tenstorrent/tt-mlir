@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -50,6 +51,7 @@ protected:
     // Create a simple module with a function
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToEnd(module->getBody());
+    mlir::tt::ttcore::registerDevice(module.get());
 
     // Create a function
     auto funcType = builder.getFunctionType({}, {});

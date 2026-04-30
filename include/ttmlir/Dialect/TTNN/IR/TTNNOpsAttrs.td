@@ -856,14 +856,6 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
         ArrayRef<int64_t> gridShape,
         ttcore::GridAttr deviceGrid);
 
-    // Static helper to compute the CoreRangeSet for a sharded layout
-    // with an explicitly specified `gridShape`
-    // (corresponds to the legacy `exactGrid` mechanism).
-    // `gridShape` is interpreted as a physical core grid shape.
-    static CoreRangeSetAttr computeExactCoreRangeSet(
-        ::mlir::MLIRContext *context,
-        ArrayRef<int64_t> gridShape);
-
     // Transient mutable accumulator that produces an immutable uniqued
     // `TTNNLayoutAttr`. The single `deviceGrid` argument is paid once at the
     // terminator (`buildWithCanonicalCorePlacement`), instead of being threaded through every
@@ -907,15 +899,15 @@ def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
 
       // Terminators.
       TTNNLayoutAttr buildWithCanonicalCorePlacement(ttcore::DeviceAttr deviceAttr);
-      TTNNLayoutAttr buildWithExactCorePlacement();
 
       TTNNLayoutAttr build();
 
       // Implicit conversion: lets a placement-preserving chain stand on its
       // own (`Builder(layout, shape).setElementType(t)` evaluates to a
-      // `TTNNLayoutAttr` without an explicit `.build()`). For chains that
-      // touched a placement-affecting setter without finalizing via
-      // buildWithCanonicalCorePlacement/buildWithExactCorePlacement, build() asserts.
+      // `TTNNLayoutAttr` without an explicit `.build()`).
+      // For chains that touched a placement-affecting setter without
+      // finalizing via buildWithCanonicalCorePlacement or providing an explicit CRS,
+      // build() asserts.
       operator TTNNLayoutAttr() { return build(); }
 
       BufferType getBufferType() const;

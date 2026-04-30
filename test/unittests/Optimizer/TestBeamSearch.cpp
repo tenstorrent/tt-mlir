@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
@@ -15,8 +16,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-
-#include "testing/DeviceUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -59,26 +58,18 @@ public:
                                     builder.getF32FloatAttr(cap));
   }
 
-  ttcore::GridAttr getDeviceGrid() {
-    return ttcore::GridAttr::get(&context, {8, 8});
-  }
-
-  ttcore::DeviceAttr getDeviceAttr() {
-    return mlir::tt::test_utils::getFakeDeviceAttr(&context,
-                                                   /*workerGridShape=*/{8, 8});
-  }
-
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
                                    BufferType bufferType,
                                    TensorMemoryLayout tensorMemoryLayout,
                                    const llvm::ArrayRef<int64_t> &gridShape = {
                                        1, 1}) {
     auto elementType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     return TTNNLayoutAttr::Builder(&context, tensorShape, elementType)
         .setBufferType(bufferType)
         .setMemoryLayout(tensorMemoryLayout)
         .setGridShape(gridShape)
-        .buildWithCanonicalCorePlacement(getDeviceAttr());
+        .buildWithCanonicalCorePlacement(deviceAttr);
   }
 
   TTNNLayoutAttr

@@ -72,17 +72,19 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
   }
 
   auto deviceLayout = ttcore::getDeviceLayout(memrefValue);
+  ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(memrefType);
+
+  auto shardMemref =
+      MemRefType::get(shardShape, memrefType.getElementType(),
+                      AffineMap::getMultiDimIdentityMap(shardShape.size(), ctx),
+                      ttnn::BufferTypeAttr::get(ctx, bufferType));
 
   llvm::SmallVector<int64_t> ttnnGridShape;
   ttnn::TensorMemoryLayout memLayoutEnum;
   ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(memrefType);
 
   if (mlir::isa<ttcore::InterleavedLayoutAttr>(memrefType.getLayout())) {
-    if (bufferType == ttnn::BufferType::DRAM) {
-      ttnnGridShape = {1, 1};
-    } else {
-      ttnnGridShape.assign(gridShape.begin(), gridShape.end());
-    }
+    ttnnGridShape = {1, 1};
     memLayoutEnum = ttnn::TensorMemoryLayout::Interleaved;
   } else {
     auto virtMap = d2m::utils::getVirtualGridForwardMapping(memrefValue);
@@ -101,12 +103,28 @@ static ttnn::TTNNLayoutAttr getTTNNLayoutFromDeviceLayout(MLIRContext *ctx,
     }
   }
 
-  return ttnn::TTNNLayoutAttr::Builder(ctx, getTensorShape(memrefType),
-                                       memrefType.getElementType())
-      .setBufferType(bufferType)
-      .setMemoryLayout(memLayoutEnum)
-      .setGridShape(ttnnGridShape)
-      .buildWithExactCorePlacement();
+  constexpr size_t kRank = 2;
+  // This affine map only describes dim collapsing for rank > 2 tensors. Since
+  // we can only recover the collapsed shape here, we can just set it to
+  // identity.
+  auto linearMap = AffineMap::getMultiDimIdentityMap(kRank, ctx);
+  auto memLayout = ttnn::TensorMemoryLayoutAttr::get(ctx, memLayoutEnum);
+
+  // The gridShape is already in physical core coords; emit a single rectangle
+  // at the origin.
+  ttnn::CoreRangeSetAttr coreRangeSet{};
+  if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+    coreRangeSet = ttnn::CoreRangeSetAttr::get(
+        ctx, ttnn::CoreRangeAttr::get(
+                 ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                 ttnn::CoreCoordAttr::get(ctx, ttnnGridShape[1] - 1,
+                                          ttnnGridShape[0] - 1)));
+  }
+
+  return {ttnn::TTNNLayoutAttr::get(
+      ctx, linearMap, ttnnGridShape, shardMemref, memLayout,
+      /*tensorMesh=*/nullptr,
+      /*ignorePhysicalLayout=*/false, coreRangeSet)};
 }
 
 static RankedTensorType convertMemrefToTTNNTensor(MLIRContext *ctx,
