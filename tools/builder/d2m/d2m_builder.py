@@ -328,6 +328,7 @@ class D2MBuilder(Builder):
         block_factors,
         indexing_maps,
         iterator_types,
+        fabric_connection_config=None,
     ):
         if (
             isinstance(block_factors, list)
@@ -362,6 +363,7 @@ class D2MBuilder(Builder):
             ),
             threads,
             len(threads),
+            fabricConnectionConfig=fabric_connection_config,
         )
 
     def generic(
@@ -371,6 +373,7 @@ class D2MBuilder(Builder):
         indexing_maps=None,
         iterator_types=None,
         skip_grid_selection=False,
+        fabric_connection_config=None,
     ):
         assert (
             not skip_grid_selection or grid is not None
@@ -414,6 +417,7 @@ class D2MBuilder(Builder):
                 nonlocal indexing_maps
                 nonlocal iterator_types
                 nonlocal skip_grid_selection
+                nonlocal fabric_connection_config
 
                 additional_args = kwargs.pop("additional_args", [])
                 generic = self._create_generic(
@@ -423,6 +427,7 @@ class D2MBuilder(Builder):
                     block_factors,
                     indexing_maps,
                     iterator_types,
+                    fabric_connection_config,
                 )
                 assert len(generic.regions[0].blocks) == 0
                 generic.regions[0].blocks.append()
