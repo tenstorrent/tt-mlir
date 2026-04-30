@@ -533,7 +533,8 @@ void populateTTIRToLinalgEltwiseBinaryPatterns(MLIRContext *ctx,
                                                                   ctx);
 
   // linalg.generic + math dialect ops
-  patterns.add<ElementwiseBinaryOpToMathPattern<ttir::Atan2Op, math::Atan2Op>>(
+  patterns.add<ElementwiseBinaryOpToMathPattern<ttir::Atan2Op, math::Atan2Op>,
+               ElementwiseBinaryOpToMathPattern<ttir::PowOp, math::PowFOp>>(
       typeConverter, ctx);
 
   // Custom linalg-based patterns
@@ -547,7 +548,6 @@ void populateTTIRToTosaEltwiseBinaryPatterns(MLIRContext *ctx,
   patterns.add<
       ElementwiseBinaryOpToTosaPattern<ttir::AddOp, tosa::AddOp>,
       ElementwiseBinaryOpToTosaPattern<ttir::SubtractOp, tosa::SubOp>,
-      ElementwiseBinaryOpToTosaPattern<ttir::PowOp, tosa::PowOp>,
       ElementwiseBinaryOpToTosaPattern<ttir::MinimumOp, tosa::MinimumOp>,
       ElementwiseBinaryOpToTosaPattern<ttir::MaximumOp, tosa::MaximumOp>,
       ElementwiseBinaryOpToTosaPattern<ttir::BitwiseAndOp, tosa::BitwiseAndOp>,
