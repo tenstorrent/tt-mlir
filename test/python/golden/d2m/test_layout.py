@@ -151,7 +151,6 @@ def test_view_materialization_on_return(
     )
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "grids",
     [
@@ -160,9 +159,10 @@ def test_view_materialization_on_return(
         ((1, 4), (2, 2)),  # 1x4 -> 2x2 grid reshape
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_chained_view_composition(
-    target: str,
     grids: tuple,
+    target: str,
     request,
     device,
 ):
@@ -243,7 +243,6 @@ def test_chained_view_composition(
     )
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "shape,grid1,grid2",
     [
@@ -252,11 +251,12 @@ def test_chained_view_composition(
         ((128, 64), (2, 1), (1, 2)),  # Non-square tensor
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_view_with_padding(
-    target: str,
     shape: tuple,
     grid1: tuple,
     grid2: tuple,
+    target: str,
     request,
     device,
 ):
@@ -316,7 +316,6 @@ def test_view_with_padding(
     )
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "grid_sequence",
     [
@@ -325,9 +324,10 @@ def test_view_with_padding(
         ((1, 4), (4, 1), (2, 2)),  # Reshape through chain
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_multiple_grid_reblocks(
-    target: str,
     grid_sequence: tuple,
+    target: str,
     request,
     device,
 ):
@@ -388,7 +388,6 @@ def test_multiple_grid_reblocks(
     )
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "input_grid,output_grid",
     [
@@ -397,10 +396,11 @@ def test_multiple_grid_reblocks(
         ((4, 4), (2, 2)),  # 4x4 -> 2x2 tiled downscale
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_tiled_grid_reblocking(
-    target: str,
     input_grid: tuple,
     output_grid: tuple,
+    target: str,
     request,
     device,
 ):

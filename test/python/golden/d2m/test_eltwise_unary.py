@@ -16,6 +16,7 @@ from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from d2m.shape_cases import ELEMENTWISE_SHAPES, UNALIGNED_SHAPES, rotated_params
 from test_utils import Marks, SkipIf, shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -299,18 +300,22 @@ unary_ops = [
     tanh,
 ]
 
-unary_ops_dtypes = [
+unary_ops_float_dtypes = [
     torch.float32,
     torch.bfloat16,
-    torch.int32 | SkipIf("sim"),
+]
+
+unary_ops_i32 = [
+    abs,
+    erf,
+    logical_not,
+    neg,
+    relu,
+    sign,
 ]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", unary_ops_dtypes, ids=["f32", "bf16", "i32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", unary_ops)
-def test_unary_ops(
+def _compile_unary_op(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     if dtype == torch.int32 and getattr(test_fn, "__name__", None) not in {
@@ -357,6 +362,86 @@ def test_unary_ops(
     )
 
 
+_UNARY_OP_PARAMS = (
+    rotated_params(
+        unary_ops, ELEMENTWISE_SHAPES, unary_ops_float_dtypes, value_order=[1, 2, 0]
+    )
+    + rotated_params(
+        unary_ops_i32,
+        ELEMENTWISE_SHAPES,
+        [torch.int32 | SkipIf("sim")],
+        value_order=[1, 2, 0],
+    )
+    + [
+        pytest.param((128,), torch.float32, neg, id="128-f32-neg_1d"),
+    ]
+)
+
+
+@pytest.mark.parametrize("shape,dtype,test_fn", _UNARY_OP_PARAMS)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unary_ops(
+    shape: Shape, dtype: torch.dtype, test_fn: Callable, target: str, request, device
+):
+    _compile_unary_op(test_fn, shape, dtype, target, request, device)
+
+
+def _compile_collapse_tensors_case(
+    test_func: Callable,
+    test_name: str,
+    collapse_tensors: bool,
+    target: str,
+    request,
+    device,
+):
+    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
+    pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
+
+    compile_and_execute_ttir(
+        test_func,
+        target=target,
+        custom_pipeline=pipeline,
+        test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
+        device=device,
+    )
+
+
+def module_unary_exp_2d_exp(builder: TTIRBuilder):
+    @builder.func([(3, 32, 64)], [torch.float32])
+    def unary_exp(in0: Operand, builder: TTIRBuilder):
+        return builder.exp(in0)
+
+
+def module_unary_exp_4d_exp(builder: TTIRBuilder):
+    @builder.func([(1, 2, 32, 32)], [torch.float32])
+    def unary_exp(in0: Operand, builder: TTIRBuilder):
+        return builder.exp(in0)
+
+
+@pytest.mark.parametrize(
+    "test_func,test_name",
+    [
+        pytest.param(module_unary_exp_2d_exp, "3d_exp", id="3d_exp"),
+        pytest.param(module_unary_exp_4d_exp, "4d_exp", id="4d_exp"),
+    ],
+)
+@pytest.mark.parametrize(
+    "collapse_tensors", [True, False], ids=["collapsed", "non_collapsed"]
+)
+@pytest.mark.parametrize("target", ["ttmetal"], ids=["ttmetal"])
+def test_unary_ops_collapse_tensors(
+    test_func: Callable,
+    test_name: str,
+    collapse_tensors: bool,
+    target: str,
+    request,
+    device,
+):
+    _compile_collapse_tensors_case(
+        test_func, test_name, collapse_tensors, target, request, device
+    )
+
+
 # Bitwise unary ops (int only)
 def bitwise_not(
     in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
@@ -369,10 +454,10 @@ bitwise_unary_ops = [bitwise_not]
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32 | SkipIf("sim")], ids=["i32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("test_fn", bitwise_unary_ops)
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_bitwise_unary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, test_fn: Callable, target: str, request, device
 ):
     pytest.xfail(reason="i32 unary ops not supported on ttmetal yet")
 
@@ -408,14 +493,14 @@ unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
 @pytest.mark.parametrize("parameter", [0.01, 0.1, 0.2])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_unary_ops_with_float_param(
-    test_fn: Callable,
-    parameter: float,
     shape: Shape,
     dtype: torch.dtype,
+    test_fn: Callable,
+    parameter: float,
     target: str,
     request,
     device,
@@ -438,23 +523,115 @@ def test_unary_ops_with_float_param(
     )
 
 
-# 1D tensor test for ttmetal
-@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
+@pytest.mark.parametrize("shape", UNALIGNED_SHAPES + [(677, 1, 1)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
+def test_unaligned_shapes_neg(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
-        def unary_1d(
+        def wrapper(
             in0: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return neg(in0, builder, unit_attrs=unit_attrs)
+            return builder.neg(in0, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         target=target,
         device=device,
+        print_ir=False,
+    )
+
+
+@pytest.mark.parametrize("shape", [(512, 512)])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+def test_bfp8_triple_exp_f32(shape: Shape, target: str, request, device):
+    pipeline_options = ["global-data-format-target=bfp_bf8"]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def triple_exp_f32(
+            in0: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_0 = torch.rand(shape, dtype=torch.float32)
+            exp0 = builder.exp(in0)
+            tcast0 = builder.typecast(
+                exp0, torch.bfloat16, unit_attrs=["preserveDataFormat"]
+            )
+            exp1 = builder.exp(tcast0)
+            tcast1 = builder.typecast(
+                exp1, torch.float32, unit_attrs=["preserveDataFormat"]
+            )
+            exp2 = builder.exp(tcast1)
+            output_0 = torch.exp(torch.exp(torch.exp(input_0)))
+            builder.set_goldens({in0: input_0}, {exp2: output_0})
+            return exp2
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        device=device,
+        pipeline_options=pipeline_options,
+        **get_request_kwargs(request),
+        save_artifacts=True,
+        pcc=0.988,
+    )
+
+
+@pytest.mark.parametrize("shape", [(512, 512)])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+def test_bfp8_exp_f32(shape: Shape, target: str, request, device):
+    pipeline_options = ["global-data-format-target=bfp_bf8"]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def exp_f32(
+            in0: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_0 = torch.rand(shape, dtype=torch.float32)
+            result = builder.exp(in0)
+            output_0 = torch.exp(input_0)
+            builder.set_goldens({in0: input_0}, {result: output_0})
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        device=device,
+        pipeline_options=pipeline_options,
+        **get_request_kwargs(request),
+        save_artifacts=True,
+    )
+
+
+@pytest.mark.parametrize("shape", [(512, 512)])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_bfp8_cos_bf16(shape: Shape, target: str, request, device):
+    pipeline_options = ["global-data-format-target=bfp_bf8"]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.bfloat16])
+        def cos_bf16(
+            in0: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_0 = torch.rand(shape, dtype=torch.bfloat16)
+            result = builder.cos(in0)
+            output_0 = torch.cos(input_0).to(torch.bfloat16)
+            builder.set_goldens({in0: input_0}, {result: output_0})
+            return result
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        device=device,
+        pipeline_options=pipeline_options,
+        **get_request_kwargs(request),
+        save_artifacts=True,
     )

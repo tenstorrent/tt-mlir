@@ -13,7 +13,8 @@ from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from test_utils import shape_str, shapes_list_str, SkipIf
+from d2m.shape_cases import ELEMENTWISE_2D_SHAPES, rotated_params
+from test_utils import SkipIf
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -22,10 +23,11 @@ pytestmark = pytest.mark.frontend("ttir")
 # golden-truncation logic baked into module_clamp_tensor), so the int64-only
 # variants previously living here have been folded into the full mirror.
 
+
 # Ternary ops
-def module_where(dtype: torch.dtype):
+def module_where(shape: Shape, dtype: torch.dtype):
     def _module_where(builder: TTIRBuilder):
-        @builder.func([(128, 128), (128, 128), (128, 128)], [dtype] * 3)
+        @builder.func([shape, shape, shape], [dtype] * 3)
         def where(
             in0: Operand,
             in1: Operand,
@@ -33,17 +35,15 @@ def module_where(dtype: torch.dtype):
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            condition_tensor = torch.randint(0, 2, (128, 128), dtype=dtype)
+            condition_tensor = torch.randint(0, 2, shape).to(dtype)
             builder.set_goldens(inputs={in0: condition_tensor})
             return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
 
     return _module_where
 
 
-def module_clamp_tensor(dtype: torch.dtype):
+def module_clamp_tensor(shape: Shape, dtype: torch.dtype):
     def _module_clamp_tensor(builder: TTIRBuilder):
-        shape = (128, 128)
-
         @builder.func([shape, shape, shape], [dtype] * 3)
         def clamp_tensor(
             in0: Operand,
@@ -75,26 +75,32 @@ ternary_ops = [
     module_clamp_tensor,
 ]
 
+ternary_ops_dtypes = [
+    torch.float32,
+    torch.bfloat16,
+    torch.int32 | SkipIf("sim"),
+    torch.int64 | SkipIf("sim"),
+    torch.bool | SkipIf("sim"),
+]
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+
+_TERNARY_OP_PARAMS = rotated_params(
+    ELEMENTWISE_2D_SHAPES, ternary_ops, ternary_ops_dtypes, value_order=[0, 2, 1]
+) + [
+    pytest.param((128,), torch.float32, module_where, id="128-f32-where_1d"),
+]
+
+
 @pytest.mark.parametrize(
-    "dtype",
-    [
-        torch.float32,
-        torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-        torch.bool | SkipIf("sim"),
-    ],
-    ids=["f32", "bf16", "i32", "i64", "i1"],
+    "shape,dtype,test_fn",
+    _TERNARY_OP_PARAMS,
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, test_fn: Callable, target: str, request, device
 ):
     compile_and_execute_ttir(
-        test_fn(dtype),
+        test_fn(shape, dtype),
         **get_request_kwargs(request),
         target=target,
         device=device,
@@ -103,36 +109,34 @@ def test_ternary_ops(
 
 
 # Ternary eltwise ops with implicit broadcasting
+ternary_broadcast_shapes = [
+    # 2D shapes
+    [(128, 128), (1, 128), (128, 128)],
+    [(32, 64), (32, 64), (1, 64)],
+    [(1, 32), (64, 32), (64, 1)],
+    # 3D shapes
+    [(1, 16, 32), (8, 16, 32), (8, 16, 32)],
+    [(8, 16, 32), (1, 16, 32), (8, 16, 32)],
+    [(8, 16, 32), (8, 16, 32), (1, 16, 32)],
+    [(8, 16, 32), (1, 1, 32), (1, 1, 32)],
+    [(1, 1, 32), (8, 16, 32), (1, 1, 32)],
+    [(1, 1, 32), (1, 1, 32), (8, 16, 32)],
+    [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
+    [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
+    # 4D shapes
+    [(1, 1, 1, 4), (1, 1, 1, 1), (1, 1, 1, 1)],
+]
+
+ternary_broadcast_dtypes = [
+    pytest.param((torch.float32, torch.float32, torch.float32), id="f32-f32-f32"),
+    pytest.param((torch.float32, torch.int32, torch.int32), id="f32-i32-i32"),
+    pytest.param((torch.bfloat16, torch.bfloat16, torch.bfloat16), id="bf16-bf16-bf16"),
+]
+
+
 @pytest.mark.parametrize(
-    "shapes",
-    [
-        # 2D shapes
-        [(128, 128), (1, 128), (128, 128)],
-        [(32, 64), (32, 64), (1, 64)],
-        [(1, 32), (64, 32), (64, 1)],
-        # 3D shapes
-        [(1, 16, 32), (8, 16, 32), (8, 16, 32)],
-        [(8, 16, 32), (1, 16, 32), (8, 16, 32)],
-        [(8, 16, 32), (8, 16, 32), (1, 16, 32)],
-        [(8, 16, 32), (1, 1, 32), (1, 1, 32)],
-        [(1, 1, 32), (8, 16, 32), (1, 1, 32)],
-        [(1, 1, 32), (1, 1, 32), (8, 16, 32)],
-        [(1, 16, 32), (8, 1, 32), (8, 16, 1)],
-        [(1, 4, 1), (1, 4, 768), (1, 1, 1)],
-        # 4D shapes
-        [(1, 1, 1, 4), (1, 1, 1, 1), (1, 1, 1, 1)],
-    ],
-    ids=shapes_list_str,
-)
-@pytest.mark.parametrize(
-    "input_dtypes",
-    [
-        pytest.param((torch.float32, torch.float32, torch.float32), id="f32-f32-f32"),
-        pytest.param((torch.float32, torch.int32, torch.int32), id="f32-i32-i32"),
-        pytest.param(
-            (torch.bfloat16, torch.bfloat16, torch.bfloat16), id="bf16-bf16-bf16"
-        ),
-    ],
+    "shapes,input_dtypes",
+    rotated_params(ternary_broadcast_shapes, ternary_broadcast_dtypes),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_ternary_eltwise_ops_implicit_broadcast(
@@ -175,20 +179,21 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     )
 
 
-@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+clamp_scalar_cases = [
+    pytest.param(0.8, -0.5, torch.float32, id="f32"),
+    pytest.param(0.8, -0.5, torch.bfloat16, id="bf16"),
+    pytest.param(3, 0, torch.int32, marks=pytest.mark.skip_config(["sim"]), id="i32"),
+    pytest.param(3, 0, torch.int64, marks=pytest.mark.skip_config(["sim"]), id="i64"),
+]
+
+
 @pytest.mark.parametrize(
-    "max_arg,min_arg,dtype",
-    [
-        (0.8, -0.5, torch.float32),
-        (0.8, -0.5, torch.bfloat16),
-        pytest.param(3, 0, torch.int32, marks=pytest.mark.skip_config(["sim"])),
-        pytest.param(3, 0, torch.int64, marks=pytest.mark.skip_config(["sim"])),
-    ],
-    ids=["f32", "bf16", "i32", "i64"],
+    "shape,dtype,max_arg,min_arg",
+    rotated_params(ELEMENTWISE_2D_SHAPES, clamp_scalar_cases, value_order=[0, 3, 1, 2]),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_clamp_scalar(
-    shape: Shape, max_arg, min_arg, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, max_arg, min_arg, target: str, request, device
 ):
     def module_clamp_scalar(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -209,30 +214,4 @@ def test_clamp_scalar(
         **get_request_kwargs(request),
         device=device,
         target=target,
-    )
-
-
-# 1D tensor test for ttmetal
-@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
-        def ternary_1d(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            condition_tensor = torch.randint(0, 2, shape, dtype=dtype)
-            builder.set_goldens(inputs={in0: condition_tensor})
-            return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
     )

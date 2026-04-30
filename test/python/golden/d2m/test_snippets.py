@@ -25,6 +25,7 @@ from test_utils import (
 
 pytestmark = pytest.mark.frontend("ttir")
 
+
 # Extract individual functions from an MLIR module.
 def extract_functions_from_mlir(mlir_content: str) -> List[Tuple[str, str]]:
     functions = []

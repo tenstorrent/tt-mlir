@@ -15,7 +15,6 @@ from builder.base.builder_utils import Operand, Shape
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_apis import compile_and_execute_d2m
 
-
 pytestmark = pytest.mark.frontend("ttir")
 
 
@@ -84,7 +83,7 @@ def untilize_golden(input_tensor):
     ids=["f32", "i32", "bf16", "u16"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
+def test_tilize(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module(builder: D2MBuilder):
         if dtype.is_floating_point:
             in_golden = torch.randn(shape, dtype=dtype)
@@ -145,7 +144,7 @@ def test_tilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
     ids=["f32", "i32", "bf16", "u16"],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device):
+def test_untilize(shape: Shape, dtype: torch.dtype, target: str, request, device):
     def module(builder: D2MBuilder):
         if dtype.is_floating_point:
             in_golden = torch.randn(shape, dtype=dtype)
@@ -206,7 +205,7 @@ def test_untilize(shape: Shape, target: str, dtype: torch.dtype, request, device
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_tilize_untilize(
-    shape: Shape, target: str, dtype: torch.dtype, request, device
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     def module(builder: D2MBuilder):
         if dtype.is_floating_point:

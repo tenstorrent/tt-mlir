@@ -200,7 +200,6 @@ def module_compare_lt(builder: StableHLOBuilder):
 
 
 # --- Tests (target rewritten to ["ttmetal"]) ---
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -214,6 +213,7 @@ def module_compare_lt(builder: StableHLOBuilder):
         module_atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_binary_ops(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
@@ -223,7 +223,6 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
     [
@@ -235,6 +234,7 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
         module_compare_lt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_compare_ops(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
         test_fn,
@@ -272,7 +272,6 @@ def test_reshape_mismatch_raises(target, request, device):
 
 @pytest.mark.parametrize("shape", [(2, 3, 4), (128, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "permutation",
     [
@@ -281,6 +280,7 @@ def test_reshape_mismatch_raises(target, request, device):
         [0, 2, 1],
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_transpose(
     shape: Shape,
     dtype: torch.dtype,
@@ -316,8 +316,8 @@ def test_transpose(
 
 
 @pytest.mark.parametrize("shape", [(2, 3)], ids=shape_str)
-@pytest.mark.parametrize("padding", [[1, 1, 1, 1], [1, 0, 0, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("padding", [[1, 1, 1, 1], [1, 0, 0, 1]])
 @pytest.mark.parametrize(
     "target",
     [
@@ -331,8 +331,8 @@ def test_transpose(
 )
 def test_pad(
     shape: Shape,
-    padding: List[int],
     dtype: torch.dtype,
+    padding: List[int],
     target: str,
     request,
     device,
@@ -370,10 +370,10 @@ def test_pad(
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_slice(
     shape: Shape,
+    dtype: torch.dtype,
     start_indices: List[int],
     limit_indices: List[int],
     strides: List[int],
-    dtype: torch.dtype,
     target: str,
     request,
     device,
@@ -412,7 +412,6 @@ _RESHAPE_CASES_TTMETAL = [
 _RESHAPE_PARAMS_TTMETAL = [
     pytest.param(
         shapes,
-        "ttmetal",
         id=f"{case_id}-ttmetal",
         marks=pytest.mark.skip(
             reason="reshape lowering not yet supported in TTMetal backend"
@@ -422,9 +421,10 @@ _RESHAPE_PARAMS_TTMETAL = [
 ]
 
 
-@pytest.mark.parametrize("shapes, target", _RESHAPE_PARAMS_TTMETAL)
+@pytest.mark.parametrize("shapes", _RESHAPE_PARAMS_TTMETAL)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-def test_reshape(shapes: tuple, target: str, dtype: torch.dtype, request, device):
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_reshape(shapes: tuple, dtype: torch.dtype, target: str, request, device):
     input_shape, output_shape = shapes
 
     def module(builder: StableHLOBuilder):

@@ -7,7 +7,7 @@ import torch
 from typing import List
 from conftest import get_request_kwargs
 
-from test_utils import shape_str
+from test_utils import SkipIf, shape_str
 
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
@@ -45,6 +45,34 @@ def create_matmul_constrained_inputs(lhs_shape, rhs_shape, dtype=torch.float32):
             return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     return module
+
+
+def module_batch_matmul(builder: TTIRBuilder):
+    @builder.func([(2, 32, 64), (2, 64, 32)], [torch.float32, torch.float32])
+    def batch_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.matmul(in0, in1)
+
+
+@pytest.mark.parametrize(
+    "collapse_tensors", [True, False], ids=["collapsed", "non_collapsed"]
+)
+@pytest.mark.parametrize("target", ["ttmetal"], ids=["ttmetal"])
+def test_matmul_collapse_tensors(
+    collapse_tensors: bool,
+    target: str,
+    request,
+    device,
+):
+    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
+    pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
+
+    compile_and_execute_ttir(
+        module_batch_matmul,
+        target=target,
+        custom_pipeline=pipeline,
+        test_base=f"{request.node.name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
+        device=device,
+    )
 
 
 def get_allocator_policy_override(
@@ -450,4 +478,91 @@ def test_matmul_3d_multi_core(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (512, 512, 512),
+        (512, 1024, 1024),
+        (512, 1024, 2048),
+        (1024, 1024, 1024),
+        (1024, 1024, 2048),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("use_tile_matmul", [True, False])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+def test_bfp8_matmul_f32(
+    shape: tuple[int, ...],
+    use_tile_matmul: bool,
+    target: str,
+    request,
+    device,
+):
+    lhs = (
+        shape[0],
+        shape[1],
+    )
+    rhs = (
+        shape[1],
+        shape[2],
+    )
+
+    options = [
+        "matmul-interchange=2,0,1",
+        f"use-tile-matmul={use_tile_matmul}",
+        "global-data-format-target=bfp_bf8",
+    ]
+    if shape in (
+        (512, 1024, 1024),
+        (512, 1024, 2048),
+        (1024, 1024, 1024),
+        (1024, 1024, 2048),
+    ):
+        # `auto` shrinks the local reduction panel for these larger matmuls.
+        # TODO (anuragsingh): Revert this to the default allocator policy once precision issues are fixed.
+        # Issue here: https://github.com/tenstorrent/tt-mlir/issues/7656
+        options.append("test-buffer-size-policy=max")
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs, rhs),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        **get_request_kwargs(request),
+        save_artifacts=True,
+        pcc=0.94,
+    )
+
+
+@pytest.mark.parametrize("m", [1])
+@pytest.mark.parametrize("k", [4, 8])
+@pytest.mark.parametrize("n", [1])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_allocate_matmul(m: int, k: int, n: int, target: str, request, device):
+    tile_size = 32
+    lhs = (
+        m * tile_size,
+        k * tile_size,
+    )
+    rhs = (
+        k * tile_size,
+        n * tile_size,
+    )
+
+    options = [
+        "override-device-shape=1,1",
+        "num-stream-buffers=1",
+        # Request the allocator to attempt to minimize stream buffer sizes
+        # and reblock streams accordingly.
+        "test-buffer-size-policy=min",
+    ]
+
+    compile_and_execute_ttir(
+        create_matmul_constrained_inputs(lhs, rhs),
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        **get_request_kwargs(request),
     )
