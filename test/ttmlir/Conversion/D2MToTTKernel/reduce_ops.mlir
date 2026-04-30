@@ -154,3 +154,59 @@ func.func @test_min_i32(%in: !ttype_i32) -> (tensor<128x1xsi32>) {
   %0 = "ttir.min"(%in) <{dim_arg = [-1 : i32], keep_dim = true}> : (!ttype_i32) -> tensor<128x1xsi32>
   return %0 : tensor<128x1xsi32>
 }
+
+// -----
+
+// Argmax lowers as a datamovement kernel that scans row-major rows and writes
+// the selected column index.
+
+!ttype_bf16 = tensor<128x96xbf16>
+// CHECK-LABEL: func.func @test_argmax_bf16_R
+func.func @test_argmax_bf16_R(%in: !ttype_bf16) -> (tensor<128x1xsi32>) {
+  // CHECK-NOT: "ttir.argmax"
+  // CHECK-NOT: ttkernel.reduce_tile
+  // CHECK-NOT: ttkernel.sfpu_reduce
+  // CHECK: ttkernel.noc_async_read
+  // CHECK: ttkernel.load_from_l1
+  // CHECK: ttkernel.bitcast {{.*}} : i32 to bf16
+  // CHECK: arith.cmpf ogt
+  // CHECK: ttkernel.store_to_l1
+  // CHECK: ttkernel.noc_async_write
+  %0 = "ttir.argmax"(%in) <{dim_arg = [-1 : i32], keep_dim = true}> : (!ttype_bf16) -> tensor<128x1xsi32>
+  return %0 : tensor<128x1xsi32>
+}
+
+// -----
+
+!ttype_f32 = tensor<64x96xf32>
+// CHECK-LABEL: func.func @test_argmax_f32_R
+func.func @test_argmax_f32_R(%in: !ttype_f32) -> (tensor<64x1xsi32>) {
+  // CHECK-NOT: "ttir.argmax"
+  // CHECK-NOT: ttkernel.reduce_tile
+  // CHECK-NOT: ttkernel.sfpu_reduce
+  // CHECK: ttkernel.noc_async_read
+  // CHECK: ttkernel.load_from_l1
+  // CHECK: ttkernel.bitcast {{.*}} : i32 to f32
+  // CHECK: arith.cmpf ogt
+  // CHECK: ttkernel.store_to_l1
+  // CHECK: ttkernel.noc_async_write
+  %0 = "ttir.argmax"(%in) <{dim_arg = [-1 : i32], keep_dim = true}> : (!ttype_f32) -> tensor<64x1xsi32>
+  return %0 : tensor<64x1xsi32>
+}
+
+// -----
+
+!ttype_i32 = tensor<32x96xsi32>
+// CHECK-LABEL: func.func @test_argmax_i32_R
+func.func @test_argmax_i32_R(%in: !ttype_i32) -> (tensor<32x1xsi32>) {
+  // CHECK-NOT: "ttir.argmax"
+  // CHECK-NOT: ttkernel.reduce_tile
+  // CHECK-NOT: ttkernel.sfpu_reduce
+  // CHECK: ttkernel.noc_async_read
+  // CHECK: ttkernel.load_from_l1
+  // CHECK: arith.cmpi sgt
+  // CHECK: ttkernel.store_to_l1
+  // CHECK: ttkernel.noc_async_write
+  %0 = "ttir.argmax"(%in) <{dim_arg = [-1 : i32], keep_dim = true}> : (!ttype_i32) -> tensor<32x1xsi32>
+  return %0 : tensor<32x1xsi32>
+}

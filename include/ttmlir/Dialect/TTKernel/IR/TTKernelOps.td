@@ -3675,14 +3675,15 @@ def TTKernel_GetCompileArgValOp : TTKernel_Op<"get_compile_time_arg_val",
 //===----------------------------------------------------------------------===//
 
 def TTKernel_BitcastOp : TTKernel_Op<"bitcast", [Pure]> {
-    let summary = "Reinterpret a ui32 compile-time arg value as a scalar type.";
+    let summary = "Reinterpret a 32-bit integer value as a scalar type.";
     let description = [{
-      Reinterprets the bits of a ui32 compile-time arg as the given type.
-      Used to recover typed scalar kernel arguments after reading them from
-      the compile-time arg slot (which always stores ui32).
+      Reinterprets the bits of an i32 or ui32 value as the given type. Used to
+      recover typed scalar kernel arguments after reading them from the
+      compile-time arg slot (which always stores ui32), or to preserve the bit
+      pattern of a signed 32-bit value.
     }];
 
-    let arguments = (ins UI32:$input);
+    let arguments = (ins AnyTypeOf<[I32, UI32]>:$input);
 
     let results = (outs AnyType:$result);
 

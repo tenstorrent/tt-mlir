@@ -94,6 +94,20 @@ static void rewriteCapturedIndexedRowCopyOperands(IRRewriter &rewriter,
   }
 }
 
+static void rewriteCapturedArgMaxOperands(IRRewriter &rewriter,
+                                          GenericOp generic,
+                                          ArgMaxInterleavedOp argMaxOp) {
+  for (OpOperand &operand : argMaxOp->getOpOperands()) {
+    if (operand.get() == argMaxOp.getScratch()) {
+      continue;
+    }
+    auto operandIndex = getCapturedOperandIndex(generic, operand.get());
+    if (operandIndex) {
+      rewriteOperand(rewriter, argMaxOp.getOperation(), operand, *operandIndex);
+    }
+  }
+}
+
 // This pass normalizes thread arguments by inserting d2m.get_arg ops inside
 // each thread block, and replacing all in-region uses of those args with the
 // op results. d2m.get_cb ops are left untouched.
@@ -139,6 +153,9 @@ public:
       });
       generic.walk([&](IndexedRowCopyOp copyOp) {
         rewriteCapturedIndexedRowCopyOperands(rewriter, generic, copyOp);
+      });
+      generic.walk([&](ArgMaxInterleavedOp argMaxOp) {
+        rewriteCapturedArgMaxOperands(rewriter, generic, argMaxOp);
       });
 
       int64_t baseIndex = static_cast<int64_t>(generic.getInputs().size() +

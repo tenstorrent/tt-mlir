@@ -1979,6 +1979,149 @@ public:
 
 // ----------------------------------------------------------------------------
 //
+// D2MArgMaxRewriter: lowers TTIR argmax to a D2M data-movement op, mirroring
+// TTNN's reader/dataflow argmax implementation. The current backend primitive
+// supports the TTNN-supported dim form: a single reduction over the last
+// logical dimension with keep_dim already forced by the frontend pipeline.
+namespace {
+static bool isSupportedArgMaxInputElementType(Type type) {
+  if (mlir::isa<mlir::Float32Type, mlir::BFloat16Type>(type)) {
+    return true;
+  }
+  auto intType = mlir::dyn_cast<mlir::IntegerType>(type);
+  return intType && intType.getWidth() == 32;
+}
+
+class D2MArgMaxRewriter final
+    : public mlir::OpConversionPattern<ttir::ArgMaxOp>,
+      D2MNamedRewriterCommon {
+public:
+  D2MArgMaxRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                    bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::ArgMaxOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+
+    if (!op.getKeepDim()) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax expects TTIRReductionForceKeepDim to run first");
+    }
+
+    if (!inputType.hasStaticShape() || !resultType.hasStaticShape()) {
+      return rewriter.notifyMatchFailure(op,
+                                         "D2M argmax requires static shapes");
+    }
+
+    Type inputElementType = inputType.getElementType();
+    if (!isSupportedArgMaxInputElementType(inputElementType)) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax currently supports f32, bf16, or i32 input");
+    }
+
+    auto indexElementType =
+        mlir::dyn_cast<mlir::IntegerType>(resultType.getElementType());
+    if (!indexElementType || indexElementType.getWidth() != 32) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax requires a 32-bit integer result type");
+    }
+
+    std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+    if (!maybeDimArg || maybeDimArg->size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax currently supports one explicit dim");
+    }
+
+    const int64_t rank = inputType.getRank();
+    if (rank < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax currently requires rank >= 2");
+    }
+    int64_t dim = mlir::cast<mlir::IntegerAttr>((*maybeDimArg)[0]).getInt();
+    if (dim < 0) {
+      dim += rank;
+    }
+    if (dim != rank - 1) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax currently supports the last dimension only");
+    }
+
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    llvm::SmallVector<int64_t> rowShape(inputShape.drop_back());
+    int64_t rowWidth = inputShape.back();
+    int64_t numRows = ttmlir::utils::volume(ArrayRef<int64_t>(rowShape));
+    if (rowWidth <= 0 || numRows <= 0) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax requires non-empty static dimensions");
+    }
+
+    mlir::Location loc = op.getLoc();
+    llvm::SmallVector<mlir::Value> inputs{
+        createOptimalLayoutOp(op.getInput(), memorySpaces[0],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
+    llvm::SmallVector<mlir::Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {resultType});
+    llvm::SmallVector<mlir::Value> outputs{
+        createOptimalLayoutOp(origOutputs[0], memorySpaces[1],
+                              /*tiled=*/false, /*noCollapse=*/false, rewriter)};
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    if (physicalRank != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M argmax currently requires collapsed 2D layouts");
+    }
+    mlir::AffineExpr d0 = rewriter.getAffineDimExpr(0);
+    mlir::AffineExpr zero = rewriter.getAffineConstantExpr(0);
+    mlir::SmallVector<mlir::AffineMap> indexingMaps = {
+        mlir::AffineMap::get(/*dimCount=*/2, /*symbolCount=*/0, {d0, zero},
+                             rewriter.getContext()),
+        rewriter.getMultiDimIdentityMap(2)};
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    mlir::SmallVector<mlir::Attribute> iteratorTypes(physicalRank, parallel);
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, /*additionalArgs=*/mlir::ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes), d2m::ThreadType::Datamovement);
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic->getRegion(0);
+      mlir::Block *block = rewriter.createBlock(&region);
+      rewriter.setInsertionPointToStart(block);
+      auto argMax = rewriter.create<d2m::ArgMaxOp>(
+          loc, outputs[0].getType(), inputs[0], outputs[0],
+          rewriter.getI64IntegerAttr(numRows),
+          rewriter.getI64IntegerAttr(rowWidth),
+          rewriter.getDenseI64ArrayAttr(rowShape));
+      rewriter.create<d2m::YieldOp>(loc, argMax.getResult());
+    }
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op->getResult(0).getType()));
+    return mlir::success();
+  }
+};
+} // namespace
+
+// ----------------------------------------------------------------------------
+//
 // Rewrite a MatmulOp into either a D2M TileMatmulOp or TileMatmulBlockOp
 // (selected by TileOp template).
 namespace {
@@ -4088,6 +4231,11 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Decompose inner-dim min reductions to neg(max(neg)); runs during
   // TTIRToD2M instead of as a separate pre-pass.
   patterns.add<D2MInnerMinDecompositionRewriter>(typeConverter, ctx);
+
+  // Argmax uses a TTNN-style data-movement reader kernel.
+  patterns.add<D2MArgMaxRewriter>(
+      typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode,
+      collapseTensors, enableMulticastInference);
 
   // ToLayout 1:1 conversion.
   patterns.add<D2MToLayoutOpRewriter>(typeConverter, ctx, ttnnMode);

@@ -519,3 +519,71 @@ def test_reduce_i32_4d_inner(
         device=device,
         atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )
+
+
+def create_argmax_module(
+    shape: Shape,
+    dim_arg: List[int],
+    keep_dim: bool,
+    dtype: torch.dtype,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def argmax_fn(in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None):
+            return builder.argmax(
+                in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+            )
+
+    return module
+
+
+_ARGMAX_SHAPES = [
+    pytest.param((1, 16), id="2d-single-row-16"),
+    pytest.param((7, 17), id="2d-tail-17"),
+    pytest.param((8, 32), id="2d-one-tile"),
+    pytest.param((32, 64), id="2d-sampling-64"),
+    pytest.param((32, 128), id="2d-sampling-128"),
+    pytest.param((64, 96), id="2d-64x96"),
+    pytest.param((128, 96), id="2d-128x96"),
+    pytest.param((2, 4, 16), id="3d-small-16"),
+    pytest.param((2, 7, 33), id="3d-tail-33"),
+    pytest.param((4, 8, 64), id="3d-64"),
+    pytest.param((2, 16, 96), id="3d-96"),
+    pytest.param((2, 2, 4, 16), id="4d-small-16"),
+    pytest.param((1, 3, 5, 33), id="4d-tail-33"),
+    pytest.param((1, 128256), id="2d-llama-sampling"),
+    pytest.param((128, 128256), id="2d-llama-sampling-128"),
+]
+
+
+@pytest.mark.parametrize("shape", _ARGMAX_SHAPES)
+@pytest.mark.parametrize("keep_dim", [True], ids=["keepdim"])
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.bfloat16, torch.float32, torch.int32],
+    ids=["bf16", "f32", "i32"],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_argmax(
+    shape: Shape,
+    keep_dim: bool,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    if shape == (128, 128256) and dtype in (torch.float32, torch.int32):
+        pytest.skip("f32/i32 128x128256 argmax exceeds current L1 allocation")
+
+    compile_and_execute_ttir(
+        create_argmax_module(
+            shape=shape,
+            dim_arg=[len(shape) - 1],
+            keep_dim=keep_dim,
+            dtype=dtype,
+        ),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=0.0,
+    )
