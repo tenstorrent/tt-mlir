@@ -136,7 +136,6 @@ struct TTIRPruneToOutputPass
         return signalPassFailure();
       }
     }
-
   }
 };
 

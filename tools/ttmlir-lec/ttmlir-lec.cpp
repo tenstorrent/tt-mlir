@@ -64,77 +64,24 @@ namespace cl = llvm::cl;
 using namespace mlir;
 using namespace mlir::tt;
 
-// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
-static cl::OptionCategory mainCategory("ttmlir-lec Options");
-
-static cl::opt<std::string>
-    firstFunc("c1", cl::Required,
-              cl::desc("Name of the first function to compare"),
-              cl::value_desc("function name"), cl::cat(mainCategory));
-
-static cl::opt<std::string>
-    secondFunc("c2", cl::Required,
-               cl::desc("Name of the second function to compare"),
-               cl::value_desc("function name"), cl::cat(mainCategory));
-
-static cl::list<std::string> inputFilenames(cl::Positional, cl::OneOrMore,
-                                            cl::desc("<input MLIR files>"),
-                                            cl::cat(mainCategory));
-
-static cl::opt<std::string>
-    outputFilename("o", cl::desc("Output filename"), cl::value_desc("filename"),
-                   cl::init("-"), cl::cat(mainCategory));
-
 enum OutputFormat { OutputResult, OutputMLIR, OutputSMTLIB };
 
-static cl::opt<OutputFormat> outputFormat(
-    cl::desc("Specify output format"),
-    cl::values(
-        clEnumValN(OutputResult, "run",
-                   "Invoke z3 and print equivalent/non-equivalent result"),
-        clEnumValN(OutputMLIR, "emit-mlir", "Emit MLIR with SMT dialect"),
-        clEnumValN(OutputSMTLIB, "emit-smtlib", "Emit SMT-LIB script")),
-    cl::init(OutputResult), cl::cat(mainCategory));
-
-static cl::list<std::string> sharedLibs(
-    "shared-libs",
-    cl::desc("Path(s) to the SMT solver binary. The first entry is used "
-             "as the solver; defaults to 'z3' on PATH if omitted. "
-             "Comma-separated."),
-    cl::value_desc("path"), cl::MiscFlags::CommaSeparated,
-    cl::cat(mainCategory));
-
-static cl::opt<bool>
-    showModel("show-model",
-              cl::desc("Print full solver model when non-equivalent"),
-              cl::init(true), cl::cat(mainCategory));
-
-static cl::opt<unsigned>
-    solverTimeout("solver-timeout",
-                  cl::desc("Solver timeout in milliseconds (0 = no timeout)"),
-                  cl::init(0), cl::cat(mainCategory));
-
-static cl::opt<bool> setLogicQFBV(
-    "set-logic-qfbv",
-    cl::desc("Emit (set-logic QF_BV) — speeds up bitvector-only problems"),
-    cl::init(false), cl::cat(mainCategory));
-
-static cl::opt<bool> setLogicQFABV(
-    "set-logic-qfabv",
-    cl::desc("Emit (set-logic QF_ABV) — bitvectors + arrays"),
-    cl::init(false), cl::cat(mainCategory));
-
-static cl::opt<std::string> checkOutput(
-    "check-output",
-    cl::desc("Compare only the output port with this hw.port_name "
-             "(default: compare all)"),
-    cl::init(""), cl::cat(mainCategory));
-
-static cl::opt<int> checkOutputIdx(
-    "check-output-idx",
-    cl::desc("Compare only the output at this index (overrides check-output)"),
-    cl::init(-1), cl::cat(mainCategory));
-// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+/// All parsed command-line options bundled into one struct so runLEC() has no
+/// dependency on global cl::opt variables.
+struct LecConfig {
+  std::vector<std::string> inputFilenames;
+  std::string firstFunc;
+  std::string secondFunc;
+  std::string outputFilename;
+  OutputFormat outputFormat = OutputResult;
+  std::vector<std::string> sharedLibs;
+  bool showModel = true;
+  unsigned solverTimeout = 0;
+  bool setLogicQFBV = false;
+  bool setLogicQFABV = false;
+  std::string checkOutput;
+  int checkOutputIdx = -1;
+};
 
 //===----------------------------------------------------------------------===//
 // Module merging: combine two input modules into one.
@@ -144,9 +91,8 @@ static cl::opt<int> checkOutputIdx(
 /// `dest`, rename the source symbol to a unique name. If a protected-name
 /// (LEC target) collides, the source's copy is dropped — the destination
 /// (typically the SMT reference) takes precedence.
-static LogicalResult
-mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src,
-            ArrayRef<StringRef> protectedNames) {
+static LogicalResult mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src,
+                                 ArrayRef<StringRef> protectedNames) {
   SymbolTable destTable(dest), srcTable(*src);
   SmallVector<Operation *> toErase;
   for (auto &op : src->getOps()) {
@@ -169,8 +115,8 @@ mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src,
     }
     // Rename to avoid collision.
     if (failed(srcTable.renameToUnique(&op, {&destTable}))) {
-      return src->emitError() << "failed to rename '" << origName.getValue()
-                              << "'";
+      return src->emitError()
+             << "failed to rename '" << origName.getValue() << "'";
     }
   }
   for (Operation *op : toErase) {
@@ -188,25 +134,26 @@ mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src,
 // Main flow
 //===----------------------------------------------------------------------===//
 
-static LogicalResult runLEC(MLIRContext &context) {
-  if (inputFilenames.size() < 1 || inputFilenames.size() > 2) {
+static LogicalResult runLEC(MLIRContext &context, const LecConfig &cfg) {
+  if (cfg.inputFilenames.size() < 1 || cfg.inputFilenames.size() > 2) {
     llvm::errs() << "expected 1 or 2 input files\n";
     return failure();
   }
 
   // Parse first input file as the base module.
-  auto module = parseSourceFile<ModuleOp>(inputFilenames[0], &context);
+  auto module = parseSourceFile<ModuleOp>(cfg.inputFilenames[0], &context);
   if (!module) {
     return failure();
   }
 
   // If a second input file is provided, parse and merge it.
-  if (inputFilenames.size() == 2) {
-    auto second = parseSourceFile<ModuleOp>(inputFilenames[1], &context);
+  if (cfg.inputFilenames.size() == 2) {
+    auto second =
+        parseSourceFile<ModuleOp>(cfg.inputFilenames[1], &context);
     if (!second) {
       return failure();
     }
-    SmallVector<StringRef> protectedNames = {firstFunc, secondFunc};
+    SmallVector<StringRef> protectedNames = {cfg.firstFunc, cfg.secondFunc};
     if (failed(mergeModule(module.get(), std::move(second), protectedNames))) {
       return failure();
     }
@@ -219,9 +166,9 @@ static LogicalResult runLEC(MLIRContext &context) {
   if (failed(applyPassManagerCLOptions(pm))) {
     return failure();
   }
-  if (!checkOutput.empty()) {
+  if (!cfg.checkOutput.empty()) {
     TTIRPruneToOutputOptions pruneOpts;
-    pruneOpts.keepOutput = checkOutput;
+    pruneOpts.keepOutput = cfg.checkOutput;
     pm.addPass(createTTIRPruneToOutputPass(pruneOpts));
     pm.addPass(createCanonicalizerPass());
     // Drop arguments that are now unused. This is critical for LEC because
@@ -232,10 +179,10 @@ static LogicalResult runLEC(MLIRContext &context) {
   }
   pm.addPass(createConvertTTIRToSMTPass());
   ConstructTTIRLECOptions opts;
-  opts.firstFunc = firstFunc;
-  opts.secondFunc = secondFunc;
-  opts.checkOutput = checkOutput;
-  opts.checkOutputIdx = checkOutputIdx;
+  opts.firstFunc = cfg.firstFunc;
+  opts.secondFunc = cfg.secondFunc;
+  opts.checkOutput = cfg.checkOutput;
+  opts.checkOutputIdx = cfg.checkOutputIdx;
   pm.addPass(createConstructTTIRLECPass(opts));
 
   if (failed(pm.run(module.get()))) {
@@ -244,13 +191,13 @@ static LogicalResult runLEC(MLIRContext &context) {
 
   // Open output file.
   std::string errorMessage;
-  auto outputFile = openOutputFile(outputFilename, &errorMessage);
+  auto outputFile = openOutputFile(cfg.outputFilename, &errorMessage);
   if (!outputFile) {
     llvm::errs() << errorMessage << "\n";
     return failure();
   }
 
-  if (outputFormat == OutputMLIR) {
+  if (cfg.outputFormat == OutputMLIR) {
     module->print(outputFile->os());
     outputFile->keep();
     return success();
@@ -263,7 +210,7 @@ static LogicalResult runLEC(MLIRContext &context) {
     return failure();
   }
 
-  if (outputFormat == OutputSMTLIB) {
+  if (cfg.outputFormat == OutputSMTLIB) {
     outputFile->os() << smtlib;
     outputFile->keep();
     return success();
@@ -273,13 +220,14 @@ static LogicalResult runLEC(MLIRContext &context) {
   //
   // Resolve solver path. First entry of --shared-libs wins; falls back to 'z3'
   // on PATH.
-  std::string solverPath = sharedLibs.empty() ? "z3" : sharedLibs.front();
+  std::string solverPath =
+      cfg.sharedLibs.empty() ? "z3" : cfg.sharedLibs.front();
 
   // Detect shared-library paths (.so / .so.N / .dylib) and use the Z3 C API
   // directly via dlopen instead of spawning a subprocess.
   auto isSoPath = [](StringRef p) -> bool {
-    return p.ends_with(".so") || p.contains(".so.") ||
-           p.ends_with(".dylib") || p.contains(".dylib.");
+    return p.ends_with(".so") || p.contains(".so.") || p.ends_with(".dylib") ||
+           p.contains(".dylib.");
   };
 
   // Locate (check-sat) in the exported SMT-LIB.
@@ -296,13 +244,13 @@ static LogicalResult runLEC(MLIRContext &context) {
   std::string preamble;
   {
     llvm::raw_string_ostream ss(preamble);
-    if (setLogicQFABV) {
+    if (cfg.setLogicQFABV) {
       ss << "(set-logic QF_ABV)\n";
-    } else if (setLogicQFBV) {
+    } else if (cfg.setLogicQFBV) {
       ss << "(set-logic QF_BV)\n";
     }
-    if (solverTimeout > 0) {
-      ss << "(set-option :timeout " << solverTimeout << ")\n";
+    if (cfg.solverTimeout > 0) {
+      ss << "(set-option :timeout " << cfg.solverTimeout << ")\n";
     }
     ss << "(set-option :produce-models true)\n";
   }
@@ -357,9 +305,9 @@ static LogicalResult runLEC(MLIRContext &context) {
       return failure();
     }
 
-    Z3_config_t cfg = z3_mk_config();
-    Z3_context_t ctx = z3_mk_context(cfg);
-    z3_del_config(cfg);
+    Z3_config_t cfg2 = z3_mk_config();
+    Z3_context_t ctx = z3_mk_context(cfg2);
+    z3_del_config(cfg2);
 
     // Step 1: run up through (check-sat) — do NOT include (get-model) yet.
     // We stop right after (check-sat) and leave the (reset) out so the solver
@@ -376,7 +324,7 @@ static LogicalResult runLEC(MLIRContext &context) {
 
     // Step 2: if 'sat', retrieve the model before resetting.
     StringRef checkLine = StringRef(solverOutput).split('\n').first.trim();
-    if (checkLine == "sat" && showModel) {
+    if (checkLine == "sat" && cfg.showModel) {
       const char *modelResult = z3_eval(ctx, "(get-model)\n");
       if (modelResult) {
         solverOutput += modelResult;
@@ -420,8 +368,8 @@ static LogicalResult runLEC(MLIRContext &context) {
     // :timeout option — some Z3 versions only honour one or the other.
     std::string cliTimeoutArg;
     std::vector<llvm::StringRef> args = {solverPath};
-    if (solverTimeout > 0) {
-      unsigned secs = (solverTimeout + 999) / 1000;
+    if (cfg.solverTimeout > 0) {
+      unsigned secs = (cfg.solverTimeout + 999) / 1000;
       cliTimeoutArg = "-T:" + std::to_string(secs);
       args.push_back(cliTimeoutArg);
     }
@@ -457,7 +405,7 @@ static LogicalResult runLEC(MLIRContext &context) {
   }
   if (firstLine == "sat") {
     outputFile->os() << "NON-EQUIVALENT (c1 != c2)\n";
-    if (showModel) {
+    if (cfg.showModel) {
       outputFile->os() << "Counterexample:\n";
       size_t nl = solverOutput.find('\n');
       if (nl != std::string::npos) {
@@ -481,6 +429,63 @@ static LogicalResult runLEC(MLIRContext &context) {
 int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
 
+  cl::OptionCategory mainCategory("ttmlir-lec Options");
+
+  cl::opt<std::string> firstFunc("c1", cl::Required,
+                                 cl::desc("Name of the first function to compare"),
+                                 cl::value_desc("function name"),
+                                 cl::cat(mainCategory));
+  cl::opt<std::string> secondFunc(
+      "c2", cl::Required,
+      cl::desc("Name of the second function to compare"),
+      cl::value_desc("function name"), cl::cat(mainCategory));
+  cl::list<std::string> inputFilenames(cl::Positional, cl::OneOrMore,
+                                       cl::desc("<input MLIR files>"),
+                                       cl::cat(mainCategory));
+  cl::opt<std::string> outputFilename(
+      "o", cl::desc("Output filename"), cl::value_desc("filename"),
+      cl::init("-"), cl::cat(mainCategory));
+  cl::opt<OutputFormat> outputFormat(
+      cl::desc("Specify output format"),
+      cl::values(
+          clEnumValN(OutputResult, "run",
+                     "Invoke z3 and print equivalent/non-equivalent result"),
+          clEnumValN(OutputMLIR, "emit-mlir", "Emit MLIR with SMT dialect"),
+          clEnumValN(OutputSMTLIB, "emit-smtlib", "Emit SMT-LIB script")),
+      cl::init(OutputResult), cl::cat(mainCategory));
+  cl::list<std::string> sharedLibs(
+      "shared-libs",
+      cl::desc("Path(s) to the SMT solver binary. The first entry is used "
+               "as the solver; defaults to 'z3' on PATH if omitted. "
+               "Comma-separated."),
+      cl::value_desc("path"), cl::MiscFlags::CommaSeparated,
+      cl::cat(mainCategory));
+  cl::opt<bool> showModel("show-model",
+                          cl::desc("Print full solver model when non-equivalent"),
+                          cl::init(true), cl::cat(mainCategory));
+  cl::opt<unsigned> solverTimeout(
+      "solver-timeout",
+      cl::desc("Solver timeout in milliseconds (0 = no timeout)"),
+      cl::init(0), cl::cat(mainCategory));
+  cl::opt<bool> setLogicQFBV(
+      "set-logic-qfbv",
+      cl::desc("Emit (set-logic QF_BV) — speeds up bitvector-only problems"),
+      cl::init(false), cl::cat(mainCategory));
+  cl::opt<bool> setLogicQFABV(
+      "set-logic-qfabv",
+      cl::desc("Emit (set-logic QF_ABV) — bitvectors + arrays"),
+      cl::init(false), cl::cat(mainCategory));
+  cl::opt<std::string> checkOutput(
+      "check-output",
+      cl::desc("Compare only the output port with this hw.port_name "
+               "(default: compare all)"),
+      cl::init(""), cl::cat(mainCategory));
+  cl::opt<int> checkOutputIdx(
+      "check-output-idx",
+      cl::desc(
+          "Compare only the output at this index (overrides check-output)"),
+      cl::init(-1), cl::cat(mainCategory));
+
   // Hide unrelated LLVM/MLIR options so --help only surfaces what's
   // actually relevant to ttmlir-lec.
   cl::HideUnrelatedOptions(mainCategory);
@@ -501,6 +506,22 @@ int main(int argc, char **argv) {
       "  ttmlir-lec a.mlir b.mlir -c1=foo -c2=bar "
       "--shared-libs=/path/to/z3\n");
 
+  LecConfig cfg;
+  cfg.inputFilenames = std::vector<std::string>(inputFilenames.begin(),
+                                                inputFilenames.end());
+  cfg.firstFunc = firstFunc;
+  cfg.secondFunc = secondFunc;
+  cfg.outputFilename = outputFilename;
+  cfg.outputFormat = outputFormat;
+  cfg.sharedLibs =
+      std::vector<std::string>(sharedLibs.begin(), sharedLibs.end());
+  cfg.showModel = showModel;
+  cfg.solverTimeout = solverTimeout;
+  cfg.setLogicQFBV = setLogicQFBV;
+  cfg.setLogicQFABV = setLogicQFABV;
+  cfg.checkOutput = checkOutput;
+  cfg.checkOutputIdx = checkOutputIdx;
+
   DialectRegistry registry;
   mlir::tt::registerAllDialects(registry);
   mlir::tt::registerAllExtensions(registry);
@@ -508,5 +529,5 @@ int main(int argc, char **argv) {
   MLIRContext context(registry);
   context.allowUnregisteredDialects(false);
 
-  return failed(runLEC(context));
+  return failed(runLEC(context, cfg));
 }

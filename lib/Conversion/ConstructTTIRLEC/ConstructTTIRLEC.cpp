@@ -182,8 +182,7 @@ struct ConstructTTIRLECPass
     // have identical types between the two functions and are passed through
     // directly (no extension/truncation).
     SmallVector<unsigned> inWidths1, inWidths2, inCommonWidths;
-    for (auto [t1, t2] :
-         llvm::zip(fty1.getInputs(), fty2.getInputs())) {
+    for (auto [t1, t2] : llvm::zip(fty1.getInputs(), fty2.getInputs())) {
       auto bv1 = dyn_cast<smt::BitVectorType>(t1);
       auto bv2 = dyn_cast<smt::BitVectorType>(t2);
       if (bv1 && bv2) {
@@ -205,8 +204,7 @@ struct ConstructTTIRLECPass
     }
 
     SmallVector<unsigned> outWidths1, outWidths2, outCommonWidths;
-    for (auto [t1, t2] :
-         llvm::zip(fty1.getResults(), fty2.getResults())) {
+    for (auto [t1, t2] : llvm::zip(fty1.getResults(), fty2.getResults())) {
       auto bv1 = dyn_cast<smt::BitVectorType>(t1);
       auto bv2 = dyn_cast<smt::BitVectorType>(t2);
       if (bv1 && bv2) {
@@ -237,7 +235,8 @@ struct ConstructTTIRLECPass
     builder.setInsertionPointToStart(entryBlock);
 
     // smt.solver () : () -> ()  (no inputs, no outputs)
-    auto solver = smt::SolverOp::create(builder, loc, TypeRange{}, ValueRange{});
+    auto solver =
+        smt::SolverOp::create(builder, loc, TypeRange{}, ValueRange{});
     Block *solverBlock = builder.createBlock(&solver.getBodyRegion());
     builder.setInsertionPointToStart(solverBlock);
 
@@ -252,8 +251,8 @@ struct ConstructTTIRLECPass
       std::string name = "arg" + std::to_string(i);
       Value declared;
       if (inCommonWidths[i] > 0) {
-        auto bvTy = smt::BitVectorType::get(builder.getContext(),
-                                            inCommonWidths[i]);
+        auto bvTy =
+            smt::BitVectorType::get(builder.getContext(), inCommonWidths[i]);
         declared = smt::DeclareFunOp::create(builder, loc, bvTy,
                                              builder.getStringAttr(name));
         commonInputs.push_back(declared);

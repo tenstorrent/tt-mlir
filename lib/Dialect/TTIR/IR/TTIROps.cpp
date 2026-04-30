@@ -3462,12 +3462,11 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   // Check via MLIR IntegerType directly to avoid elementTypeToDataType for
   // unsupported intermediate widths (e.g. i24 before TTIRWorkarounds runs).
   {
-    auto producerInElem = dyn_cast<IntegerType>(
-        producerOp.getInput().getType().getElementType());
-    auto midElem = dyn_cast<IntegerType>(
-        op.getInput().getType().getElementType());
-    auto dstElem = dyn_cast<IntegerType>(
-        op.getType().getElementType());
+    auto producerInElem =
+        dyn_cast<IntegerType>(producerOp.getInput().getType().getElementType());
+    auto midElem =
+        dyn_cast<IntegerType>(op.getInput().getType().getElementType());
+    auto dstElem = dyn_cast<IntegerType>(op.getType().getElementType());
     if (producerInElem && midElem && dstElem &&
         producerInElem.getWidth() > midElem.getWidth() &&
         midElem.getWidth() < dstElem.getWidth()) {

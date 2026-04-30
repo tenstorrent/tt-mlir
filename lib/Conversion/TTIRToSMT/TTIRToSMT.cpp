@@ -74,20 +74,20 @@ static void addTTIRToSMTTypeConversions(TypeConverter &converter) {
         return {};
       });
 
-  converter.addSourceMaterialization(
-      [](OpBuilder &builder, Type type, ValueRange inputs,
-         Location loc) -> Value {
-        if (!isa<smt::BoolType>(type) || inputs.size() != 1) {
-          return {};
-        }
-        if (auto bvTy = dyn_cast<smt::BitVectorType>(inputs[0].getType())) {
-          if (bvTy.getWidth() == 1) {
-            auto zero = smt::BVConstantOp::create(builder, loc, 0, 1);
-            return smt::DistinctOp::create(builder, loc, inputs[0], zero);
-          }
-        }
-        return {};
-      });
+  converter.addSourceMaterialization([](OpBuilder &builder, Type type,
+                                        ValueRange inputs,
+                                        Location loc) -> Value {
+    if (!isa<smt::BoolType>(type) || inputs.size() != 1) {
+      return {};
+    }
+    if (auto bvTy = dyn_cast<smt::BitVectorType>(inputs[0].getType())) {
+      if (bvTy.getWidth() == 1) {
+        auto zero = smt::BVConstantOp::create(builder, loc, 0, 1);
+        return smt::DistinctOp::create(builder, loc, inputs[0], zero);
+      }
+    }
+    return {};
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -132,8 +132,7 @@ struct UnaryOpConversion : OpConversionPattern<SourceOp> {
 };
 
 /// ttir.subtract -> smt.bv.neg + smt.bv.add (two's complement subtraction)
-struct SubtractOpConversion
-    : OpConversionPattern<ttir::SubtractOp> {
+struct SubtractOpConversion : OpConversionPattern<ttir::SubtractOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
@@ -154,8 +153,7 @@ struct SubtractOpConversion
 /// ttir.constant -> smt.bv.constant (scalar) or array build (multi-element).
 /// For splat arrays we use smt.array.broadcast; otherwise a chain of
 /// smt.array.store starting from an array_broadcast(0).
-struct ConstantOpConversion
-    : OpConversionPattern<ttir::ConstantOp> {
+struct ConstantOpConversion : OpConversionPattern<ttir::ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
@@ -213,7 +211,8 @@ struct ConstantOpConversion
       if (val.getBitWidth() != elemWidth) {
         val = val.zextOrTrunc(elemWidth);
       }
-      auto idx = smt::BVConstantOp::create(rewriter, loc, i, idxBvTy.getWidth());
+      auto idx =
+          smt::BVConstantOp::create(rewriter, loc, i, idxBvTy.getWidth());
       auto elemConst = smt::BVConstantOp::create(rewriter, loc, val);
       arr = smt::ArrayStoreOp::create(rewriter, loc, arr, idx, elemConst);
       ++i;
@@ -287,11 +286,10 @@ struct EqOpConversion : OpConversionPattern<ttir::EqualOp> {
     if (!resultTy) {
       return failure();
     }
-    auto boolResult = smt::EqOp::create(rewriter, op.getLoc(),
-                                        adaptor.getLhs(), adaptor.getRhs());
-    rewriter.replaceOp(
-        op, boolToBitVector(rewriter, op.getLoc(), boolResult,
-                            resultTy.getWidth()));
+    auto boolResult = smt::EqOp::create(rewriter, op.getLoc(), adaptor.getLhs(),
+                                        adaptor.getRhs());
+    rewriter.replaceOp(op, boolToBitVector(rewriter, op.getLoc(), boolResult,
+                                           resultTy.getWidth()));
     return success();
   }
 };
@@ -310,17 +308,16 @@ struct NeOpConversion : OpConversionPattern<ttir::NotEqualOp> {
     }
     auto boolResult = smt::DistinctOp::create(
         rewriter, op.getLoc(), adaptor.getLhs(), adaptor.getRhs());
-    rewriter.replaceOp(
-        op, boolToBitVector(rewriter, op.getLoc(), boolResult,
-                            resultTy.getWidth()));
+    rewriter.replaceOp(op, boolToBitVector(rewriter, op.getLoc(), boolResult,
+                                           resultTy.getWidth()));
     return success();
   }
 };
 
 /// Helper to determine the SMT BV comparison predicate from a TTIR comparison
 /// op's operand types.
-static smt::BVCmpPredicate
-getTTIRCmpPredicate(Type operandType, bool isLess, bool isStrict) {
+static smt::BVCmpPredicate getTTIRCmpPredicate(Type operandType, bool isLess,
+                                               bool isStrict) {
   auto tensorTy = dyn_cast<RankedTensorType>(operandType);
   bool isUnsigned = false;
   if (tensorTy) {
@@ -359,9 +356,8 @@ struct CmpOpConversion : OpConversionPattern<SourceOp> {
     auto pred = getTTIRCmpPredicate(op.getLhs().getType(), IsLess, IsStrict);
     auto boolResult = smt::BVCmpOp::create(rewriter, op.getLoc(), pred,
                                            adaptor.getLhs(), adaptor.getRhs());
-    rewriter.replaceOp(
-        op, boolToBitVector(rewriter, op.getLoc(), boolResult,
-                            resultTy.getWidth()));
+    rewriter.replaceOp(op, boolToBitVector(rewriter, op.getLoc(), boolResult,
+                                           resultTy.getWidth()));
     return success();
   }
 };
@@ -390,8 +386,7 @@ struct WhereOpConversion : OpConversionPattern<ttir::WhereOp> {
     // Compare condition != 0
     auto zero = smt::BVConstantOp::create(rewriter, op.getLoc(), 0,
                                           condBvTy.getWidth());
-    auto condBool =
-        smt::DistinctOp::create(rewriter, op.getLoc(), cond, zero);
+    auto condBool = smt::DistinctOp::create(rewriter, op.getLoc(), cond, zero);
 
     rewriter.replaceOpWithNewOp<smt::IteOp>(
         op, resultTy, condBool, adaptor.getSecond(), adaptor.getThird());
@@ -400,8 +395,7 @@ struct WhereOpConversion : OpConversionPattern<ttir::WhereOp> {
 };
 
 /// ttir.typecast(input) -> smt.bv.extract or zero-extend (concat with zeros)
-struct TypecastOpConversion
-    : OpConversionPattern<ttir::TypecastOp> {
+struct TypecastOpConversion : OpConversionPattern<ttir::TypecastOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
@@ -427,22 +421,21 @@ struct TypecastOpConversion
     } else if (srcWidth > dstWidth) {
       // Truncate: extract low bits
       rewriter.replaceOpWithNewOp<smt::ExtractOp>(op, dstBvTy, 0,
-                                                   adaptor.getInput());
+                                                  adaptor.getInput());
     } else {
       // Zero-extend: concat zeros on the high side
       unsigned extBits = dstWidth - srcWidth;
       auto zeros = smt::BVConstantOp::create(rewriter, op.getLoc(), 0, extBits);
       // smt.bv.concat: lhs is high bits, rhs is low bits
       rewriter.replaceOpWithNewOp<smt::ConcatOp>(op, dstBvTy, zeros,
-                                                  adaptor.getInput());
+                                                 adaptor.getInput());
     }
     return success();
   }
 };
 
 /// ttir.reshape -> identity for single-element tensors
-struct ReshapeOpConversion
-    : OpConversionPattern<ttir::ReshapeOp> {
+struct ReshapeOpConversion : OpConversionPattern<ttir::ReshapeOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
@@ -491,8 +484,7 @@ struct ConcatOpConversion : OpConversionPattern<ttir::ConcatOp> {
 
 /// ttir.slice_static -> smt.array.select (single element) or array build
 /// (multi-element). Only handles 1-D slices with stride 1.
-struct SliceStaticOpConversion
-    : OpConversionPattern<ttir::SliceStaticOp> {
+struct SliceStaticOpConversion : OpConversionPattern<ttir::SliceStaticOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
@@ -552,17 +544,17 @@ struct SliceStaticOpConversion
     unsigned outIdxBits =
         cast<smt::BitVectorType>(outArrTy.getDomainType()).getWidth();
     auto elemBvTy = cast<smt::BitVectorType>(outArrTy.getRangeType());
-    auto zeroElem = smt::BVConstantOp::create(rewriter, loc, 0,
-                                              elemBvTy.getWidth());
+    auto zeroElem =
+        smt::BVConstantOp::create(rewriter, loc, 0, elemBvTy.getWidth());
     Value outArr =
         smt::ArrayBroadcastOp::create(rewriter, loc, outArrTy, zeroElem);
     for (int64_t i = 0; i < numElems; ++i) {
-      auto inIdx = smt::BVConstantOp::create(rewriter, loc, begin + i, inIdxBits);
+      auto inIdx =
+          smt::BVConstantOp::create(rewriter, loc, begin + i, inIdxBits);
       auto outIdx = smt::BVConstantOp::create(rewriter, loc, i, outIdxBits);
-      auto elem = smt::ArraySelectOp::create(rewriter, loc, elemBvTy, inArr,
-                                             inIdx);
-      outArr =
-          smt::ArrayStoreOp::create(rewriter, loc, outArr, outIdx, elem);
+      auto elem =
+          smt::ArraySelectOp::create(rewriter, loc, elemBvTy, inArr, inIdx);
+      outArr = smt::ArrayStoreOp::create(rewriter, loc, outArr, outIdx, elem);
     }
     rewriter.replaceOp(op, outArr);
     return success();
