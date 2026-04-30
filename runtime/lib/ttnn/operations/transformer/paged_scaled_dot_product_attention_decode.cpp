@@ -110,12 +110,20 @@ static void runPagedScaledDotProductAttentionDecodeOp(
       // static CBs stay small, and cap cores per head batch by the number of
       // page-table blocks in the current request (further capped by the tree
       // reduction limit).
+      //
+      // Tighter override cap (32 vs 64) drops tree-reduction depth from 6 to
+      // 5, halving the static partial-accumulator CB footprint. This is what
+      // keeps Gemma-4 31B at max_model_len>=2048 (pageTableBlocks>=64) inside
+      // the 1.5 MB per-core L1 budget; the default 64-core cap collided with
+      // KV buffers at compile time.
+      constexpr uint32_t kOverrideCoresCap = 32u;
+      const uint32_t overrideCap = std::min(coresCap, kOverrideCoresCap);
       programConfig.emplace();
       programConfig->q_chunk_size = 0;
       programConfig->k_chunk_size = kPageTokens;
       programConfig->compute_with_storage_grid_size = computeGrid;
       programConfig->max_cores_per_head_batch =
-          std::min(pageTableBlocks, coresCap);
+          std::min(pageTableBlocks, overrideCap);
     } else if (isBlackhole) {
       // Preserve the pre-existing Blackhole causal schedule
       // (k_chunk_size=0) with as many cores per head as the tree reduction
