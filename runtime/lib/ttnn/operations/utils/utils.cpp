@@ -15,6 +15,24 @@ void eventSync(::ttnn::MeshDevice *meshDevice, const ::ttnn::QueueId &recordCq,
   ::ttnn::events::wait_for_mesh_event(waitCq, event);
 }
 
+std::vector<::ttnn::GlobalSemaphore> collectSemaphoreInputs(
+    const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+        *semaphoreInputs,
+    ProgramContext &context) {
+  std::vector<::ttnn::GlobalSemaphore> result;
+  if (!semaphoreInputs) {
+    return result;
+  }
+  result.reserve(semaphoreInputs->size());
+  for (const auto *semaphoreRef : *semaphoreInputs) {
+    result.push_back(
+        context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
+            semaphoreRef));
+  }
+  return result;
+}
+
 bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =
       tensorRef->desc()->layout()->memory_desc()->tile_shape();

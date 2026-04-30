@@ -44,22 +44,6 @@ static void copyTensorFromDeviceToDevice(const ::ttnn::Tensor &srcTensor,
   ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
 }
 
-static std::vector<::ttnn::GlobalSemaphore>
-collectSemaphoreInputs(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
-                       ProgramContext &context) {
-  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs;
-  if (!op->semaphore_inputs()) {
-    return semaphoreInputs;
-  }
-  semaphoreInputs.reserve(op->semaphore_inputs()->size());
-  for (const auto *semaphoreRef : *op->semaphore_inputs()) {
-    semaphoreInputs.push_back(
-        context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
-            semaphoreRef));
-  }
-  return semaphoreInputs;
-}
-
 static void runTraceProgramAndCaptureTrace(
     const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
     ProgramContext &context, ::tt::runtime::ttnn::TraceCache &traceCache) {
@@ -75,7 +59,7 @@ static void runTraceProgramAndCaptureTrace(
   }
 
   std::vector<::ttnn::GlobalSemaphore> semaphoreInputs =
-      collectSemaphoreInputs(op, context);
+      utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
 
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->capture_program_id(), inputTensors,
@@ -209,7 +193,8 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
   // program->semaphore_inputs() (which is empty for the execute program).
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->execute_program_id(), inputTensors,
-                           /*constEvalProgram=*/false, /*programSemaphoreInputs=*/{});
+                           /*constEvalProgram=*/false,
+                           /*programSemaphoreInputs=*/{});
   executor.execute();
 
   for (size_t i = 0; i < op->outputs()->size(); i++) {

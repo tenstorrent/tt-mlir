@@ -4606,11 +4606,12 @@ void CaptureOrExecuteTraceOp::getEffects(
   size_t expectedCaptureInputs = opInputs.size() + opSemaphoreInputs.size();
 
   if (captureInputTypes.size() != expectedCaptureInputs) {
-    return emitOpError() << "Number of input arguments ("
-                         << expectedCaptureInputs
-                         << ") does not match capture function '"
-                         << captureCalleeAttr.getValue() << "' input count ("
-                         << captureInputTypes.size() << ")";
+    return emitOpError()
+           << "Number of input arguments (inputs + semaphore_inputs = "
+           << opInputs.size() << " + " << opSemaphoreInputs.size() << " = "
+           << expectedCaptureInputs << ") does not match capture function '"
+           << captureCalleeAttr.getValue() << "' input count ("
+           << captureInputTypes.size() << ")";
   }
 
   for (size_t i = 0; i < opInputs.size(); ++i) {
