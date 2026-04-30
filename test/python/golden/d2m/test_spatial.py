@@ -2,12 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 import _ttmlir_runtime as tt_runtime
 
@@ -37,6 +41,56 @@ from ttmlir.ir import (
 )
 
 pytestmark = pytest.mark.frontend("d2m")
+
+
+def _ensure_device_attr_module_on_path() -> None:
+    tt_home = os.environ.get("TT_MLIR_HOME")
+    if not tt_home:
+        raise RuntimeError(
+            "TT_MLIR_HOME must be set so test/python/device_attr.py is importable "
+            "for D2M ttcore.device emission."
+        )
+    p = str(Path(tt_home) / "test/python")
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+
+def _primary_mesh_name(builder: D2MBuilder) -> str:
+    n = builder._mesh_name
+    return n[0] if isinstance(n, list) else n
+
+
+def _emit_ttcore_device_for_d2m_verify(
+    builder: D2MBuilder,
+    *,
+    mesh_topology: Optional[Sequence[Any]] = None,
+) -> None:
+    """Emit ttcore.device @default_device inside ttcore.device_module.
+
+    d2m.create_global_semaphore verify calls ttcore.lookupDevice, which expects
+    this symbol on the enclosing builtin.module. TTIR pipelines insert it via
+    ttcore-register-device; hand-built D2M must add it explicitly.
+    """
+    _ensure_device_attr_module_on_path()
+    import device_attr as device_attr_mod
+
+    ctx = builder._ctx
+    loc = builder._loc
+    device_attr_mod.ctx = ctx
+    mesh_shape = list(builder._mesh_shape)
+    topo = [] if mesh_topology is None else list(mesh_topology)
+    dev_attr = device_attr_mod.createDeviceAttr(
+        [8, 8],
+        mesh_shape=mesh_shape,
+        mesh_topology=topo,
+    )
+    ttcore.DeviceOp("default_device", dev_attr, loc=loc)
+
+    block = InsertionPoint.current.block
+    inner_module_op = block.owner
+    mesh = ttcore.ir.MeshAttr.get(ctx, _primary_mesh_name(builder), mesh_shape)
+    meshes = ttcore.ir.MeshesAttr.get(ctx, [mesh])
+    inner_module_op.attributes["ttcore.meshes"] = meshes
 
 
 def _greatest_physical_grid(
@@ -570,21 +624,26 @@ def test_spatial_two_regions_two_matmuls(
     torch_dtype = torch.bfloat16
 
     def spatial_module(builder: D2MBuilder):
-        @builder.func([lhs_shape, rhs_shape], [torch_dtype, torch_dtype])
-        def main(
-            lhs: Operand,
-            rhs: Operand,
-            builder: D2MBuilder,
-            unit_attrs: List[str] = None,
-        ):
-            ctx = lhs.context
-            host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
-            lhs_metal_ty = builder.get_metal_tensor_layout(
-                lhs_shape,
-                grid=layout_cfg_r0["lhs_grid"],
-                tiled=True,
-                element_dtype=torch_dtype,
-            )
+        @builder.device_module
+        def _device_module(builder: D2MBuilder):
+            _emit_ttcore_device_for_d2m_verify(builder)
+
+            @builder.func([lhs_shape, rhs_shape], [torch_dtype, torch_dtype])
+            def main(
+                lhs: Operand,
+                rhs: Operand,
+                builder: D2MBuilder,
+                unit_attrs: List[str] = None,
+            ):
+                ctx = lhs.context
+                host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
+                lhs_metal_ty = builder.get_metal_tensor_layout(
+                    lhs_shape,
+                    grid=layout_cfg_r0["lhs_grid"],
+                    tiled=True,
+                    element_dtype=torch_dtype,
+                )
+
             rhs_metal_ty = builder.get_metal_tensor_layout(
                 rhs_shape,
                 grid=layout_cfg_r0["rhs_grid"],
@@ -771,34 +830,39 @@ def test_single_matmul_offset_core(
     torch_dtype = torch.bfloat16
 
     def spatial_module(builder: D2MBuilder):
-        @builder.func([lhs_shape, rhs_shape], [torch_dtype, torch_dtype])
-        def main(
-            lhs: Operand,
-            rhs: Operand,
-            builder: D2MBuilder,
-            unit_attrs: List[str] = None,
-        ):
-            ctx = lhs.context
-            host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
-            lhs_metal_ty = builder.get_metal_tensor_layout(
-                lhs_shape,
-                grid=layout_cfg["lhs_grid"],
-                tiled=True,
-                element_dtype=torch_dtype,
-            )
-            rhs_metal_ty = builder.get_metal_tensor_layout(
-                rhs_shape,
-                grid=layout_cfg["rhs_grid"],
-                tiled=True,
-                element_dtype=torch_dtype,
-            )
-            out_metal_ty = builder.get_metal_tensor_layout(
-                out_shape,
-                grid=layout_cfg["out_grid"],
-                tiled=True,
-                element_dtype=torch_dtype,
-            )
-            core_start = grid_range_single_11[0][0]
+        @builder.device_module
+        def _device_module(builder: D2MBuilder):
+            _emit_ttcore_device_for_d2m_verify(builder)
+
+            @builder.func([lhs_shape, rhs_shape], [torch_dtype, torch_dtype])
+            def main(
+                lhs: Operand,
+                rhs: Operand,
+                builder: D2MBuilder,
+                unit_attrs: List[str] = None,
+            ):
+                ctx = lhs.context
+                host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
+                lhs_metal_ty = builder.get_metal_tensor_layout(
+                    lhs_shape,
+                    grid=layout_cfg["lhs_grid"],
+                    tiled=True,
+                    element_dtype=torch_dtype,
+                )
+                rhs_metal_ty = builder.get_metal_tensor_layout(
+                    rhs_shape,
+                    grid=layout_cfg["rhs_grid"],
+                    tiled=True,
+                    element_dtype=torch_dtype,
+                )
+                out_metal_ty = builder.get_metal_tensor_layout(
+                    out_shape,
+                    grid=layout_cfg["out_grid"],
+                    tiled=True,
+                    element_dtype=torch_dtype,
+                )
+                core_start = grid_range_single_11[0][0]
+
             vg_inv_attr, vg_fwd_attr = _build_virtual_grid_attrs(
                 ctx, tensor_rank=len(lhs_metal_ty.shape), core_start=core_start
             )
@@ -919,116 +983,133 @@ def test_spatial_matmul_and_all_gather_single_tile(
     )
 
     def spatial_module(builder: D2MBuilder):
-        @builder.func(
-            [lhs_shape, rhs_shape, list(ag_full_host)],
-            [torch_dtype_mm, torch_dtype_mm, torch_dtype_ag],
-        )
-        def main(
-            lhs: Operand,
-            rhs: Operand,
-            ag_full: Operand,
-            builder: D2MBuilder,
-            unit_attrs: List[str] = None,
-        ):
-            ctx = lhs.context
-            f32 = F32Type.get(ctx)
-            host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
-            host_ag_full_ty = RankedTensorType.get(list(ag_full_host), f32)
-
-            ag_streams = prepare_fabric_ring_all_gather_spatial_streams(
+        @builder.device_module
+        def _device_module(builder: D2MBuilder):
+            _emit_ttcore_device_for_d2m_verify(
                 builder,
-                ag_full,
-                per_device_shard_logical=ag_per_device_shard,
-                gathered_mesh_logical=ag_gathered_on_mesh,
-                mesh_shape=mesh_shape,
-                shard_shape=shard_shape,
-                shard_dims=shard_dims,
-                view_in_shape=ag_view_in_shape,
-                view_out_shape=ag_view_out_shape,
-                unit_attrs=unit_attrs,
+                mesh_topology=[ttcore.Topology.Linear, ttcore.Topology.Ring],
             )
 
-            lhs_metal_ty = builder.get_metal_tensor_layout(
-                lhs_shape,
-                grid=layout_cfg_r0["lhs_grid"],
-                tiled=True,
-                element_dtype=torch_dtype_mm,
+            @builder.func(
+                [lhs_shape, rhs_shape, list(ag_full_host)],
+                [torch_dtype_mm, torch_dtype_mm, torch_dtype_ag],
             )
-            rhs_metal_ty = builder.get_metal_tensor_layout(
-                rhs_shape,
-                grid=layout_cfg_r0["rhs_grid"],
-                tiled=True,
-                element_dtype=torch_dtype_mm,
-            )
-            out_metal_ty = builder.get_metal_tensor_layout(
-                out_shape,
-                grid=layout_cfg_r0["out_grid"],
-                tiled=True,
-                element_dtype=torch_dtype_mm,
-            )
+            def main(
+                lhs: Operand,
+                rhs: Operand,
+                ag_full: Operand,
+                builder: D2MBuilder,
+                unit_attrs: List[str] = None,
+            ):
+                ctx = lhs.context
+                f32 = F32Type.get(ctx)
+                host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
+                host_ag_full_ty = RankedTensorType.get(list(ag_full_host), f32)
 
-            r0_start = grid_ranges[0][0]
-            r0_vg_inv, r0_vg_fwd = _build_virtual_grid_attrs(
-                ctx, tensor_rank=len(lhs_metal_ty.shape), core_start=r0_start
-            )
-
-            lhs_m = prepare_metal_input(
-                builder, lhs, lhs_metal_ty, r0_vg_inv, r0_vg_fwd, unit_attrs=unit_attrs
-            )
-            rhs_m = prepare_metal_input(
-                builder, rhs, rhs_metal_ty, r0_vg_inv, r0_vg_fwd, unit_attrs=unit_attrs
-            )
-            out0_m = prepare_metal_output(out_metal_ty, r0_vg_inv, r0_vg_fwd)
-
-            region_builders = [
-                matmul_region_build(
+                ag_streams = prepare_fabric_ring_all_gather_spatial_streams(
                     builder,
-                    lhs_m,
-                    rhs_m,
-                    out0_m,
-                    out_block_shape=layout_cfg_r0["out_block_tiles"],
-                ),
-                all_gather_region_build(
+                    ag_full,
+                    per_device_shard_logical=ag_per_device_shard,
+                    gathered_mesh_logical=ag_gathered_on_mesh,
+                    mesh_shape=mesh_shape,
+                    shard_shape=shard_shape,
+                    shard_dims=shard_dims,
+                    view_in_shape=ag_view_in_shape,
+                    view_out_shape=ag_view_out_shape,
+                    unit_attrs=unit_attrs,
+                )
+
+                lhs_metal_ty = builder.get_metal_tensor_layout(
+                    lhs_shape,
+                    grid=layout_cfg_r0["lhs_grid"],
+                    tiled=True,
+                    element_dtype=torch_dtype_mm,
+                )
+                rhs_metal_ty = builder.get_metal_tensor_layout(
+                    rhs_shape,
+                    grid=layout_cfg_r0["rhs_grid"],
+                    tiled=True,
+                    element_dtype=torch_dtype_mm,
+                )
+                out_metal_ty = builder.get_metal_tensor_layout(
+                    out_shape,
+                    grid=layout_cfg_r0["out_grid"],
+                    tiled=True,
+                    element_dtype=torch_dtype_mm,
+                )
+
+                r0_start = grid_ranges[0][0]
+                r0_vg_inv, r0_vg_fwd = _build_virtual_grid_attrs(
+                    ctx, tensor_rank=len(lhs_metal_ty.shape), core_start=r0_start
+                )
+
+                lhs_m = prepare_metal_input(
                     builder,
-                    ag_streams.view_in,
-                    ag_streams.view_out,
-                    ag_streams.start_sem,
-                    ag_streams.end_sem,
-                    num_mesh_devices=num_mesh_devices,
-                ),
-            ]
+                    lhs,
+                    lhs_metal_ty,
+                    r0_vg_inv,
+                    r0_vg_fwd,
+                    unit_attrs=unit_attrs,
+                )
+                rhs_m = prepare_metal_input(
+                    builder,
+                    rhs,
+                    rhs_metal_ty,
+                    r0_vg_inv,
+                    r0_vg_fwd,
+                    unit_attrs=unit_attrs,
+                )
+                out0_m = prepare_metal_output(out_metal_ty, r0_vg_inv, r0_vg_fwd)
 
-            spatial_results = builder.spatial(
-                [lhs_m, rhs_m, ag_streams.view_in],
-                [out0_m, ag_streams.view_out],
-                grid_ranges,
-                region_builders,
-                result_types=[out0_m.type, ag_streams.view_out.type],
-                unit_attrs=unit_attrs,
-            )
-            r0_m, r1_m = spatial_results[0], spatial_results[1]
+                region_builders = [
+                    matmul_region_build(
+                        builder,
+                        lhs_m,
+                        rhs_m,
+                        out0_m,
+                        out_block_shape=layout_cfg_r0["out_block_tiles"],
+                    ),
+                    all_gather_region_build(
+                        builder,
+                        ag_streams.view_in,
+                        ag_streams.view_out,
+                        ag_streams.start_sem,
+                        ag_streams.end_sem,
+                        num_mesh_devices=num_mesh_devices,
+                    ),
+                ]
 
-            res_mm = builder.to_layout(
-                r0_m, output_type=host_out_ty, unit_attrs=unit_attrs
-            )
+                spatial_results = builder.spatial(
+                    [lhs_m, rhs_m, ag_streams.view_in],
+                    [out0_m, ag_streams.view_out],
+                    grid_ranges,
+                    region_builders,
+                    result_types=[out0_m.type, ag_streams.view_out.type],
+                    unit_attrs=unit_attrs,
+                )
+                r0_m, r1_m = spatial_results[0], spatial_results[1]
 
-            res_ag = finalize_fabric_ring_all_gather_to_host(
-                r1_m,
-                gathered_mesh_logical=ag_gathered_on_mesh,
-                host_full_ty=host_ag_full_ty,
-                shard_shape=shard_shape,
-                shard_dims=shard_dims,
-            )
+                res_mm = builder.to_layout(
+                    r0_m, output_type=host_out_ty, unit_attrs=unit_attrs
+                )
 
-            lhs_g = torch.randn(lhs_shape, dtype=torch_dtype_mm)
-            rhs_g = torch.randn(rhs_shape, dtype=torch_dtype_mm)
-            ag_full_g = torch.randn(list(ag_full_host), dtype=torch_dtype_ag)
-            golden_mm = lhs_g @ rhs_g
-            builder.set_goldens(
-                {lhs: lhs_g, rhs: rhs_g, ag_full: ag_full_g},
-                {res_mm: golden_mm, res_ag: ag_full_g},
-            )
-            return (res_mm, res_ag)
+                res_ag = finalize_fabric_ring_all_gather_to_host(
+                    r1_m,
+                    gathered_mesh_logical=ag_gathered_on_mesh,
+                    host_full_ty=host_ag_full_ty,
+                    shard_shape=shard_shape,
+                    shard_dims=shard_dims,
+                )
+
+                lhs_g = torch.randn(lhs_shape, dtype=torch_dtype_mm)
+                rhs_g = torch.randn(rhs_shape, dtype=torch_dtype_mm)
+                ag_full_g = torch.randn(list(ag_full_host), dtype=torch_dtype_ag)
+                golden_mm = lhs_g @ rhs_g
+                builder.set_goldens(
+                    {lhs: lhs_g, rhs: rhs_g, ag_full: ag_full_g},
+                    {res_mm: golden_mm, res_ag: ag_full_g},
+                )
+                return (res_mm, res_ag)
 
     compile_and_execute_d2m(
         spatial_module,
@@ -1037,7 +1118,8 @@ def test_spatial_matmul_and_all_gather_single_tile(
         mesh_dict=mesh_dict,
         pipeline_options=["mesh-topology=linear,ring"],
         custom_pipeline="ttir-to-ttmetal-pipeline{use-tile-matmul=false enable-l1-acc=true}",
-        print_ir=False,
+        print_ir=True,
+        save_artifacts=True,
         check_pcc=False,
         **get_request_kwargs(request),
     )
