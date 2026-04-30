@@ -3035,7 +3035,21 @@ public:
 };
 
 // Folds `ttir.logical_right_shift %x, splat-constant<C>` to a zero constant
-// when the result element type is i32/ui32 and C >= 32.
+// when the result element type is i32 and C >= 32. The shift constant may be
+// reached through `ttir.broadcast` / `ttir.reshape` chains, and may originate
+// from either `ttir.constant` (splat dense attr) or `ttir.full`.
+//
+// Example (before):
+//   %c = "ttir.constant"() <{value = dense<33> : tensor<i32>}> : tensor<i32>
+//   %b = "ttir.broadcast"(%c) ... : (tensor<i32>) -> tensor<4xi32>
+//   %r = "ttir.logical_right_shift"(%x, %b)
+//          : (tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
+//
+// Example (after):
+//   %r = "ttir.constant"() <{value = dense<0> : tensor<4xi32>}> : tensor<4xi32>
+//
+// The shift, broadcast, and constant feeding the RHS become dead and are
+// removed by later DCE.
 class SaturatingRightShiftFoldPattern
     : public mlir::OpRewritePattern<LogicalRightShiftOp> {
   using mlir::OpRewritePattern<LogicalRightShiftOp>::OpRewritePattern;
@@ -3058,20 +3072,20 @@ public:
     mlir::Value src =
         ttmlir::utils::lookThrough<BroadcastOp, ReshapeOp>(op.getRhs());
     mlir::Operation *def = src.getDefiningOp();
-    std::optional<llvm::APInt> shiftAmount;
+    bool isLargeShift = false;
     if (auto constOp = mlir::dyn_cast_or_null<ConstantOp>(def)) {
       if (auto attr =
               mlir::dyn_cast<mlir::DenseIntElementsAttr>(constOp.getValue());
           attr && attr.isSplat()) {
-        shiftAmount = attr.getSplatValue<llvm::APInt>();
+        isLargeShift = attr.getSplatValue<llvm::APInt>().uge(32);
       }
     } else if (auto fullOp = mlir::dyn_cast_or_null<FullOp>(def)) {
       if (auto intAttr =
               mlir::dyn_cast<mlir::IntegerAttr>(fullOp.getFillValueAttr())) {
-        shiftAmount = intAttr.getValue();
+        isLargeShift = intAttr.getValue().uge(32);
       }
     }
-    if (!shiftAmount || shiftAmount->ult(32)) {
+    if (!isLargeShift) {
       return mlir::failure();
     }
 
