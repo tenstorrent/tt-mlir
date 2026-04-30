@@ -2285,6 +2285,19 @@ void WaitOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
   });
 }
 
+void UnpackStallOnPackOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](UnpackStallOnPackOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    if (!mlir::isa_and_nonnull<UnpackStallOnPackOp>(op->getPrevNode())) {
+      return mlir::failure();
+    }
+
+    rewriter.eraseOp(op);
+    return mlir::success();
+  });
+}
+
 mlir::LogicalResult YieldOp::verify() {
   auto generic = getOperation()->getParentOfType<GenericOp>();
   if (!generic || !generic.hasPureTensorSemantics()) {
