@@ -159,8 +159,7 @@ ProgramExecutor::ProgramExecutor(
   size_t expectedSemaphoreInputs =
       program->semaphore_inputs() ? program->semaphore_inputs()->size() : 0;
   LOG_ASSERT(programSemaphoreInputs.size() == expectedSemaphoreInputs,
-             "Program semaphore input size mismatch: ",
-             expectedSemaphoreInputs,
+             "Program semaphore input size mismatch: ", expectedSemaphoreInputs,
              " != ", programSemaphoreInputs.size());
   if (program->semaphore_inputs()) {
     size_t i = 0;

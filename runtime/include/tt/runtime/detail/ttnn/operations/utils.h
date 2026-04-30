@@ -62,6 +62,12 @@ createLayerNormShardedMultiCoreProgramConfig(
 allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
                        ::ttnn::MeshDevice &meshDevice);
 
+std::vector<::ttnn::GlobalSemaphore> collectSemaphoreInputs(
+    const ::flatbuffers::Vector<
+        ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+        *semaphoreInputs,
+    ProgramContext &context);
+
 template <std::integral T>
 inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {
   std::vector<uint32_t> rawShape;
