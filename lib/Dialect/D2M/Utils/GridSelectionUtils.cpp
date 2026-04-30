@@ -41,10 +41,62 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
   return grid;
 }
 
+// Find the dimension whose size-to-(product-of-others) ratio is largest.
+// Returns 0 if no dim exceeds ratio 1.0 (i.e. balanced shape).
+static unsigned findShardedDimIndex(ArrayRef<int64_t> physicalShape) {
+  double bestRatio = 1.0;
+  unsigned bestIndex = 0;
+  for (size_t i = 0; i < physicalShape.size(); ++i) {
+    double ratio = physicalShape[i];
+    for (size_t j = 0; j < physicalShape.size(); ++j) {
+      if (i == j) {
+        continue;
+      }
+      ratio /= physicalShape[j];
+    }
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+static int64_t
+computeBestOneDimensionalVirtualGridVolume(ArrayRef<int64_t> physicalShape,
+                                           ArrayRef<int64_t> targetGrid) {
+  unsigned shardedDimIndex = findShardedDimIndex(physicalShape);
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+
+  SmallVector<int64_t> factors =
+      ttmlir::utils::getFactors(physicalShape[shardedDimIndex]);
+  for (int64_t factor : llvm::reverse(factors)) {
+    if (factor <= targetGridVolume &&
+        !utils::findLegalPhysicalGridForVolume(factor, targetGrid).empty()) {
+      return factor;
+    }
+  }
+
+  return 0;
+}
+
 llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetGrid) {
   int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+
+  if (physicalShape.size() == 2) {
+    // For 2D shapes, only use a Cartesian virtual grid when the old
+    // one-dimensional virtual sharding would already be worth using. This
+    // avoids spreading small balanced grids across many physical cores just
+    // because the product clears the utilization threshold.
+    int64_t oneDimensionalVolume =
+        computeBestOneDimensionalVirtualGridVolume(physicalShape, targetGrid);
+    if (oneDimensionalVolume <=
+        static_cast<int64_t>(kMinGridUtilization * targetGridVolume)) {
+      return {};
+    }
+  }
 
   SmallVector<SmallVector<int64_t>> factors =
       llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
