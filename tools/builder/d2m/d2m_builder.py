@@ -99,6 +99,26 @@ class D2MBuilder(Builder):
 
             return op.result
 
+    def _resolve_output_spec(
+        self, output: Optional[Operand], output_type: Optional[Type]
+    ) -> Tuple[Type, Callable]:
+        # Backward compatibility for legacy positional calls:
+        # <op>(input, output_type, ...)
+        if output_type is None and output is not None and isinstance(output, Type):
+            output_type = output
+            output = None
+
+        if (output is None) == (output_type is None):
+            raise ValueError("requires exactly one of `output` or `output_type`.")
+
+        if output is not None:
+            resolved_output = output
+            resolved_output_type = self._get_type(output)
+            output_create_fn = lambda _shape, _type: resolved_output
+            return resolved_output_type, output_create_fn
+
+        return output_type, self._create_empty_from_tensor_type
+
     def create_tensor_encoding(
         self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
     ) -> ttnn.ir.TTNNLayoutAttr:
@@ -169,24 +189,9 @@ class D2MBuilder(Builder):
         Returns:
             OpView of the D2M to_layout operation
         """
-        # Backward compatibility for legacy positional calls:
-        # to_layout(input, output_type, ...)
-        if output_type is None and output is not None and isinstance(output, Type):
-            output_type = output
-            output = None
-
-        if (output is None) == (output_type is None):
-            raise ValueError(
-                "to_layout requires exactly one of `output` or `output_type`."
-            )
-
-        if output is not None:
-            resolved_output = output
-            resolved_output_type = self._get_type(output)
-            output_create_fn = lambda _shape, _type: resolved_output
-        else:
-            resolved_output_type = output_type
-            output_create_fn = self._create_empty_from_tensor_type
+        resolved_output_type, output_create_fn = self._resolve_output_spec(
+            output=output, output_type=output_type
+        )
 
         def organize_to_layout_args(inputs, output, output_shape):
             # D2M ToLayoutOp expects: (results_, input, output)
@@ -242,50 +247,40 @@ class D2MBuilder(Builder):
     def tilize(
         self,
         input: Operand,
-        output_type: Type,
+        output: Optional[Operand] = None,
+        output_type: Optional[Type] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Create a D2M tilize operation (specialized to_layout with tiled output).
 
-        This is a convenience method that creates a to_layout operation
-        with a tiled layout output type.
+        This is a convenience wrapper over to_layout and accepts the same
+        destination specification (`output` xor `output_type`).
         """
-        return self._op_proxy(
-            d2m.ToLayoutOp,
-            [input],
+        return self.to_layout(
+            input,
+            output=output,
             output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
-            organize_d2m_args=lambda i, o, _: (
-                [self._get_type(o)],
-                i[0],
-                o,
-            ),
             unit_attrs=unit_attrs,
         )
 
     def untilize(
         self,
         input: Operand,
-        output_type: Type,
+        output: Optional[Operand] = None,
+        output_type: Optional[Type] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         """
         Create a D2M untilize operation (specialized to_layout with row-major output).
 
-        This is a convenience method that creates a to_layout operation
-        with a row-major (untiled) layout output type.
+        This is a convenience wrapper over to_layout and accepts the same
+        destination specification (`output` xor `output_type`).
         """
-        return self._op_proxy(
-            d2m.ToLayoutOp,
-            [input],
+        return self.to_layout(
+            input,
+            output=output,
             output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
-            organize_d2m_args=lambda i, o, _: (
-                [self._get_type(o)],
-                i[0],
-                o,
-            ),
             unit_attrs=unit_attrs,
         )
 
