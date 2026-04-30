@@ -13,7 +13,7 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
-
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 #include <optional>
@@ -68,20 +68,32 @@ struct IntermediateAllocInfo {
   SmallVector<affine::AffineStoreOp> stores; // Stores to this alloc
 };
 
-// Compute total static scratch buffer capacity required by a GenericOp.
-static std::optional<int64_t> getScratchCapacity(GenericOp genericOp) {
+// Compute the static capacity of the single scratch buffer owned by a
+// GenericOp.
+//
+// LowerScratchAllocate lays out d2m.scratch_allocate slots sequentially into
+// this buffer, so total slot demand must fit within this capacity.
+static FailureOr<std::optional<int64_t>>
+getScratchCapacity(GenericOp genericOp) {
   std::optional<int64_t> capacity;
-  genericOp.walk([&](ScratchInitOp scratchInit) {
+  WalkResult result = genericOp.walk([&](ScratchInitOp scratchInit) {
+    if (capacity) {
+      return WalkResult::interrupt();
+    }
+
     auto memrefType =
-        mlir::dyn_cast<MemRefType>(scratchInit.getScratch().getType());
-    if (!memrefType) {
-      return;
-    }
+        mlir::cast<MemRefType>(scratchInit.getScratch().getType());
     ArrayRef<int64_t> shape = memrefType.getShape();
-    if (!llvm::is_contained(shape, ShapedType::kDynamic)) {
-      capacity = ttmlir::utils::volume<int64_t>(shape);
+    if (llvm::is_contained(shape, ShapedType::kDynamic)) {
+      return WalkResult::interrupt();
     }
+
+    capacity = ttmlir::utils::volume<int64_t>(shape);
+    return WalkResult::advance();
   });
+  if (result.wasInterrupted()) {
+    return failure();
+  }
   return capacity;
 }
 
@@ -269,6 +281,17 @@ static bool usesAnyValue(Operation *op, ArrayRef<Value> values) {
   });
 }
 
+static bool hasNoMemoryEffects(Operation *op) {
+  auto effectOp = dyn_cast<MemoryEffectOpInterface>(op);
+  if (!effectOp) {
+    return false;
+  }
+
+  SmallVector<MemoryEffects::EffectInstance> effects;
+  effectOp.getEffects(effects);
+  return effects.empty();
+}
+
 static UnpackStallOnPackOp
 getUnpackStallImmediatelyBefore(Operation *consumerLoop) {
   Operation *previous = consumerLoop->getPrevNode();
@@ -348,7 +371,7 @@ static bool manuallyFuseScratchLoopGroup(ArrayRef<affine::AffineForOp> loops,
         continue;
       }
 
-      if (usesAnyValue(op, oldIvs)) {
+      if (usesAnyValue(op, oldIvs) || !hasNoMemoryEffects(op)) {
         return false;
       }
       setupOpsBeforeLoop[i].push_back(op);
@@ -435,14 +458,14 @@ getScratchAccessMapAndOperands(ScratchLoopInfo &info, MLIRContext *ctx) {
   return {AffineMap::get(dimIdx, 0, exprs, ctx), operands};
 }
 
-static SmallVector<affine::AffineForOp>
+static FailureOr<SmallVector<affine::AffineForOp>>
 getMissingConsumerPrefixLoops(ScratchLoopInfo &producer,
                               ScratchLoopInfo &consumer) {
   // Find the shared outer loops the consumer needs to line up with producer
   // scratch.
   size_t consumerRank = 1 + consumer.allLoops.size();
   if (producer.scratchShape.size() <= consumerRank) {
-    return {};
+    return SmallVector<affine::AffineForOp>{};
   }
 
   size_t missingRank = producer.scratchShape.size() - consumerRank;
@@ -450,9 +473,15 @@ getMissingConsumerPrefixLoops(ScratchLoopInfo &producer,
   Operation *parent = consumer.scratchLoop->getParentOp();
   while (parent && prefixes.size() < missingRank) {
     if (auto parentLoop = dyn_cast<affine::AffineForOp>(parent)) {
+      if (!parentLoop.hasConstantBounds()) {
+        return failure();
+      }
       prefixes.push_back(parentLoop);
     }
     parent = parent->getParentOp();
+  }
+  if (prefixes.size() != missingRank) {
+    return failure();
   }
 
   std::reverse(prefixes.begin(), prefixes.end());
@@ -473,11 +502,15 @@ getMissingConsumerPrefixLoops(ScratchLoopInfo &producer,
 /// Consumer allLoops[0] step=6 must access as:
 ///   [arg10, (arg11+arg13)/4, arg12, (arg11+arg13)%4]
 /// instead of the wrong: [arg10, arg11/6, arg12, arg13].
-static std::pair<AffineMap, SmallVector<Value>>
+static FailureOr<std::pair<AffineMap, SmallVector<Value>>>
 getConsumerScratchAccessMap(ScratchLoopInfo &producer,
                             ScratchLoopInfo &consumer, MLIRContext *ctx) {
-  SmallVector<affine::AffineForOp> prefixLoops =
+  FailureOr<SmallVector<affine::AffineForOp>> prefixLoopsOr =
       getMissingConsumerPrefixLoops(producer, consumer);
+  if (failed(prefixLoopsOr)) {
+    return failure();
+  }
+  SmallVector<affine::AffineForOp> &prefixLoops = *prefixLoopsOr;
 
   // Cross-step handling is needed when the first inner loop (column-batching
   // loop, allLoops[0]) has a different step between producer and consumer.
@@ -523,7 +556,7 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
       addLoop(loop);
     }
 
-    return {AffineMap::get(dimIdx, 0, exprs, ctx), operands};
+    return std::make_pair(AffineMap::get(dimIdx, 0, exprs, ctx), operands);
   }
 
   // Cross-step case: consumer batches tile columns in different sizes than the
@@ -602,7 +635,7 @@ getConsumerScratchAccessMap(ScratchLoopInfo &producer,
   }
   exprs.push_back(absCol % prodColStep);
 
-  return {AffineMap::get(dimIdx, 0, exprs, ctx), operands};
+  return std::make_pair(AffineMap::get(dimIdx, 0, exprs, ctx), operands);
 }
 
 /// Fuse outer scf.for loops that enclose scratch_space_loop nests.
@@ -876,6 +909,9 @@ static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
 }
 
 static bool containsUnsafeFusedConsumer(ArrayRef<affine::AffineForOp> loops) {
+  // TODO (anuragsingh): Investigate the TileDivOp/TileWhereOp DST allocation
+  // failures and remove this guard once sibling fusion is safe for these ops.
+  // Issue: https://github.com/tenstorrent/tt-mlir/issues/8198
   return llvm::any_of(loops, [](affine::AffineForOp loop) {
     return loop
         .walk([](Operation *op) {
@@ -1100,7 +1136,13 @@ private:
     // demand cannot fit in the available scratch buffer.
     scratchSpaceLoops = collectScratchSpaceLoops(genericOp);
     bool needsSiblingFusionForCapacity = true;
-    if (std::optional<int64_t> capacity = getScratchCapacity(genericOp)) {
+    FailureOr<std::optional<int64_t>> capacityOr =
+        getScratchCapacity(genericOp);
+    if (failed(capacityOr)) {
+      return genericOp.emitOpError()
+             << "expected at most one statically-shaped scratch_init";
+    }
+    if (std::optional<int64_t> capacity = *capacityOr) {
       SmallVector<ScratchLoopInfo> preSiblingFusionScratchLoops;
       for (auto scratchLoop : scratchSpaceLoops) {
         ScratchLoopInfo info;
@@ -1230,8 +1272,13 @@ private:
         // Use producer-aware map so that consumers with a different linalgRoot
         // step size correctly address the scratch buffer (which is laid out
         // according to the producer's step).
-        auto [consumerMap, consumerOperands] =
+        FailureOr<std::pair<AffineMap, SmallVector<Value>>> consumerMapOr =
             getConsumerScratchAccessMap(producer, consumer, &getContext());
+        if (failed(consumerMapOr)) {
+          return genericOp.emitOpError()
+                 << "cannot build static scratch access map for consumer";
+        }
+        auto &[consumerMap, consumerOperands] = *consumerMapOr;
 
         for (auto loadOp : consumerEntry.loads) {
           rewriter.setInsertionPoint(loadOp);
