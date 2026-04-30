@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-subgraphs %s | FileCheck %s
 
-// Verify that the TTNN d2m-fusing pass DOES fuse elementwise ops with
+// Verify that the TTNN d2m-subgraphs pass DOES fuse elementwise ops with
 // implicit broadcasts on >2D operands into a d2m_subgraph. The TTIRToD2M
 // elementwise rewriter builds the d2m.generic indexing maps in the physical
 // (post-layout-collapse) iteration domain, so >2D logical broadcasts that
