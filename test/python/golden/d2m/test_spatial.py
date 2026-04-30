@@ -210,34 +210,22 @@ def test_spatial_two_regions_two_matmuls(
             ctx = lhs.context
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
             lhs_metal_ty = builder.get_metal_tensor_layout(
-                lhs_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                lhs_shape, tiled=True, element_dtype=torch_dtype
             )
             rhs_metal_ty = builder.get_metal_tensor_layout(
-                rhs_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                rhs_shape, tiled=True, element_dtype=torch_dtype
             )
             out_metal_ty = builder.get_metal_tensor_layout(
-                out_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                out_shape, tiled=True, element_dtype=torch_dtype
             )
             lhs_metal_ty_b = builder.get_metal_tensor_layout(
-                lhs_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                lhs_shape, tiled=True, element_dtype=torch_dtype
             )
             rhs_metal_ty_b = builder.get_metal_tensor_layout(
-                rhs_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                rhs_shape, tiled=True, element_dtype=torch_dtype
             )
             out_metal_ty_b = builder.get_metal_tensor_layout(
-                out_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                out_shape, tiled=True, element_dtype=torch_dtype
             )
             r0_start = grid_ranges[0][0]
             r1_start = grid_ranges[1][0]
@@ -251,58 +239,28 @@ def test_spatial_two_regions_two_matmuls(
             )
 
             lhs_m = prepare_metal_input(
-                builder,
-                lhs,
-                lhs_metal_ty,
-                r0_vg_inv_attr,
-                r0_vg_fwd_attr,
+                builder, lhs, lhs_metal_ty, r0_vg_inv_attr, r0_vg_fwd_attr
             )
             rhs_m = prepare_metal_input(
-                builder,
-                rhs,
-                rhs_metal_ty,
-                r0_vg_inv_attr,
-                r0_vg_fwd_attr,
+                builder, rhs, rhs_metal_ty, r0_vg_inv_attr, r0_vg_fwd_attr
             )
             lhs_m_b = prepare_metal_input(
-                builder,
-                lhs,
-                lhs_metal_ty_b,
-                r1_vg_inv_attr,
-                r1_vg_fwd_attr,
+                builder, lhs, lhs_metal_ty_b, r1_vg_inv_attr, r1_vg_fwd_attr
             )
             rhs_m_b = prepare_metal_input(
-                builder,
-                rhs,
-                rhs_metal_ty_b,
-                r1_vg_inv_attr,
-                r1_vg_fwd_attr,
+                builder, rhs, rhs_metal_ty_b, r1_vg_inv_attr, r1_vg_fwd_attr
             )
-            out0_m = prepare_metal_output(
-                out_metal_ty,
-                r0_vg_inv_attr,
-                r0_vg_fwd_attr,
-            )
+            out0_m = prepare_metal_output(out_metal_ty, r0_vg_inv_attr, r0_vg_fwd_attr)
             out1_m = prepare_metal_output(
-                out_metal_ty_b,
-                r1_vg_inv_attr,
-                r1_vg_fwd_attr,
+                out_metal_ty_b, r1_vg_inv_attr, r1_vg_fwd_attr
             )
 
             region_builders = [
                 matmul_region_build(
-                    builder,
-                    lhs_m,
-                    rhs_m,
-                    out0_m,
-                    out_block_shape=out_block_tiles,
+                    builder, lhs_m, rhs_m, out0_m, out_block_shape=out_block_tiles
                 ),
                 matmul_region_build(
-                    builder,
-                    lhs_m_b,
-                    rhs_m_b,
-                    out1_m,
-                    out_block_shape=out_block_tiles,
+                    builder, lhs_m_b, rhs_m_b, out1_m, out_block_shape=out_block_tiles
                 ),
             ]
 
@@ -315,14 +273,8 @@ def test_spatial_two_regions_two_matmuls(
             )
             r0_m, r1_m = spatial_results[0], spatial_results[1]
 
-            res0 = builder.to_layout(
-                r0_m,
-                output_type=host_out_ty,
-            )
-            res1 = builder.to_layout(
-                r1_m,
-                output_type=host_out_ty,
-            )
+            res0 = builder.to_layout(r0_m, output_type=host_out_ty)
+            res1 = builder.to_layout(r1_m, output_type=host_out_ty)
 
             lhs_g = torch.randn(lhs_shape, dtype=torch_dtype)
             rhs_g = torch.randn(rhs_shape, dtype=torch_dtype)
@@ -379,19 +331,13 @@ def test_single_matmul_offset_core(
             ctx = lhs.context
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
             lhs_metal_ty = builder.get_metal_tensor_layout(
-                lhs_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                lhs_shape, tiled=True, element_dtype=torch_dtype
             )
             rhs_metal_ty = builder.get_metal_tensor_layout(
-                rhs_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                rhs_shape, tiled=True, element_dtype=torch_dtype
             )
             out_metal_ty = builder.get_metal_tensor_layout(
-                out_shape,
-                tiled=True,
-                element_dtype=torch_dtype,
+                out_shape, tiled=True, element_dtype=torch_dtype
             )
             core_start = grid_range_single_11[0][0]
             vg_inv_attr, vg_fwd_attr = _build_virtual_grid_attrs(
@@ -399,24 +345,12 @@ def test_single_matmul_offset_core(
             )
 
             lhs_m = prepare_metal_input(
-                builder,
-                lhs,
-                lhs_metal_ty,
-                vg_inv_attr,
-                vg_fwd_attr,
+                builder, lhs, lhs_metal_ty, vg_inv_attr, vg_fwd_attr
             )
             rhs_m = prepare_metal_input(
-                builder,
-                rhs,
-                rhs_metal_ty,
-                vg_inv_attr,
-                vg_fwd_attr,
+                builder, rhs, rhs_metal_ty, vg_inv_attr, vg_fwd_attr
             )
-            out_m = prepare_metal_output(
-                out_metal_ty,
-                vg_inv_attr,
-                vg_fwd_attr,
-            )
+            out_m = prepare_metal_output(out_metal_ty, vg_inv_attr, vg_fwd_attr)
 
             r_m = builder.spatial(
                 [lhs_m, rhs_m],
@@ -424,20 +358,13 @@ def test_single_matmul_offset_core(
                 grid_range_single_11,
                 [
                     matmul_region_build(
-                        builder,
-                        lhs_m,
-                        rhs_m,
-                        out_m,
-                        out_block_shape=out_block_tiles,
+                        builder, lhs_m, rhs_m, out_m, out_block_shape=out_block_tiles
                     )
                 ],
                 result_types=[out_m.type],
             )
 
-            res = builder.to_layout(
-                r_m,
-                output_type=host_out_ty,
-            )
+            res = builder.to_layout(r_m, output_type=host_out_ty)
 
             lhs_g = torch.randn(lhs_shape, dtype=torch_dtype)
             rhs_g = torch.randn(rhs_shape, dtype=torch_dtype)
