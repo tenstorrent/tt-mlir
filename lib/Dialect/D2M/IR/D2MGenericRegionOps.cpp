@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
@@ -199,11 +200,13 @@ void DMAWriteOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 static constexpr int64_t kIndexedRowCopyScratchPageElements = 1024;
+// Use one tile-sized CB page for the scratch buffers. Argmax only reads/writes
+// 16B packets, but the CB layout needs a concrete page shape.
 static constexpr int64_t kArgMaxScratchPageElements = 1024;
 
-static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
-                                                  ArrayRef<int64_t> shape,
-                                                  Type elementType) {
+static MemRefType createSingleBufferScratchType(MLIRContext *ctx,
+                                                ArrayRef<int64_t> shape,
+                                                Type elementType) {
   auto cbLayout =
       mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
   auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
@@ -305,15 +308,6 @@ getBufferIfTensor(Value value, RewriterBase &rewriter,
 // ArgMax operations
 //===----------------------------------------------------------------------===//
 
-static bool isI32ElementType(Type type) {
-  auto intType = mlir::dyn_cast<IntegerType>(type);
-  return intType && intType.getWidth() == 32;
-}
-
-static bool isSupportedArgMaxInputElementType(Type type) {
-  return mlir::isa<Float32Type, BFloat16Type>(type) || isI32ElementType(type);
-}
-
 static LogicalResult verifyArgMaxOperands(Operation *op, Value input,
                                           Value output, int64_t numRows,
                                           int64_t rowWidth,
@@ -321,11 +315,12 @@ static LogicalResult verifyArgMaxOperands(Operation *op, Value input,
   auto inputType = mlir::cast<ShapedType>(input.getType());
   auto outputType = mlir::cast<ShapedType>(output.getType());
 
-  if (!isSupportedArgMaxInputElementType(inputType.getElementType())) {
+  if (!mlir::tt::d2m::utils::isSupportedArgMaxInputElementType(
+          inputType.getElementType())) {
     return op->emitOpError("currently supports f32, bf16, or i32 input only");
   }
 
-  if (!isI32ElementType(outputType.getElementType())) {
+  if (!mlir::tt::d2m::utils::isI32ElementType(outputType.getElementType())) {
     return op->emitOpError("output must have 32-bit integer element type");
   }
 
@@ -350,7 +345,7 @@ static LogicalResult verifyArgMaxOperands(Operation *op, Value input,
 
 LogicalResult ArgMaxInterleavedOp::verify() {
   auto scratchType = mlir::cast<ShapedType>(getScratch().getType());
-  if (!isI32ElementType(scratchType.getElementType())) {
+  if (!mlir::tt::d2m::utils::isI32ElementType(scratchType.getElementType())) {
     return emitOpError("scratch must have 32-bit integer element type");
   }
   return verifyArgMaxOperands(getOperation(), getInput(), getOutput(),
@@ -426,8 +421,8 @@ bool ArgMaxOp::hasTensorSemantics() { return true; }
 
 static MemRefType createArgMaxScratchType(MLIRContext *ctx) {
   auto scratchElementType = IntegerType::get(ctx, 32);
-  return createIndexedRowCopyScratchType(ctx, {1, kArgMaxScratchPageElements},
-                                         scratchElementType);
+  return createSingleBufferScratchType(ctx, {1, kArgMaxScratchPageElements},
+                                       scratchElementType);
 }
 
 // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
@@ -563,7 +558,7 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
 
   Type indexScratchElementType =
       mlir::cast<ShapedType>((*indices).getType()).getElementType();
-  MemRefType indexScratchType = createIndexedRowCopyScratchType(
+  MemRefType indexScratchType = createSingleBufferScratchType(
       getContext(), {1, kIndexedRowCopyScratchPageElements},
       indexScratchElementType);
   Value indexScratch =
@@ -571,7 +566,7 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
 
   Type rowScratchElementType =
       mlir::cast<ShapedType>(output.getType()).getElementType();
-  MemRefType rowScratchType = createIndexedRowCopyScratchType(
+  MemRefType rowScratchType = createSingleBufferScratchType(
       getContext(), {1, kIndexedRowCopyScratchPageElements},
       rowScratchElementType);
   Value rowScratch = createEmbeddingScratch(*this, rowScratchType, rewriter);

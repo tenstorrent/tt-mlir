@@ -45,6 +45,13 @@ Type getRegionLargestDstElemType(Region &region);
 // Returns nullptr if no DST-using ops are found.
 Type getRegionLargestDstElemTypeOrNull(Region &region);
 
+// Returns true for the 32-bit integer type used by D2M scalar data-movement
+// helpers.
+bool isI32ElementType(Type type);
+
+// Element types currently supported by the D2M argmax data-movement lowering.
+bool isSupportedArgMaxInputElementType(Type type);
+
 // Computes dim constraints implied by the indexing maps and shapes. If
 // successful, returns a vector of dim constraints for each dimension; a '0'
 // indicates that the dimension is not constrained. If the shapes imply

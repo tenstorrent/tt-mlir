@@ -1984,14 +1984,6 @@ public:
 // supports the TTNN-supported dim form: a single reduction over the last
 // logical dimension with keep_dim already forced by the frontend pipeline.
 namespace {
-static bool isSupportedArgMaxInputElementType(Type type) {
-  if (mlir::isa<mlir::Float32Type, mlir::BFloat16Type>(type)) {
-    return true;
-  }
-  auto intType = mlir::dyn_cast<mlir::IntegerType>(type);
-  return intType && intType.getWidth() == 32;
-}
-
 class D2MArgMaxRewriter final
     : public mlir::OpConversionPattern<ttir::ArgMaxOp>,
       D2MNamedRewriterCommon {
@@ -2025,7 +2017,7 @@ private:
     }
 
     Type inputElementType = inputType.getElementType();
-    if (!isSupportedArgMaxInputElementType(inputElementType)) {
+    if (!d2m::utils::isSupportedArgMaxInputElementType(inputElementType)) {
       return rewriter.notifyMatchFailure(
           op, "D2M argmax currently supports f32, bf16, or i32 input");
     }
