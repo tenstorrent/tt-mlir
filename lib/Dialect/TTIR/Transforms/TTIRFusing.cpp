@@ -1737,6 +1737,8 @@ private:
     bool refTransposeA = rootOp.getTransposeA();
     auto rootRhsType = mlir::cast<RankedTensorType>(rootOp.getB().getType());
     int64_t rootRhsRank = rootRhsType.getRank();
+    auto rootOutputType = mlir::cast<RankedTensorType>(rootOp.getType());
+    int64_t rootOutputRank = rootOutputType.getRank();
 
     for (Operation *user : sharedLHS.getUsers()) {
       auto op = dyn_cast<OpType>(user);
@@ -1761,6 +1763,14 @@ private:
       if (rootRhsRank > 2 &&
           rhsType.getShape().slice(0, rootRhsRank - 2) !=
               rootRhsType.getShape().slice(0, rootRhsRank - 2)) {
+        continue;
+      }
+
+      // Output rank must match root op's output rank. replaceWithSlices indexes
+      // into each candidate's shape at outputFusedDim = rootOutputRank - 1, so
+      // a candidate with lower output rank would cause an out-of-bounds access.
+      auto candidateOutputType = mlir::cast<RankedTensorType>(op.getType());
+      if (candidateOutputType.getRank() != rootOutputRank) {
         continue;
       }
 
