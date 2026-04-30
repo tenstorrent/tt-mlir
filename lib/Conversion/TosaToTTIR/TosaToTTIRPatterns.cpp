@@ -416,6 +416,8 @@ addElementwiseBinaryOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRMultiplyOpConversionPattern>(typeConverter, ctx);
   patterns.add<TosaToTTIRDefaultOpConversionPattern<
       tosa::SubOp, mlir::tt::ttir::SubtractOp>>(typeConverter, ctx);
+  patterns.add<TosaToTTIRDefaultOpConversionPattern<
+      tosa::PowOp, mlir::tt::ttir::PowOp>>(typeConverter, ctx);
 }
 
 static void
