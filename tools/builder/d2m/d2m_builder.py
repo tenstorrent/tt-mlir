@@ -102,8 +102,6 @@ class D2MBuilder(Builder):
     def _resolve_output_spec(
         self, output: Optional[Operand], output_type: Optional[Type]
     ) -> Tuple[Type, Callable]:
-        # Backward compatibility for legacy positional calls:
-        # <op>(input, output_type, ...)
         if output_type is None and output is not None and isinstance(output, Type):
             output_type = output
             output = None
@@ -254,8 +252,8 @@ class D2MBuilder(Builder):
         """
         Create a D2M tilize operation (specialized to_layout with tiled output).
 
-        This is a convenience wrapper over to_layout and accepts the same
-        destination specification (`output` xor `output_type`).
+        This is a convenience method that creates a to_layout operation
+        with a tiled layout output type.
         """
         return self.to_layout(
             input,
@@ -274,8 +272,8 @@ class D2MBuilder(Builder):
         """
         Create a D2M untilize operation (specialized to_layout with row-major output).
 
-        This is a convenience wrapper over to_layout and accepts the same
-        destination specification (`output` xor `output_type`).
+        This is a convenience method that creates a to_layout operation
+        with a row-major (untiled) layout output type.
         """
         return self.to_layout(
             input,
