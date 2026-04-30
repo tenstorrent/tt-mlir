@@ -9,6 +9,8 @@
 // The pruned function has one tensor<1xi32> result, so the SMT solver sees
 // a 32-bit bitvector comparison.
 // CHECK: BitVec 32
+// CHECK: bvadd
+// CHECK-NOT: bvneg
 // CHECK: (check-sat)
 // CHECK-NOT: error
 
