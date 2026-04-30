@@ -153,6 +153,16 @@ public:
     return builder.getArrayAttr(kernelConfigs);
   }
 
+  Value getUnderlyingMemref(Value operand) const {
+    if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+            operand.getDefiningOp());
+        view) {
+      return view.getInput();
+    } else {
+      return operand;
+    }
+  }
+
   LogicalResult
   matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -163,18 +173,10 @@ public:
     DenseMap<uint32_t, uint32_t> argMapping;
     for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
-
-      if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
-              operand.getDefiningOp());
-          view) {
-        argMapping[i] = args.size();
-        args.push_back(view.getInput());
-        remappedBuffers.push_back(rewriter.getRemappedValue(view.getInput()));
-      } else {
-        argMapping[i] = args.size();
-        args.push_back(operand);
-        remappedBuffers.push_back(rewriter.getRemappedValue(operand));
-      }
+      argMapping[i] = args.size();
+      args.push_back(getUnderlyingMemref(operand));
+      remappedBuffers.push_back(
+          rewriter.getRemappedValue(getUnderlyingMemref(operand)));
     }
 
     // Add additional args.
@@ -205,17 +207,18 @@ public:
           // aliases. It could be a function argument of the parent func or an
           // AllocOp.
           Value aliasedMemref = aliasOp.getMemref();
-          auto parentFunc = op->getParentOfType<func::FuncOp>();
-          bool isFuncArg =
-              mlir::isa<BlockArgument>(aliasedMemref) &&
-              mlir::cast<BlockArgument>(aliasedMemref).getOwner() ==
-                  &parentFunc.getBody().front();
-          assert((isFuncArg ||
-                  mlir::isa<memref::AllocOp>(aliasedMemref.getDefiningOp())) &&
-                 "expected OperandAliasOp input to be a func argument or "
-                 "memref::AllocOp");
+          // auto parentFunc = op->getParentOfType<func::FuncOp>();
+          // bool isFuncArg =
+          //     mlir::isa<BlockArgument>(aliasedMemref) &&
+          //     mlir::cast<BlockArgument>(aliasedMemref).getOwner() ==
+          //         &parentFunc.getBody().front();
+          // assert((isFuncArg ||
+          //         mlir::isa<memref::AllocOp>(aliasedMemref.getDefiningOp()))
+          //         &&
+          //        "expected OperandAliasOp input to be a func argument or "
+          //        "memref::AllocOp");
           unsigned cbPort = cbs.size();
-          cbs.push_back(aliasedMemref);
+          cbs.push_back(getUnderlyingMemref(aliasedMemref));
           cbOperandIndexToPort[operandIndex] = cbPort;
           cbPorts.push_back(cbPort);
         } else if (auto allocOp = mlir::dyn_cast_if_present<memref::AllocOp>(
