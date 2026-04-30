@@ -1144,16 +1144,6 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// NegOp
-//===----------------------------------------------------------------------===//
-
-// NegOp folder
-::mlir::OpFoldResult mlir::tt::ttir::NegOp::fold(FoldAdaptor adaptor) {
-  auto neg = std::negate<>();
-  return constantFoldEltwiseUnary(*this, adaptor.getInput(), neg, neg);
-}
-
-//===----------------------------------------------------------------------===//
 // Conv2dOp
 //===----------------------------------------------------------------------===//
 
@@ -7599,6 +7589,16 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
         return llvm::APInt(x.getBitWidth(), x.isZero() ? 1 : 0,
                            /*isSigned=*/false);
       });
+}
+
+//===----------------------------------------------------------------------===//
+// NegOp
+//===----------------------------------------------------------------------===//
+
+// NegOp folder
+::mlir::OpFoldResult mlir::tt::ttir::NegOp::fold(FoldAdaptor adaptor) {
+  auto neg = std::negate<>();
+  return constantFoldEltwiseUnary(*this, adaptor.getInput(), neg, neg);
 }
 
 //===----------------------------------------------------------------------===//
