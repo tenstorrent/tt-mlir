@@ -26,7 +26,8 @@ func.func @test_subtract(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -
 
 // CHECK-LABEL: func.func @test_pow
 func.func @test_pow(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
-  // CHECK: tosa.pow
+  // CHECK: linalg.generic
+  // CHECK: math.powf
   %0 = "ttir.pow"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %0 : tensor<64x128xf32>
 }
