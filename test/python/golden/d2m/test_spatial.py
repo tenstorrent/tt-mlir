@@ -52,50 +52,21 @@ def _build_virtual_grid_attrs(
     return AffineMapAttr.get(vgm_inv), AffineMapAttr.get(vgm_fwd)
 
 
-def _to_layout_with_virtual_grid_empty(
-    builder: D2MBuilder,
-    input_tensor: Operand,
-    output_type: Type,
-    virtual_grid_inverse_mapping: Optional[AffineMapAttr] = None,
-    virtual_grid_forward_mapping: Optional[AffineMapAttr] = None,
-    unit_attrs: Optional[List[str]] = None,
-) -> Operand:
-    def organize_to_layout_args(inputs, output, output_shape):
-        return ([output_type], inputs[0], output)
-
-    def output_create_fn(shape, tensor_type):
-        return d2m.empty(
-            tensor_type,
-            virtual_grid_inverse_mapping=virtual_grid_inverse_mapping,
-            virtual_grid_forward_mapping=virtual_grid_forward_mapping,
-        )
-
-    return builder._op_proxy(
-        d2m.ToLayoutOp,
-        [input_tensor],
-        unit_attrs=unit_attrs,
-        organize_d2m_args=organize_to_layout_args,
-        output_type=output_type,
-        output_shape=output_type.shape,
-        output_create_fn=output_create_fn,
-    )
-
-
 def prepare_metal_input(
     builder: D2MBuilder,
     input_tensor: Operand,
     metal_type: Type,
     virtual_grid_inverse_mapping: Optional[AffineMapAttr] = None,
     virtual_grid_forward_mapping: Optional[AffineMapAttr] = None,
-    unit_attrs: Optional[List[str]] = None,
 ) -> Operand:
-    return _to_layout_with_virtual_grid_empty(
-        builder,
-        input_tensor,
+    output = builder.empty(
         metal_type,
         virtual_grid_inverse_mapping,
         virtual_grid_forward_mapping,
-        unit_attrs=unit_attrs,
+    )
+    return builder.to_layout(
+        input_tensor,
+        output=output,
     )
 
 
@@ -235,7 +206,6 @@ def test_spatial_two_regions_two_matmuls(
             lhs: Operand,
             rhs: Operand,
             builder: D2MBuilder,
-            unit_attrs: List[str] = None,
         ):
             ctx = lhs.context
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
@@ -286,7 +256,6 @@ def test_spatial_two_regions_two_matmuls(
                 lhs_metal_ty,
                 r0_vg_inv_attr,
                 r0_vg_fwd_attr,
-                unit_attrs=unit_attrs,
             )
             rhs_m = prepare_metal_input(
                 builder,
@@ -294,7 +263,6 @@ def test_spatial_two_regions_two_matmuls(
                 rhs_metal_ty,
                 r0_vg_inv_attr,
                 r0_vg_fwd_attr,
-                unit_attrs=unit_attrs,
             )
             lhs_m_b = prepare_metal_input(
                 builder,
@@ -302,7 +270,6 @@ def test_spatial_two_regions_two_matmuls(
                 lhs_metal_ty_b,
                 r1_vg_inv_attr,
                 r1_vg_fwd_attr,
-                unit_attrs=unit_attrs,
             )
             rhs_m_b = prepare_metal_input(
                 builder,
@@ -310,7 +277,6 @@ def test_spatial_two_regions_two_matmuls(
                 rhs_metal_ty_b,
                 r1_vg_inv_attr,
                 r1_vg_fwd_attr,
-                unit_attrs=unit_attrs,
             )
             out0_m = prepare_metal_output(
                 out_metal_ty,
@@ -346,19 +312,16 @@ def test_spatial_two_regions_two_matmuls(
                 grid_ranges,
                 region_builders,
                 result_types=[out0_m.type, out1_m.type],
-                unit_attrs=unit_attrs,
             )
             r0_m, r1_m = spatial_results[0], spatial_results[1]
 
             res0 = builder.to_layout(
                 r0_m,
                 output_type=host_out_ty,
-                unit_attrs=unit_attrs,
             )
             res1 = builder.to_layout(
                 r1_m,
                 output_type=host_out_ty,
-                unit_attrs=unit_attrs,
             )
 
             lhs_g = torch.randn(lhs_shape, dtype=torch_dtype)
@@ -412,7 +375,6 @@ def test_single_matmul_offset_core(
             lhs: Operand,
             rhs: Operand,
             builder: D2MBuilder,
-            unit_attrs: List[str] = None,
         ):
             ctx = lhs.context
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
@@ -442,7 +404,6 @@ def test_single_matmul_offset_core(
                 lhs_metal_ty,
                 vg_inv_attr,
                 vg_fwd_attr,
-                unit_attrs=unit_attrs,
             )
             rhs_m = prepare_metal_input(
                 builder,
@@ -450,7 +411,6 @@ def test_single_matmul_offset_core(
                 rhs_metal_ty,
                 vg_inv_attr,
                 vg_fwd_attr,
-                unit_attrs=unit_attrs,
             )
             out_m = prepare_metal_output(
                 out_metal_ty,
@@ -472,13 +432,11 @@ def test_single_matmul_offset_core(
                     )
                 ],
                 result_types=[out_m.type],
-                unit_attrs=unit_attrs,
             )
 
             res = builder.to_layout(
                 r_m,
                 output_type=host_out_ty,
-                unit_attrs=unit_attrs,
             )
 
             lhs_g = torch.randn(lhs_shape, dtype=torch_dtype)
