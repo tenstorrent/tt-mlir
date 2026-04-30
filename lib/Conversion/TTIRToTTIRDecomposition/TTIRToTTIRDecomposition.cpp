@@ -1410,10 +1410,11 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// Conv2d/ConvTranspose2d Channel Layout Decomposition
+// Conv2d/Conv3d/ConvTranspose2d Channel Layout Decomposition
 //===----------------------------------------------------------------------===//
-// These patterns add permutes to convert from non-NHWC layouts to NHWC format
-// when the dimension indices indicate a non-NHWC layout.
+// These patterns add permutes to convert from non-channel-last layouts to
+// channel-last format when the dimension indices indicate a non-channel-last
+// layout.
 
 namespace {
 template <typename ConvOpType>
@@ -1492,6 +1493,74 @@ struct ConvChannelLastDecompositionPattern
     // Permute output from NHWC back to original layout.
     auto outputPermute = rewriter.create<ttir::PermuteOp>(
         op.getLoc(), outputType, newConv.getResult(), fromNhwc);
+
+    rewriter.replaceOp(op, outputPermute.getResult());
+    return success();
+  }
+};
+
+struct Conv3dChannelLastDecompositionPattern
+    : public OpConversionPattern<ttir::Conv3dOp> {
+  using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv3dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Only process ops that are not already in NDHWC format.
+    if (op.isNDHWC()) {
+      return failure();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    int64_t batchDim = op.getBatchDim();
+    int64_t depthDim = op.getDepthDim();
+    int64_t heightDim = op.getHeightDim();
+    int64_t widthDim = op.getWidthDim();
+    int64_t channelDim = op.getChannelDim();
+
+    llvm::SmallVector<int64_t, 5> toNdhwc{batchDim, depthDim, heightDim,
+                                          widthDim, channelDim};
+
+    // Compute inverse permutation from NDHWC back to original layout.
+    llvm::SmallVector<int64_t> fromNdhwc =
+        ttmlir::utils::inversePermutation(toNdhwc);
+    auto permutedInputShape =
+        ttmlir::utils::applyPermutation(inputType.getShape(), toNdhwc);
+    auto permutedInputType =
+        RankedTensorType::get(permutedInputShape, inputType.getElementType(),
+                              inputType.getEncoding());
+    auto permutedInput = rewriter.create<ttir::PermuteOp>(
+        op.getLoc(), permutedInputType, adaptor.getInput(), toNdhwc);
+
+    // Compute output shape in NDHWC format.
+    auto permutedOutputShape =
+        ttmlir::utils::applyPermutation(outputType.getShape(), toNdhwc);
+    auto permutedOutputType =
+        RankedTensorType::get(permutedOutputShape, outputType.getElementType(),
+                              outputType.getEncoding());
+
+    // Permute bias from current layout to NDHWC if present.
+    Value permutedBias = adaptor.getBias();
+    if (permutedBias) {
+      auto biasType = mlir::cast<RankedTensorType>(permutedBias.getType());
+      auto permutedBiasShape =
+          ttmlir::utils::applyPermutation(biasType.getShape(), toNdhwc);
+      auto permutedBiasType = RankedTensorType::get(
+          permutedBiasShape, biasType.getElementType(), biasType.getEncoding());
+      permutedBias = rewriter.create<ttir::PermuteOp>(
+          op.getLoc(), permutedBiasType, adaptor.getBias(), toNdhwc);
+    }
+
+    auto newConv = rewriter.create<ttir::Conv3dOp>(
+        op.getLoc(), permutedOutputType, permutedInput, adaptor.getWeight(),
+        permutedBias, adaptor.getStride(), adaptor.getPadding(), op.getGroups(),
+        op.getPaddingModeAttr());
+
+    // Permute output from NDHWC back to original layout.
+    auto outputPermute = rewriter.create<ttir::PermuteOp>(
+        op.getLoc(), outputType, newConv.getResult(), fromNdhwc);
 
     rewriter.replaceOp(op, outputPermute.getResult());
     return success();
@@ -1951,6 +2020,7 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
       typeConverter, ctx);
   patterns.add<ConvChannelLastDecompositionPattern<ttir::ConvTranspose2dOp>>(
       typeConverter, ctx);
+  patterns.add<Conv3dChannelLastDecompositionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt
