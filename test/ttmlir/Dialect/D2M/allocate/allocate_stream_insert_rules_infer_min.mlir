@@ -49,11 +49,7 @@ module {
             %buffer_rhs = memref.alloc() : memref<3x4x!ttcore.tile<32x32, f32>, #l1>
             %1 = d2m.remote_load %buffer_rhs %rhs[%iter2, %iter1] : memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x3x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1> -> memref<3x4x!ttcore.tile<32x32, f32>, #l1>
             %buffer_out = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-            linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%buffer_lhs, %buffer_rhs : memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<3x4x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
-            ^bb0(%a: !ttcore.tile<32x32, f32>, %b: !ttcore.tile<32x32, f32>, %out_elem: !ttcore.tile<32x32, f32>):
-              %9 = "d2m.tile_matmul"(%a, %b, %out_elem) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-              linalg.yield %9 : !ttcore.tile<32x32, f32>
-            }
+            "d2m.tile_matmul_block"(%0, %1, %buffer_out) : (memref<2x3x!ttcore.tile<32x32, f32>, #l1>, memref<3x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> ()
             %result = d2m.remote_store %r[%iter0, %iter1] %buffer_out : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<2x4x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
           } {d2m.blocking_loop = 2}
         } {d2m.blocking_loop = 1}
@@ -78,9 +74,10 @@ module {
       %bf1 = d2m.get_block_factor(1) : index
       affine.for %iter0 = 0 to %bf0 {
         affine.for %iter1 = 0 to %bf1 {
-          %buffer = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-          %in = d2m.remote_load %buffer %arg0_cast[%iter0, %iter1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-          %result = d2m.remote_store %arg1_cast[%iter0, %iter1] %buffer : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+          %buffer_in = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #dram>
+          %in = d2m.remote_load %buffer_in %arg0_cast[%iter0, %iter1] : memref<1x1x!ttcore.tile<32x32, f32>, #dram>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #dram> -> memref<1x1x!ttcore.tile<32x32, f32>, #dram>
+          %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+          %result = d2m.remote_store %arg1_cast[%iter0, %iter1] %buffer_out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1> -> memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }

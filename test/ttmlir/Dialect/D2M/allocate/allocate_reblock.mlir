@@ -28,11 +28,7 @@ module {
       %0 = memref.alloc() : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
       %1 = memref.alloc() : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
       %2 = memref.alloc() : memref<16x16x!ttcore.tile<32x32, f32>, #l1>
-      linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%0, %1 : memref<16x16x!ttcore.tile<32x32, f32>, #l1>, memref<16x16x!ttcore.tile<32x32, f32>, #l1>) outs(%2 : memref<16x16x!ttcore.tile<32x32, f32>, #l1>) {
-      ^bb0(%a: !ttcore.tile<32x32, f32>, %b: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
-        %9 = "d2m.tile_matmul"(%a, %b, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-        linalg.yield %9 : !ttcore.tile<32x32, f32>
-      }
+      "d2m.tile_matmul_block"(%0, %1, %2) : (memref<16x16x!ttcore.tile<32x32, f32>, #l1>, memref<16x16x!ttcore.tile<32x32, f32>, #l1>, memref<16x16x!ttcore.tile<32x32, f32>, #l1>) -> ()
     }
     return %r : memref<1x1x16x16x!ttcore.tile<32x32, f32>, #ttcore.shard<65536x4096, 1>, #l1>
   }

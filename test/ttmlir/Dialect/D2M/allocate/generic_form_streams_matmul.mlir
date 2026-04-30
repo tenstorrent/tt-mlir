@@ -1,7 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-allocate --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// TODO: remove this test
 #l1_ = #ttcore.memory_space<l1>
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>

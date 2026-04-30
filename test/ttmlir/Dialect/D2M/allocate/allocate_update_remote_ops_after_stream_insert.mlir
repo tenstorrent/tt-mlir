@@ -61,7 +61,7 @@ module attributes {ttcore.system_desc = #system_desc} {
             %buffer_rhs = memref.alloc() : memref<2x1x!ttcore.tile<32x32, f32>, #l1>
             %1 = d2m.remote_load %buffer_rhs %view_6[%iter2, %iter1] mcast[%c1] : memref<2x1x!ttcore.tile<32x32, f32>, #l1>, memref<64x64x2x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<2x1x!ttcore.tile<32x32, f32>, #l1>
             %buffer_out = memref.alloc() : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-            linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%buffer_lhs, %buffer_rhs : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x1x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
+            linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d2, d1)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%0, %1 : memref<1x2x!ttcore.tile<32x32, f32>, #l1>, memref<2x1x!ttcore.tile<32x32, f32>, #l1>) outs(%buffer_out : memref<1x1x!ttcore.tile<32x32, f32>, #l1>) {
             ^bb0(%in: !ttcore.tile<32x32, f32>, %in_14: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
               %3 = "d2m.tile_matmul"(%in, %in_14, %out) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
               linalg.yield %3 : !ttcore.tile<32x32, f32>
