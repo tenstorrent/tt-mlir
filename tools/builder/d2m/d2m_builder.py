@@ -117,7 +117,8 @@ class D2MBuilder(Builder):
     def to_layout(
         self,
         input: Operand,
-        output_type: Type,
+        output: Optional[Operand] = None,
+        output_type: Optional[Type] = None,
         unit_attrs: Optional[List[str]] = None,
         loc: Optional[Union[str, Location]] = None,
     ) -> OpView:
@@ -126,25 +127,46 @@ class D2MBuilder(Builder):
 
         Args:
             input: Input operand
-            output_type: Desired output type with layout
+            output: Optional destination operand to use directly.
+            output_type: Optional destination type. Must provide exactly one of
+                `output` or `output_type`.
             unit_attrs: Optional unit attributes
             loc: Optional location string
 
         Returns:
             OpView of the D2M to_layout operation
         """
+        # Backward compatibility for legacy positional calls:
+        # to_layout(input, output_type, ...)
+        if output_type is None and output is not None and isinstance(output, Type):
+            output_type = output
+            output = None
+
+        if (output is None) == (output_type is None):
+            raise ValueError(
+                "to_layout requires exactly one of `output` or `output_type`."
+            )
+
+        if output is not None:
+            resolved_output = output
+            resolved_output_type = self._get_type(output)
+            output_create_fn = lambda _shape, _type: resolved_output
+        else:
+            resolved_output_type = output_type
+            output_create_fn = self._create_empty_from_tensor_type
 
         def organize_to_layout_args(inputs, output, output_shape):
             # D2M ToLayoutOp expects: (results_, input, output)
-            return ([output_type], inputs[0], output)
+            return ([resolved_output_type], inputs[0], output)
 
         return self._op_proxy(
             d2m.ToLayoutOp,
             [input],
             unit_attrs=unit_attrs,
             organize_d2m_args=organize_to_layout_args,
-            output_type=output_type,
-            output_shape=output_type.shape,
+            output_type=resolved_output_type,
+            output_shape=resolved_output_type.shape,
+            output_create_fn=output_create_fn,
             loc=loc,
         )
 
