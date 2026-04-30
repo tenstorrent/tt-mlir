@@ -811,8 +811,18 @@ TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(
           .getElementType();
   TTNNOperandWorkarounds operandWorkaround;
   if (!inputType.isF32() && !inputType.isBF16()) {
-    operandWorkaround.tensorDataTypeWorkaround =
-        mlir::tt::ttcore::DataType::BFloat16;
+    // For 32-bit integer types, use Float32 instead of BFloat16 to avoid
+    // precision loss: BFloat16 has only 7 mantissa bits (~256 exact integers)
+    // so sums of int32 values around 8192 and above round incorrectly (e.g.
+    // 8400 rounds to 8384). Float32 exactly represents integers up to 2^24.
+    if (auto intType = mlir::dyn_cast<mlir::IntegerType>(inputType);
+        intType && intType.getWidth() >= 32) {
+      operandWorkaround.tensorDataTypeWorkaround =
+          mlir::tt::ttcore::DataType::Float32;
+    } else {
+      operandWorkaround.tensorDataTypeWorkaround =
+          mlir::tt::ttcore::DataType::BFloat16;
+    }
   }
 
   return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
