@@ -419,6 +419,30 @@ TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(
       .addOutputOperandWorkaround(typeWorkarounds);
 }
 
+// Factory method to create a set of workarounds for concat operation operands.
+// Tilize (used internally by concat) doesn't support ui8/i8 tensors.
+// Promote to Int32, same as the reshape workaround.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConcatOpOperandsWorkarounds(
+    mlir::Operation *op) {
+  TTNNOperandWorkarounds typeWorkarounds;
+  if (op->getNumOperands() > 0) {
+    auto inputType = mlir::cast<RankedTensorType>(op->getOperand(0).getType());
+    mlir::Type elemType = inputType.getElementType();
+    mlir::tt::ttcore::DataType dataType =
+        mlir::tt::ttcore::elementTypeToDataType(elemType);
+    if (dataType == mlir::tt::ttcore::DataType::UInt8) {
+      typeWorkarounds.tensorDataTypeWorkaround =
+          mlir::tt::ttcore::DataType::Int32;
+    }
+  }
+  auto wa = TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+    wa = wa.addInputOperandWorkaround(typeWorkarounds);
+  }
+  return wa.addOutputOperandWorkaround(typeWorkarounds);
+}
+
 // Factory method to create a set of workarounds for UpdateCache operation
 // operands. Update index of UpdateCacheOp must be unsigned
 TTNNOperandsWorkarounds
