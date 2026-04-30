@@ -2132,16 +2132,7 @@ public:
           outChannelsAttr.getInt(), rewriter, op.getLoc());
     }
 
-    llvm::SmallVector<int64_t, 5> toNdhwcPermutation = {
-        batchDim, depthDim, heightDim, widthDim, channelDim};
-    bool needsPermute = !op.isNDHWC();
     Value input = adaptor.getInput();
-    if (needsPermute) {
-      input = ttir_to_ttnn::utils::generatePermute(
-          mlir::cast<TypedValue<RankedTensorType>>(input), toNdhwcPermutation,
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_to_ndhwc"));
-    }
 
     int64_t inChannels = inputShape[channelDim];
     if (inChannels % TILE_WIDTH != 0) {
@@ -2158,12 +2149,6 @@ public:
 
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
-    if (needsPermute) {
-      auto permutedOutputShape = ttmlir::utils::applyPermutation(
-          outputType.getShape(), toNdhwcPermutation);
-      outputType = ttnn::utils::RankedTensorTypeFactory::create(
-          outputType, permutedOutputShape);
-    }
 
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
         op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
@@ -2171,17 +2156,6 @@ public:
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
         *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
         conv3dConfigAttr, nullptr);
-
-    if (needsPermute) {
-      auto fromNdhwcPermutation =
-          ttmlir::utils::inversePermutation(toNdhwcPermutation);
-      Value permutedOutput = ttir_to_ttnn::utils::generatePermute(
-          mlir::cast<TypedValue<RankedTensorType>>(convOp.getResult()),
-          fromNdhwcPermutation, rewriter,
-          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_from_ndhwc"));
-      rewriter.replaceOp(op, permutedOutput);
-      return success();
-    }
 
     rewriter.replaceOp(op, convOp.getResult());
 
