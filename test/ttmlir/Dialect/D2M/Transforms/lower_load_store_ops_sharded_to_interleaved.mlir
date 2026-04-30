@@ -24,19 +24,19 @@ module attributes {ttcore.system_desc = #system_desc} {
       %arg0: memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>) {
     %dram_alloc = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<1x1x1x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #dram>
     %view = d2m.view_layout %dram_alloc remapping = #map : memref<1x1x1x64x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<131072x2048>, #dram> -> memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>
-    %alloc_local = memref.alloc() {address = 10240 : i64, alignment = 32 : i64} : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>
+    %cb_alias = d2m.operand_alias %arg0 : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
 
     d2m.generic {block_factors = [], grid = #ttcore.grid<1x64, virt_to_physical_map = (d0, d1) -> (0, d1 floordiv 8, d1 mod 8), physical_to_virt_map = (d0, d1) -> (0, 0, (d1 + d0 * 8) mod 64)>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%arg0 : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1>)
         outs(%view : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>)
-        additionalArgs(%alloc_local : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>)
+        additionalArgs(%cb_alias : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>)
      {
     ^unified0:
       %core0 = d2m.core_index(0) {phys_to_virt_map = #phys_to_virt} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = #phys_to_virt} : index
 
-      %0 = d2m.remote_load %alloc_local %arg0[%core0, %core1] : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>, memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>
-      %1 = d2m.remote_store %view[%core0, %core1] %alloc_local : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1> -> memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>
+      %0 = d2m.remote_load %cb_alias %arg0[%core0, %core1] : memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
+      %1 = d2m.remote_store %view[%core0, %core1] %cb_alias : memref<1x64x1x1x!ttcore.tile<32x32, bf16>, #ttcore.view<4>, #dram>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1> -> memref<1x1x!ttcore.tile<32x32, bf16>, #l1>
     }
     return
   }
