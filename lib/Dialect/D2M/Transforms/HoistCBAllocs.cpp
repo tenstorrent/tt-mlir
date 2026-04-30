@@ -91,7 +91,7 @@ private:
         rewriter.setInsertionPoint(genericOp);
         auto aliasedOperand =
             genericOp.getOperand(aliasForOperandAttr.getInt());
-        // TODO: add back later
+        // TODO(sohaibnadeemTT): add back later
         // auto operandMemRefType =
         //    mlir::cast<MemRefType>(aliasedOperand.getType());
         // unsigned numStreamBuffers =

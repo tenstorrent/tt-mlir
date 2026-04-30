@@ -158,9 +158,8 @@ public:
             operand.getDefiningOp());
         view) {
       return view.getInput();
-    } else {
-      return operand;
     }
+    return operand;
   }
 
   LogicalResult
@@ -196,7 +195,7 @@ public:
       } else if (auto memrefType =
                      mlir::dyn_cast_if_present<MemRefType>(operand.getType());
                  memrefType) {
-        // TODO: add back later
+        // TODO(sohaibnadeemTT): add back later
         // assert(mlir::isa<ttcore::CBLayoutAttr>(memrefType.getLayout()) &&
         //       "expected cb layout");
         // Hoisted CB buffer (already converted to CreateBufferOp by
