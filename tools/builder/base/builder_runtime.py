@@ -16,7 +16,7 @@ from functools import partial
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
-from golden.metrics import get_atol_rtol_pcc
+from golden import get_atol_rtol_pcc
 
 import _ttmlir_runtime as tt_runtime
 

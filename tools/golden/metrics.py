@@ -16,7 +16,8 @@ def mask_torch_inf_nan(tensor):
     return tensor
 
 
-def get_atol_rtol_pcc(golden, calculated, atol, rtol):
+def get_atol_rtol(golden, calculated):
+    """Calculate absolute and relative tolerance between golden and calculated tensors."""
     # Clone tensors to avoid modifying the originals
     golden = golden.clone()
     calculated = calculated.clone()
@@ -32,7 +33,20 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol):
         cal_atol = torch.max(torch.abs(golden - calculated)).item()
         cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
 
-    def get_pcc(golden, calculated):
+    return cal_atol, cal_rtol
+
+
+def get_pcc(golden, calculated, atol, rtol):
+    """Calculate Pearson Correlation Coefficient (PCC) between golden and calculated tensors."""
+    # Clone tensors to avoid modifying the originals
+    golden = golden.clone()
+    calculated = calculated.clone()
+    if not torch.is_floating_point(golden):
+        golden = golden.to(torch.float64)
+    if not torch.is_floating_point(calculated):
+        calculated = calculated.to(torch.float64)
+
+    def _calculate_pcc(golden, calculated):
         if golden.numel() == 0 and calculated.numel() == 0:
             if golden.shape == calculated.shape:
                 return 1.0
@@ -96,7 +110,15 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol):
             else 0.0
         )
     else:
-        cal_pcc = get_pcc(golden, calculated)
+        cal_pcc = _calculate_pcc(golden, calculated)
+
+    return cal_pcc
+
+
+def get_atol_rtol_pcc(golden, calculated, atol, rtol):
+    """Wrapper function that calculates atol, rtol, and pcc."""
+    cal_atol, cal_rtol = get_atol_rtol(golden, calculated)
+    cal_pcc = get_pcc(golden, calculated, atol, rtol)
 
     return (
         cal_atol,
