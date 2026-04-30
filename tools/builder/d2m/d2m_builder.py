@@ -112,6 +112,39 @@ class D2MBuilder(Builder):
         """Get D2M-specific empty operation."""
         return d2m.EmptyOp(tensor_type).result
 
+    def empty(
+        self,
+        output_type: RankedTensorType,
+        virtual_grid_inverse_mapping: Optional[Union[AffineMap, AffineMapAttr]] = None,
+        virtual_grid_forward_mapping: Optional[Union[AffineMap, AffineMapAttr]] = None,
+    ) -> OpView:
+        """Create a D2M empty op with optional virtual-grid mappings."""
+        vgm_inv_attr = (
+            virtual_grid_inverse_mapping
+            if isinstance(virtual_grid_inverse_mapping, AffineMapAttr)
+            else (
+                AffineMapAttr.get(virtual_grid_inverse_mapping)
+                if virtual_grid_inverse_mapping is not None
+                else None
+            )
+        )
+        vgm_fwd_attr = (
+            virtual_grid_forward_mapping
+            if isinstance(virtual_grid_forward_mapping, AffineMapAttr)
+            else (
+                AffineMapAttr.get(virtual_grid_forward_mapping)
+                if virtual_grid_forward_mapping is not None
+                else None
+            )
+        )
+
+        with self._ctx, self._loc:
+            return d2m.EmptyOp(
+                output_type,
+                virtualGridInverseMapping=vgm_inv_attr,
+                virtualGridForwardMapping=vgm_fwd_attr,
+            ).result
+
     # ----- D2M Layout Operations -----
 
     def to_layout(
