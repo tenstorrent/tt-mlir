@@ -34,7 +34,16 @@ namespace {
 // assigning memory to actually benefit from reduced mem usage from aliasing
 // TODO: add specific checks for load/store (mcast load, fabric store)
 // can infer aliasing and do the conversion
-static bool needsDMA(Value memref) {
+static bool needsDMA(Value memref, Value localBuffer) {
+  // Check if the local buffer is a streaming CB.
+  if (localBuffer) {
+    if (auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
+        return true;
+      }
+    }
+  }
+
   // View ops need datamovement, except for reinterpret view_layout ops
   // which are just type casts.
   if (auto *defOp = memref.getDefiningOp()) {
@@ -55,11 +64,13 @@ static bool needsDMA(Value memref) {
 }
 
 bool isAliasedLoad(RemoteLoadOp loadOp) {
-  return !needsDMA(loadOp.getMemref()) && !loadOp.isMcast();
+  return !needsDMA(loadOp.getMemref(), loadOp.getLocalBuffer()) &&
+         !loadOp.isMcast();
 }
 
 bool isAliasedStore(RemoteStoreOp storeOp) {
-  return !needsDMA(storeOp.getMemref()) && storeOp.getStartDevice().empty();
+  return !needsDMA(storeOp.getMemref(), storeOp.getLocalBuffer()) &&
+         storeOp.getStartDevice().empty();
 }
 
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {

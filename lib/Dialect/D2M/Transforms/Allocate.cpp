@@ -1215,20 +1215,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       TT_assertv(oldGenericOp.getOutputs().size() == 1u,
                  "Allocator reblocking expects a single output operand");
-      Operation *sequenceAnchor = reblocked->returnView.getOperation();
       Value newOutput = reblocked->returnView.getResult();
 
       // Move sequencing metadata to the new anchor op produced by the rewrite.
       SequenceT sequencePosition = analysis.sequencing[oldGenericOp];
-      analysis.sequencing.positionMap[sequencePosition] = sequenceAnchor;
+      analysis.sequencing.positionMap[sequencePosition] =
+          reblocked->genericOp.getOperation();
       analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
-      analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
-      // Also register the new generic op with the same sequence position so
-      // subsequent passes (e.g. analyzeGenericRegionAllocs) can look it up.
       analysis.sequencing.operationMap[reblocked->genericOp.getOperation()] =
           sequencePosition;
 
       // Redirect the single externally visible output to the rebuilt view.
+      Operation *sequenceAnchor = reblocked->returnView.getOperation();
       if (oldGenericOp.getNumResults() > 0) {
         TT_assert(oldGenericOp.getNumResults() == 1u);
         oldGenericOp.getResult(0).replaceAllUsesWith(newOutput);
