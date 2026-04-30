@@ -14,19 +14,15 @@ from ttmlir.ir import (
     AffineMapAttr,
     IndexType,
     RankedTensorType,
-    Type,
 )
 
 from builder.base.builder_utils import Operand
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_apis import compile_and_execute_d2m
+from ttmlir.dialects import affine, arith, d2m, tensor, ttcore
 from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("d2m")
-
-# Spatial tests use a single logical core for the inner matmul generic (grid 1x1,
-# block_factors 1,1,1). Metal tensor grids match that; tile counts follow 32-tile
-# geometry from the full tensor shapes.
 
 
 def _build_virtual_grid_attrs(
@@ -55,26 +51,34 @@ def _build_virtual_grid_attrs(
 def prepare_metal_input(
     builder: D2MBuilder,
     input_tensor: Operand,
-    metal_type: Type,
-    virtual_grid_inverse_mapping: Optional[AffineMapAttr] = None,
-    virtual_grid_forward_mapping: Optional[AffineMapAttr] = None,
+    input_shape: List[int],
+    core_start: Tuple[int, int],
 ) -> Operand:
-    output = builder.empty(
-        metal_type,
+    metal_type = builder.get_metal_tensor_layout(input_shape, tiled=True)
+    (
         virtual_grid_inverse_mapping,
         virtual_grid_forward_mapping,
+    ) = _build_virtual_grid_attrs(
+        input_tensor.context, tensor_rank=len(metal_type.shape), core_start=core_start
     )
-    return builder.to_layout(
-        input_tensor,
-        output=output,
+    output = builder.empty(
+        metal_type, virtual_grid_inverse_mapping, virtual_grid_forward_mapping
     )
+    return builder.to_layout(input_tensor, output=output)
 
 
 def prepare_metal_output(
-    out_metal_ty: Type,
-    virtual_grid_inverse_mapping: Optional[AffineMapAttr] = None,
-    virtual_grid_forward_mapping: Optional[AffineMapAttr] = None,
+    builder: D2MBuilder,
+    out_shape: List[int],
+    core_start: Tuple[int, int],
 ):
+    out_metal_ty = builder.get_metal_tensor_layout(out_shape, tiled=True)
+    (
+        virtual_grid_inverse_mapping,
+        virtual_grid_forward_mapping,
+    ) = _build_virtual_grid_attrs(
+        builder.context, tensor_rank=len(out_metal_ty.shape), core_start=core_start
+    )
     return d2m.empty(
         out_metal_ty,
         virtual_grid_inverse_mapping=virtual_grid_inverse_mapping,
@@ -87,28 +91,20 @@ def matmul_region_build(
     lhs: Operand,
     rhs: Operand,
     out: Operand,
-    out_block_shape: Optional[List[int]] = None,
+    out_block_shape: List[int],
 ) -> Callable[[], None]:
     def _build():
-        inner_grid = (1, 1)
-        block_factors = (1, 1, 1)
-        indexing_maps = (
-            lambda m, n, k: (m, k),
-            lambda m, n, k: (k, n),
-            lambda m, n, k: (m, n),
-        )
-        iterator_types = ["parallel", "parallel", "reduction"]
-
         @builder.generic(
-            grid=inner_grid,
-            block_factors=block_factors,
-            indexing_maps=indexing_maps,
-            iterator_types=iterator_types,
+            grid=(1, 1),
+            block_factors=(1, 1, 1),
+            indexing_maps=(
+                lambda m, n, k: (m, k),
+                lambda m, n, k: (k, n),
+                lambda m, n, k: (m, n),
+            ),
+            iterator_types=["parallel", "parallel", "reduction"],
         )
         def mm(lhs, rhs, out):
-            mm_out_block_shape = (
-                out_block_shape if out_block_shape is not None else [2, 2]
-            )
             mbi = d2m.block_index(0)
             nbi = d2m.block_index(1)
             kbi = d2m.block_index(2)
@@ -116,7 +112,7 @@ def matmul_region_build(
             c = arith.constant(IndexType.get(lhs.context), 1)
             lhs_shard = builder.remote_load(lhs, [mbi, kbi], mcast_dims=[r])
             rhs_shard = builder.remote_load(rhs, [kbi, nbi], mcast_dims=[c])
-            out_shard = tensor.empty(mm_out_block_shape, out.type.element_type)
+            out_shard = tensor.empty(out_block_shape, out.type.element_type)
             d2m.tile_matmul_block(lhs_shard, rhs_shard, out_shard)
             res = d2m.remote_store(
                 out.type,
@@ -196,9 +192,8 @@ def test_spatial_two_regions_two_matmuls(
         "use-tile-matmul=false",
         "enable-l1-acc=true",
     ]
-    metal_grid = [1, 1]
     out_block_tiles = [lhs_shape[0] // 32, rhs_shape[1] // 32]
-    torch_dtype = torch.bfloat16
+    torch_dtype = torch.float32
 
     def spatial_module(builder: D2MBuilder):
         @builder.func([lhs_shape, rhs_shape], [torch_dtype, torch_dtype])
@@ -207,83 +202,56 @@ def test_spatial_two_regions_two_matmuls(
             rhs: Operand,
             builder: D2MBuilder,
         ):
-            ctx = lhs.context
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
-            lhs_metal_ty = builder.get_metal_tensor_layout(
-                lhs_shape, tiled=True, element_dtype=torch_dtype
-            )
-            rhs_metal_ty = builder.get_metal_tensor_layout(
-                rhs_shape, tiled=True, element_dtype=torch_dtype
-            )
-            out_metal_ty = builder.get_metal_tensor_layout(
-                out_shape, tiled=True, element_dtype=torch_dtype
-            )
-            lhs_metal_ty_b = builder.get_metal_tensor_layout(
-                lhs_shape, tiled=True, element_dtype=torch_dtype
-            )
-            rhs_metal_ty_b = builder.get_metal_tensor_layout(
-                rhs_shape, tiled=True, element_dtype=torch_dtype
-            )
-            out_metal_ty_b = builder.get_metal_tensor_layout(
-                out_shape, tiled=True, element_dtype=torch_dtype
-            )
-            r0_start = grid_ranges[0][0]
-            r1_start = grid_ranges[1][0]
+            # Region r0.
+            core_start_r0 = grid_ranges[0][0]
+            lhs_m_r0 = prepare_metal_input(builder, lhs, lhs_shape, core_start_r0)
+            rhs_m_r0 = prepare_metal_input(builder, rhs, rhs_shape, core_start_r0)
+            out_m_r0 = prepare_metal_output(builder, out_shape, core_start_r0)
 
-            r0_vg_inv_attr, r0_vg_fwd_attr = _build_virtual_grid_attrs(
-                ctx, tensor_rank=len(lhs_metal_ty.shape), core_start=r0_start
-            )
-
-            r1_vg_inv_attr, r1_vg_fwd_attr = _build_virtual_grid_attrs(
-                ctx, tensor_rank=len(lhs_metal_ty_b.shape), core_start=r1_start
-            )
-
-            lhs_m = prepare_metal_input(
-                builder, lhs, lhs_metal_ty, r0_vg_inv_attr, r0_vg_fwd_attr
-            )
-            rhs_m = prepare_metal_input(
-                builder, rhs, rhs_metal_ty, r0_vg_inv_attr, r0_vg_fwd_attr
-            )
-            lhs_m_b = prepare_metal_input(
-                builder, lhs, lhs_metal_ty_b, r1_vg_inv_attr, r1_vg_fwd_attr
-            )
-            rhs_m_b = prepare_metal_input(
-                builder, rhs, rhs_metal_ty_b, r1_vg_inv_attr, r1_vg_fwd_attr
-            )
-            out0_m = prepare_metal_output(out_metal_ty, r0_vg_inv_attr, r0_vg_fwd_attr)
-            out1_m = prepare_metal_output(
-                out_metal_ty_b, r1_vg_inv_attr, r1_vg_fwd_attr
-            )
+            # Region r1.
+            core_start_r1 = grid_ranges[1][0]
+            lhs_m_r1 = prepare_metal_input(builder, lhs, lhs_shape, core_start_r1)
+            rhs_m_r1 = prepare_metal_input(builder, rhs, rhs_shape, core_start_r1)
+            out_m_r1 = prepare_metal_output(builder, out_shape, core_start_r1)
 
             region_builders = [
                 matmul_region_build(
-                    builder, lhs_m, rhs_m, out0_m, out_block_shape=out_block_tiles
+                    builder,
+                    lhs_m_r0,
+                    rhs_m_r0,
+                    out_m_r0,
+                    out_block_shape=out_block_tiles,
                 ),
                 matmul_region_build(
-                    builder, lhs_m_b, rhs_m_b, out1_m, out_block_shape=out_block_tiles
+                    builder,
+                    lhs_m_r1,
+                    rhs_m_r1,
+                    out_m_r1,
+                    out_block_shape=out_block_tiles,
                 ),
             ]
 
             spatial_results = builder.spatial(
-                [lhs_m, rhs_m, lhs_m_b, rhs_m_b],
-                [out0_m, out1_m],
+                [lhs_m_r0, rhs_m_r0, lhs_m_r1, rhs_m_r1],
+                [out_m_r0, out_m_r1],
                 grid_ranges,
                 region_builders,
-                result_types=[out0_m.type, out1_m.type],
+                result_types=[out_m_r0.type, out_m_r1.type],
             )
-            r0_m, r1_m = spatial_results[0], spatial_results[1]
+            result_m_r0, result_m_r1 = spatial_results[0], spatial_results[1]
 
-            res0 = builder.to_layout(r0_m, output_type=host_out_ty)
-            res1 = builder.to_layout(r1_m, output_type=host_out_ty)
+            res_r0 = builder.to_layout(result_m_r0, output_type=host_out_ty)
+            res_r1 = builder.to_layout(result_m_r1, output_type=host_out_ty)
 
             lhs_g = torch.randn(lhs_shape, dtype=torch_dtype)
             rhs_g = torch.randn(rhs_shape, dtype=torch_dtype)
             golden = lhs_g @ rhs_g
             builder.set_goldens(
                 {lhs: lhs_g, rhs: rhs_g},
-                {res0: golden, res1: golden},
+                {res_r0: golden, res_r1: golden},
             )
-            return (res0, res1)
+            return (res_r0, res_r1)
 
     compile_and_execute_d2m(
         spatial_module,
@@ -316,7 +284,6 @@ def test_single_matmul_offset_core(
         "use-tile-matmul=false",
         "enable-l1-acc=true",
     ]
-    metal_grid = [1, 1]
     out_block_tiles = [lhs_shape[0] // 32, rhs_shape[1] // 32]
 
     torch_dtype = torch.bfloat16
@@ -328,29 +295,11 @@ def test_single_matmul_offset_core(
             rhs: Operand,
             builder: D2MBuilder,
         ):
-            ctx = lhs.context
             host_out_ty = RankedTensorType.get(out_shape, lhs.type.element_type)
-            lhs_metal_ty = builder.get_metal_tensor_layout(
-                lhs_shape, tiled=True, element_dtype=torch_dtype
-            )
-            rhs_metal_ty = builder.get_metal_tensor_layout(
-                rhs_shape, tiled=True, element_dtype=torch_dtype
-            )
-            out_metal_ty = builder.get_metal_tensor_layout(
-                out_shape, tiled=True, element_dtype=torch_dtype
-            )
             core_start = grid_range_single_11[0][0]
-            vg_inv_attr, vg_fwd_attr = _build_virtual_grid_attrs(
-                ctx, tensor_rank=len(lhs_metal_ty.shape), core_start=core_start
-            )
-
-            lhs_m = prepare_metal_input(
-                builder, lhs, lhs_metal_ty, vg_inv_attr, vg_fwd_attr
-            )
-            rhs_m = prepare_metal_input(
-                builder, rhs, rhs_metal_ty, vg_inv_attr, vg_fwd_attr
-            )
-            out_m = prepare_metal_output(out_metal_ty, vg_inv_attr, vg_fwd_attr)
+            lhs_m = prepare_metal_input(builder, lhs, lhs_shape, core_start)
+            rhs_m = prepare_metal_input(builder, rhs, rhs_shape, core_start)
+            out_m = prepare_metal_output(builder, out_shape, core_start)
 
             r_m = builder.spatial(
                 [lhs_m, rhs_m],
