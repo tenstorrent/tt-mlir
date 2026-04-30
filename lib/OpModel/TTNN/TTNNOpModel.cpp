@@ -8,12 +8,15 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
+#include "ttmlir/Common/GraphTrackerLock.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+
+#include "tt-metalium/graph_tracking.hpp"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -86,7 +89,23 @@ struct ProgramCacheState {
 template <class Callable>
 llvm::Expected<::ttnn::graph::ConstraintQueryResponse>
 executeConstraintQuery(Callable &callable) {
+  // Serialize all graph-capture activity against runtime::submit so that
+  // tt-metal's GraphTracker singleton (not internally thread-safe) is
+  // never seen mid-mutation by a concurrent runtime op.  See
+  // ttmlir/Common/GraphTrackerLock.h for full rationale.
+  std::lock_guard<std::mutex> graphTrackerGuard(
+      ::tt::ttmlir::common::graphTrackerLock());
   ::ttnn::graph::ConstraintQueryResponse query;
+  // Snapshot GraphTracker depth before the query so we can drain leaked
+  // processors on the way out. ScopedGraphCapture's destructor swallows
+  // exceptions thrown by `end_capture` — when that happens, `pop_processor`
+  // never runs and the processor stays on the global GraphTracker singleton
+  // forever. Subsequent runtime ops that fire graph hooks (track_function_*,
+  // track_allocate_*) then dereference the leaked processor and either
+  // segfault or double-free in `add_buffer` / `track_function_start`.
+  // Drain unconditionally below regardless of success/failure.
+  const size_t graphTrackerDepthBefore =
+      ::tt::tt_metal::GraphTracker::instance().get_processors().size();
   try {
     auto *device = SingletonDeviceContext::getInstance().getDevice();
     ::ttnn::graph::detail::LogLevelGuard log_guard(
@@ -101,6 +120,32 @@ executeConstraintQuery(Callable &callable) {
     llvm::errs() << "Exception thrown during op constraints query: " << e.what()
                  << "\n";
     assert(false && "Exception thrown during op constraints query");
+  }
+  size_t graphTrackerDepthAfter =
+      ::tt::tt_metal::GraphTracker::instance().get_processors().size();
+  // Drain to zero, not just back to graphTrackerDepthBefore.  If a previous
+  // query leaked (depthBefore > 0), keeping the leak would propagate it into
+  // runtime execution: the model's first instrumented op (e.g. ttnn.deallocate)
+  // would dereference the stale processor in track_function_start and segfault.
+  // Optimizer constraint queries are single-threaded and no other code path
+  // should legitimately leave processors on the singleton between calls, so
+  // it's safe to drain unconditionally.
+  if (graphTrackerDepthAfter > 0) {
+    if (graphTrackerDepthAfter > graphTrackerDepthBefore) {
+      llvm::errs() << "GraphTracker leaked "
+                   << (graphTrackerDepthAfter - graphTrackerDepthBefore)
+                   << " processor(s) during constraint query (depth "
+                   << graphTrackerDepthBefore << " -> "
+                   << graphTrackerDepthAfter << "); draining to 0.\n";
+    } else if (graphTrackerDepthBefore > 0) {
+      llvm::errs() << "GraphTracker had " << graphTrackerDepthBefore
+                   << " stale processor(s) on entry to constraint query; "
+                   << "draining to 0 to keep runtime execution clean.\n";
+    }
+    while (
+        !::tt::tt_metal::GraphTracker::instance().get_processors().empty()) {
+      ::tt::tt_metal::GraphTracker::instance().pop_processor();
+    }
   }
 
   if (query.status != ::ttnn::graph::ExecutionStatus::Success) {
@@ -550,9 +595,13 @@ bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
   // we return false.
   try {
     auto tensorSpec = conversion::getTensorSpec(tensorShape, layout);
+    // GridAttr.getShape() returns [Y, X] (rows, cols) per createWorkerGrid
+    // convention; CoreCoord(x, y) takes X first.  Pass shape[1]=X to .x and
+    // shape[0]=Y to .y so the validate's worker rectangle has the right
+    // extent on non-square chips (e.g., Blackhole 10x11).
     auto computeGridSize = ::tt::tt_metal::CoreCoord{
-        static_cast<std::size_t>(maxGrid.getShape()[0]),
-        static_cast<std::size_t>(maxGrid.getShape()[1])};
+        static_cast<std::size_t>(maxGrid.getShape()[1]),
+        static_cast<std::size_t>(maxGrid.getShape()[0])};
     return conversion::validateTensorSpec(tensorSpec, computeGridSize);
   } catch (const std::exception &e) {
     return false;
@@ -4286,14 +4335,52 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
-  // Convert activation string to optional
-  std::optional<std::string> activationStr =
-      activation ? std::make_optional(activation->str()) : std::nullopt;
-
   // Convert program config attribute
   auto programConfig =
       programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
                         : std::nullopt;
+
+  // If the program config already carries the fused activation (kernel-fused
+  // path, the only legal one for sharded inputs per matmul.cpp:163), drop the
+  // top-level activation string — passing both triggers the
+  // `!parameters.user_fused_activation.has_value()` TT_FATAL when input is
+  // sharded, which causes the beam search to spuriously reject every sharded
+  // candidate and fall back to L1 interleaved.
+  auto programCarriesFusedActivation =
+      [](const std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+             &pc) -> bool {
+    if (!pc) {
+      return false;
+    }
+    return std::visit(
+        [](const auto &cfg) -> bool {
+          using T = std::decay_t<decltype(cfg)>;
+          if constexpr (
+              std::is_same_v<
+                  T, ::ttnn::operations::matmul::
+                         MatmulMultiCoreReuseMultiCastProgramConfig> ||
+              std::is_same_v<
+                  T, ::ttnn::operations::matmul::
+                         MatmulMultiCoreReuseMultiCast1DProgramConfig> ||
+              std::is_same_v<
+                  T,
+                  ::ttnn::operations::matmul::
+                      MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig> ||
+              std::is_same_v<
+                  T,
+                  ::ttnn::operations::matmul::
+                      MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig>) {
+            return cfg.fused_activation.has_value();
+          }
+          return false;
+        },
+        *pc);
+  };
+
+  std::optional<std::string> activationStr;
+  if (activation && !programCarriesFusedActivation(programConfig)) {
+    activationStr = activation->str();
+  }
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =

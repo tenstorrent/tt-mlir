@@ -4,7 +4,11 @@
 
 #include "Constants.h"
 
+#include <cstdio>
+
 #include "tt-metalium/experimental/fabric/fabric.hpp"
+#include "tt-metalium/graph_tracking.hpp"
+#include "ttmlir/Common/GraphTrackerLock.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
@@ -2068,6 +2072,44 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
   ZoneScoped;
+
+  // Serialize against the optimizer's compile-time constraint queries so
+  // that tt-metal's GraphTracker singleton (not internally thread-safe)
+  // is never seen mid-mutation by a concurrent compile thread.  The
+  // optimizer pushes graph processors via ScopedGraphCapture in
+  // executeConstraintQuery; without this lock those pushes can race with
+  // the runtime's op execution on a different XLA worker thread, causing
+  // segfaults inside track_function_start / track_program / track_device
+  // when iterating a partially-mutated `processors` vector.  Both the
+  // compile-side and runtime-side acquire the same process-wide mutex.
+  std::lock_guard<std::mutex> graphTrackerGuard(
+      ::tt::ttmlir::common::graphTrackerLock());
+
+  // Defensive drain: tt::tt_metal::GraphTracker is a process-level singleton
+  // shared between the optimizer's compile-time constraint queries and the
+  // runtime's op execution. The optimizer's executeConstraintQuery already
+  // drains its own leaks, but if anything pushes a processor between
+  // optimization and execution (e.g. tracy profiler installing a collector,
+  // an exception path that bypasses our drain, etc.), the very next
+  // instrumented op fired by the runtime (track_function_start /
+  // track_allocate_cb / track_device) will deref the stale processor and
+  // segfault. Force the stack to empty here so runtime always starts clean.
+  // Print directly to stderr (not via the runtime logger) so the warning is
+  // visible even when logging is off — this is the loudest possible signal
+  // that we're masking a leak from elsewhere.
+  {
+    auto &gt = ::tt::tt_metal::GraphTracker::instance();
+    if (!gt.get_processors().empty()) {
+      std::fprintf(stderr,
+                   "[runtime::submit] GraphTracker had %zu stale processor(s) "
+                   "on entry; draining to keep runtime instrumentation safe.\n",
+                   gt.get_processors().size());
+      std::fflush(stderr);
+      while (!gt.get_processors().empty()) {
+        gt.pop_processor();
+      }
+    }
+  }
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(

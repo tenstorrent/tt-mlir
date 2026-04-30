@@ -24,6 +24,7 @@
 #include "ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/D2MOptimizerUtils.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
@@ -273,7 +274,7 @@ public:
       }
 
       func->walk([&](Operation *op) {
-        if (!LegalOpLayoutAnalysis::isValidAnalysisTarget(op)) {
+        if (!optimizer_utils::opHasTensorResult(op)) {
           return;
         }
 

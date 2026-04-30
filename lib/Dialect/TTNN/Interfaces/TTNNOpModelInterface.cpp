@@ -2968,24 +2968,6 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = getA().getType().getShape();
   const auto inputShapeB = getB().getType().getShape();
 
-  // Skip getOpConstraints for matmul with block sharded first operand if height
-  // or width is less than tile size
-  // TODO (mvasiljevic): remove once the fix in metal is merged and uplifted:
-  // https://github.com/tenstorrent/tt-metal/pull/33777
-  if (!inputs.empty() && inputs[0].getMemLayout() &&
-      inputs[0].getMemLayout().getValue() == TensorMemoryLayout::BlockSharded &&
-      inputShapeA.size() >= 2) {
-    int64_t height = inputShapeA[inputShapeA.size() - 2];
-    int64_t width = inputShapeA[inputShapeA.size() - 1];
-    if (height < static_cast<int64_t>(TILE_HEIGHT) ||
-        width < static_cast<int64_t>(TILE_WIDTH)) {
-      return llvm::createStringError(
-          llvm::inconvertibleErrorCode(),
-          "Matmul with block sharded first operand having logical "
-          "shape less than tile size is not supported");
-    }
-  }
-
   ASSIGN_OR_RETURN(ttcore::GridAttr deviceGrid,
                    detail::getValidatedDeviceGrid(getOperation()));
 
@@ -3244,20 +3226,8 @@ PagedFillCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 SamplingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
-  assert(inputs.size() == 5);
-  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
-  if (!check) {
-    return check.takeError();
-  }
-  ttcore::GridAttr deviceGrid =
-      ttcore::lookupDevice(getOperation()).getWorkerGrid();
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<mlir::tt::ttnn::SamplingOp>::getOpConstraints, *this,
-      deviceGrid, getInputValues().getType().getShape(), inputs[0],
-      getInputIndices().getType().getShape(), inputs[1],
-      getK().getType().getShape(), inputs[2], getP().getType().getShape(),
-      inputs[3], getTemp().getType().getShape(), inputs[4], getSeed(),
-      opConfig.outputLayout);
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
 
 llvm::Expected<size_t>

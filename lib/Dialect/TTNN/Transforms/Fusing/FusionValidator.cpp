@@ -27,7 +27,7 @@ FusionValidationResult FusionValidator::runValidationPipeline(ModuleOp module) {
     workaroundOptions.decompositionWorkaroundsEnabled =
         config.applyDecompositionWorkarounds;
     workaroundOptions.layoutWorkaroundsEnabled = config.applyLayoutWorkarounds;
-    workaroundOptions.optimizerEnabled = true;
+    workaroundOptions.optimizationLevel = 1;
     pm.addPass(mlir::tt::ttnn::createTTNNWorkarounds(workaroundOptions));
 
     if (failed(pm.run(module))) {

@@ -165,7 +165,7 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
 /// NOP optimization (is_permute_nop) with different conditions.
 /// TODO(#7988): Split PermuteOp into its own PermuteRuleBook to avoid this
 /// op-kind check.
-static bool canReshapeBeView(Operation *op) {
+bool canReshapeBeView(Operation *op) {
   if (!mlir::isa<ReshapeOp>(op)) {
     return false;
   }
@@ -249,6 +249,22 @@ PadRuleBook::getOutputHints(Operation * /*op*/,
   // sharded.
   // https://github.com/tenstorrent/tt-metal/issues/40898
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
+//===----------------------------------------------------------------------===//
+// MeshPartitionRuleBook
+//===----------------------------------------------------------------------===//
+
+bool MeshPartitionRuleBook::shouldExploreReshards() const { return false; }
+
+OutputHints MeshPartitionRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
+  // mesh_partition: feed downstream KV-cache and paged-SDPA-decode consumers
+  // with DRAM-interleaved tensors only. Letting the optimizer pick L1 here
+  // produces an L1-block-sharded output that the SDPA-decode kernel rejects;
+  // when the multi-consumer reshard logic does not insert a DRAM reshard for
+  // every consumer, the verifier fires `keyType != valueType`.
+  return layout_filter_utils::dramInterleavedOnlyOutputHints(legalConfigs);
 }
 
 } // namespace mlir::tt::ttnn

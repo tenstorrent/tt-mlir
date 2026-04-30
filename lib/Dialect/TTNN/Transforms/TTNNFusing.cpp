@@ -324,10 +324,15 @@ public:
       FusionValidationConfig validationConfig;
       validationConfig.maxFallbackAttempts = maxFallbackAttempts;
 
-      patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
-                                                 validationConfig);
-      patterns.add<fusing::RoPEExpandedFusing>(&getContext(), validationConfig);
-      patterns.add<fusing::RoPEDecodeFusing>(&getContext());
+      // DEBUG: RoPE fusion disabled to bisect Gemma-4 opt2 decode PCC drift.
+      // opt2 prefill keeps decomposed RoPE but opt2 decode (g25) gets the
+      // fused ttnn.rotary_embedding op, producing slightly different bf16
+      // math than the cached K written by prefill — suspected cause of
+      // compounding decode-step drift.
+      // patterns.add<fusing::RoPERotateHalfFusing>(&getContext(),
+      //                                            validationConfig);
+      // patterns.add<fusing::RoPEExpandedFusing>(&getContext(), validationConfig);
+      // patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<fusing::TopKFusing>(&getContext(), validationConfig);
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());

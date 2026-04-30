@@ -56,6 +56,11 @@ struct SliceRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// True if a `ttnn.reshape` is realized by tt-metal as a zero-copy view of
+/// its input (same buffer, same address). Mirrors the `this_is_view`
+/// condition in tt-metal's reshape.cpp.
+bool canReshapeBeView(Operation *op);
+
 /// ReshapeOp, PermuteOp: reject width-sharded inputs, no reshards.
 /// View-eligible reshapes use NULL hint only (inherit input memory config).
 /// Non-view reshapes use non-sharded output hints.
@@ -69,6 +74,17 @@ struct ReshapeRuleBook : OpRuleBook {
 
 /// PadOp: non-sharded output only, no reshards.
 struct PadRuleBook : OpRuleBook {
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// MeshPartitionOp: DRAM-interleaved output only, no reshards.
+/// Downstream consumers (paged_update_cache, paged_sdpa_decode, mesh_shard)
+/// all require DRAM-interleaved input; allowing the optimizer to pick L1
+/// for the producer leaves multi-consumer reshards in inconsistent states.
+struct MeshPartitionRuleBook : OpRuleBook {
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,

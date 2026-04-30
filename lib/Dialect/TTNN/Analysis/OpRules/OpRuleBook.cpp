@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -71,10 +72,16 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PadRuleBook pad;
   static ConcatenateHeadsRuleBook concatHeads;
   static SDPARuleBook sdpa;
+  static SDPADecodeRuleBook sdpaDecode;
   static EmbeddingRuleBook embedding;
   static TypecastRuleBook typecast;
   static RotaryEmbeddingRuleBook rotaryEmbedding;
   static SplitQKVRuleBook splitQKV;
+  static MeshPartitionRuleBook meshPartition;
+  static RmsNormRuleBook rmsNorm;
+  static PagedUpdateCacheRuleBook pagedUpdateCache;
+  static FillCacheRuleBook fillCache;
+  static PagedFillCacheRuleBook pagedFillCache;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -98,15 +105,20 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PadOp::getOperationName(), &pad);
     reg(ConcatenateHeadsOp::getOperationName(), &concatHeads);
     reg(NLPConcatHeadsDecodeOp::getOperationName(), &sdpa);
-    reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpa);
-    reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(), &sdpa);
     reg(ScaledDotProductAttentionOp::getOperationName(), &sdpa);
+    reg(ScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
+    reg(PagedScaledDotProductAttentionDecodeOp::getOperationName(), &sdpaDecode);
     reg(EmbeddingOp::getOperationName(), &embedding);
     reg(TypecastOp::getOperationName(), &typecast);
     reg(WhereOp::getOperationName(), &typecast);
     reg(RotaryEmbeddingOp::getOperationName(), &rotaryEmbedding);
     reg(RotaryEmbeddingLlamaOp::getOperationName(), &rotaryEmbedding);
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
+    reg(MeshPartitionOp::getOperationName(), &meshPartition);
+    reg(RMSNormOp::getOperationName(), &rmsNorm);
+    reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
+    reg(FillCacheOp::getOperationName(), &fillCache);
+    reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;
