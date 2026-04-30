@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
-// Tests for ttir.gather_dim lowering to ttnn.gather with si32 indices.
+// Tests for ttir.gather lowering to ttnn.gather with si32 indices.
 // The runtime (gather.cpp) typecasts INT32 -> UINT32 before calling ::ttnn::gather.
 // All indices here are non-negative; the runtime assumes that contract.
 
@@ -11,7 +11,7 @@ func.func @gather_dim0_si32(%input: tensor<3x4xbf16>, %idx: tensor<2x4xi32>) -> 
   // CHECK-LABEL: func.func @gather_dim0_si32
   // CHECK: "ttnn.gather"({{.*}}) <{dim = 0 : i32}>
   // CHECK-SAME: (tensor<3x4xbf16, {{.*}}>, tensor<2x4xsi32, {{.*}}>) -> tensor<2x4xbf16, {{.*}}>
-  %0 = "ttir.gather_dim"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
+  %0 = "ttir.gather"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
   return %0 : tensor<2x4xbf16>
 }
 
@@ -20,7 +20,7 @@ func.func @gather_dim1_si32(%input: tensor<3x4xf32>, %idx: tensor<3x2xi32>) -> t
   // CHECK-LABEL: func.func @gather_dim1_si32
   // CHECK: "ttnn.gather"({{.*}}) <{dim = 1 : i32}>
   // CHECK-SAME: tensor<3x2xsi32, {{.*}}>
-  %0 = "ttir.gather_dim"(%input, %idx) <{dim = 1 : i32}> : (tensor<3x4xf32>, tensor<3x2xi32>) -> tensor<3x2xf32>
+  %0 = "ttir.gather"(%input, %idx) <{dim = 1 : i32}> : (tensor<3x4xf32>, tensor<3x2xi32>) -> tensor<3x2xf32>
   return %0 : tensor<3x2xf32>
 }
 
@@ -29,7 +29,7 @@ func.func @gather_4d_si32(%input: tensor<2x3x4x5xbf16>, %idx: tensor<2x3x2x5xi32
   // CHECK-LABEL: func.func @gather_4d_si32
   // CHECK: "ttnn.gather"({{.*}}) <{dim = 2 : i32}>
   // CHECK-SAME: tensor<2x3x2x5xsi32, {{.*}}>
-  %0 = "ttir.gather_dim"(%input, %idx) <{dim = 2 : i32}> : (tensor<2x3x4x5xbf16>, tensor<2x3x2x5xi32>) -> tensor<2x3x2x5xbf16>
+  %0 = "ttir.gather"(%input, %idx) <{dim = 2 : i32}> : (tensor<2x3x4x5xbf16>, tensor<2x3x2x5xi32>) -> tensor<2x3x2x5xbf16>
   return %0 : tensor<2x3x2x5xbf16>
 }
 
@@ -49,7 +49,7 @@ func.func @gather_const_si32() -> tensor<2x4xbf16> {
     [0, 1, 2, 0],
     [1, 2, 0, 1]
   ]> : tensor<2x4xi32>}> : () -> tensor<2x4xi32>
-  %0 = "ttir.gather_dim"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
+  %0 = "ttir.gather"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
   return %0 : tensor<2x4xbf16>
 }
 
@@ -69,7 +69,7 @@ func.func @gather_const_si32_max_idx() -> tensor<2x4xbf16> {
     [2, 2, 2, 2],
     [2, 2, 2, 2]
   ]> : tensor<2x4xi32>}> : () -> tensor<2x4xi32>
-  %0 = "ttir.gather_dim"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
+  %0 = "ttir.gather"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xi32>) -> tensor<2x4xbf16>
   return %0 : tensor<2x4xbf16>
 }
 
@@ -78,6 +78,6 @@ func.func @gather_dim0_ui32(%input: tensor<3x4xbf16>, %idx: tensor<2x4xui32>) ->
   // CHECK-LABEL: func.func @gather_dim0_ui32
   // CHECK: "ttnn.gather"({{.*}}) <{dim = 0 : i32}>
   // CHECK-SAME: tensor<2x4xui32, {{.*}}>
-  %0 = "ttir.gather_dim"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xui32>) -> tensor<2x4xbf16>
+  %0 = "ttir.gather"(%input, %idx) <{dim = 0 : i32}> : (tensor<3x4xbf16>, tensor<2x4xui32>) -> tensor<2x4xbf16>
   return %0 : tensor<2x4xbf16>
 }
