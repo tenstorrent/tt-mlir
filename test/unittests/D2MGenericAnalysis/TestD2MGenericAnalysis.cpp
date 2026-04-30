@@ -1033,7 +1033,8 @@ func.func @test(
   generic.walk([&](d2m::SynchronizedRegionOp op) { foundSyncOp = true; });
   EXPECT_FALSE(foundSyncOp);
 
-  // Verify same number of ops after unwrapping (arith.constant is duplicated).
+  // Verify same number of ops after unwrapping (arith.constant and
+  // memref.collapse_shape are duplicated).
   Block &blockAfter = generic.getRegion(0).front();
   Block::iterator startAfter = blockAfter.begin();
   Block::iterator endAfter = blockAfter.end();
@@ -1041,10 +1042,10 @@ func.func @test(
   for (auto it = startAfter; it != endAfter; ++it) {
     ++opsAfterUnwrap;
   }
-  EXPECT_EQ(opsAfterUnwrap, opsBeforeWrap + 1u);
+  EXPECT_EQ(opsAfterUnwrap, opsBeforeWrap + 4u);
 
   // Verify IR structure is restored by checking op types (arith.constant is
-  // duplicated).
+  // and memref.collapse_shape are duplicated).
   size_t collapseCount = 0, loadCount = 0, storeCount = 0, addCount = 0,
          constantCount = 0;
   for (auto it = startAfter; it != endAfter; ++it) {
@@ -1065,8 +1066,10 @@ func.func @test(
     }
   }
   ASSERT_EQ(constantCount, 2u);
-  EXPECT_EQ(collapseCount, 3u);
+  EXPECT_EQ(collapseCount, 6u);
   EXPECT_EQ(loadCount, 2u);
   EXPECT_EQ(storeCount, 1u);
   EXPECT_EQ(addCount, 1u);
+}
+
 } // namespace mlir::tt::d2m
