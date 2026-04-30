@@ -2479,7 +2479,7 @@ static int32_t getNocElementAlignmentL1(ConcreteOp op,
   const int32_t elemBytes = std::max(
       1, static_cast<int32_t>(tensorType.getElementTypeBitWidth()) / 8);
 
-  assert((nocAlignmentL1 != 0) && (nocAlignmentL1 % elemBytes == 0));
+  TT_assert(((nocAlignmentL1 != 0) && (nocAlignmentL1 % elemBytes == 0)));
   return nocAlignmentL1 / elemBytes;
 }
 
@@ -2518,6 +2518,8 @@ public:
     const int32_t alignToElements = getNocElementAlignmentL1(op, outType);
 
     if (dim >= rank - 2) {
+      const int64_t tileSize =
+          ttcore::TileType::getDefaultShape()[dim - rank + 2];
       const int nInputs = static_cast<int>(op.getInputs().size());
       for (int i = 0; i < nInputs; i++) {
         auto inType = mlir::cast<RankedTensorType>(op.getInputs()[i].getType());
@@ -2525,7 +2527,7 @@ public:
 
         // If any (other than the last) input has padding on the concat dim, do
         // row-major concat.
-        if ((i != nInputs - 1) && (dimSize % 32 != 0)) {
+        if ((i != nInputs - 1) && (dimSize % tileSize != 0)) {
           concatRowMajor = true;
         }
 
@@ -2569,7 +2571,7 @@ public:
       dim = rank - 2;
 
       effectiveInputs.clear();
-      for (auto input : op.getInputs()) {
+      for (auto input : adaptor.getOperands()) {
         auto inType = mlir::cast<RankedTensorType>(input.getType());
 
         auto transposedInShape =

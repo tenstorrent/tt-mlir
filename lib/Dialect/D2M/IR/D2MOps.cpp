@@ -1334,7 +1334,7 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
       const int64_t totalLogicalExtent = std::accumulate(
           logicalSizes.value().begin(), logicalSizes.value().end(), 0);
       if (totalLogicalExtent > accum) {
-        return emitOpError("incorret logicalSizes.");
+        return emitOpError("sum of logicalSizes exceeds output capacity.");
       }
     }
   }

@@ -68,6 +68,8 @@ def D2M_CompositeViewOp : D2M_Op<"composite_view",
   let description = [{
     Represents a piecewise-affine view that aggregates multiple input tensors
     along a certain dimension.
+    The optional `logicalSizes` attribute records the logical sizes of the
+    inputs along `dim`, which is required for row-major inputs.
   }];
 
   let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
