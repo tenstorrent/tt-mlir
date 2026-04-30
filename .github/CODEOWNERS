@@ -76,7 +76,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
 /test/ttmlir/Dialect/TTIR/ @tenstorrent/forge-developers-mlir-core @mrakitaTT
 
-# D2M Dialect
+# D2M Dialect (general)
 /include/ttmlir/Conversion/D2M* @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Conversion/*D2M @tenstorrent/forge-developers-mlir-d2m
 /include/ttmlir/Dialect/D2M/ @tenstorrent/forge-developers-mlir-d2m
@@ -124,22 +124,22 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/D2M/materialize_view_returns.mlir @vwellsTT
 
 # D2M Thread Splitting and DMA Lowering
-/lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp @vtangTT @sohaibnadeemTT
-/lib/Dialect/D2M/Transforms/LowerLoadStoreOpsToDMA.cpp @vtangTT @sohaibnadeemTT
-/lib/Dialect/D2M/Transforms/PreallocateMcastSemaphores.cpp @vtangTT @sohaibnadeemTT
-/lib/Dialect/D2M/Transforms/LowerDMAToFullyIndexedForm.cpp @vtangTT @sohaibnadeemTT
-/lib/Dialect/D2M/Transforms/ScheduleDMA.cpp @vtangTT @sohaibnadeemTT
-/lib/Dialect/D2M/Transforms/DMAOptimizations.cpp @vtangTT @sohaibnadeemTT
-/lib/Dialect/D2M/Transforms/LowerMulticastLoads.cpp @vtangTT @sohaibnadeemTT
-/lib/Dialect/D2M/Transforms/ExpandDMAReadCompositeView.cpp @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/split_unified_thread*.mlir @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/schedule_dma.mlir @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/preallocate_mcast_semaphores.mlir @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/lower_load_store_ops*.mlir @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/lower_dma_to_fully_indexed_form.mlir @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/dma_optimizations.mlir @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/lower_multicast_loads.mlir @vtangTT @sohaibnadeemTT
-/test/ttmlir/Dialect/D2M/Transforms/expand_dma_read_composite_view.mlir @vtangTT @sohaibnadeemTT
+/lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/lib/Dialect/D2M/Transforms/LowerLoadStoreOpsToDMA.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/lib/Dialect/D2M/Transforms/PreallocateMcastSemaphores.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/lib/Dialect/D2M/Transforms/LowerDMAToFullyIndexedForm.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/lib/Dialect/D2M/Transforms/ScheduleDMA.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/lib/Dialect/D2M/Transforms/DMAOptimizations.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/lib/Dialect/D2M/Transforms/LowerMulticastLoads.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/lib/Dialect/D2M/Transforms/ExpandDMAReadCompositeView.cpp @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/split_unified_thread*.mlir @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/schedule_dma.mlir @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/preallocate_mcast_semaphores.mlir @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/lower_load_store_ops*.mlir @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/lower_dma_to_fully_indexed_form.mlir @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/dma_optimizations.mlir @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/lower_multicast_loads.mlir @vtangTT @sohaibnadeemTT @arminaleTT
+/test/ttmlir/Dialect/D2M/Transforms/expand_dma_read_composite_view.mlir @vtangTT @sohaibnadeemTT @arminaleTT
 
 # D2M Runtime (D2MToTTNN, D2MToTTMetal, D2MToTTKernel)
 /lib/Dialect/D2M/Transforms/NormalizeThreadArgs.cpp @vtangTT @arminaleTT @hkwonTT @sohaibnadeemTT
