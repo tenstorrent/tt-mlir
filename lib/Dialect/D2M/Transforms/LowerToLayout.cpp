@@ -18,6 +18,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <numeric>
 #include <string>
 
 namespace mlir::tt::d2m {
@@ -320,24 +321,52 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       ArrayRef<int64_t> shardShape = layout.getShardShape(type);
       uint64_t elementSizeBytes =
           ttcore::getElementSizeBytes(type.getElementType());
-      if (shardShape.empty() ||
-          static_cast<uint64_t>(shardShape.back()) * elementSizeBytes >=
-              minTransferBytes) {
+      if (shardShape.empty()) {
         return grid;
       }
 
-      // Keep scalar D2H bounce transfers aligned by reducing the x-grid until
-      // each core owns enough contiguous innermost data for one NOC transfer.
       llvm::SmallVector<int64_t> physicalShape;
       physicalShape.reserve(grid.size());
       for (auto [gridDim, shardDim] : llvm::zip_equal(grid, shardShape)) {
         physicalShape.push_back(gridDim * shardDim);
       }
 
+      uint64_t tilePageSize =
+          ttcore::TileType::get(type.getElementType()).getSizeBytes();
+      auto getShardSizeBytes = [&](ArrayRef<int64_t> candidateGrid) {
+        uint64_t shardSizeBytes = elementSizeBytes;
+        for (auto [physicalDim, gridDim] :
+             llvm::zip_equal(physicalShape, candidateGrid)) {
+          TT_assert(physicalDim % gridDim == 0);
+          shardSizeBytes *= static_cast<uint64_t>(physicalDim / gridDim);
+        }
+        return shardSizeBytes;
+      };
+      auto isCBPageCompatible = [&](uint64_t shardSizeBytes) {
+        uint64_t pageSize = std::min(tilePageSize, shardSizeBytes);
+        return shardSizeBytes % pageSize == 0;
+      };
+      auto hasNocAlignedInnermostShard = [&](ArrayRef<int64_t> candidateGrid) {
+        return static_cast<uint64_t>(physicalShape.back() /
+                                     candidateGrid.back()) *
+                   elementSizeBytes >=
+               minTransferBytes;
+      };
+
+      if (hasNocAlignedInnermostShard(grid) &&
+          isCBPageCompatible(getShardSizeBytes(grid))) {
+        return grid;
+      }
+
+      // Scalar D2H bounce grids must satisfy two runtime constraints. NOC reads
+      // need enough contiguous innermost bytes when possible, and CB page
+      // rounding must not exceed the backing per-core L1 shard allocation.
       int64_t originalVolume =
           ttmlir::utils::volume(llvm::ArrayRef<int64_t>(grid));
-      llvm::SmallVector<int64_t> bestGrid = grid;
-      int64_t bestVolume = 0;
+      llvm::SmallVector<int64_t> bestAlignedGrid;
+      llvm::SmallVector<int64_t> bestCompatibleGrid;
+      int64_t bestAlignedVolume = 0;
+      int64_t bestCompatibleVolume = 0;
       int64_t maxY = std::min(targetGridShape[0], grid[0]);
       int64_t maxX = std::min(targetGridShape[1], grid[1]);
       for (int64_t y = 1; y <= maxY; ++y) {
@@ -349,20 +378,38 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             continue;
           }
 
-          uint64_t shardLastDimBytes =
-              static_cast<uint64_t>(physicalShape[1] / x) * elementSizeBytes;
+          llvm::SmallVector<int64_t> candidateGrid = {y, x};
           int64_t volume = y * x;
-          if (shardLastDimBytes < minTransferBytes || volume > originalVolume ||
-              volume <= bestVolume) {
+          if (volume > originalVolume) {
             continue;
           }
 
-          bestGrid = {y, x};
-          bestVolume = volume;
+          if (!isCBPageCompatible(getShardSizeBytes(candidateGrid))) {
+            continue;
+          }
+
+          if (volume > bestCompatibleVolume) {
+            bestCompatibleGrid = candidateGrid;
+            bestCompatibleVolume = volume;
+          }
+
+          if (hasNocAlignedInnermostShard(candidateGrid) &&
+              volume > bestAlignedVolume) {
+            bestAlignedGrid = candidateGrid;
+            bestAlignedVolume = volume;
+          }
         }
       }
 
-      return bestGrid;
+      if (!bestAlignedGrid.empty()) {
+        return bestAlignedGrid;
+      }
+
+      if (!bestCompatibleGrid.empty()) {
+        return bestCompatibleGrid;
+      }
+
+      return grid;
     }
 
     // Create a device tensor type from a system tensor type.
