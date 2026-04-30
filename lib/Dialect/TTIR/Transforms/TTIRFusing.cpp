@@ -3034,6 +3034,54 @@ public:
   }
 };
 
+// Folds `ttir.logical_right_shift %x, splat-constant<C>` to a zero constant
+// when the result element type is i32/ui32 and C >= 32.
+class SaturatingRightShiftFoldPattern
+    : public mlir::OpRewritePattern<LogicalRightShiftOp> {
+  using mlir::OpRewritePattern<LogicalRightShiftOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(LogicalRightShiftOp op,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto resultType = mlir::dyn_cast<mlir::RankedTensorType>(op.getType());
+    if (!resultType) {
+      return mlir::failure();
+    }
+
+    auto intType =
+        mlir::dyn_cast<mlir::IntegerType>(resultType.getElementType());
+    if (!intType || intType.getWidth() != 32) {
+      return mlir::failure();
+    }
+
+    mlir::Value src =
+        ttmlir::utils::lookThrough<BroadcastOp, ReshapeOp>(op.getRhs());
+    mlir::Operation *def = src.getDefiningOp();
+    std::optional<llvm::APInt> shiftAmount;
+    if (auto constOp = mlir::dyn_cast_or_null<ConstantOp>(def)) {
+      if (auto attr =
+              mlir::dyn_cast<mlir::DenseIntElementsAttr>(constOp.getValue());
+          attr && attr.isSplat()) {
+        shiftAmount = attr.getSplatValue<llvm::APInt>();
+      }
+    } else if (auto fullOp = mlir::dyn_cast_or_null<FullOp>(def)) {
+      if (auto intAttr =
+              mlir::dyn_cast<mlir::IntegerAttr>(fullOp.getFillValueAttr())) {
+        shiftAmount = intAttr.getValue();
+      }
+    }
+    if (!shiftAmount || shiftAmount->ult(32)) {
+      return mlir::failure();
+    }
+
+    auto zeroAttr =
+        mlir::DenseElementsAttr::get(resultType, llvm::APInt(32, 0));
+    rewriter.replaceOpWithNewOp<ConstantOp>(op, resultType, zeroAttr);
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -3094,6 +3142,7 @@ public:
       patterns.add<HardsigmoidFusionPattern>(&getContext());
       patterns.add<MishFusingPattern>(&getContext());
       patterns.add<ReshapeBroadcastReshapeToRepeatPattern>(&getContext());
+      patterns.add<SaturatingRightShiftFoldPattern>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
