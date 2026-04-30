@@ -74,7 +74,6 @@ bool isAliasedStore(RemoteStoreOp storeOp) {
 }
 
 Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
-  llvm::errs() << "tracing value: " << value << "\n";
   while (value) {
     // check if its a cb (hoisted generic arg with cb layout attr),
     if (auto memrefType = mlir::dyn_cast<MemRefType>(value.getType())) {
@@ -86,7 +85,6 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
         if (auto scratchBufferAttr =
                 mlir::dyn_cast<Operation *>(value.getDefiningOp())
                     ->getAttr("d2m.scratch_buffer")) {
-          // llvm::errs() << "value is a scratch buffer: " << value << "\n";
           return nullptr;
         }
         return value;
@@ -97,8 +95,6 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
     // tracing and return nullptr
     Operation *definingOp = value.getDefiningOp();
     if (!definingOp || !genericOp->isProperAncestor(definingOp)) {
-      llvm::errs() << "definingOp is not a proper ancestor of genericOp: "
-                   << *definingOp << "\n";
       return nullptr;
     }
 
@@ -111,12 +107,9 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
       value = subviewOp.getSource();
       continue;
     } else {
-      llvm::errs() << "definingOp is not a collapse_shape or subview op: "
-                   << *definingOp << "\n";
       return nullptr;
     }
   }
-  llvm::errs() << "value is not a cb: " << value << "\n";
   return nullptr;
 }
 
@@ -234,13 +227,6 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       });
     }
 
-    llvm::errs() << "\n";
-    llvm::errs() << "storedCBOperands: ";
-    for (Value storedCBOperand : storedCBOperands) {
-      llvm::errs() << storedCBOperand << " ";
-    }
-    llvm::errs() << "\n";
-
     // remove allocs in load that are in store since this is output cb reuse and
     // not an actual input
     for (Value storedCBOperand : storedCBOperands) {
@@ -249,19 +235,6 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       }
     }
 
-    llvm::errs() << "loadedCBOperands after cleanup: ";
-    for (Value loadedCBOperand : loadedCBOperands) {
-      llvm::errs() << loadedCBOperand << " ";
-    }
-    llvm::errs() << "\n";
-    llvm::errs() << "storedCBOperands after cleanup: ";
-    for (Value storedCBOperand : storedCBOperands) {
-      llvm::errs() << storedCBOperand << " ";
-    }
-    llvm::errs() << "\n";
-    llvm::errs() << "wrapping in synchronized region\n";
-    llvm::errs() << "start: " << *start << "\n";
-    llvm::errs() << "end: " << *(std::prev(end)) << "\n";
     utils::wrapInSynchronizedRegion(
         rewriter, start, end,
         SmallVector<Value>(loadedCBOperands.begin(), loadedCBOperands.end()),
@@ -455,7 +428,6 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     // converting remote loads and stores to aliased load and store
 
     Value localBuffer = loadOp.getLocalBuffer();
-    // llvm::errs() << "cbMemref: " << localBuffer << "\n";
     unsigned cbOperandIdx =
         loadOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
 
@@ -611,8 +583,6 @@ public:
       return failure();
     }
 
-    llvm::errs() << "generic: " << *generic << "\n";
-
     Region &originalRegion = generic.getRegion(0);
     if (originalRegion.empty()) {
       return failure();
@@ -669,7 +639,6 @@ public:
     // Compute thread: insert CB sync ops for implicit-form remote ops.
     auto cbUsageInfoCompute = utils::getCBUsageInfo(newGeneric.getRegion(1));
     auto cbUsageInfoDm = utils::getCBUsageInfo(newGeneric.getRegion(0));
-    llvm::errs() << "compute block: " << *computeBlock << "\n";
     if (failed(processSharedBufferPairs(computeBlock, rewriter,
                                         cbUsageInfoCompute)) ||
         failed(insertCBOpsForCompute(computeBlock, rewriter,
@@ -705,8 +674,6 @@ public:
       }
       return WalkResult::advance();
     });
-
-    llvm::errs() << "newGeneric: " << *newGeneric << "\n";
 
     rewriter.replaceOp(generic, newGeneric.getResults());
 
