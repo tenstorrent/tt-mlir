@@ -76,8 +76,8 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
 
   for (auto &input : entry.getBody().getArguments()) {
     if (mlir::isa<mlir::tt::ttnn::GlobalSemaphoreType>(input.getType())) {
-      program.semaphoreInputs.push_back(cache.getOrCreate(
-          input, [](FlatbufferObjectCache &c, mlir::Value) {
+      program.semaphoreInputs.push_back(
+          cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value) {
             return ::tt::target::ttnn::CreateGlobalSemaphoreRef(
                 *c.fbb, c.nextGlobalId());
           }));

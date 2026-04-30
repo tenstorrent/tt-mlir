@@ -1609,8 +1609,8 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
 
   ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef> semaphore = 0;
   if (op.getSemaphore()) {
-    semaphore = cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
-        op.getSemaphore());
+    semaphore =
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(op.getSemaphore());
   }
 
   return ::tt::target::ttnn::CreateDistributedRMSNormOp(
@@ -3166,9 +3166,8 @@ createOp(FlatbufferObjectCache &cache, CaptureOrExecuteTraceOp op,
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
       semaphoreInputs;
   for (auto semaphore : op.getSemaphoreInputs()) {
-    semaphoreInputs.push_back(
-        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
-            getOperandThroughDPSOps(semaphore)));
+    semaphoreInputs.push_back(cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+        getOperandThroughDPSOps(semaphore)));
   }
 
   auto captureIt = programIndexMap.find(op.getCaptureCallee().str());

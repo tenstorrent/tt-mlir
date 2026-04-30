@@ -4,6 +4,7 @@
 
 #include "operations/mlir_native/func_call.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 
@@ -18,15 +19,8 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
         context.getTensorPool().getRuntimeTensorAndValidate(input));
   }
 
-  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs;
-  if (op->semaphore_inputs()) {
-    semaphoreInputs.reserve(op->semaphore_inputs()->size());
-    for (const auto *semaphoreRef : *op->semaphore_inputs()) {
-      semaphoreInputs.push_back(
-          context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
-              semaphoreRef));
-    }
-  }
+  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs =
+      utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
 
   ProgramExecutor executor(context.getDeviceHandle(),
                            context.getExecutableHandle(), programIndex, inputs,

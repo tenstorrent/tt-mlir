@@ -492,7 +492,8 @@ private:
       // Regular inputs need device memory allocation for host-to-device
       // transfer. Create empty tensors on device that will serve as persistent
       // slots for trace input data during capture and replay.
-      mlir::Type traceInputSlotType = traceInputSlotTypes[traceInputSlots.size()];
+      mlir::Type traceInputSlotType =
+          traceInputSlotTypes[traceInputSlots.size()];
 
       RankedTensorType deviceTensorType =
           mlir::cast<RankedTensorType>(traceInputSlotType);
@@ -832,8 +833,8 @@ private:
       }
 
       if (!mlir::isa<RankedTensorType>(input.getType())) {
-        captureOrExecuteTraceOpTensorInputs.push_back(input);
-        continue;
+        return funcOp.emitError(
+            "Trace input must be a ranked tensor or global semaphore");
       }
 
       // Check if this value should remain on device during trace capture.
