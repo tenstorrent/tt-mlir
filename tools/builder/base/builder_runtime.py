@@ -855,17 +855,20 @@ def execute_fb(
                     output_device_tensors[device_id].get_data_buffer()
                 )
 
-                ref_tensor = output_device_tensors[device_id]
                 if len(data_buffer) == 0:
                     output_shard_torch = torch.empty(
-                        ref_tensor.get_shape(),
-                        dtype=runtime_dtype_to_torch_dtype(ref_tensor.get_dtype()),
+                        output_device_tensors[device_id].get_shape(),
+                        dtype=runtime_dtype_to_torch_dtype(
+                            output_device_tensors[device_id].get_dtype()
+                        ),
                     )
                 else:
                     output_shard_torch = torch.frombuffer(
                         data_buffer,
-                        dtype=runtime_dtype_to_torch_dtype(ref_tensor.get_dtype()),
-                    ).reshape(ref_tensor.get_shape())
+                        dtype=runtime_dtype_to_torch_dtype(
+                            output_device_tensors[device_id].get_dtype()
+                        ),
+                    ).reshape(output_device_tensors[device_id].get_shape())
 
                 golden_shard_torch = golden_outputs_torch[i][device_id]
                 results = check_outputs(
