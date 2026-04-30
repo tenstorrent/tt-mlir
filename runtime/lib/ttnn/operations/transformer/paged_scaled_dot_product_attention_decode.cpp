@@ -43,9 +43,6 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   std::optional<float> scale = op->scale();
   std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
   auto computeGrid = query.device()->compute_with_storage_grid_size();
-  if (op->core_grid()) {
-    computeGrid = ::tt::runtime::ttnn::utils::toTTNNCoreCoord(*op->core_grid());
-  }
 
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = std::nullopt;
@@ -62,12 +59,6 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     programConfig->compute_with_storage_grid_size = computeGrid;
     programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
     programConfig->exp_approx_mode = false;
-  } else if (op->core_grid()) {
-    programConfig.emplace();
-    programConfig->q_chunk_size = 0;
-    programConfig->k_chunk_size = 0;
-    programConfig->compute_with_storage_grid_size = computeGrid;
-    programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
   }
 
   ::ttnn::Tensor out =
