@@ -1584,6 +1584,28 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @cb_runtime_arg_names
+    func.func @cb_runtime_arg_names() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %idx = arith.constant 0 : index
+      %num_pages = arith.constant 1 : i32
+      // CHECK: %[[CTARG_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK-NEXT: emitc.verbatim "experimental::CircularBuffer [[CB_CTARG0:cb_ctarg_0]]({});"
+      %cb_ctarg = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb2_tiles
+      // CHECK: %[[ARG_CB0:.*]] = emitc.call_opaque "get_arg_val"
+      // CHECK-NEXT: emitc.verbatim "experimental::CircularBuffer [[CB_ARG0:cb_arg_0]]({});"
+      %cb0 = "ttkernel.get_arg_val"(%idx) : (index) -> !cb0_tiles
+      // CHECK: %[[ARG_CB1:.*]] = emitc.call_opaque "get_common_arg_val"
+      // CHECK-NEXT: emitc.verbatim "experimental::CircularBuffer [[CB_ARG1:cb_arg_1]]({});"
+      %cb1 = "ttkernel.get_common_arg_val"(%idx) : (index) -> !cb1_tiles
+      // CHECK: emitc.verbatim "[[CB_CTARG0]].wait_front({});"
+      "ttkernel.cb_wait_front"(%cb_ctarg, %num_pages) : (!cb2_tiles, i32) -> ()
+      // CHECK: emitc.verbatim "[[CB_ARG0]].reserve_back({});"
+      "ttkernel.cb_reserve_back"(%cb0, %num_pages) : (!cb0_tiles, i32) -> ()
+      // CHECK: emitc.verbatim "[[CB_ARG1]].push_back({});"
+      "ttkernel.cb_push_back"(%cb1, %num_pages) : (!cb1_tiles, i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @cb_object_dedup
     func.func @cb_object_dedup() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.verbatim "experimental::CircularBuffer [[DEDUP_CB:cb_ctarg_0]]({});"

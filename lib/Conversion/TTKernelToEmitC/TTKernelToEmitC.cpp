@@ -28,7 +28,6 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <cctype>
 #include <string>
 
 using namespace mlir;
@@ -108,43 +107,38 @@ datatypeToDataformatEnumValueOpaqueAttr(Builder &builder,
   return builder.getType<emitc::OpaqueAttr>(expression.c_str());
 }
 
-static std::string sanitizeIdentifier(llvm::StringRef identifier) {
-  std::string sanitized;
-  sanitized.reserve(identifier.size());
-  for (char ch : identifier) {
-    sanitized.push_back(std::isalnum(static_cast<unsigned char>(ch)) ? ch
-                                                                     : '_');
-  }
-  if (sanitized.empty() ||
-      std::isdigit(static_cast<unsigned char>(sanitized.front()))) {
-    sanitized.insert(sanitized.begin(), '_');
-  }
-  return sanitized;
-}
-
-static std::string getValueIdentifier(Value value, llvm::StringRef prefix) {
-  std::string ssaName;
-  llvm::raw_string_ostream os(ssaName);
-  mlir::OpPrintingFlags flags;
-  value.printAsOperand(os, flags);
-  os.flush();
-
-  llvm::StringRef baseName = ssaName;
-  if (baseName.starts_with("%")) {
-    baseName = baseName.drop_front();
-  }
-
-  return (prefix + sanitizeIdentifier(baseName)).str();
-}
-
 static std::string getCBName(Value cb) {
-  if (auto *defOp = cb.getDefiningOp()) {
-    if (auto idxAttr =
-            defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_ctarg_index")) {
-      return "cb_ctarg_" + std::to_string(idxAttr.getInt());
-    }
+  Operation *defOp = cb.getDefiningOp();
+
+  if (auto idxAttr =
+          defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_ctarg_idx")) {
+    return "cb_ctarg_" + std::to_string(idxAttr.getInt());
   }
-  return getValueIdentifier(cb, "cb_ssa_");
+
+  auto idxAttr = defOp->getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx");
+  assert(idxAttr && "CB value must have a stable lowering name");
+  return "cb_arg_" + std::to_string(idxAttr.getInt());
+}
+
+// Assign deterministic names to non-compile-time CB arguments before dialect
+// conversion. Runtime and common runtime arguments use their own common index
+// space, derived from the function-local source-order to be stable &
+// non-conflicting.
+static void assignRuntimeCBArgIndices(func::FuncOp funcOp) {
+  int32_t nextCBArgIndex = 0;
+  funcOp.walk([&](Operation *op) {
+    if (!isa<ttkernel::GetArgValOp, ttkernel::GetCommonArgValOp>(op)) {
+      return;
+    }
+
+    if (!isa<ttkernel::CBType>(op->getResult(0).getType())) {
+      return;
+    }
+
+    op->setAttr("ttkernel.cb_arg_idx",
+                IntegerAttr::get(IntegerType::get(op->getContext(), 32),
+                                 nextCBArgIndex++));
+  });
 }
 
 static bool isCBDeclaration(emitc::VerbatimOp verbatim,
@@ -692,17 +686,25 @@ public:
           (Twine("get_compile_time_arg_val(") + Twine(op.getArgIndex()) + ")")
               .str());
       if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
-        literal->setAttr("ttkernel.cb_ctarg_index",
+        literal->setAttr("ttkernel.cb_ctarg_idx",
                          rewriter.getI32IntegerAttr(op.getArgIndex()));
       }
       return literal.getResult();
     }
 
-    return rewriter
-        .create<emitc::CallOpaqueOp>(op.getLoc(), resultType, getOpName(op),
-                                     nullptr, getTemplateArgs(rewriter, op),
-                                     adaptor.getOperands())
-        .getResult(0);
+    auto call = rewriter.create<emitc::CallOpaqueOp>(
+        op.getLoc(), resultType, getOpName(op), nullptr,
+        getTemplateArgs(rewriter, op), adaptor.getOperands());
+
+    // Relay the preassigned CB runtime arg index.
+    if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
+      auto idxAttr =
+          op->template getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx");
+      assert(idxAttr && "CB runtime arg must have a stable lowering name");
+      call->setAttr("ttkernel.cb_arg_idx", idxAttr);
+    }
+
+    return call.getResult(0);
   }
 
   LogicalResult
@@ -1499,6 +1501,8 @@ public:
     if (!funcOp->hasAttr(ttkernel::ThreadTypeAttr::name)) {
       return success();
     }
+
+    assignRuntimeCBArgIndices(funcOp);
 
     ConversionTarget target(*funcOp.getContext());
     target.addLegalDialect<emitc::EmitCDialect>();
