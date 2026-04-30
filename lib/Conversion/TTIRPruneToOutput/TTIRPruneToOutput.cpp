@@ -52,12 +52,14 @@ struct TTIRPruneToOutputPass
     ssize_t portIdx = -1;
     for (auto fn : getOperation().getOps<func::FuncOp>()) {
       ArrayAttr resAttrs = fn.getAllResultAttrs();
-      if (!resAttrs)
+      if (!resAttrs) {
         continue;
+      }
       for (size_t i = 0; i < resAttrs.size(); ++i) {
         auto dict = dyn_cast<DictionaryAttr>(resAttrs[i]);
-        if (!dict)
+        if (!dict) {
           continue;
+        }
         if (auto nameAttr = dict.getAs<StringAttr>("hw.port_name")) {
           if (nameAttr.getValue() == keepOutput) {
             portIdx = static_cast<ssize_t>(i);
@@ -65,8 +67,9 @@ struct TTIRPruneToOutputPass
           }
         }
       }
-      if (portIdx >= 0)
+      if (portIdx >= 0) {
         break;
+      }
     }
     if (portIdx < 0) {
       getOperation().emitError() << "ttir-prune-to-output: no func.func has a "
@@ -79,8 +82,9 @@ struct TTIRPruneToOutputPass
     // for `portIdx` to be valid.
     DenseMap<func::FuncOp, size_t> prunedFuncs;
     for (auto fn : getOperation().getOps<func::FuncOp>()) {
-      if (fn.getNumResults() > static_cast<unsigned>(portIdx))
+      if (fn.getNumResults() > static_cast<unsigned>(portIdx)) {
         prunedFuncs[fn] = static_cast<size_t>(portIdx);
+      }
     }
 
     // Drop any function whose body calls another function we're pruning,
@@ -89,18 +93,21 @@ struct TTIRPruneToOutputPass
     // aren't needed for LEC. We mutate the prunedFuncs map.
     SmallVector<func::FuncOp> toDrop;
     DenseSet<StringRef> candidateNames;
-    for (auto &kv : prunedFuncs)
+    for (auto &kv : prunedFuncs) {
       candidateNames.insert(kv.first.getSymName());
+    }
 
     for (auto &kv : prunedFuncs) {
       func::FuncOp fn = kv.first;
       bool callsCandidate = false;
       fn.walk([&](func::CallOp call) {
-        if (candidateNames.contains(call.getCallee()))
+        if (candidateNames.contains(call.getCallee())) {
           callsCandidate = true;
+        }
       });
-      if (callsCandidate)
+      if (callsCandidate) {
         toDrop.push_back(fn);
+      }
     }
     for (auto fn : toDrop) {
       prunedFuncs.erase(fn);
@@ -150,20 +157,24 @@ struct FuncDropUnusedArgsPass
       unsigned numArgs = fn.getNumArguments();
       llvm::BitVector argsToErase(numArgs, false);
       for (unsigned i = 0; i < numArgs; ++i) {
-        if (fn.getArgument(i).use_empty())
+        if (fn.getArgument(i).use_empty()) {
           argsToErase.set(i);
+        }
       }
-      if (argsToErase.none())
+      if (argsToErase.none()) {
         continue;
+      }
       // Don't drop args of functions that are called from elsewhere — the
       // call sites would break.
       bool hasCallers = false;
       getOperation().walk([&](func::CallOp call) {
-        if (call.getCallee() == fn.getSymName())
+        if (call.getCallee() == fn.getSymName()) {
           hasCallers = true;
+        }
       });
-      if (hasCallers)
+      if (hasCallers) {
         continue;
+      }
       if (failed(fn.eraseArguments(argsToErase))) {
         fn.emitError() << "failed to erase unused arguments";
         return signalPassFailure();

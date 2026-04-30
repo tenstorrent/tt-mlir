@@ -31,8 +31,9 @@ namespace {
 /// - else: identity
 static Value adaptWidth(OpBuilder &b, Location loc, Value v, unsigned srcWidth,
                         unsigned dstWidth) {
-  if (srcWidth == dstWidth)
+  if (srcWidth == dstWidth) {
     return v;
+  }
   if (srcWidth < dstWidth) {
     unsigned extBits = dstWidth - srcWidth;
     auto zeros = smt::BVConstantOp::create(b, loc, 0, extBits);
@@ -52,8 +53,9 @@ static SmallVector<Value> inlineFuncBody(OpBuilder &b, Location loc,
   IRMapping mapping;
   Block &entry = fn.getBody().front();
   assert(entry.getNumArguments() == args.size() && "arg count mismatch");
-  for (auto [blockArg, argVal] : llvm::zip(entry.getArguments(), args))
+  for (auto [blockArg, argVal] : llvm::zip(entry.getArguments(), args)) {
     mapping.map(blockArg, argVal);
+  }
 
   Operation *terminator = nullptr;
   for (Operation &op : entry.without_terminator()) {
@@ -64,8 +66,9 @@ static SmallVector<Value> inlineFuncBody(OpBuilder &b, Location loc,
   assert(returnOp && "expected func.return as terminator");
 
   SmallVector<Value> results;
-  for (Value v : returnOp.getOperands())
+  for (Value v : returnOp.getOperands()) {
     results.push_back(mapping.lookup(v));
+  }
   return results;
 }
 
@@ -141,22 +144,26 @@ struct ConstructTTIRLECPass
       // reference side, so we accept finding the port in either function.
       auto findInFunc = [&](func::FuncOp fn) -> ssize_t {
         ArrayAttr resAttrs = fn.getAllResultAttrs();
-        if (!resAttrs)
+        if (!resAttrs) {
           return -1;
+        }
         for (size_t i = 0; i < resAttrs.size(); ++i) {
           auto dict = dyn_cast<DictionaryAttr>(resAttrs[i]);
-          if (!dict)
+          if (!dict) {
             continue;
+          }
           if (auto nameAttr = dict.getAs<StringAttr>("hw.port_name")) {
-            if (nameAttr.getValue() == checkOutput)
+            if (nameAttr.getValue() == checkOutput) {
               return static_cast<ssize_t>(i);
+            }
           }
         }
         return -1;
       };
       ssize_t foundIdx = findInFunc(fn1);
-      if (foundIdx < 0)
+      if (foundIdx < 0) {
         foundIdx = findInFunc(fn2);
+      }
       if (foundIdx < 0) {
         module.emitError() << "check-output: no result port named '"
                            << checkOutput << "' in either '" << firstFunc
@@ -165,8 +172,9 @@ struct ConstructTTIRLECPass
       }
       selectedIndices.push_back(static_cast<size_t>(foundIdx));
     } else {
-      for (size_t i = 0; i < fty1.getNumResults(); ++i)
+      for (size_t i = 0; i < fty1.getNumResults(); ++i) {
         selectedIndices.push_back(i);
+      }
     }
 
     // Compute per-input/output widths and the "common" (min) widths.
@@ -307,8 +315,9 @@ struct ConstructTTIRLECPass
 
     // Erase the original two circuit funcs.
     fn1.erase();
-    if (firstFunc != secondFunc)
+    if (firstFunc != secondFunc) {
       fn2.erase();
+    }
   }
 };
 

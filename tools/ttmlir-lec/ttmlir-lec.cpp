@@ -33,13 +33,11 @@
 #include "ttmlir/Conversion/TTIRToSMT/TTIRToSMT.h"
 #include "ttmlir/RegisterAll.h"
 
-#include "mlir/Transforms/Passes.h"
-
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SMT/IR/SMTDialect.h"
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectRegistry.h"
-#include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Parser/Parser.h"
@@ -47,6 +45,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Target/SMTLIB/ExportSMTLIB.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/FileSystem.h"
@@ -65,6 +64,7 @@ namespace cl = llvm::cl;
 using namespace mlir;
 using namespace mlir::tt;
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 static cl::OptionCategory mainCategory("ttmlir-lec Options");
 
 static cl::opt<std::string>
@@ -134,6 +134,7 @@ static cl::opt<int> checkOutputIdx(
     "check-output-idx",
     cl::desc("Compare only the output at this index (overrides check-output)"),
     cl::init(-1), cl::cat(mainCategory));
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 //===----------------------------------------------------------------------===//
 // Module merging: combine two input modules into one.
@@ -150,12 +151,14 @@ mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src,
   SmallVector<Operation *> toErase;
   for (auto &op : src->getOps()) {
     auto symbol = dyn_cast<SymbolOpInterface>(op);
-    if (!symbol)
+    if (!symbol) {
       continue;
+    }
     StringAttr origName = symbol.getNameAttr();
     Operation *clash = destTable.lookup(origName);
-    if (!clash)
+    if (!clash) {
       continue; // no collision
+    }
 
     bool isProtected = llvm::is_contained(protectedNames, origName.getValue());
     if (isProtected) {
@@ -165,12 +168,14 @@ mergeModule(ModuleOp dest, OwningOpRef<ModuleOp> src,
       continue;
     }
     // Rename to avoid collision.
-    if (failed(srcTable.renameToUnique(&op, {&destTable})))
+    if (failed(srcTable.renameToUnique(&op, {&destTable}))) {
       return src->emitError() << "failed to rename '" << origName.getValue()
                               << "'";
+    }
   }
-  for (Operation *op : toErase)
+  for (Operation *op : toErase) {
     op->erase();
+  }
 
   Block *destBlock = dest.getBody();
   Block *srcBlock = src->getBody();
@@ -191,25 +196,29 @@ static LogicalResult runLEC(MLIRContext &context) {
 
   // Parse first input file as the base module.
   auto module = parseSourceFile<ModuleOp>(inputFilenames[0], &context);
-  if (!module)
+  if (!module) {
     return failure();
+  }
 
   // If a second input file is provided, parse and merge it.
   if (inputFilenames.size() == 2) {
     auto second = parseSourceFile<ModuleOp>(inputFilenames[1], &context);
-    if (!second)
+    if (!second) {
       return failure();
+    }
     SmallVector<StringRef> protectedNames = {firstFunc, secondFunc};
-    if (failed(mergeModule(module.get(), std::move(second), protectedNames)))
+    if (failed(mergeModule(module.get(), std::move(second), protectedNames))) {
       return failure();
+    }
   }
 
   // Run conversion pipeline: optionally prune to one output, TTIR -> SMT,
   // then construct LEC. Pruning before lowering means we never have to
   // lower ops that don't feed the selected output.
   PassManager pm(&context);
-  if (failed(applyPassManagerCLOptions(pm)))
+  if (failed(applyPassManagerCLOptions(pm))) {
     return failure();
+  }
   if (!checkOutput.empty()) {
     TTIRPruneToOutputOptions pruneOpts;
     pruneOpts.keepOutput = checkOutput;
@@ -229,8 +238,9 @@ static LogicalResult runLEC(MLIRContext &context) {
   opts.checkOutputIdx = checkOutputIdx;
   pm.addPass(createConstructTTIRLECPass(opts));
 
-  if (failed(pm.run(module.get())))
+  if (failed(pm.run(module.get()))) {
     return failure();
+  }
 
   // Open output file.
   std::string errorMessage;
@@ -249,8 +259,9 @@ static LogicalResult runLEC(MLIRContext &context) {
   // Export SMT-LIB.
   std::string smtlib;
   llvm::raw_string_ostream smtlibStream(smtlib);
-  if (failed(smt::exportSMTLIB(module.get(), smtlibStream)))
+  if (failed(smt::exportSMTLIB(module.get(), smtlibStream))) {
     return failure();
+  }
 
   if (outputFormat == OutputSMTLIB) {
     outputFile->os() << smtlib;
@@ -276,20 +287,23 @@ static LogicalResult runLEC(MLIRContext &context) {
   size_t afterCheck = checkPos;
   if (checkPos != std::string::npos) {
     afterCheck = checkPos + std::string("(check-sat)").size();
-    if (afterCheck < smtlib.size() && smtlib[afterCheck] == '\n')
+    if (afterCheck < smtlib.size() && smtlib[afterCheck] == '\n') {
       ++afterCheck;
+    }
   }
 
   // Build the SMT-LIB preamble (logic declaration + options).
   std::string preamble;
   {
     llvm::raw_string_ostream ss(preamble);
-    if (setLogicQFABV)
+    if (setLogicQFABV) {
       ss << "(set-logic QF_ABV)\n";
-    else if (setLogicQFBV)
+    } else if (setLogicQFBV) {
       ss << "(set-logic QF_BV)\n";
-    if (solverTimeout > 0)
+    }
+    if (solverTimeout > 0) {
       ss << "(set-option :timeout " << solverTimeout << ")\n";
+    }
     ss << "(set-option :produce-models true)\n";
   }
 
@@ -321,20 +335,27 @@ static LogicalResult runLEC(MLIRContext &context) {
 
     auto lookup = [&](const char *sym) -> void * {
       void *addr = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(sym);
-      if (!addr)
+      if (!addr) {
         llvm::errs() << "symbol '" << sym << "' not found in '" << solverPath
                      << "'\n";
+      }
       return addr;
     };
 
-    auto *z3_mk_config = (Z3_mk_config_fn)lookup("Z3_mk_config");
-    auto *z3_mk_context = (Z3_mk_context_fn)lookup("Z3_mk_context");
-    auto *z3_del_config = (Z3_del_config_fn)lookup("Z3_del_config");
-    auto *z3_del_context = (Z3_del_context_fn)lookup("Z3_del_context");
-    auto *z3_eval = (Z3_eval_smtlib2_fn)lookup("Z3_eval_smtlib2_string");
+    auto *z3_mk_config =
+        reinterpret_cast<Z3_mk_config_fn>(lookup("Z3_mk_config"));
+    auto *z3_mk_context =
+        reinterpret_cast<Z3_mk_context_fn>(lookup("Z3_mk_context"));
+    auto *z3_del_config =
+        reinterpret_cast<Z3_del_config_fn>(lookup("Z3_del_config"));
+    auto *z3_del_context =
+        reinterpret_cast<Z3_del_context_fn>(lookup("Z3_del_context"));
+    auto *z3_eval =
+        reinterpret_cast<Z3_eval_smtlib2_fn>(lookup("Z3_eval_smtlib2_string"));
     if (!z3_mk_config || !z3_mk_context || !z3_del_config || !z3_del_context ||
-        !z3_eval)
+        !z3_eval) {
       return failure();
+    }
 
     Z3_config_t cfg = z3_mk_config();
     Z3_context_t ctx = z3_mk_context(cfg);
@@ -344,10 +365,11 @@ static LogicalResult runLEC(MLIRContext &context) {
     // We stop right after (check-sat) and leave the (reset) out so the solver
     // state is preserved for a potential (get-model) call.
     std::string checkScript = preamble;
-    if (checkPos != std::string::npos)
+    if (checkPos != std::string::npos) {
       checkScript += smtlib.substr(0, checkPos) + "(check-sat)\n";
-    else
+    } else {
       checkScript += smtlib;
+    }
 
     const char *checkResult = z3_eval(ctx, checkScript.c_str());
     solverOutput = checkResult ? checkResult : "";
@@ -356,8 +378,9 @@ static LogicalResult runLEC(MLIRContext &context) {
     StringRef checkLine = StringRef(solverOutput).split('\n').first.trim();
     if (checkLine == "sat" && showModel) {
       const char *modelResult = z3_eval(ctx, "(get-model)\n");
-      if (modelResult)
+      if (modelResult) {
         solverOutput += modelResult;
+      }
     }
 
     z3_del_context(ctx);
@@ -417,8 +440,9 @@ static LogicalResult runLEC(MLIRContext &context) {
     if (rc < 0 || !bufOrErr) {
       llvm::errs() << "failed to invoke SMT solver (" << solverPath
                    << "): " << execErr << "\n";
-      if (bufOrErr)
+      if (bufOrErr) {
         llvm::errs() << (*bufOrErr)->getBuffer();
+      }
       return failure();
     }
     solverOutput = (*bufOrErr)->getBuffer().str();
@@ -436,8 +460,9 @@ static LogicalResult runLEC(MLIRContext &context) {
     if (showModel) {
       outputFile->os() << "Counterexample:\n";
       size_t nl = solverOutput.find('\n');
-      if (nl != std::string::npos)
+      if (nl != std::string::npos) {
         outputFile->os() << solverOutput.substr(nl + 1);
+      }
     }
     outputFile->keep();
     return success();
