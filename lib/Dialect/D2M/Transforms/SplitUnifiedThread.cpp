@@ -37,7 +37,7 @@ static bool needsDMA(Value memref, Value localBuffer) {
       }
     }
   }
-  
+
   // View ops need datamovement, except for reinterpret view_layout ops
   // which are just type casts.
   if (auto *defOp = memref.getDefiningOp()) {
