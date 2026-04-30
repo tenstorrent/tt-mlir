@@ -352,6 +352,20 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
                    elementSizeBytes >=
                minTransferBytes;
       };
+      auto getInnermostShardBytes = [&](ArrayRef<int64_t> candidateGrid) {
+        return static_cast<uint64_t>(physicalShape.back() /
+                                     candidateGrid.back()) *
+               elementSizeBytes;
+      };
+      auto isBetterGrid = [&](ArrayRef<int64_t> candidateGrid,
+                              int64_t candidateVolume,
+                              ArrayRef<int64_t> bestGrid, int64_t bestVolume) {
+        if (candidateVolume != bestVolume) {
+          return candidateVolume > bestVolume;
+        }
+        return bestGrid.empty() || getInnermostShardBytes(candidateGrid) >
+                                       getInnermostShardBytes(bestGrid);
+      };
 
       if (hasNocAlignedInnermostShard(grid) &&
           isCBPageCompatible(getShardSizeBytes(grid))) {
@@ -388,13 +402,15 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             continue;
           }
 
-          if (volume > bestCompatibleVolume) {
+          if (isBetterGrid(candidateGrid, volume, bestCompatibleGrid,
+                           bestCompatibleVolume)) {
             bestCompatibleGrid = candidateGrid;
             bestCompatibleVolume = volume;
           }
 
           if (hasNocAlignedInnermostShard(candidateGrid) &&
-              volume > bestAlignedVolume) {
+              isBetterGrid(candidateGrid, volume, bestAlignedGrid,
+                           bestAlignedVolume)) {
             bestAlignedGrid = candidateGrid;
             bestAlignedVolume = volume;
           }
@@ -1348,12 +1364,14 @@ public:
         if (alignedGrid !=
             mlir::cast<ttcore::MetalLayoutAttr>(reblocked.getEncoding())
                 .getGridShape(reblocked)) {
+          auto reblockedLayout =
+              mlir::cast<ttcore::MetalLayoutAttr>(reblocked.getEncoding());
           reblocked = typeBuilder.modifyDeviceType(
-              currentInfo.type, *currentInfo.layout, targetGridShape,
-              existingRemapping, ttcore::MemorySpace::DeviceL1,
+              reblocked, reblockedLayout, targetGridShape, AffineMap(),
+              ttcore::MemorySpace::DeviceL1,
               /*newTensorGrid=*/llvm::ArrayRef<int64_t>(alignedGrid),
               /*newElementType=*/{},
-              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
         }
         auto reblockedEmpty = createEmpty(reblocked);
         currentValue = lowerMappingChange(rewriter, currentValue,
@@ -1364,6 +1382,25 @@ public:
 
     // DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute.
     if (currentInfo.hasLayout() && !targetInfo.hasLayout()) {
+      if (currentInfo.isL1() && !ttcore::isTiled(currentInfo.type)) {
+        auto alignedGrid = typeBuilder.computeNocAlignedScalarGrid(
+            currentInfo.type, targetGridShape, /*minTransferBytes=*/16);
+        if (alignedGrid != currentInfo.getGridShape()) {
+          auto existingRemapping =
+              utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
+          auto reblocked = typeBuilder.modifyDeviceType(
+              currentInfo.type, *currentInfo.layout, targetGridShape,
+              existingRemapping, ttcore::MemorySpace::DeviceL1,
+              /*newTensorGrid=*/llvm::ArrayRef<int64_t>(alignedGrid),
+              /*newElementType=*/{},
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
+          auto reblockedEmpty = createEmpty(reblocked);
+          currentValue = lowerMappingChange(rewriter, currentValue,
+                                            reblockedEmpty, op.getLoc());
+          currentInfo = TensorInfo::from(currentValue);
+        }
+      }
+
       // Device→system creates a ToLayoutOp with layout attribute set.
       currentValue = lowerSystemLayoutChange(rewriter, currentValue,
                                              op.getOutput(), op.getLoc());
