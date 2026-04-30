@@ -21,10 +21,13 @@
 
     { "runs-on": ["n150","p150"],
           "image": "tracy",
-              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=1/2"] },
+              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=1/3"] },
     { "runs-on": ["n150","p150"],
           "image": "tracy",
-              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=2/2"] },
+              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=2/3"] },
+    { "runs-on": ["n150","p150"],
+          "image": "tracy",
+              "script": "builder.sh", "args": ["test/python/golden", "", "run-ttrt", "split=3/3"] },
 
     { "runs-on": ["llmbox","n300"],
           "image": "tracy",
