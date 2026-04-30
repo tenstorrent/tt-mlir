@@ -111,12 +111,13 @@ public:
       for (auto [i, arg] : llvm::enumerate(generic.getOperands())) {
         Type argType = arg.getType();
 
-        if (!mlir::isa<MemRefType>(argType) &&
-            !mlir::isa<d2m::LocalSemaphoreType>(argType) &&
-            !mlir::isa<d2m::GlobalSemaphoreType>(argType)) {
+        if (!mlir::isa<MemRefType, d2m::LocalSemaphoreType,
+                       d2m::GlobalSemaphoreType, IndexType, IntegerType,
+                       FloatType>(argType)) {
           generic.emitOpError(
               "unsupported argument type in d2m.generic operands: ")
-              << argType << "; only memref and semaphore types are supported";
+              << argType
+              << "; only memref, semaphore, and scalar types are supported";
           signalPassFailure();
           return;
         }

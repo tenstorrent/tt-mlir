@@ -30,8 +30,8 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<64x128xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>, exactGrid = true>> -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #ttcore.memory_space<dram>>
     %view = d2m.view_layout %cast_0 remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 + d1 floordiv 4) mod 2, d1 mod 4)> : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #ttcore.memory_space<dram>> -> memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>
     %view_1 = d2m.view_layout %cast remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 + d1 floordiv 4) mod 2, d1 mod 4)> : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #ttcore.memory_space<dram>> -> memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>
-    %alloc_3 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64, d2m.cb_for_operand = 0 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>
-    %alloc_4 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64, d2m.cb_for_operand = 1 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>
+    %alloc_3 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>
+    %alloc_4 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 2>, #ttcore.memory_space<l1>>
     d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement, @datamovement_kernel0, noc = 0>, #d2m.thread<datamovement, @datamovement_kernel1, noc = 1>, #d2m.thread<compute, @compute_kernel2>]}
         ins(%view_1 : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
         outs(%view : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>>)
@@ -40,13 +40,13 @@ module attributes {ttcore.system_desc = #ttcore.system_desc<[{role = host, targe
     %cast_5 = ttir.ttnn_metal_layout_cast %view : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<dram>> -> tensor<64x128xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>, exactGrid = true>>
     return %cast_5 : tensor<64x128xf32, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<dram>>, <interleaved>, exactGrid = true>>
   }
-  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel0() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+  func.func private @datamovement_kernel1() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec<rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     return
   }
-  func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+  func.func private @compute_kernel2() attributes {tt.function_type = "kernel", ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 3>, <arg_type = cb_port, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<compute>} {
     return
   }
 }
