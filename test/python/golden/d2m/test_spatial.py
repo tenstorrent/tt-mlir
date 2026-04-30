@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from builder.base.builder_enums import MeshShardDirection, MeshShardType
 import pytest
 import torch
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, OrderedDict, Tuple
 
 from ttmlir.dialects import arith, d2m, tensor
 from ttmlir.ir import (
@@ -12,8 +13,12 @@ from ttmlir.ir import (
     AffineDimExpr,
     AffineMap,
     AffineMapAttr,
+    Context,
+    DenseElementsAttr,
     IndexType,
+    IntegerType,
     RankedTensorType,
+    Type,
 )
 
 from builder.base.builder_utils import Operand
@@ -21,6 +26,9 @@ from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_apis import compile_and_execute_d2m
 from ttmlir.dialects import affine, arith, d2m, tensor, ttcore
 from conftest import get_request_kwargs
+from test_utils import (
+    make_shard_shape,
+)
 
 pytestmark = pytest.mark.frontend("d2m")
 
@@ -131,18 +139,58 @@ def matmul_region_build(
 
 
 def all_gather_region_build(
-    _builder: D2MBuilder,
-    _input_tensor: Operand,
-    _out: Operand,
-    *,
-    gather_dim: int = 0,
+    builder: D2MBuilder,
+    input: Operand,
+    output: Operand,
+    load_sem: Operand,
+    store_sem: Operand,
 ) -> Callable[[], None]:
-    """Stub: define one spatial region for all_gather (remote load/store, mesh dim)."""
-
     def _build():
-        raise NotImplementedError(
-            f"all_gather_region_build: not implemented (gather_dim={gather_dim})."
+        ctx = builder.context
+        c_wait = arith.constant(IndexType.get(ctx), 7)
+        d0 = AffineDimExpr.get(0, ctx)
+        d1 = AffineDimExpr.get(1, ctx)
+        d2 = AffineDimExpr.get(2, ctx)
+        map2 = AffineMap.get(3, 0, [d1], ctx)
+        map3 = AffineMap.get(3, 0, [d0 + d2], ctx)
+
+        @builder.generic(
+            grid=(2, 1),
+            block_factors=(),
+            indexing_maps=(),
+            iterator_types=[],
         )
+        def ag_1x8(input, output, additional_args):
+            _load_sem = additional_args[0]
+            _store_sem = additional_args[1]
+            mesh_row = d2m.mesh_position(dim=0)
+            c1 = arith.constant(IndexType.get(ctx), 1)
+            c0 = arith.constant(IndexType.get(ctx), 0)
+            c8 = arith.constant(IndexType.get(ctx), 8)
+            core0 = d2m.core_index(0)
+            core1 = d2m.core_index(1)
+            d2m.device_synchronize(
+                _load_sem, [mesh_row, c0], [c1, c8], 7, [core0, core1]
+            )
+            core0_1 = d2m.core_index(0)
+            loaded = builder.remote_load(input, [core0_1, c0])
+            mesh_col = d2m.mesh_position(dim=1)
+            idx_row = affine.apply(map2, [mesh_col, core0_1, c0])
+            idx_col = affine.apply(map3, [mesh_col, core0_1, c0])
+            stored = builder.remote_store(
+                output.type,
+                output,
+                [idx_row, idx_col],
+                start_device=[mesh_row, c0],
+                device_mcast_shape=[c1, c8],
+                semaphore_indices=[core0_1, c0],
+                local_buffer=loaded,
+                semaphore=_store_sem,
+            )
+            d2m.semaphore_wait(store_sem, c_wait)
+            d2m.yield_([stored])
+
+        d2m.spatial_yield(ag_1x8(input, output, additional_args=[load_sem, store_sem]))
 
     return _build
 
@@ -328,5 +376,114 @@ def test_single_matmul_offset_core(
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(pipeline_opts)}}}",
         print_ir=False,
         check_pcc=False,
+        **get_request_kwargs(request),
+    )
+
+
+def _global_semaphore_backing_tensor_type(ctx: Context) -> RankedTensorType:
+    """8x8x1x1 ui32 L1 sharded backing tensor for create_global_semaphore."""
+
+    i64 = IntegerType.get_signless(64)
+    collapse_ty = RankedTensorType.get([2, 2], i64)
+    collapse = DenseElementsAttr.get([[0, 1], [1, 2]], type=collapse_ty)
+    layout = ttcore.ir.MetalLayoutAttr.get(
+        ctx,
+        [8, 8],
+        ttcore.OOBVal.Undef,
+        ttcore.MemorySpace.DeviceL1,
+        ttcore.TensorMemoryLayout.Sharded,
+        collapse,
+        [1, 1],
+    )
+    u32 = IntegerType.get_unsigned(32)
+    return RankedTensorType.get([8, 8, 1, 1], u32, layout)
+
+
+@pytest.mark.parametrize(
+    "mesh_shape",
+    [
+        pytest.param((1, 8), id="1x1"),
+    ],
+)
+@pytest.mark.parametrize(
+    "test_shape",
+    [
+        pytest.param((32, 32), id="32x32"),
+    ],
+)
+def test_single_allgather(
+    mesh_shape: Tuple[int, int],
+    test_shape: Tuple[int, int],
+    request,
+    device,
+):
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: D2MBuilder):
+        @builder.func([full_input_shape], [torch.float32])
+        def all_gather(input: Operand, builder: D2MBuilder):
+            in_shard = builder.mesh_shard(
+                input,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            in_tile = prepare_metal_input(builder, in_shard, test_shape, (0, 0))
+            out_local_shape = [
+                test_shape[0] // mesh_shape[0],
+                test_shape[1] // mesh_shape[1],
+            ]
+            out_tile = prepare_metal_output(builder, out_local_shape, (0, 0))
+
+            # TODO: Use the correct output type
+            out_shard = builder.empty(in_shard.type)
+
+            sem_ty = _global_semaphore_backing_tensor_type(input.context)
+            sem_gs_ty = Type.parse("!d2m.global_semaphore", input.context)
+            load_sem = d2m.create_global_semaphore(
+                d2m.empty(sem_ty), value=0, results=[sem_gs_ty]
+            )
+            store_sem = d2m.create_global_semaphore(
+                d2m.empty(sem_ty), value=0, results=[sem_gs_ty]
+            )
+            region_builders = [
+                all_gather_region_build(builder, in_tile, out_tile, load_sem, store_sem)
+            ]
+            spatial_results = builder.spatial(
+                [in_shard],
+                [out_shard],
+                [((0, 0), (8, 8))],
+                region_builders,
+                result_types=[out_shard.type],
+            )
+            out_tensor = builder.mesh_shard(
+                spatial_results[0],
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            return out_tensor
+
+    pipeline_options = [
+        f"mesh-topology=linear,ring",
+    ]
+
+    compile_and_execute_d2m(
+        module,
+        target="ttmetal",
+        device=device,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        pipeline_options=pipeline_options,
         **get_request_kwargs(request),
     )
