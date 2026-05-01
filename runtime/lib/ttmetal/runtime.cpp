@@ -206,7 +206,9 @@ Tensor createMultiDeviceBorrowedHostTensor(
 }
 
 bool isTensorAllocated(Tensor tensor) {
-  LOG_FATAL("isTensorAllocated not implemented for metal runtime");
+  const MetalTensor &metalTensor =
+      tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
+  return !std::holds_alternative<TensorDesc>(metalTensor);
 }
 
 target::DataType getTensorDataType(Tensor tensor) {
