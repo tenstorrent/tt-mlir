@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-fusing %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-create-d2m-subgraphs %s | FileCheck %s
 
 
 #l1 = #ttnn.buffer_type<l1>
