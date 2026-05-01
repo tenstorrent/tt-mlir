@@ -73,9 +73,13 @@ private:
   void runOperation(const ::tt::target::ttnn::Operation *op);
 
   /**
-   * Dumps device profile counters if needed
+   * Conditionally reads profiler data from device buffer.
+   *
+   * The read will be performed in case:
+   * - we don't have an active trace capture.
+   * - force flag is set or we have executed at least `dumpDeviceRate` ops
    */
-  void dumpPerfCountersIfNeeded();
+  void readProfilerDataIfNeeded(bool force = false);
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   /**
