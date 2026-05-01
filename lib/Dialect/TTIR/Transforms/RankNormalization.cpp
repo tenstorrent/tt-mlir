@@ -13,6 +13,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRRANKNORMALIZATION
@@ -300,18 +301,62 @@ public:
     ConversionTarget target(*ctx);
     target.addLegalDialect<ttnn::TTNNDialect>();
 
-    target.markUnknownOpDynamicallyLegal([&](Operation *op) {
-      if (llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
-          llvm::any_of(op->getResultTypes(), needsRankExpansion)) {
-        return false;
-      }
-      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        if (llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
-            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion)) {
-          return false;
+    // A func participates in rank normalization iff its body contains at least
+    // one TTIR-dialect op. Funcs without any TTIR op (e.g. pure-TTNN
+    // const-eval helpers, external decls, or already-lowered subgraphs) are
+    // left entirely untouched: signature, block args, body, and return op all
+    // keep their original ranks. This avoids inserting
+    // `builtin.unrealized_conversion_cast` ops at func boundaries that nothing
+    // downstream knows how to clean up, and prevents the verifier mismatch
+    // between a (legal, unmodified) func signature and a (rewritten)
+    // `func.return` operand.
+    DenseSet<func::FuncOp> participatingFuncs;
+    module.walk([&](func::FuncOp funcOp) {
+      bool hasTTIROp = false;
+      funcOp.walk([&](Operation *inner) {
+        if (isa<ttir::TTIRDialect>(inner->getDialect())) {
+          hasTTIROp = true;
+          return WalkResult::interrupt();
         }
+        return WalkResult::advance();
+      });
+      if (hasTTIROp) {
+        participatingFuncs.insert(funcOp);
       }
-      return true;
+    });
+
+    target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+      // Per-op test: does this op carry any rank<2 type that the patterns
+      // would want to rewrite? `func::FuncOp` has no SSA operands or results
+      // of its own; its sig types live inside the `FunctionType` attribute,
+      // so it needs its own check.
+      bool needsRewrite;
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        needsRewrite =
+            llvm::any_of(funcOp.getArgumentTypes(), needsRankExpansion) ||
+            llvm::any_of(funcOp.getResultTypes(), needsRankExpansion);
+      } else {
+        needsRewrite =
+            llvm::any_of(op->getOperandTypes(), needsRankExpansion) ||
+            llvm::any_of(op->getResultTypes(), needsRankExpansion);
+      }
+      if (!needsRewrite) {
+        return true;
+      }
+      // Op needs a rewrite. Suppress it if the op lives in (or is) a func
+      // that has no TTIR ops to normalize -- promoting that func's sig or
+      // any of its ops would only insert a builtin.unrealized_conversion_cast
+      // at the boundary that nothing downstream knows how to clean up. This
+      // prevents both (a) the flatbuffer crash on stray casts and (b) the
+      // verifier mismatch between an unmodified func sig and a rewritten
+      // func.return operand.
+      func::FuncOp parentFunc = isa<func::FuncOp>(op)
+                                    ? cast<func::FuncOp>(op)
+                                    : op->getParentOfType<func::FuncOp>();
+      if (parentFunc && !participatingFuncs.contains(parentFunc)) {
+        return true;
+      }
+      return false;
     });
 
     RewritePatternSet patterns(ctx);
