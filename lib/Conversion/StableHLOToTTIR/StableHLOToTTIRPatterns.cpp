@@ -5162,6 +5162,18 @@ public:
     int64_t indexedDim = startIndexMap[0];
     int64_t maxIndex = inputShape[indexedDim] - sliceSizes[indexedDim];
     int64_t sliceSize = sliceSizes[indexedDim];
+
+    // When maxIndex == 0 the input has exactly one position in the indexed
+    // dimension.  Every gather index is simultaneously 0 AND maxIndex, so the
+    // starts/ends counting below double-counts all indices and produces a
+    // concat with 2*N-1 elements instead of N.  Fall back to the embedding
+    // pattern which handles singleton dimensions correctly.
+    if (maxIndex == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "maxIndex is 0 (single-row operand in indexed dim); "
+                 "use StableHLOGatherToEmbeddingPattern instead");
+    }
+
     int32_t starts = 0, ends = 0, lastIndex = 0;
     // It is expected that the indices are consecutive and in ascending order.
     // Like [0,0,0,1,2,3,4,5,5,5,5,5].
