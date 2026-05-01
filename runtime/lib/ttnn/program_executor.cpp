@@ -31,6 +31,7 @@
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
+#include "operations/conv/prepare_conv3d_weights.h"
 #include "operations/conv/prepare_conv_transpose2d_bias.h"
 #include "operations/conv/prepare_conv_transpose2d_weights.h"
 #include "operations/cpu/cpu.h"
@@ -452,6 +453,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     return operations::conv::run(op->type_as_PrepareConv2dBiasOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConv3dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConv3dWeightsOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {

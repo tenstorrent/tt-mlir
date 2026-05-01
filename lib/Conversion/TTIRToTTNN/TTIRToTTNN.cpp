@@ -2059,14 +2059,38 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
-                                                  rewriter, op.getLoc(),
-                                                  /*cInBlock=*/TILE_WIDTH);
+    constexpr int64_t ALIGNMENT = TILE_WIDTH;
+
+    auto weightShape = weightTy.getShape();
+    int64_t outChannels = weightShape[0];
+    int64_t inChannelsPerGroup = weightShape[1];
+    int64_t kernelDepth = weightShape[2];
+    int64_t kernelHeight = weightShape[3];
+    int64_t kernelWidth = weightShape[4];
+    int64_t cInAligned =
+        llvm::divideCeil(inChannelsPerGroup, ALIGNMENT) * ALIGNMENT;
+    int64_t numCInBlocks = cInAligned / TILE_WIDTH;
+    llvm::SmallVector<int64_t> preparedWeightShape = {
+        numCInBlocks * kernelDepth * kernelHeight * kernelWidth * TILE_WIDTH,
+        outChannels};
+    auto oldWeightLayout =
+        mlir::cast<ttnn::TTNNLayoutAttr>(weightTy.getEncoding());
+    auto preparedWeightLayout = ttnn::TTNNLayoutAttr::get(
+        rewriter.getContext(), preparedWeightShape,
+        oldWeightLayout.getScalarElementType(), ttnn::BufferType::DRAM,
+        oldWeightLayout.getGrid(),
+        ttnn::TensorMemoryLayoutAttr::get(
+            rewriter.getContext(), ttnn::TensorMemoryLayout::Interleaved));
+    auto preparedWeightType = mlir::RankedTensorType::get(
+        preparedWeightShape, oldWeightLayout.getScalarElementType(),
+        preparedWeightLayout);
+    Value reshapedWeight = rewriter.create<ttnn::PrepareConv3dWeightsOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                            "_prepare_conv3d_weight"),
+        preparedWeightType, adaptor.getWeight(), groupsAttr,
+        rewriter.getI32IntegerAttr(TILE_WIDTH),
+        rewriter.getI32IntegerAttr(ALIGNMENT), device);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2157,83 +2181,6 @@ private:
 
     return llvm::createStringError("Unexpected attribute type for '%s'",
                                    attrName.data());
-  }
-
-  // Transforms: (O, C/G, K_D, K_H, K_W) →
-  //   (num_C_in_blocks * K_D * K_H * K_W * C_in_block, O)
-  // When cInBlock == 0, uses full padded C (no blocking).
-  Value reshapeWeightForConv3d(Value weight, RankedTensorType weightTy,
-                               PatternRewriter &rewriter, Location loc,
-                               uint32_t cInBlock = 0) const {
-    constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-
-    llvm::ArrayRef<int64_t> weightShape = weightTy.getShape();
-    int64_t outChannels = weightShape[0];
-    int64_t inChannPerGroup = weightShape[1];
-    int64_t kernelDepth = weightShape[2];
-    int64_t kernelHeight = weightShape[3];
-    int64_t kernelWidth = weightShape[4];
-
-    // Step 1: Permute (O, C/G, K_D, K_H, K_W) → (K_D, K_H, K_W, C/G, O)
-    Value result = ttir_to_ttnn::utils::generatePermute(
-        mlir::cast<TypedValue<RankedTensorType>>(weight), {2, 3, 4, 1, 0},
-        rewriter, loc);
-
-    // Step 2: Pad C/G to tile width alignment
-    int64_t cInAligned =
-        llvm::divideCeil(inChannPerGroup, TILE_WIDTH) * TILE_WIDTH;
-    if (cInAligned != inChannPerGroup) {
-      int32_t cinPadAmount = static_cast<int32_t>(cInAligned - inChannPerGroup);
-      llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0, 0, 0, cinPadAmount,
-                                            0, 0};
-      result = ttir_to_ttnn::utils::generatePad(
-          mlir::cast<TypedValue<RankedTensorType>>(result), padding, rewriter,
-          ttmlir::utils::appendLocationSuffix(loc, "_pad_cin"));
-    }
-
-    // Step 3: Block C_in and reorder so num_C_in_blocks is outermost
-    // cInBlock == 0 means use full cInAligned (no blocking).
-    if (cInBlock == 0) {
-      cInBlock = cInAligned;
-    }
-    int64_t numCInBlocks = cInAligned / cInBlock;
-
-    if (numCInBlocks > 1) {
-      // Reshape 5D→6D: (K_D, K_H, K_W, C_aligned, O)
-      //              → (K_D, K_H, K_W, num_blocks, C_in_block, O)
-      llvm::SmallVector<int64_t> blockedShape = {kernelDepth, kernelHeight,
-                                                 kernelWidth, numCInBlocks,
-                                                 cInBlock,    outChannels};
-      llvm::SmallVector<int32_t> blockedShapeI32(blockedShape.begin(),
-                                                 blockedShape.end());
-      auto curTy = mlir::cast<RankedTensorType>(result.getType());
-      auto blockedTy =
-          ttnn::utils::RankedTensorTypeFactory::create(curTy, blockedShape);
-      result = rewriter.create<ttnn::ReshapeOp>(
-          loc, blockedTy, result, rewriter.getI32ArrayAttr(blockedShapeI32),
-          /*memory_config=*/nullptr);
-
-      // Permute 6D: (K_D, K_H, K_W, num_blocks, C_in_block, O)
-      //           → (num_blocks, K_D, K_H, K_W, C_in_block, O)
-      result = ttir_to_ttnn::utils::generatePermute(
-          mlir::cast<TypedValue<RankedTensorType>>(result), {3, 0, 1, 2, 4, 5},
-          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_block_permute"));
-    }
-
-    // Step 4: Flatten to 2D
-    int64_t flattenedDim =
-        numCInBlocks * kernelDepth * kernelHeight * kernelWidth * cInBlock;
-    llvm::SmallVector<int64_t> finalShape = {flattenedDim, outChannels};
-    llvm::SmallVector<int32_t> finalShapeI32(finalShape.begin(),
-                                             finalShape.end());
-
-    auto resultTy = mlir::cast<RankedTensorType>(result.getType());
-    RankedTensorType outputType =
-        ttnn::utils::RankedTensorTypeFactory::create(resultTy, finalShape);
-
-    return rewriter.create<ttnn::ReshapeOp>(
-        loc, outputType, result, rewriter.getI32ArrayAttr(finalShapeI32),
-        /*memory_config=*/nullptr);
   }
 
   // Transforms bias tensor to 2D: (1, 1, 1, 1, O) → (1, O)

@@ -93,6 +93,15 @@ table PrepareConv2dBiasOp {
   conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
+table PrepareConv3dWeightsOp {
+  weight_tensor: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  groups: uint32;
+  c_in_block: uint32;
+  alignment: uint32;
+  device: tt.target.DeviceRef;
+}
+
 table PrepareConvTranspose2dWeightsOp {
   weight_tensor: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
