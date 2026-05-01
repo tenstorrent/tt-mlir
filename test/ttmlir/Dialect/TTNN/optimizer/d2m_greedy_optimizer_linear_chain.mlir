@@ -1,11 +1,11 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-subgraphs=true" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-create-d2m-subgraphs=true" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that the full TTIR-to-TTNN backend pipeline with the greedy optimizer
 // (optimization-level=2) and D2M fusion can successfully compile a linear chain
 // of matmul, add, and multiply operations.
-// D2M fusion (ttnn-d2m-subgraphs and elementwisefusion passes) should fuse the eltwise ops (add + multiply) into a D2M subgraph
+// D2M fusion (ttnn-create-d2m-subgraphs and elementwisefusion passes) should fuse the eltwise ops (add + multiply) into a D2M subgraph
 // and the greedy optimizer should assign L1-sharded layouts where possible.
 // The D2M subgraph is then compiled through TTMetal and inlined back as
 // ttnn.generic ops.

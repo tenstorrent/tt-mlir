@@ -20,7 +20,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNAdjustDeallocs.cpp
         TTNNCollaspeD2M.cpp
         TTNNCollectPerfMetrics.cpp
-        TTNND2MSubgraphs.cpp
+        TTNNCreateD2MSubgraphs.cpp
         TTNNFileSplit.cpp
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp

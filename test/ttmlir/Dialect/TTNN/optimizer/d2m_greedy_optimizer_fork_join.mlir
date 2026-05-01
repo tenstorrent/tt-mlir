@@ -1,9 +1,9 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-subgraphs=true" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-create-d2m-subgraphs=true" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that the full TTIR-to-TTNN backend pipeline with the greedy optimizer
-// (optimization-level=2) and D2M fusion (ttnn-d2m-subgraphs and elementwisefusion passes) handles fork-join patterns.
+// (optimization-level=2) and D2M fusion (ttnn-create-d2m-subgraphs and elementwisefusion passes) handles fork-join patterns.
 // The first matmul output is consumed by both the d2m_subgraph (add, multiply)
 // and the final matmul (fork point). The D2M subgraph is compiled through
 // TTMetal and inlined back as ttnn.generic ops.

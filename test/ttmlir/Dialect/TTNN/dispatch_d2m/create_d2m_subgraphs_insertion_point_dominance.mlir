@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-d2m-subgraphs %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-create-d2m-subgraphs %s | FileCheck %s
 //
 // Pattern: SLICE_0 -> ADD_0 (fused) -> SLICE_1 -> ADD_1 (fused) -> MULTIPLY (fused).
 // firstOp = ADD_0. Inputs = SLICE_0, SLICE_1, scalar. lastInputDefiner = SLICE_1.

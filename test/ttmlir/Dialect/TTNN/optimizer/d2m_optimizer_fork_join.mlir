@@ -1,11 +1,11 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-d2m-subgraphs --ttnn-optimizer="memory-layout-analysis-enabled=true memreconfig-enabled=true memory-layout-analysis-policy=DFSharding" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-create-d2m-subgraphs --ttnn-optimizer="memory-layout-analysis-enabled=true memreconfig-enabled=true memory-layout-analysis-policy=DFSharding" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This test shows that the optimizer can handle fork-join patterns when a d2m_subgraph is present.
 // Note 1: The behavior of the optimizer is to spill to DRAM with a fork-join pattern.
 // That's why we check for the to_layout insertion (even when a d2m_subgraph is present).
-// Note 2: The add and multiply ops will be fused into the d2m_subgraph when ttnn-d2m-subgraphs is enabled.
+// Note 2: The add and multiply ops will be fused into the d2m_subgraph when ttnn-create-d2m-subgraphs is enabled.
 // Uses --mlir-print-local-scope and inline layout checks (no aliasing) for
 // easier debugging and to avoid fragility from layout reordering.
 //             matmul

@@ -298,13 +298,19 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
-  Option<bool> enableD2MSubgraphs{
-      *this, "enable-d2m-subgraphs",
-      llvm::cl::desc("Enable creation of D2M subgraphs."),
+  // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains
+  // of elementwise TTNN ops, outlines each chain into a private function, and
+  // replaces the original ops with a ttnn.d2m_subgraph op. The outlined
+  // subgraphs are later compiled through the D2M pipeline where elementwise
+  // fusion can be performed in D2MElementwiseFusion pass. See the
+  // enable-d2m-elementwise-fusion option.
+  Option<bool> enableCreateD2MSubgraphs{
+      *this, "enable-create-d2m-subgraphs",
+      llvm::cl::desc("Enable TTNN create D2M subgraphs pass."),
       llvm::cl::init(false)};
 
-  // Enable the d2m elementwise fusion pass when enable-d2m-subgraphs is on.
-  // See resolveD2MSubgraphsOptions for more details.
+  // Enable the d2m elementwise fusion pass when enable-create-d2m-subgraphs is
+  // on. See resolveD2MSubgraphsOptions for more details.
   mutable Option<bool> enableD2MElementwiseFusion{
       *this, "enable-d2m-elementwise-fusion",
       llvm::cl::desc("Enable elementwise fusion pass."), llvm::cl::init(false)};
@@ -486,14 +492,15 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::init(false)};
 
   void resolveD2MSubgraphsOptions() const {
-    // enable-d2m-elementwise-fusion is a sub-option of enable-d2m-subgraphs
-    // and should only be enabled if enable-d2m-subgraphs is also enabled.
-    if (enableD2MElementwiseFusion && !enableD2MSubgraphs) {
+    // enable-d2m-elementwise-fusion is a sub-option of
+    // enable-create-d2m-subgraphs and should only be enabled if
+    // enable-create-d2m-subgraphs is also enabled.
+    if (enableD2MElementwiseFusion && !enableCreateD2MSubgraphs) {
       llvm::reportFatalUsageError("enable-d2m-elementwise-fusion=true requires "
-                                  "enable-d2m-subgraphs to be enabled.");
+                                  "enable-create-d2m-subgraphs to be enabled.");
     }
 
-    if (enableD2MSubgraphs &&
+    if (enableCreateD2MSubgraphs &&
         enableD2MElementwiseFusion.getNumOccurrences() == 0) {
       enableD2MElementwiseFusion = true;
     }

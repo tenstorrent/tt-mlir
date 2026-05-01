@@ -266,7 +266,7 @@ void createTTIRToTTNNCommonPipeline(
     OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
-  // Resolve options controlled by enable-d2m-subgraphs.
+  // Resolve options controlled by enable-create-d2m-subgraphs.
   options.resolveD2MSubgraphsOptions();
 
   // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
@@ -362,7 +362,7 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
-    if (options.enableD2MSubgraphs) {
+    if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {
         llvm::errs()
             << "WARNING: D2M subgraph creation pass only supported with "
@@ -370,7 +370,7 @@ void createTTIRToTTNNCommonPipeline(
                "enabled. Automatically enabling Optimizer as a dependency.\n";
       }
       options.optimizerPassEnabled = true;
-      devicePm.addPass(tt::ttnn::createTTNND2MSubgraphs());
+      devicePm.addPass(tt::ttnn::createTTNNCreateD2MSubgraphs());
     }
 
     // Const-eval pass which should pick up any const-evalable ops created in
@@ -385,7 +385,7 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
-    if (options.enableD2MSubgraphs) {
+    if (options.enableCreateD2MSubgraphs) {
       TTNNPipelineD2MPassOptions d2mOptions;
       d2mOptions.enableElementwiseFusion = options.enableD2MElementwiseFusion;
       createTTNNPipelineD2MPass(devicePm, d2mOptions);

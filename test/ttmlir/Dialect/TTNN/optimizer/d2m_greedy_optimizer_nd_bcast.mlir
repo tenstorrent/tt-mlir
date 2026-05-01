@@ -1,10 +1,10 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-d2m-subgraphs=true" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-create-d2m-subgraphs=true" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // End-to-end regression: a TTIR graph with implicit ND broadcasts in an
 // elementwise chain used to crash the full ttir-to-ttnn-backend-pipeline
-// (with optimization-level=2 and enable-d2m-subgraphs=true) inside
+// (with optimization-level=2 and enable-create-d2m-subgraphs=true) inside
 // TTIRToD2M::getMulticastGridDims when the d2m-subgraphs pass pulled the chain
 // into a d2m_subgraph.
 //

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-d2m-subgraphs %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --ttnn-create-d2m-subgraphs %s | FileCheck %s
 
 // Verify that the TTNN d2m-subgraphs pass DOES fuse elementwise ops with
 // implicit broadcasts on >2D operands into a d2m_subgraph. The TTIRToD2M
