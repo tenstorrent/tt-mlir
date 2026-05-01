@@ -5254,7 +5254,7 @@ private:
           rewriter.getI32ArrayAttr(endsArr), rewriter.getI32ArrayAttr(step));
 
       SmallVector<int64_t> repeatShape(sliceShape);
-      repeatShape[indexedDim] = numberOfRepeats;
+      repeatShape[indexedDim] = sliceShape[indexedDim] * numberOfRepeats;
       auto repeatType = RankedTensorType::get(
           repeatShape, inputType.getElementType(), inputType.getEncoding());
       SmallVector<int64_t> repeatDims(inputShape.size(), 1);
