@@ -9202,7 +9202,10 @@ class StableHLOBuilder(Builder):
 
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        dim_numbers = old_op.dot_dimension_numbers
+        # `old_op.dot_dimension_numbers` returns a generic Attribute; wrap it
+        # in the typed DotDimensionNumbers view to access the four dimension
+        # lists (mirrors the GatherDimensionNumbers wrap in gather_parser).
+        dim_numbers = stablehlo.DotDimensionNumbers(old_op.dot_dimension_numbers)
 
         new_op = stablehlo_op(
             old_op.result.type,
