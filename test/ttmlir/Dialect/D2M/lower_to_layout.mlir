@@ -187,9 +187,11 @@ func.func @masking_no_collapse_4d(%arg0: tensor<2x2x50x50xf32>) -> tensor<1x1x1x
   %0 = d2m.empty() : tensor<1x1x1x1x2x2x2x2x!ttcore.tile<32x32, f32>, #layout_mask_4d>
 
   // CHECK-LABEL: @masking_no_collapse_4d
-  // Virtual-grid intermediates must carry VGM attrs (regression guard).
-  // CHECK: d2m.empty() {virtualGridForwardMapping = #map
-  // CHECK-SAME: virtualGridInverseMapping = #map
+  // Virtual-grid bounce now materializes as a plain host->device transfer
+  // followed by an explicit remap view into the final shard geometry.
+  // CHECK: d2m.empty() : tensor<1x1x256x64xf32, #layout{{[0-9]+}}>
+  // CHECK: d2m.to_device {{.*}} layout = #layout{{[0-9]+}} : tensor<2x2x50x50xf32> into tensor<1x1x256x64xf32, #layout{{[0-9]+}}>
+  // CHECK: d2m.view_layout {{.*}} -> tensor<1x1x1x1x2x2x64x64xf32, #layout{{[0-9]+}}>
   // Tilize then mask with zero OOBVal on a >2D grid (no collapse)
   // CHECK: d2m.tile_tilize_block
   // CHECK: d2m.block_mask
