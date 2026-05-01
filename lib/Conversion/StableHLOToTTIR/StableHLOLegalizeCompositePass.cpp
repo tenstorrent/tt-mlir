@@ -674,7 +674,27 @@ public:
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
     if (hasAttnMask) {
-      sdpaOperands.push_back(adaptor.getOperands()[3]);
+      Value maskOperand = adaptor.getOperands()[3];
+      auto queryType =
+          mlir::cast<RankedTensorType>(adaptor.getOperands()[0].getType());
+      auto maskType = mlir::cast<RankedTensorType>(maskOperand.getType());
+      int64_t querySeqLen = queryType.getShape()[2];
+      // Models like GTE-multilingual produce a [B,H,1,K] mask relying on
+      // PyTorch broadcast semantics. ttir.scaled_dot_product_attention
+      // requires dim 2 to equal the query sequence length, so expand here.
+      if (maskType.getShape()[2] == 1 && querySeqLen > 1) {
+        SmallVector<int64_t> expandedShape = {maskType.getShape()[0],
+                                              maskType.getShape()[1],
+                                              querySeqLen,
+                                              maskType.getShape()[3]};
+        auto expandedMaskType =
+            RankedTensorType::get(expandedShape, maskType.getElementType());
+        SmallVector<int64_t> broadcastDims = {1, 1, querySeqLen, 1};
+        maskOperand = rewriter.create<ttir::BroadcastOp>(
+            srcOp.getLoc(), expandedMaskType, maskOperand,
+            rewriter.getDenseI64ArrayAttr(broadcastDims));
+      }
+      sdpaOperands.push_back(maskOperand);
     }
 
     // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
