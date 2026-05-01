@@ -2469,20 +2469,6 @@ private:
 };
 } // namespace
 
-// This is also the minimum NoC transfer size in bytes.
-template <typename ConcreteOp>
-static int32_t getNocElementAlignmentL1(ConcreteOp op,
-                                        RankedTensorType tensorType) {
-  const int32_t nocAlignmentL1 =
-      ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes();
-
-  const int32_t elemBytes = std::max(
-      1, static_cast<int32_t>(tensorType.getElementTypeBitWidth()) / 8);
-
-  TT_assert(((nocAlignmentL1 != 0) && (nocAlignmentL1 % elemBytes == 0)));
-  return nocAlignmentL1 / elemBytes;
-}
-
 namespace {
 class D2MConcatRewriter final
     : public mlir::OpConversionPattern<ttir::ConcatOp>,
@@ -2505,7 +2491,7 @@ public:
     auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
 
     const int64_t rank = outType.getRank();
-    assert(rank >= 2);
+    TT_assert(rank >= 2);
 
     int32_t dim = op.getDim();
     if (dim < 0) {
@@ -2515,7 +2501,8 @@ public:
     // Check if we should do sub-tile H/W concat in the row-major layout.
     bool concatRowMajor = false;
     bool transposeRowMajor = false;
-    const int32_t alignToElements = getNocElementAlignmentL1(op, outType);
+    const int32_t alignToElements =
+        d2m::utils::getNocElementAlignmentL1(op, outType);
 
     if (dim >= rank - 2) {
       const int64_t tileSize =
@@ -2567,7 +2554,7 @@ public:
     auto effectiveOutputType = outType;
 
     if (transposeRowMajor) {
-      assert(dim == rank - 1);
+      TT_assert(dim == rank - 1);
       dim = rank - 2;
 
       effectiveInputs.clear();
@@ -2591,7 +2578,7 @@ public:
           transposedOutShape, outType.getElementType(), outType.getEncoding());
     }
 
-    assert(effectiveInputs.size() > 1);
+    TT_assert(effectiveInputs.size() > 1u);
 
     auto origOutputs = createDpsOutputs(loc, rewriter, {effectiveOutputType});
 
@@ -3946,9 +3933,10 @@ public:
     auto outShape = outType.getShape();
 
     const int32_t rank = static_cast<int32_t>(inType.getRank());
-    assert(rank >= 2);
+    TT_assert(rank >= 2);
 
-    const int32_t alignToElements = getNocElementAlignmentL1(op, inType);
+    const int32_t alignToElements =
+        d2m::utils::getNocElementAlignmentL1(op, inType);
 
     // Assume all shards in L1 already start at aligned addresses.
     const bool isAlignedWidth = begins[rank - 1] % alignToElements == 0;

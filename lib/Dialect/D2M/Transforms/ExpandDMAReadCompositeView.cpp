@@ -20,11 +20,11 @@ static LogicalResult expandCompositeDMAReadTiled(IRRewriter &rewriter,
                                                  DMAReadOp dmaRead,
                                                  ValueRange expandedInputs,
                                                  const int32_t concatDim) {
-  assert(dmaRead.isShardLevel());
+  TT_assert(dmaRead.isShardLevel());
   ttcore::DeviceAttr device = ttcore::lookupDevice(dmaRead);
 
   int64_t gridRank = static_cast<int64_t>(dmaRead.getSrcIndices().size());
-  assert(concatDim >= 0 && concatDim < gridRank);
+  TT_assert((concatDim >= 0 && concatDim < gridRank));
 
   auto compositeType = mlir::cast<MemRefType>(dmaRead.getSrc().getType());
   TT_assert(compositeType.getRank() == 2 * gridRank);
@@ -220,11 +220,7 @@ static LogicalResult expandCompositeDMAReadRowMajor(
   int64_t coalescingFactor = 1;
   if (isWidthConcat) {
     // For width-concat's row-assembly, conservatively use the NoC DMA quantum.
-    const int nocAlignmentL1 =
-        ttcore::getOpChipDescAttr(dmaRead).getNocL1AddressAlignBytes();
-    const int32_t elemBytes =
-        std::max(1, static_cast<int32_t>(dstType.getElementTypeBitWidth()) / 8);
-    coalescingFactor = nocAlignmentL1 / elemBytes;
+    coalescingFactor = utils::getNocElementAlignmentL1(dmaRead, dstType);
   } else {
     // For height/outer-concat, the unit of data movement should be the
     // row-major stride of the concat dim (i.e. each step covers all trailing
@@ -419,15 +415,16 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
   gOp.walk([&](DMAReadOp dmaRead) {
     auto maybeCompositeView = dmaRead.getSrc().getDefiningOp<CompositeViewOp>();
     if (maybeCompositeView) {
-      assert(compositeView == nullptr &&
-             "Unsupported multiple composite views in one GenericOp (#7600).");
+      TT_assertv(
+          compositeView == nullptr,
+          "Unsupported multiple composite views in one GenericOp (#7600).");
       compositeView = maybeCompositeView;
     }
   });
-  assert(compositeView != nullptr);
+  TT_assert(compositeView != nullptr);
 
   SmallVector<Value> compositeInputs = compositeView.getCompositeInputs();
-  assert(compositeInputs.size() > 1);
+  TT_assert(compositeInputs.size() > 1u);
 
   int64_t oldNumInputs = static_cast<int64_t>(gOp.getInputs().size());
   int64_t extraNumInputs = static_cast<int64_t>(compositeInputs.size() - 1);
@@ -447,7 +444,7 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
 
   rewriter.setInsertionPoint(gOp);
   // Passing empty block_factors/indexing_maps/iterator_types.
-  assert(gOp.isExplicitDatamovementForm());
+  TT_assert(gOp.isExplicitDatamovementForm());
   auto newGOp = rewriter.create<GenericOp>(
       gOp.getLoc(), gOp.getResultTypes(), newInputs, gOp.getOutputs(),
       gOp.getAdditionalArgs(), gOp.getGrid(), rewriter.getI64ArrayAttr({}),
@@ -499,12 +496,12 @@ static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
   newGOp.walk([&](DMAReadOp dmaRead) {
     auto maybeCompositeView = dmaRead.getSrc().getDefiningOp<CompositeViewOp>();
     if (maybeCompositeView) {
-      assert(dmaRead.getSrc() == compositeView.getResult());
-      assert(clonedCompositeRead == nullptr);
+      TT_assert(dmaRead.getSrc() == compositeView.getResult());
+      TT_assert(clonedCompositeRead == nullptr);
       clonedCompositeRead = dmaRead;
     }
   });
-  assert(clonedCompositeRead != nullptr);
+  TT_assert(clonedCompositeRead != nullptr);
 
   auto expandedGenericInputs =
       newGOp.getInputs().slice(compositeOperandIdx, compositeInputs.size());
