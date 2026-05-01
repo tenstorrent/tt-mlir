@@ -5,12 +5,15 @@
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinOps.h"
 
@@ -40,6 +43,75 @@ static int64_t findLargestCommonFactor(int64_t maxFactor,
     }
   }
   return 1;
+}
+
+static bool isMatmulGeneric(GenericOp genericOp) {
+  return genericOp
+      ->walk([](Operation *op) {
+        if (mlir::isa<d2m::TileMatmulOp, d2m::TileMatmulBlockOp>(op)) {
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      })
+      .wasInterrupted();
+}
+
+static bool isOneDimensionalGrid(ArrayRef<int64_t> grid) {
+  unsigned nonUnitDims = 0;
+  for (int64_t dim : grid) {
+    if (dim > 1) {
+      ++nonUnitDims;
+    }
+  }
+  return nonUnitDims <= 1;
+}
+
+static bool isLegalMatmulGrid(ArrayRef<int64_t> grid,
+                              ArrayRef<int64_t> targetGrid) {
+  return !ttmlir::d2m::utils::grids::requiresVirtualGrid(grid, targetGrid) ||
+         isOneDimensionalGrid(grid);
+}
+
+static llvm::SmallVector<int64_t>
+computeOneDimensionalGrid(ArrayRef<int64_t> physicalShape,
+                          ArrayRef<int64_t> targetGrid) {
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+  llvm::SmallVector<int64_t> bestGrid(physicalShape.size(), 1);
+  int64_t bestGridVolume = 1;
+
+  for (auto [dimIdx, physicalDim] : llvm::enumerate(physicalShape)) {
+    for (int64_t factor :
+         llvm::reverse(ttmlir::utils::getFactors(physicalDim))) {
+      if (factor > targetGridVolume || factor <= bestGridVolume) {
+        continue;
+      }
+      if (utils::findLegalPhysicalGridForVolume(factor, targetGrid).empty()) {
+        continue;
+      }
+      bestGrid.assign(physicalShape.size(), 1);
+      bestGrid[dimIdx] = factor;
+      bestGridVolume = factor;
+      break;
+    }
+  }
+
+  return bestGrid;
+}
+
+static llvm::SmallVector<int64_t> applyMatmulVirtualGridConstraints(
+    bool isMatmul, ArrayRef<int64_t> physicalShape,
+    ArrayRef<int64_t> targetGrid, ArrayRef<int64_t> selectedGrid) {
+  llvm::SmallVector<int64_t> grid(selectedGrid);
+  if (!isMatmul || isLegalMatmulGrid(grid, targetGrid)) {
+    return grid;
+  }
+
+  grid = utils::computeOptimalBlockShardedGrid(physicalShape, targetGrid);
+  if (isLegalMatmulGrid(grid, targetGrid)) {
+    return grid;
+  }
+
+  return computeOneDimensionalGrid(physicalShape, targetGrid);
 }
 
 llvm::SmallVector<llvm::SmallVector<int64_t>>
@@ -226,6 +298,7 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
 
   llvm::SmallVector<llvm::SmallVector<int64_t>> optimalOperandGrids;
   llvm::SmallVector<llvm::SmallVector<int64_t>> physicalShapes;
+  bool isMatmul = isMatmulGeneric(genericOp);
 
   for (auto [operandIndex, operand] :
        llvm::enumerate(genericOp.getInputsAndOutputs())) {
@@ -242,6 +315,8 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
     physicalShapes.push_back(physShape);
     auto optimalGrid =
         utils::computeOptimalGrid(operandType, physShape, targetGrid);
+    optimalGrid = applyMatmulVirtualGridConstraints(isMatmul, physShape,
+                                                    targetGrid, optimalGrid);
     optimalOperandGrids.push_back(optimalGrid);
 
     OperandGridInfo info;
@@ -262,8 +337,9 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
           llvm::SmallVector<int64_t> inputPhysShape =
               utils::computePhysicalShape(viewLayout.getInput(), targetGrid,
                                           ttnnMode);
-          info.viewSourceGrid =
-              utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
+          info.viewSourceGrid = applyMatmulVirtualGridConstraints(
+              isMatmul, inputPhysShape, targetGrid,
+              utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid));
         }
       }
     }
@@ -274,6 +350,11 @@ GridAnalysis::analyzeGenericOp(GenericOp genericOp,
   // Normalize the operand grids for the generic operation.
   result.normalizedOperandGrids = normalizeOperandGridsForGeneric(
       genericOp, optimalOperandGrids, physicalShapes);
+  for (unsigned idx = 0; idx < result.normalizedOperandGrids.size(); ++idx) {
+    result.normalizedOperandGrids[idx] = applyMatmulVirtualGridConstraints(
+        isMatmul, physicalShapes[idx], perOperandTargetGrids[idx],
+        result.normalizedOperandGrids[idx]);
+  }
 
   // Propagate normalized grids back to non-reinterpret ViewLayout operands
   // only. Other operand kinds use their independently computed optimal

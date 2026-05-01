@@ -18,6 +18,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <numeric>
 #include <string>
 
 namespace mlir::tt::d2m {
@@ -252,6 +253,181 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       return {collapsedIntervals, dimAlignments};
     }
 
+    llvm::SmallVector<int64_t>
+    computeDivisibleBounceGrid(ArrayRef<int64_t> preferredGrid,
+                               ArrayRef<int64_t> targetGridShape,
+                               ArrayRef<int64_t> physicalShape) const {
+      auto dividesPhysicalShape = [&](ArrayRef<int64_t> grid) {
+        if (grid.size() != physicalShape.size()) {
+          return false;
+        }
+        return llvm::all_of(llvm::zip_equal(physicalShape, grid),
+                            [](auto dimAndGrid) {
+                              auto [dim, gridDim] = dimAndGrid;
+                              return gridDim > 0 && dim % gridDim == 0;
+                            });
+      };
+
+      if (dividesPhysicalShape(preferredGrid)) {
+        return llvm::to_vector(preferredGrid);
+      }
+
+      TT_assert(targetGridShape.size() == 2u);
+      TT_assert(physicalShape.size() == 2u);
+
+      int64_t preferredVolume = 1;
+      for (int64_t dim : preferredGrid) {
+        preferredVolume *= dim;
+      }
+
+      llvm::SmallVector<int64_t> bestGrid;
+      int64_t bestVolume = 0;
+      for (int64_t y = 1; y <= targetGridShape[0]; ++y) {
+        for (int64_t x = 1; x <= targetGridShape[1]; ++x) {
+          int64_t volume = y * x;
+          if (volume > preferredVolume || volume <= bestVolume) {
+            continue;
+          }
+          llvm::SmallVector<int64_t> candidate = {y, x};
+          if (!dividesPhysicalShape(candidate)) {
+            continue;
+          }
+          bestGrid = candidate;
+          bestVolume = volume;
+        }
+      }
+
+      TT_assert(!bestGrid.empty());
+      return bestGrid;
+    }
+
+    llvm::SmallVector<int64_t>
+    computeNocAlignedScalarGrid(RankedTensorType type,
+                                ArrayRef<int64_t> targetGridShape,
+                                uint64_t minTransferBytes) const {
+      auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+          type.getEncoding());
+      if (!layout || mlir::isa<ttcore::TileType>(type.getElementType())) {
+        return layout ? llvm::to_vector(layout.getGridShape(type))
+                      : llvm::SmallVector<int64_t>{};
+      }
+
+      llvm::SmallVector<int64_t> grid =
+          llvm::to_vector(layout.getGridShape(type));
+      if (grid.size() != 2 || targetGridShape.size() != 2) {
+        return grid;
+      }
+
+      ArrayRef<int64_t> shardShape = layout.getShardShape(type);
+      uint64_t elementSizeBytes =
+          ttcore::getElementSizeBytes(type.getElementType());
+      if (shardShape.empty()) {
+        return grid;
+      }
+
+      llvm::SmallVector<int64_t> physicalShape;
+      physicalShape.reserve(grid.size());
+      for (auto [gridDim, shardDim] : llvm::zip_equal(grid, shardShape)) {
+        physicalShape.push_back(gridDim * shardDim);
+      }
+
+      uint64_t tilePageSize =
+          ttcore::TileType::get(type.getElementType()).getSizeBytes();
+      auto getShardSizeBytes = [&](ArrayRef<int64_t> candidateGrid) {
+        uint64_t shardSizeBytes = elementSizeBytes;
+        for (auto [physicalDim, gridDim] :
+             llvm::zip_equal(physicalShape, candidateGrid)) {
+          TT_assert(physicalDim % gridDim == 0);
+          shardSizeBytes *= static_cast<uint64_t>(physicalDim / gridDim);
+        }
+        return shardSizeBytes;
+      };
+      auto isCBPageCompatible = [&](uint64_t shardSizeBytes) {
+        uint64_t pageSize = std::min(tilePageSize, shardSizeBytes);
+        return shardSizeBytes % pageSize == 0;
+      };
+      auto hasNocAlignedInnermostShard = [&](ArrayRef<int64_t> candidateGrid) {
+        return static_cast<uint64_t>(physicalShape.back() /
+                                     candidateGrid.back()) *
+                   elementSizeBytes >=
+               minTransferBytes;
+      };
+      auto getInnermostShardBytes = [&](ArrayRef<int64_t> candidateGrid) {
+        return static_cast<uint64_t>(physicalShape.back() /
+                                     candidateGrid.back()) *
+               elementSizeBytes;
+      };
+      auto isBetterGrid = [&](ArrayRef<int64_t> candidateGrid,
+                              int64_t candidateVolume,
+                              ArrayRef<int64_t> bestGrid, int64_t bestVolume) {
+        if (candidateVolume != bestVolume) {
+          return candidateVolume > bestVolume;
+        }
+        return bestGrid.empty() || getInnermostShardBytes(candidateGrid) >
+                                       getInnermostShardBytes(bestGrid);
+      };
+
+      if (hasNocAlignedInnermostShard(grid) &&
+          isCBPageCompatible(getShardSizeBytes(grid))) {
+        return grid;
+      }
+
+      // Scalar D2H bounce grids must satisfy two runtime constraints. NOC reads
+      // need enough contiguous innermost bytes when possible, and CB page
+      // rounding must not exceed the backing per-core L1 shard allocation.
+      int64_t originalVolume =
+          ttmlir::utils::volume(llvm::ArrayRef<int64_t>(grid));
+      llvm::SmallVector<int64_t> bestAlignedGrid;
+      llvm::SmallVector<int64_t> bestCompatibleGrid;
+      int64_t bestAlignedVolume = 0;
+      int64_t bestCompatibleVolume = 0;
+      int64_t maxY = std::min(targetGridShape[0], grid[0]);
+      int64_t maxX = std::min(targetGridShape[1], grid[1]);
+      for (int64_t y = 1; y <= maxY; ++y) {
+        if (physicalShape[0] % y != 0) {
+          continue;
+        }
+        for (int64_t x = 1; x <= maxX; ++x) {
+          if (physicalShape[1] % x != 0) {
+            continue;
+          }
+
+          llvm::SmallVector<int64_t> candidateGrid = {y, x};
+          int64_t volume = y * x;
+          if (volume > originalVolume) {
+            continue;
+          }
+
+          if (!isCBPageCompatible(getShardSizeBytes(candidateGrid))) {
+            continue;
+          }
+
+          if (isBetterGrid(candidateGrid, volume, bestCompatibleGrid,
+                           bestCompatibleVolume)) {
+            bestCompatibleGrid = candidateGrid;
+            bestCompatibleVolume = volume;
+          }
+
+          if (hasNocAlignedInnermostShard(candidateGrid) &&
+              isBetterGrid(candidateGrid, volume, bestAlignedGrid,
+                           bestAlignedVolume)) {
+            bestAlignedGrid = candidateGrid;
+            bestAlignedVolume = volume;
+          }
+        }
+      }
+
+      if (!bestAlignedGrid.empty()) {
+        return bestAlignedGrid;
+      }
+
+      if (!bestCompatibleGrid.empty()) {
+        return bestCompatibleGrid;
+      }
+
+      return grid;
+    }
+
     // Create a device tensor type from a system tensor type.
     // For virtual grids (ND or exceeding device bounds), the data must bounce
     // through DRAM interleaved because the host cannot directly scatter data
@@ -326,6 +502,11 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
       auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
       auto elementType = newElementType.value_or(baseType.getElementType());
+      ArrayRef<int64_t> tileShape;
+      if (mlir::isa<ttcore::TileType>(elementType)) {
+        tileShape =
+            newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
+      }
 
       // Do not consider a tensor with an identity remapping as having a virtual
       // grid.
@@ -340,6 +521,13 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       bool needsReblock = hasVirtualGrid;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
+        needsReblock = needsReblock || reblockVirtualGridShapes;
+        if (reblockVirtualGridShapes &&
+            ttmlir::d2m::utils::grids::requiresVirtualGrid(tensorGrid,
+                                                           targetGridShape)) {
+          tensorGrid =
+              computeVirtualGridBounceShape(tensorGrid, targetGridShape);
+        }
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
         tensorGrid = currentGrid;
@@ -363,6 +551,8 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
                                               dimAlignments, collapsedIntervals,
                                               baseLayout.getOobVal(), memSpace,
                                               baseLayout.getMemoryLayout());
+        tensorGrid = computeDivisibleBounceGrid(
+            tensorGrid, targetGridShape, layout.getPhysicalShape(tileShape));
       } else {
         // Otherwise, preserve dim alignments and collapsed intervals.
         layout = ttcore::MetalLayoutAttr::get(
@@ -371,11 +561,6 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             memSpace, baseLayout.getMemoryLayout());
       }
 
-      ArrayRef<int64_t> tileShape;
-      if (mlir::isa<ttcore::TileType>(elementType)) {
-        tileShape =
-            newTileShape.value_or(ttcore::getTensorTileShapeOrEmpty(baseType));
-      }
       auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
 
       return RankedTensorType::get(deviceShape, elementType, layout);
@@ -1167,11 +1352,27 @@ public:
       if (needsVirtualGridCollapse && currentInfo.isL1()) {
         auto existingRemapping =
             utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
+        auto physicalGridShape = utils::getPhysicalGridShape(currentValue);
         auto reblocked = typeBuilder.modifyDeviceType(
             currentInfo.type, *currentInfo.layout, targetGridShape,
             existingRemapping, ttcore::MemorySpace::DeviceL1,
-            /*newTensorGrid=*/{}, /*newElementType=*/{},
+            /*newTensorGrid=*/llvm::ArrayRef<int64_t>(physicalGridShape),
+            /*newElementType=*/{},
             /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
+        auto alignedGrid = typeBuilder.computeNocAlignedScalarGrid(
+            reblocked, targetGridShape, /*minTransferBytes=*/16);
+        if (alignedGrid !=
+            mlir::cast<ttcore::MetalLayoutAttr>(reblocked.getEncoding())
+                .getGridShape(reblocked)) {
+          auto reblockedLayout =
+              mlir::cast<ttcore::MetalLayoutAttr>(reblocked.getEncoding());
+          reblocked = typeBuilder.modifyDeviceType(
+              reblocked, reblockedLayout, targetGridShape, AffineMap(),
+              ttcore::MemorySpace::DeviceL1,
+              /*newTensorGrid=*/llvm::ArrayRef<int64_t>(alignedGrid),
+              /*newElementType=*/{},
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
+        }
         auto reblockedEmpty = createEmpty(reblocked);
         currentValue = lowerMappingChange(rewriter, currentValue,
                                           reblockedEmpty, op.getLoc());
@@ -1181,6 +1382,25 @@ public:
 
     // DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute.
     if (currentInfo.hasLayout() && !targetInfo.hasLayout()) {
+      if (currentInfo.isL1() && !ttcore::isTiled(currentInfo.type)) {
+        auto alignedGrid = typeBuilder.computeNocAlignedScalarGrid(
+            currentInfo.type, targetGridShape, /*minTransferBytes=*/16);
+        if (alignedGrid != currentInfo.getGridShape()) {
+          auto existingRemapping =
+              utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
+          auto reblocked = typeBuilder.modifyDeviceType(
+              currentInfo.type, *currentInfo.layout, targetGridShape,
+              existingRemapping, ttcore::MemorySpace::DeviceL1,
+              /*newTensorGrid=*/llvm::ArrayRef<int64_t>(alignedGrid),
+              /*newElementType=*/{},
+              /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/false);
+          auto reblockedEmpty = createEmpty(reblocked);
+          currentValue = lowerMappingChange(rewriter, currentValue,
+                                            reblockedEmpty, op.getLoc());
+          currentInfo = TensorInfo::from(currentValue);
+        }
+      }
+
       // Device→system creates a ToLayoutOp with layout attribute set.
       currentValue = lowerSystemLayoutChange(rewriter, currentValue,
                                              op.getOutput(), op.getLoc());

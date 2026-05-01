@@ -1674,9 +1674,18 @@ size_t DeviceAttr::getMemrefSizeBytes(MemRefType memrefType, size_t pageSize,
 
 size_t DeviceAttr::getMemrefCBPageSizeBytes(MemRefType memrefType) const {
   mlir::Type elementType = memrefType.getElementType();
-  TileType tileType = mlir::dyn_cast<TileType>(elementType);
-  return tileType ? tileType.getSizeBytes()
-                  : TileType::get(elementType).getSizeBytes();
+  if (TileType tileType = mlir::dyn_cast<TileType>(elementType)) {
+    return tileType.getSizeBytes();
+  }
+
+  if (mlir::isa<ShardLayoutAttr>(memrefType.getLayout())) {
+    size_t tilePageSize = TileType::get(elementType).getSizeBytes();
+    size_t shardSize = getShardSizeInBytes(memrefType, /*alignSize=*/1,
+                                           /*includeBuffers=*/false);
+    return std::min(tilePageSize, shardSize);
+  }
+
+  return TileType::get(elementType).getSizeBytes();
 }
 
 size_t DeviceAttr::getMemrefCBNumPages(MemRefType memrefType) const {
