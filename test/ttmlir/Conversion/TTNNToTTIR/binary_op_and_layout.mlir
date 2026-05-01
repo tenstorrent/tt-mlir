@@ -30,7 +30,7 @@ module {
         // CHECK: ins(%[[view1]], %[[view2]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
         // CHECK: outs(%[[view3]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout>)
         // CHECK-DAG: d2m.tile_add
-        %3 = "ttnn.add"(%1, %2) {ttnn.hoist_generic_via_d2m, dtype = #ttcore.supportedDataTypes<f32>} : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
+        %3 = "ttnn.add"(%1, %2) <{dtype = #ttcore.supportedDataTypes<f32>, activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #ttnn_layout1>, tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[cast4:.*]] = ttir.ttnn_metal_layout_cast %[[MetalResult]] : tensor<1x1x1x1x!ttcore.tile<32x32, f32>, #layout> -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK: %[[memConfig3:.*]] = "ttnn.to_memory_config"(%[[cast4]]) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout>
         %4 = "ttnn.to_memory_config"(%3) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout>

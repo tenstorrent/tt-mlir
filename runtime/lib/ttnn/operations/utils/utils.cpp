@@ -112,6 +112,8 @@ toTTNNUnaryOpType(::tt::target::ttnn::UnaryOpType unaryOpType) {
       {FbUnaryOpType::Fill, TTNNUnaryOpType::FILL},
       {FbUnaryOpType::PreluSfpu, TTNNUnaryOpType::PRELU_SFPU},
       {FbUnaryOpType::ZeroPoint, TTNNUnaryOpType::ZERO_POINT},
+      {FbUnaryOpType::Log1p, TTNNUnaryOpType::LOG1P},
+      {FbUnaryOpType::Asinh, TTNNUnaryOpType::ASINH},
   };
 
   auto it = opTypeMap.find(unaryOpType);

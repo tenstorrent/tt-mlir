@@ -161,6 +161,11 @@ def TTNN_UnaryOpType_Fill  : I32EnumAttrCase<"Fill", 76, "fill">;
 def TTNN_UnaryOpType_PreluSfpu  : I32EnumAttrCase<"PreluSfpu", 77, "prelu_sfpu">;
 def TTNN_UnaryOpType_ZeroPoint  : I32EnumAttrCase<"ZeroPoint", 78, "zero_point">;
 def TTNN_UnaryOpType_Hardsigmoid  : I32EnumAttrCase<"Hardsigmoid", 79, "hardsigmoid">;
+def TTNN_UnaryOpType_Cbrt  : I32EnumAttrCase<"Cbrt", 80, "cbrt">;
+def TTNN_UnaryOpType_Mish  : I32EnumAttrCase<"Mish", 81, "mish">;
+def TTNN_UnaryOpType_Log1p  : I32EnumAttrCase<"Log1p", 82, "log1p">;
+def TTNN_UnaryOpType_Asinh  : I32EnumAttrCase<"Asinh", 83, "asinh">;
+def TTNN_UnaryOpType_Unknown  : I32EnumAttrCase<"Unknown", 84, "unknown">;
 
 def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                           [
@@ -244,6 +249,11 @@ def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                             TTNN_UnaryOpType_PreluSfpu,
                             TTNN_UnaryOpType_ZeroPoint,
                             TTNN_UnaryOpType_Hardsigmoid,
+                            TTNN_UnaryOpType_Cbrt,
+                            TTNN_UnaryOpType_Mish,
+                            TTNN_UnaryOpType_Log1p,
+                            TTNN_UnaryOpType_Asinh,
+                            TTNN_UnaryOpType_Unknown,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

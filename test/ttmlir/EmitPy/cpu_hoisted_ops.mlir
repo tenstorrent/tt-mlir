@@ -100,8 +100,8 @@ func.func @matmul_validation(%arg0: tensor<32x64xf32>, %arg1: tensor<64x32xf32>)
 // CHECK: ttir_cpu.relu(
 // CHECK-LABEL: def relu_validation
 // CHECK: cpu_hoisted_ttir_relu_{{.*}}
-// CHECK: ttnn.relu(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.RELU)]
 func.func @relu_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.relu"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.relu"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -114,8 +114,8 @@ func.func @relu_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // CHECK: ttir_cpu.sin(
 // CHECK-LABEL: def sin_validation
 // CHECK: cpu_hoisted_ttir_sin_{{.*}}
-// CHECK: ttnn.sin(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.SIN)]
 func.func @sin_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.sin"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.sin"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -127,8 +127,8 @@ func.func @sin_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // CHECK: ttir_cpu.asinh(
 // CHECK-LABEL: def asinh_validation
 // CHECK: cpu_hoisted_ttir_asinh_{{.*}}
-// CHECK: ttnn.asinh(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.ASINH)]
 func.func @asinh_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.asinh"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.asinh"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -141,8 +141,8 @@ func.func @asinh_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // CHECK: ttir_cpu.exp(
 // CHECK-LABEL: def exp_validation
 // CHECK: cpu_hoisted_ttir_exp_{{.*}}
-// CHECK: ttnn.exp(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.EXP)]
 func.func @exp_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.exp"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.exp"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -155,8 +155,8 @@ func.func @exp_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // CHECK: ttir_cpu.log(
 // CHECK-LABEL: def log_validation
 // CHECK: cpu_hoisted_ttir_log_{{.*}}
-// CHECK: ttnn.log(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.LOG)]
 func.func @log_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.log"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.log"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -169,8 +169,8 @@ func.func @log_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // CHECK: ttir_cpu.ceil(
 // CHECK-LABEL: def ceil_validation
 // CHECK: cpu_hoisted_ttir_ceil_{{.*}}
-// CHECK: ttnn.ceil(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.CEIL)]
 func.func @ceil_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.ceil"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.ceil"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -183,8 +183,8 @@ func.func @ceil_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // CHECK: ttir_cpu.abs(
 // CHECK-LABEL: def abs_validation
 // CHECK: cpu_hoisted_ttir_abs_{{.*}}
-// CHECK: ttnn.abs(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.ABS)]
 func.func @abs_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.abs"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.abs"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -197,8 +197,8 @@ func.func @abs_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
 // CHECK: ttir_cpu.reciprocal(
 // CHECK-LABEL: def reciprocal_validation
 // CHECK: cpu_hoisted_ttir_reciprocal_{{.*}}
-// CHECK: ttnn.reciprocal(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.RECIP)]
 func.func @reciprocal_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.reciprocal"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.reciprocal"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
@@ -211,8 +211,8 @@ func.func @reciprocal_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> 
 // CHECK: ttir_cpu.sqrt(
 // CHECK-LABEL: def sqrt_validation
 // CHECK: cpu_hoisted_ttir_sqrt_{{.*}}
-// CHECK: ttnn.sqrt(
 // CHECK: ttnn.subtract(
+// CHECK-SAME: input_tensor_b_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.SQRT)]
 func.func @sqrt_validation(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
   %cpu_result = "ttir.sqrt"(%arg0) {ttir.should_hoist} : (tensor<32x32xf32>) -> tensor<32x32xf32>
   %device_result = "ttir.sqrt"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
