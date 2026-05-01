@@ -6615,6 +6615,12 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+// Enforces the decode SDPA layout:
+//   Q:    [1, B, Hq, D]      (dim 0 must be 1)
+//   K, V: [B, Hkv, Sk, D]    (Hq % Hkv == 0)
+//   Mask: [1|B, 1, 1|Hq, Sk] (dim 1 must be 1; dim 0/dim 2 may broadcast)
+//   cur_pos_tensor: 1D int tensor of length B
+// `is_causal` and `attention_mask` are mutually exclusive.
 ::mlir::LogicalResult
 mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
 
@@ -6685,13 +6691,14 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape().size() != 4) {
       return emitOpError("Attention mask must be a 4D tensor");
     }
-    if (attentionMaskType.getShape()[0] != 1) {
-      return emitOpError("Attention mask dim 0 must be 1");
-    }
-    if (attentionMaskType.getShape()[1] != 1 &&
-        attentionMaskType.getShape()[1] != batchSize) {
+    // Mask layout: [batch_or_1, 1, num_heads_or_1, kv_seq_len].
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
       return emitOpError("Attention mask batch size must be 1 (broadcast) or "
                          "match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1) {
+      return emitOpError("Attention mask dim 1 must be 1");
     }
     if (attentionMaskType.getShape()[2] != 1 &&
         attentionMaskType.getShape()[2] != nQueryHeads) {
@@ -6861,6 +6868,12 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
+// Enforces the generic SDPA layout:
+//   Q:    [B, Hq, Sq, D]
+//   K, V: [B, Hkv, Sk, D]    (Hq % Hkv == 0)
+//   Mask: [1|B, 1|Hq, Sq, Sk] (dim 0/dim 1 may broadcast)
+// `is_causal` and `attention_mask` are mutually exclusive; `is_causal` also
+// requires Sq == Sk.
 ::mlir::LogicalResult mlir::tt::ttir::ScaledDotProductAttentionOp::verify() {
 
   RankedTensorType queryType = getQuery().getType();

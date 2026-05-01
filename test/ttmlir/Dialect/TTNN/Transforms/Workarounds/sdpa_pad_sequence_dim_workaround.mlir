@@ -176,15 +176,16 @@ module @test_sdpa_workaround attributes {} {
 
   // Test 7: Decode workaround SHOULD apply - mask num_heads=1 needs broadcast
   // to match query num_heads. tt-metal requires mask[2] == num_heads for decode.
+  // Mask layout is [batch_or_1, 1, num_heads_or_1, kv_seq_len].
   func.func public @test_sdpa_decode_workaround_broadcast_mask_heads(
     %query: tensor<1x32x32x64xbf16>,
     %key: tensor<32x32x128x64xbf16>,
     %value: tensor<32x32x128x64xbf16>,
-    %mask: tensor<1x32x1x128xbf16>
+    %mask: tensor<32x1x1x128xbf16>
   ) -> tensor<1x32x32x64xbf16> {
     // CHECK-LABEL: func.func public @test_sdpa_decode_workaround_broadcast_mask_heads
 
-    // Mask should be broadcast from [1, 32, 1, 128] to [1, 32, 32, 128]
+    // Mask should be broadcast from [32, 1, 1, 128] to [32, 1, 32, 128]
     // CHECK: %[[BROADCAST_MASK:[0-9]+]] = "ttnn.repeat"(%arg3)
     // CHECK-SAME: repeat_dims = #ttnn.shape<1x1x32x1>
 
@@ -195,17 +196,17 @@ module @test_sdpa_workaround attributes {} {
       is_causal = false,
       scale = 0.125 : f32
     }> : (tensor<1x32x32x64xbf16>, tensor<32x32x128x64xbf16>,
-         tensor<32x32x128x64xbf16>, tensor<1x32x1x128xbf16>)
+         tensor<32x32x128x64xbf16>, tensor<32x1x1x128xbf16>)
       -> tensor<1x32x32x64xbf16>
     return %result : tensor<1x32x32x64xbf16>
   }
 
-  // Test 8: Decode workaround should NOT apply - mask already has correct num_heads
+  // Test 8: Decode workaround should NOT apply - mask already has correct num_heads.
   func.func public @test_sdpa_decode_no_workaround_mask_heads_match(
     %query: tensor<1x32x32x64xbf16>,
     %key: tensor<32x32x128x64xbf16>,
     %value: tensor<32x32x128x64xbf16>,
-    %mask: tensor<1x32x32x128xbf16>
+    %mask: tensor<32x1x32x128xbf16>
   ) -> tensor<1x32x32x64xbf16> {
     // CHECK-LABEL: func.func public @test_sdpa_decode_no_workaround_mask_heads_match
 
@@ -218,7 +219,7 @@ module @test_sdpa_workaround attributes {} {
       is_causal = false,
       scale = 0.125 : f32
     }> : (tensor<1x32x32x64xbf16>, tensor<32x32x128x64xbf16>,
-         tensor<32x32x128x64xbf16>, tensor<1x32x32x128xbf16>)
+         tensor<32x32x128x64xbf16>, tensor<32x1x32x128xbf16>)
       -> tensor<1x32x32x64xbf16>
     return %result : tensor<1x32x32x64xbf16>
   }

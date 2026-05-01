@@ -27,6 +27,10 @@ static constexpr int64_t kSeqLenDim = 2;
 // decode op.
 static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
 
+// Permutation to convert mask from [B, H, S=1, kv_seq] -> [B, 1, H, kv_seq]
+// for SDPA decode op.
+static constexpr std::array<int64_t, 4> kToDecodeMaskPermutation = {0, 2, 1, 3};
+
 struct SDPAFusing::SDPAComponents {
   Value query, key, value, mask;
   Value attentionSink;
@@ -707,7 +711,7 @@ mlir::LogicalResult SDPAFusing::createSDPAOp(mlir::PatternRewriter &rewriter,
     if (permutedMask) {
       permutedMask = ttir_to_ttnn::utils::generatePermute(
           mlir::cast<TypedValue<RankedTensorType>>(permutedMask),
-          llvm::to_vector(kToDecodePermutation), rewriter,
+          llvm::to_vector(kToDecodeMaskPermutation), rewriter,
           c.attentionMatmul.getLoc());
     }
 
