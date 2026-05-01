@@ -56,7 +56,7 @@ try:
         to_layout,
         get_layout,
         get_op_output_tensor,
-        get_op_output_ref,
+        get_op_output_refs,
         get_op_input_refs,
         retrieve_tensor_from_pool,
         update_tensor_in_pool,
@@ -67,6 +67,8 @@ try:
         get_op_loc_info,
         unregister_hooks,
         FabricConfig,
+        TensorRef,
+        walk_binary,
     )
 except ModuleNotFoundError:
     raise ImportError(

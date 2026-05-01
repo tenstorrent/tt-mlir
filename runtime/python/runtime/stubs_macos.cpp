@@ -224,8 +224,8 @@ std::vector<TensorRef> getOpInputRefs(OpContext opContextHandle,
   __builtin_trap();
 }
 std::string getOpLocInfo(OpContext opContextHandle) { __builtin_trap(); }
-std::optional<TensorRef> getOpOutputRef(OpContext opContextHandle,
-                                        CallbackContext programContextHandle) {
+std::vector<TensorRef> getOpOutputRefs(OpContext opContextHandle,
+                                      CallbackContext programContextHandle) {
   __builtin_trap();
 }
 std::unordered_map<std::uint32_t, Tensor>
@@ -261,6 +261,9 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
                        TensorRef tensorRef, bool untilize) {
   __builtin_trap();
 }
+std::vector<uint32_t> getTensorRefShape(TensorRef) { __builtin_trap(); }
+::tt::target::DataType getTensorRefDataType(TensorRef) { __builtin_trap(); }
+void walkBinary(Binary, uint32_t, const OpWalkFn &) { __builtin_trap(); }
 void setCompatibleDeviceRuntime(const Binary &binary) { __builtin_trap(); }
 void setCurrentDeviceRuntime(const DeviceRuntime &runtime) { __builtin_trap(); }
 void setCurrentHostRuntime(const HostRuntime &runtime) { __builtin_trap(); }

@@ -741,12 +741,12 @@ getOpOutputTensor(OpContext opContextHandle,
   return {};
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
+std::vector<tt::runtime::TensorRef>
+getOpOutputRefs(OpContext opContextHandle,
                CallbackContext programContextHandle) {
   // Not implemented
   LOG_FATAL("Obtaining op output ref for metal runtime is not implemented");
-  return std::nullopt;
+  return {};
 }
 
 std::vector<tt::runtime::TensorRef>

@@ -1070,23 +1070,23 @@ getOpOutputTensor(OpContext opContextHandle,
       });
 }
 
-std::optional<tt::runtime::TensorRef>
-getOpOutputRef(OpContext opContextHandle,
+std::vector<tt::runtime::TensorRef>
+getOpOutputRefs(OpContext opContextHandle,
                CallbackContext programContextHandle) {
 
-  using RetType = std::optional<tt::runtime::TensorRef>;
+  using RetType = std::vector<tt::runtime::TensorRef>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
-        return ::tt::runtime::ttnn::getOpOutputRef(opContextHandle,
+        return ::tt::runtime::ttnn::getOpOutputRefs(opContextHandle,
                                                    programContextHandle);
       },
       [&]() -> RetType {
-        return ::tt::runtime::ttmetal::getOpOutputRef(opContextHandle,
+        return ::tt::runtime::ttmetal::getOpOutputRefs(opContextHandle,
                                                       programContextHandle);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getOpOutputRef", HostRuntime::Distributed);
+        detail::fatalNotImplemented("getOpOutputRefs", HostRuntime::Distributed);
       });
 }
 
@@ -1106,6 +1106,51 @@ getOpInputRefs(OpContext opContextHandle,
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("getOpInputRefs", HostRuntime::Distributed);
+      });
+}
+
+std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef) {
+  using RetType = std::vector<uint32_t>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ttnn::getTensorRefShape(tensorRef); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefShape", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefShape",
+                                    HostRuntime::Distributed);
+      });
+}
+
+::tt::target::DataType getTensorRefDataType(TensorRef tensorRef) {
+  using RetType = ::tt::target::DataType;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ttnn::getTensorRefDataType(tensorRef); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefDataType",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorRefDataType",
+                                    HostRuntime::Distributed);
+      });
+}
+
+void walkBinary(Binary executableHandle, uint32_t programIndex,
+                const OpWalkFn &cb) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        ::tt::runtime::ttnn::walkBinary(executableHandle, programIndex, cb);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("walkBinary", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("walkBinary", HostRuntime::Distributed);
       });
 }
 

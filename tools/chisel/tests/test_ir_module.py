@@ -8,20 +8,6 @@ tensor shapes, and element types.
 import pytest
 import ttrt.binary
 
-from chisel.ops import IRModule
-
-
-@pytest.fixture
-def binary(binary_path):
-    return ttrt.binary.load_binary_from_path(binary_path)
-
-
-@pytest.fixture
-def ir_module(binary):
-    mlir_json = ttrt.binary.mlir_as_dict(binary)
-    functions = [binary.get_program_name(i) for i in range(binary.get_num_programs())]
-    return IRModule(mlir_source=mlir_json["source"], functions=functions)
-
 
 def _iterate_programs(binary):
     """Yield (index, name) for each program."""
