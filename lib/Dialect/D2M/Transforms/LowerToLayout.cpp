@@ -289,6 +289,17 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
             referenceLayout.getDimAlignments(), collapsedIntervals,
             referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
             ttcore::TensorMemoryLayout::Interleaved);
+      } else if (referenceLayout.getMemorySpace() ==
+                 ttcore::MemorySpace::DeviceDRAM) {
+        // Target is DRAM: write directly to DRAM to avoid L1 capacity
+        // constraints for large tensors. The subsequent DRAM→L1 step
+        // handles scattering to the appropriate grid.
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(),
+            referenceLayout.getDimAlignments(),
+            referenceLayout.getCollapsedIntervals(),
+            referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
+            referenceLayout.getMemoryLayout());
       } else {
         layout = ttcore::MetalLayoutAttr::get(
             ctx, referenceLayout.getLogicalShape(),
@@ -938,10 +949,16 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
+    // Tilize/untilize must execute in L1; precompute so the DRAM→L1 bounce
+    // below can account for it.
+    const bool needsTilize =
+        !ttcore::isTiled(currentInfo.type) && ttcore::isTiled(targetInfo.type);
+
     // DRAM→L1: Must happen before other device ops.
-    // Use target's layout characteristics.
+    // Also triggered when tilization is needed, since tilize kernels can only
+    // write to L1 (not directly to DRAM).
     if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
-        targetInfo.hasLayout() && !targetInfo.isDRAM()) {
+        targetInfo.hasLayout() && (!targetInfo.isDRAM() || needsTilize)) {
       // Use target's layout but force L1 and preserve current's grid shape
       // unless we are copying from an interleaved DRAM tensor on a unit grid.
       const bool isDRAMInterleaved = currentInfo.layout->getMemoryLayout() ==
@@ -961,8 +978,6 @@ public:
     }
 
     // TILIZE: Before mapping (so mapping operates on final format).
-    bool needsTilize =
-        !ttcore::isTiled(currentInfo.type) && ttcore::isTiled(targetInfo.type);
     if (needsTilize && currentInfo.hasLayout()) {
       // Tilize with current layout, then mapping change will adjust layout if
       // needed.
@@ -986,10 +1001,12 @@ public:
       // input's virtual grid shape; only transformation is to scalar dtype.
       auto existingRemapping =
           utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
+      // Force L1: untilize kernels cannot write directly to DRAM.
       auto scalarType_ranked = typeBuilder.modifyDeviceType(
           currentInfo.type, *currentInfo.layout, targetGridShape,
-          existingRemapping, /*memSpace=*/{}, /*newTensorGrid=*/{}, scalarType,
-          /*newTileShape=*/std::nullopt, /*reblockVirtualGridShapes=*/false);
+          existingRemapping, ttcore::MemorySpace::DeviceL1,
+          /*newTensorGrid=*/{}, scalarType, /*newTileShape=*/std::nullopt,
+          /*reblockVirtualGridShapes=*/false);
       auto scalarEmpty = createEmpty(scalarType_ranked);
       currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
                                                   scalarEmpty, op.getLoc());

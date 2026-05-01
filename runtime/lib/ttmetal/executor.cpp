@@ -418,10 +418,11 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       const target::metal::MetalBuffer *metalBuffer =
           bufferDesc->buffer_detail_as_MetalBuffer();
 
-      assert((metalBuffer->buffer_config_type() !=
-                  target::metal::BufferConfig::InterleavedBufferConfig ||
+      assert((metalBuffer->buffer_config_type() ==
+                  target::metal::BufferConfig::ShardedBufferConfig ||
               !metalBuffer->circular_buffer_config()) &&
-             "Interleaved buffer configs should not have a CB config");
+             "Only ShardedBufferConfig (L1) can have a CB config; interleaved"
+             " and DRAM-distributed DRAM buffers must not");
 
       // skip init if CircularBufferConfig is not present
       if (!metalBuffer->circular_buffer_config()) {
@@ -475,6 +476,19 @@ void MCQExecutor::execute(
 
   auto input = hostBuffers.at(command->src()->global_id());
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
+  if (isDramDistributedBufferRef(command->dst())) {
+    TensorDesc hostDesc =
+        createTensorDescFromBufferDesc(command->src()->desc());
+    TensorDesc dramDesc =
+        createTensorDescFromBufferDesc(command->dst()->desc());
+    std::vector<std::byte> packed(meshBuffer->size());
+    packLogicalHostToDramPages(hostDesc, dramDesc, getHostTensorData(input),
+                               packed.data());
+    // The packed staging buffer is local to this call, so force a blocking
+    // write to keep its lifetime simple.
+    mcq->enqueue_write_mesh_buffer(meshBuffer, packed.data(), true);
+    return;
+  }
   checkHostTensorSizeMatchWithMeshBufferSize(input, meshBuffer);
   writeHostTensorToMeshBuffer(mcq, input, meshBuffer, blockingCQ);
 }
@@ -485,6 +499,19 @@ void MCQExecutor::execute(
 
   auto meshBuffer = meshBuffers.at(command->src()->global_id());
   auto output = hostBuffers.at(command->dst()->global_id());
+  if (isDramDistributedBufferRef(command->src())) {
+    TensorDesc dramDesc =
+        createTensorDescFromBufferDesc(command->src()->desc());
+    TensorDesc hostDesc =
+        createTensorDescFromBufferDesc(command->dst()->desc());
+    std::vector<std::byte> packed(meshBuffer->size());
+    // The packed staging buffer is local to this call, so force a blocking
+    // read before unpacking into the logical host tensor.
+    mcq->enqueue_read_mesh_buffer(packed.data(), meshBuffer, true);
+    unpackDramPagesToLogicalHost(dramDesc, hostDesc, packed.data(),
+                                 getMutableHostTensorData(output));
+    return;
+  }
   checkHostTensorSizeMatchWithMeshBufferSize(output, meshBuffer);
   readHostTensorFromMeshBuffer(mcq, meshBuffer, output, blockingCQ);
 }
