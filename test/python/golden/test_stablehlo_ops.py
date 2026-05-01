@@ -9,6 +9,7 @@ from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
 from ttmlir.ir import StringAttr
+from ttmlir.dialects import stablehlo
 
 from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
@@ -1294,111 +1295,6 @@ def test_bitwise_unary_ops(
     )
 
 
-# ----- Reduce Operations -----
-
-
-def reduce_sum(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_sum(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def reduce_max(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_max(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def reduce_min(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.reduce_min(in0, dimensions, unit_attrs=unit_attrs)
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_sum(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_sum_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_sum(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_max(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_max_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_max(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("dimensions", [[0], [1]])
-def test_reduce_min(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def reduce_min_wrapper(in0: Operand, builder: StableHLOBuilder):
-            return reduce_min(in0, builder, dimensions)
-
-    compile_and_execute_shlo(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-    )
-
-
 # ----- Pooling Operations -----
 
 
@@ -2269,6 +2165,63 @@ def test_composite_op(target: str, request, device):
     # `decomposition` symbol attribute. Mirrors composite_op.mlir.
     compile_and_execute_shlo(
         module_composite,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+# ----- Reduce Operation -----
+
+# Body op -> (factory(acc, cur) -> OpResult, identity-init scalar value, torch dtype).
+# The identity init is required by StableHLO reduce semantics: the init value
+# participates in the reduction, so it must be the identity for the chosen body
+# (e.g. 0 for add, 1 for mul, -inf for max, +inf for min, True for and,
+# False for or). Using a non-identity init silently changes the reduction's
+# result.
+_REDUCE_BODY_OPTIONS = {
+    "add": (lambda acc, cur: stablehlo.AddOp(acc, cur).result, 0.0, torch.float32),
+    "mul": (lambda acc, cur: stablehlo.MulOp(acc, cur).result, 1.0, torch.float32),
+    "max": (
+        lambda acc, cur: stablehlo.MaxOp(acc, cur).result,
+        float("-inf"),
+        torch.float32,
+    ),
+    "min": (
+        lambda acc, cur: stablehlo.MinOp(acc, cur).result,
+        float("inf"),
+        torch.float32,
+    ),
+    "and": (lambda acc, cur: stablehlo.AndOp(acc, cur).result, True, torch.bool),
+    "or": (lambda acc, cur: stablehlo.OrOp(acc, cur).result, False, torch.bool),
+}
+
+
+@pytest.mark.parametrize("body_op", list(_REDUCE_BODY_OPTIONS.keys()))
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_reduce_op(body_op: str, target: str, request, device):
+    # Op-creating test for the generic builder.reduce(...) API parametrized
+    # over every body op option supported by stablehlo_reduce_golden:
+    # add / mul / max / min / and / or. Each variant uses the correct
+    # identity init value for its body op so the reduction semantics are
+    # well-defined.
+    body_fn, init_scalar, dtype = _REDUCE_BODY_OPTIONS[body_op]
+    shape = (4, 8)
+
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def reduce_main(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            init_value = builder.constant(torch.tensor(init_scalar, dtype=dtype))
+            return builder.reduce(
+                inputs=[in0],
+                init_values=[init_value],
+                dimensions=[1],
+                body=body_fn,
+            )
+
+    compile_and_execute_shlo(
+        module,
         **get_request_kwargs(request),
         target=target,
         device=device,

@@ -1806,7 +1806,7 @@ def sdpa_decode_golden(
     return output.to(query.dtype)
 
 
-def dot_general_golden(
+def stablehlo_dot_general_golden(
     lhs: GoldenMapTensor,
     rhs: GoldenMapTensor,
     batch_dims_lhs,
@@ -1814,29 +1814,6 @@ def dot_general_golden(
     batch_dims_rhs,
     contract_dims_rhs,
 ) -> GoldenMapTensor:
-    """
-    Custom golden function for dot_general operation.
-
-    Parameters
-    ----------
-    lhs : GoldenMapTensor
-        Left-hand side tensor
-    rhs : GoldenMapTensor
-        Right-hand side tensor
-    batch_dims_lhs : List[int]
-        Batch dimensions for left tensor
-    contract_dims_lhs : List[int]
-        Contraction dimensions for left tensor
-    batch_dims_rhs : List[int]
-        Batch dimensions for right tensor
-    contract_dims_rhs : List[int]
-        Contraction dimensions for right tensor
-
-    Returns
-    -------
-    GoldenMapTensor
-        Result of generalized dot product operation
-    """
     non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
     non_batch_dims_rhs = [d for d in range(rhs.dim()) if d not in batch_dims_rhs]
 
@@ -5552,6 +5529,77 @@ def stablehlo_composite_golden(
     )
 
 
+def stablehlo_reduce_golden(
+    inputs: List[GoldenMapTensor],
+    init_values: List[GoldenMapTensor],
+    body: Region,
+    dimensions: List[int],
+    output_types: List[Type],
+) -> GoldenMapTensor:
+    if len(inputs) != len(init_values):
+        raise ValueError(
+            "stablehlo_reduce_golden: number of inputs must match number of init_values."
+        )
+    if len(inputs) != 1:
+        raise NotImplementedError(
+            "stablehlo_reduce_golden currently supports single-input reduces only."
+        )
+    if len(body.blocks) != 1:
+        raise NotImplementedError(
+            "stablehlo_reduce_golden: multi-block reduction bodies are not supported."
+        )
+
+    input_tensor = inputs[0]
+    dims = list(dimensions)
+    body_block = body.blocks[0]
+
+    # Classify by the body op type so dispatch works regardless of source dialect.
+    body_op_type = None
+    for op in body_block.operations:
+        if isinstance(op, (func.ReturnOp, stablehlo.ReturnOp)):
+            continue
+        body_op_type = type(op)
+        break
+
+    if body_op_type is None:
+        raise ValueError("stablehlo_reduce_golden: reduction body has no compute op.")
+
+    if dims:
+        if body_op_type is stablehlo.AddOp:
+            result = torch.sum(input_tensor, dim=dims)
+        elif body_op_type is stablehlo.MaxOp:
+            result = torch.amax(input_tensor, dim=dims)
+        elif body_op_type is stablehlo.MinOp:
+            result = torch.amin(input_tensor, dim=dims)
+        elif body_op_type is stablehlo.MulOp:
+            result = input_tensor
+            for d in sorted(dims, reverse=True):
+                result = torch.prod(result, dim=d)
+        elif body_op_type is stablehlo.OrOp:
+            result = torch.any(input_tensor.to(torch.bool), dim=dims).to(
+                input_tensor.dtype
+            )
+        elif body_op_type is stablehlo.AndOp:
+            result = torch.all(input_tensor.to(torch.bool), dim=dims).to(
+                input_tensor.dtype
+            )
+        else:
+            raise NotImplementedError(
+                f"stablehlo_reduce_golden: unsupported body op type {body_op_type}."
+            )
+    else:
+        result = input_tensor
+
+    if len(output_types) >= 1:
+        try:
+            target_dtype = mlir_type_to_torch_dtype(output_types[0].element_type)
+            result = result.to(target_dtype)
+        except Exception:
+            pass
+
+    return result
+
+
 def stablehlo_cbrt_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -7710,7 +7758,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.Atan2Op: stablehlo_atan2_golden,
     stablehlo.ShiftLeftOp: stablehlo_shift_left_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
-    stablehlo.DotGeneralOp: dot_general_golden,
+    stablehlo.DotGeneralOp: stablehlo_dot_general_golden,
     stablehlo.DynamicSliceOp: dynamic_slice_golden,
     stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     stablehlo.ConvolutionOp: stablehlo_convolution_golden,
@@ -7725,6 +7773,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
     stablehlo.ReduceScatterOp: stablehlo_reduce_scatter_golden,
+    stablehlo.ReduceOp: stablehlo_reduce_golden,
     stablehlo.ReduceWindowOp: stablehlo_reduce_window_golden,
     stablehlo.CollectivePermuteOp: stablehlo_collective_permute_golden,
     stablehlo.AllToAllOp: stablehlo_all_to_all_golden,
