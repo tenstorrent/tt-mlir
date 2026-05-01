@@ -12,6 +12,15 @@
 
 namespace tt::runtime::ttnn::debug {
 
+// TensorSpec populates equivalent legacy and ND shard specs when possible, so
+// normalize before comparing configs that may have been built through different
+// sharding representations.
+static ::ttnn::MemoryConfig
+normalizeMemoryConfigForTensor(const ::ttnn::Tensor &tensor,
+                               const ::ttnn::MemoryConfig &memoryConfig) {
+  return tensor.tensor_spec().with_memory_config(memoryConfig).memory_config();
+}
+
 void checkTensorRefMatchesTTNNTensor(
     const ::tt::target::ttnn::TensorRef *tensorRef,
     const ::ttnn::Tensor &ttnnTensor) {
@@ -55,29 +64,15 @@ void checkTensorRefMatchesTTNNTensor(
     ::ttnn::MemoryConfig expectedMemoryConfig =
         ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(memcfg).value();
     ::ttnn::MemoryConfig actualMemoryConfig = ttnnTensor.memory_config();
-    bool ndShardedTensor = expectedMemoryConfig.nd_shard_spec() != std::nullopt;
-    if (!ndShardedTensor) {
-      DEBUG_ASSERT(expectedMemoryConfig == actualMemoryConfig,
-                   "Memory config mismatch, expected ", expectedMemoryConfig,
-                   ", got ", actualMemoryConfig);
-    } else {
-      // When a memory config uses ND shard spec, TTNN attempts to populate a
-      // legacy shard spec equivalent to the ND shard spec when creating the
-      // TensorSpec. If this succeeds, the memory config is rewritten as if this
-      // is a legacy sharded tensor, changing many fields while still
-      // representing the same physical layout. As a result, we cannot assert
-      // that the entire memory config matches.
-      DEBUG_ASSERT(expectedMemoryConfig.nd_shard_spec() ==
-                       actualMemoryConfig.nd_shard_spec(),
-                   "ND shard spec mismatch. Expected memory config ",
-                   expectedMemoryConfig, ", actual memory config ",
-                   actualMemoryConfig);
-      DEBUG_ASSERT(expectedMemoryConfig.buffer_type() ==
-                       actualMemoryConfig.buffer_type(),
-                   "Buffer type mismatch. Expected memory config ",
-                   expectedMemoryConfig, ", actual memory config ",
-                   actualMemoryConfig);
-    }
+    ::ttnn::MemoryConfig normalizedExpectedMemoryConfig =
+        normalizeMemoryConfigForTensor(ttnnTensor, expectedMemoryConfig);
+    ::ttnn::MemoryConfig normalizedActualMemoryConfig =
+        normalizeMemoryConfigForTensor(ttnnTensor, actualMemoryConfig);
+    DEBUG_ASSERT(normalizedExpectedMemoryConfig == normalizedActualMemoryConfig,
+                 "Memory config mismatch, expected ", expectedMemoryConfig,
+                 " normalized to ", normalizedExpectedMemoryConfig, ", got ",
+                 actualMemoryConfig, " normalized to ",
+                 normalizedActualMemoryConfig);
   }
 }
 
