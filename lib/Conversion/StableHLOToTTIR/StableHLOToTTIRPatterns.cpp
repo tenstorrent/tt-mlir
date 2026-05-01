@@ -7582,6 +7582,46 @@ public:
 };
 } // namespace
 
+namespace {
+// Decompose stablehlo.round_nearest_even as sign(x) * floor(abs(x) + 0.5).
+// This is "round half away from zero", which differs from banker's rounding
+// only at exact half-integers — an acceptable approximation for ML inference.
+class StableHLOToTTIRRoundNearestEvenOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::RoundNearestEvenOp> {
+  using OpConversionPattern<
+      mlir::stablehlo::RoundNearestEvenOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::RoundNearestEvenOp srcOp,
+                  mlir::stablehlo::RoundNearestEvenOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = srcOp.getLoc();
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    Value operand = adaptor.getOperand();
+
+    auto halfAttr = DenseElementsAttr::get(
+        outputType,
+        rewriter.getFloatAttr(outputType.getElementType(), 0.5));
+    auto halfConst =
+        rewriter.create<ttir::ConstantOp>(loc, outputType, halfAttr);
+
+    auto absX = rewriter.create<ttir::AbsOp>(loc, outputType, operand);
+    auto absPlusHalf = rewriter.create<ttir::AddOp>(
+        loc, outputType, absX.getResult(), halfConst.getResult());
+    auto floorResult =
+        rewriter.create<ttir::FloorOp>(loc, outputType, absPlusHalf.getResult());
+    auto signX = rewriter.create<ttir::SignOp>(loc, outputType, operand);
+
+    rewriter.replaceOpWithNewOp<ttir::MultiplyOp>(
+        srcOp, outputType, signX.getResult(), floorResult.getResult());
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -7631,6 +7671,8 @@ addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
       mlir::stablehlo::TanhOp, mlir::tt::ttir::TanhOp>>(typeConverter, ctx);
   patterns.add<StableHLOToTTIROpDefaultConversionPattern<
       mlir::stablehlo::LogOp, mlir::tt::ttir::LogOp>>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIRRoundNearestEvenOpConversionPattern>(typeConverter,
+                                                                   ctx);
 }
 
 static void
