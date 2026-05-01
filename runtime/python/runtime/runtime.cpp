@@ -350,6 +350,17 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("shutdown_distributed_runtime",
         &tt::runtime::shutdownDistributedRuntime,
         "Shutdown the distributed runtime");
+  nb::class_<tt::runtime::WorkerDebugStatsEntry>(m, "WorkerDebugStatsEntry")
+      .def_ro("hostname", &tt::runtime::WorkerDebugStatsEntry::hostname)
+      .def_ro("stats", &tt::runtime::WorkerDebugStatsEntry::stats)
+      .def("__repr__", [](const tt::runtime::WorkerDebugStatsEntry &entry) {
+        std::ostringstream oss;
+        oss << "WorkerDebugStatsEntry(hostname='" << entry.hostname
+            << "', num_stats=" << entry.stats.size() << ")";
+        return oss.str();
+      });
+  m.def("get_worker_debug_stats", &tt::runtime::getWorkerDebugStats,
+        "Get per-worker runtime debug stats (hostname and counter map per worker)");
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,

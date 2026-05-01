@@ -241,6 +241,30 @@ void Controller::setMemoryLogLevel(const MemoryLogLevel &logLevel) {
                                  std::move(commandBuilder));
 }
 
+WorkerDebugStats Controller::getWorkerDebugStats() {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildGetWorkerDebugStatsCommand(*commandBuilder);
+
+  auto workerDebugStatsHandle = std::make_shared<WorkerDebugStats>();
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  awaitingHandles->push_back(
+      std::static_pointer_cast<void>(workerDebugStatsHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetWorkerDebugStatsCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *workerDebugStatsHandle;
+}
+
 SystemDesc Controller::getCurrentSystemDesc(
     std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType,
     std::optional<::tt::runtime::Device> deviceHandle) {
@@ -959,6 +983,47 @@ void Controller::handleSetMemoryLogLevelResponse(
   debug::assertNoAwaitingState(*awaitingResponse, "SetMemoryLogLevel");
 }
 
+void Controller::handleGetWorkerDebugStatsResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetWorkerDebugStatsResponse);
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(awaitingHandles && awaitingHandles->size() == 1,
+               "GetWorkerDebugStats: Awaiting handles must be populated and "
+               "contain exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<WorkerDebugStats> workerDebugStatsHandle =
+      std::static_pointer_cast<WorkerDebugStats>(awaitingHandles->at(0));
+  workerDebugStatsHandle->clear();
+  workerDebugStatsHandle->reserve(responseBuffers.size());
+
+  for (const SizedBuffer &responseBuffer : responseBuffers) {
+    const fb::GetWorkerDebugStatsResponse *response =
+        getResponse(responseBuffer)->type_as_GetWorkerDebugStatsResponse();
+
+    std::string hostname;
+    if (response->hostname()) {
+      hostname = response->hostname()->str();
+    }
+    DebugStatsMap workerStats;
+    if (response->stats()) {
+      for (const fb::DebugStatEntry *entry : *response->stats()) {
+        workerStats[entry->key()->str()] = entry->value();
+      }
+    }
+    workerDebugStatsHandle->push_back(
+        ::tt::runtime::WorkerDebugStatsEntry{std::move(hostname),
+                                             std::move(workerStats)});
+  }
+
+  awaitingPromise->set_value();
+}
+
 void Controller::handleGetSystemDescResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1491,6 +1556,10 @@ void Controller::handleResponse(
   case fb::CommandType::SetMemoryLogLevelCommand: {
     return handleSetMemoryLogLevelResponse(responseBuffers,
                                            std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetWorkerDebugStatsCommand: {
+    return handleGetWorkerDebugStatsResponse(responseBuffers,
+                                             std::move(awaitingResponse));
   }
   case fb::CommandType::GetSystemDescCommand: {
     return handleGetSystemDescResponse(responseBuffers,

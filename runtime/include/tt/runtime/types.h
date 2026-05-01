@@ -6,10 +6,13 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <cassert>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #pragma clang diagnostic push
@@ -36,6 +39,14 @@ MemoryBlockTable is a list of memory blocks in the following format:
 */
 using MemoryBlockTable =
     std::vector<std::unordered_map<std::string, std::string>>;
+
+using DebugStatsMap = std::unordered_map<std::string, std::int64_t>;
+
+struct WorkerDebugStatsEntry {
+  std::string hostname;
+  DebugStatsMap stats;
+};
+using WorkerDebugStats = std::vector<WorkerDebugStatsEntry>;
 
 enum class MemoryBufferType {
   DRAM,

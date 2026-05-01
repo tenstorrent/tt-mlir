@@ -167,6 +167,24 @@ def test_get_num_devices():
     shutdown_distributed_runtime()
 
 
+def test_get_worker_debug_stats():
+    launch_distributed_runtime()
+
+    worker_debug_stats = ttrt.runtime.get_worker_debug_stats()
+    assert isinstance(worker_debug_stats, list)
+    assert len(worker_debug_stats) == ttrt.runtime.get_num_available_devices()
+
+    for worker_stat in worker_debug_stats:
+        assert isinstance(worker_stat.hostname, str)
+        assert worker_stat.hostname != ""
+        assert isinstance(worker_stat.stats, dict)
+        for key, value in worker_stat.stats.items():
+            assert isinstance(key, str)
+            assert isinstance(value, int)
+
+    shutdown_distributed_runtime()
+
+
 @pytest.mark.parametrize("mesh_shape", ["1x8"])
 def test_get_mesh_shape(mesh_shape):
     launch_distributed_runtime()

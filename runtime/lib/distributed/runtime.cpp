@@ -59,6 +59,11 @@ void shutdownDistributedRuntime() {
   ControllerSingleton::shutdown();
 }
 
+WorkerDebugStats getWorkerDebugStats() {
+  assertControllerLaunched();
+  return ControllerSingleton::get().getWorkerDebugStats();
+}
+
 void setMemoryLogLevel(const ::tt::runtime::MemoryLogLevel &memoryLogLevel) {
   assertControllerLaunched();
   ControllerSingleton::get().setMemoryLogLevel(memoryLogLevel);
