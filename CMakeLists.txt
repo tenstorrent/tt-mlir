@@ -178,6 +178,9 @@ if (TTMLIR_ENABLE_STABLEHLO)
   include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy EXCLUDE_FROM_ALL)
   add_subdirectory(${TTMLIR_TOOLCHAIN_DIR}/src/stablehlo ${CMAKE_CURRENT_BINARY_DIR}/stablehlo EXCLUDE_FROM_ALL)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(obj.StablehloOps PRIVATE -Wno-error=pass-failed)
+  endif()
   install(DIRECTORY shardy ${CMAKE_CURRENT_BINARY_DIR}/shardy/shardy
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     COMPONENT SharedLib

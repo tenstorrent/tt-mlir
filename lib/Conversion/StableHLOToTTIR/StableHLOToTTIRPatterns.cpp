@@ -9189,6 +9189,66 @@ static void addAllToAllOpsConversionPattern(MLIRContext *ctx,
       typeConverter, ctx);
 }
 
+namespace {
+// Pattern to convert tt.invoke_external to ttir.invoke_external.
+class StableHLOToTTIRInvokeExternalConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.invoke_external") {
+      return failure();
+    }
+
+    SmallVector<Type> resultTypes;
+    if (failed(this->getTypeConverter()->convertTypes(srcOp->getResultTypes(),
+                                                      resultTypes))) {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "invoke_external op must have mhlo.frontend_attributes attribute.");
+    }
+
+    auto pathAttr = frontendAttributes.getAs<mlir::StringAttr>("path");
+    if (!pathAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "invoke_external op must have a 'path' frontend attribute "
+                 "pointing to an MLIR file.");
+    }
+
+    auto entryAttr = frontendAttributes.getAs<mlir::StringAttr>("entry");
+    if (!entryAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "invoke_external op must have an 'entry' frontend attribute "
+                 "naming the function symbol to call.");
+    }
+
+    auto arguments = adaptor.getOperands();
+    rewriter.replaceOpWithNewOp<ttir::InvokeExternalOp>(
+        srcOp, resultTypes, arguments, pathAttr, entryAttr);
+    return success();
+  }
+};
+} // namespace
+
+static void addInvokeExternalOpConversionPattern(MLIRContext *ctx,
+                                                 RewritePatternSet &patterns,
+                                                 TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRInvokeExternalConversionPattern>(typeConverter,
+                                                               ctx);
+}
+
 namespace mlir::tt {
 
 void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
@@ -9231,6 +9291,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                                         typeConverter);
   addSparseMatmulOpConversionPattern(ctx, patterns, typeConverter);
   addAllToAllOpsConversionPattern(ctx, patterns, typeConverter);
+  addInvokeExternalOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt
