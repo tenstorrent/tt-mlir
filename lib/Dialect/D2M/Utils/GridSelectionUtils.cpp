@@ -12,6 +12,7 @@
 namespace mlir::tt::d2m::utils {
 
 static constexpr double kMinGridUtilization = 0.25;
+static constexpr double kMinDominantAxisGridImprovement = 2.0;
 
 llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
@@ -43,7 +44,7 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 
 // Find the dimension whose size-to-(product-of-others) ratio is largest.
 // Returns 0 if no dim exceeds ratio 1.0 (i.e. balanced shape).
-static unsigned findShardedDimIndex(ArrayRef<int64_t> physicalShape) {
+static unsigned findDominantDimIndex(ArrayRef<int64_t> physicalShape) {
   double bestRatio = 1.0;
   unsigned bestIndex = 0;
   for (size_t i = 0; i < physicalShape.size(); ++i) {
@@ -63,13 +64,13 @@ static unsigned findShardedDimIndex(ArrayRef<int64_t> physicalShape) {
 }
 
 static int64_t
-computeBestOneDimensionalVirtualGridVolume(ArrayRef<int64_t> physicalShape,
-                                           ArrayRef<int64_t> targetGrid) {
-  unsigned shardedDimIndex = findShardedDimIndex(physicalShape);
+computeBestDominantAxisGridVolume(ArrayRef<int64_t> physicalShape,
+                                  ArrayRef<int64_t> targetGrid) {
+  unsigned dominantDimIndex = findDominantDimIndex(physicalShape);
   int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
 
   SmallVector<int64_t> factors =
-      ttmlir::utils::getFactors(physicalShape[shardedDimIndex]);
+      ttmlir::utils::getFactors(physicalShape[dominantDimIndex]);
   for (int64_t factor : llvm::reverse(factors)) {
     if (factor <= targetGridVolume &&
         !utils::findLegalPhysicalGridForVolume(factor, targetGrid).empty()) {
@@ -84,19 +85,6 @@ llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetGrid) {
   int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
-
-  if (physicalShape.size() == 2) {
-    // For 2D shapes, only use a Cartesian virtual grid when the old
-    // one-dimensional virtual sharding would already be worth using. This
-    // avoids spreading small balanced grids across many physical cores just
-    // because the product clears the utilization threshold.
-    int64_t oneDimensionalVolume =
-        computeBestOneDimensionalVirtualGridVolume(physicalShape, targetGrid);
-    if (oneDimensionalVolume <=
-        static_cast<int64_t>(kMinGridUtilization * targetGridVolume)) {
-      return {};
-    }
-  }
 
   SmallVector<SmallVector<int64_t>> factors =
       llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
@@ -153,7 +141,19 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
       ttmlir::utils::volume<int64_t>(blockShardedGrid);
   int64_t targetGridVolume = ttmlir::utils::volume<int64_t>(targetGrid);
   bool lowGridUtilization = blockShardedGridVolume < 0.5 * targetGridVolume;
-  return lowGridUtilization;
+  if (!lowGridUtilization) {
+    return false;
+  }
+
+  // Rank-2 virtual grids are profitable when the tensor has enough work along
+  // one dominant axis to materially improve over block sharding. Avoid using
+  // several small dimensions multiplicatively to pass a utilization threshold;
+  // those balanced cases are better handled as block-sharded grids.
+  int64_t dominantAxisGridVolume =
+      computeBestDominantAxisGridVolume(physicalShape, targetGrid);
+  return dominantAxisGridVolume >=
+         static_cast<int64_t>(kMinDominantAxisGridImprovement *
+                              blockShardedGridVolume);
 }
 
 llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,

@@ -16,18 +16,32 @@
 
 namespace mlir::tt::d2m {
 
+/// Complete grid decision for one tensor value.
+///
+/// selectedGrid is the tensor grid stored in the layout. physicalGrid is the
+/// 2D worker-grid extent used to place a virtual grid. layoutGrid is the grid
+/// used when computing grid-aware dim alignments for this selected grid.
+struct GridDecision {
+  llvm::SmallVector<int64_t> selectedGrid;
+  llvm::SmallVector<int64_t> targetGrid;
+  llvm::SmallVector<int64_t> physicalGrid;
+  llvm::SmallVector<int64_t> layoutGrid;
+
+  bool empty() const { return selectedGrid.empty(); }
+  bool isVirtual() const { return selectedGrid != physicalGrid; }
+};
+
 /// Per-operand analysis result describing the chosen grid for a GenericOp
 /// operand. The concrete update strategy is recovered at apply time from the
 /// operand's defining op.
 struct OperandGridInfo {
   Value operand;
-  llvm::SmallVector<int64_t> selectedGrid;
-  llvm::SmallVector<int64_t> targetGrid;
+  GridDecision grid;
 
   // Set only when the operand is a ViewLayoutOp whose input is a ToLayoutOp
   // that should have its grid optimized independently. Carries the optimal
   // grid for that upstream ToLayoutOp's own tensor shape. Empty otherwise.
-  llvm::SmallVector<int64_t> viewSourceGrid;
+  GridDecision viewSourceGrid;
 };
 
 /// Effective target grid range for a GenericOp.

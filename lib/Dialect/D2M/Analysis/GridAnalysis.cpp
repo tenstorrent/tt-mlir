@@ -26,6 +26,42 @@ bool GridAnalysis::isTTNNOperand(Value operand) {
   return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;
 }
 
+static ToLayoutOp getSourceToLayoutThroughViews(Value operand) {
+  bool sawView = false;
+  while (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+    sawView = true;
+    operand = view.getInput();
+  }
+  if (!sawView) {
+    return {};
+  }
+  return operand.getDefiningOp<d2m::ToLayoutOp>();
+}
+
+static GridDecision makeGridDecision(ArrayRef<int64_t> selectedGrid,
+                                     ArrayRef<int64_t> targetGrid) {
+  GridDecision decision;
+  decision.selectedGrid = llvm::SmallVector<int64_t>(selectedGrid);
+  decision.targetGrid = llvm::SmallVector<int64_t>(targetGrid);
+
+  if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(selectedGrid,
+                                                      targetGrid)) {
+    decision.physicalGrid = llvm::SmallVector<int64_t>(selectedGrid);
+    decision.layoutGrid = llvm::SmallVector<int64_t>(targetGrid);
+    return decision;
+  }
+
+  auto physicalGrid = utils::findLegalPhysicalGridForVolume(
+      ttmlir::utils::volume<int64_t>(selectedGrid), targetGrid);
+  TT_assertv(!physicalGrid.empty(),
+             "Unable to find physical grid for virtual grid {} within {}",
+             ttmlir::utils::formatIterable(selectedGrid, "x"),
+             ttmlir::utils::formatIterable(targetGrid, "x"));
+  decision.physicalGrid = physicalGrid;
+  decision.layoutGrid = physicalGrid;
+  return decision;
+}
+
 // Find the largest value <= maxFactor that divides all the given physical
 // dimensions. Returns 1 if no better common factor exists.
 static int64_t findLargestCommonFactor(int64_t maxFactor,
@@ -112,6 +148,65 @@ static llvm::SmallVector<int64_t> applyMatmulVirtualGridConstraints(
   }
 
   return computeOneDimensionalGrid(physicalShape, targetGrid);
+}
+
+struct GridDecisionAndShape {
+  GridDecision decision;
+  llvm::SmallVector<int64_t> physicalShape;
+};
+
+static llvm::SmallVector<int64_t>
+computeSelectedGrid(mlir::Value operand, ArrayRef<int64_t> physicalShape,
+                    ArrayRef<int64_t> targetGrid, bool isMatmul) {
+  auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  auto selectedGrid =
+      utils::computeOptimalGrid(operandType, physicalShape, targetGrid);
+  return applyMatmulVirtualGridConstraints(isMatmul, physicalShape, targetGrid,
+                                           selectedGrid);
+}
+
+static GridDecisionAndShape
+computeBlockShardedDecision(mlir::Value operand, ArrayRef<int64_t> targetGrid,
+                            bool ttnnMode, bool isMatmul) {
+  GridDecisionAndShape result;
+  result.physicalShape =
+      utils::computePhysicalShape(operand, targetGrid, ttnnMode);
+  auto selectedGrid =
+      utils::computeOptimalBlockShardedGrid(result.physicalShape, targetGrid);
+  selectedGrid = applyMatmulVirtualGridConstraints(
+      isMatmul, result.physicalShape, targetGrid, selectedGrid);
+  result.decision = makeGridDecision(selectedGrid, targetGrid);
+  return result;
+}
+
+static GridDecisionAndShape
+computeGridDecision(mlir::Value operand, ArrayRef<int64_t> initialLayoutGrid,
+                    ArrayRef<int64_t> targetGrid, bool ttnnMode,
+                    bool isMatmul) {
+  constexpr unsigned kMaxGridDecisionIterations = 8;
+
+  llvm::SmallVector<int64_t> layoutGrid(initialLayoutGrid);
+  for (unsigned iteration = 0; iteration < kMaxGridDecisionIterations;
+       ++iteration) {
+    GridDecisionAndShape result;
+    result.physicalShape =
+        utils::computePhysicalShape(operand, layoutGrid, ttnnMode);
+    result.decision =
+        makeGridDecision(computeSelectedGrid(operand, result.physicalShape,
+                                             targetGrid, isMatmul),
+                         targetGrid);
+
+    if (result.decision.layoutGrid == layoutGrid) {
+      return result;
+    }
+
+    layoutGrid = result.decision.layoutGrid;
+  }
+
+  // Grid-aware padding can change factor availability, so a virtual decision
+  // may theoretically oscillate. Prefer a physical block-sharded grid over
+  // emitting an inconsistent virtual layout.
+  return computeBlockShardedDecision(operand, targetGrid, ttnnMode, isMatmul);
 }
 
 llvm::SmallVector<llvm::SmallVector<int64_t>>
@@ -311,39 +406,25 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
                "MetalLayoutAttr");
 
     ArrayRef<int64_t> targetGrid = perOperandTargetGrids[operandIndex];
-    llvm::SmallVector<int64_t> physShape =
-        utils::computePhysicalShape(operand, targetGrid, ttnnMode);
-    physicalShapes.push_back(physShape);
-    auto optimalGrid =
-        utils::computeOptimalGrid(operandType, physShape, targetGrid);
-    optimalGrid = applyMatmulVirtualGridConstraints(isMatmul, physShape,
-                                                    targetGrid, optimalGrid);
-    optimalOperandGrids.push_back(optimalGrid);
+    GridDecisionAndShape decisionAndShape = computeGridDecision(
+        operand, targetGrid, targetGrid, ttnnMode, isMatmul);
+    physicalShapes.push_back(decisionAndShape.physicalShape);
+    optimalOperandGrids.push_back(decisionAndShape.decision.selectedGrid);
+    llvm::errs() << "GRIDDBG initial operand " << operandIndex << " phys "
+                 << ttmlir::utils::formatIterable(
+                        decisionAndShape.physicalShape, "x")
+                 << " selected "
+                 << ttmlir::utils::formatIterable(
+                        decisionAndShape.decision.selectedGrid, "x")
+                 << " layout "
+                 << ttmlir::utils::formatIterable(
+                        decisionAndShape.decision.layoutGrid, "x")
+                 << "\n";
 
     OperandGridInfo info;
     info.operand = operand;
-    info.selectedGrid = optimalGrid; // Will be updated after normalization.
-    info.targetGrid = perOperandTargetGrids[operandIndex];
-
-    // If the operand is a view over a ToLayoutOp (not fronting a TTNN cast),
-    // pre-compute the ToLayoutOp's own optimal grid so it can be updated
-    // independently at apply time.
-    if (auto viewLayout = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
-      if (auto toLayoutOp =
-              viewLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
-        if (!toLayoutOp.getInput()
-                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
-          auto inputType = mlir::cast<mlir::RankedTensorType>(
-              viewLayout.getInput().getType());
-          llvm::SmallVector<int64_t> inputPhysShape =
-              utils::computePhysicalShape(viewLayout.getInput(), targetGrid,
-                                          ttnnMode);
-          info.viewSourceGrid = applyMatmulVirtualGridConstraints(
-              isMatmul, inputPhysShape, targetGrid,
-              utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid));
-        }
-      }
-    }
+    // Will be updated after normalization for view operands.
+    info.grid = std::move(decisionAndShape.decision);
 
     result.operandInfos.push_back(std::move(info));
   }
@@ -355,6 +436,10 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     result.normalizedOperandGrids[idx] = applyMatmulVirtualGridConstraints(
         isMatmul, physicalShapes[idx], perOperandTargetGrids[idx],
         result.normalizedOperandGrids[idx]);
+    llvm::errs() << "GRIDDBG normalized operand " << idx << " grid "
+                 << ttmlir::utils::formatIterable(
+                        result.normalizedOperandGrids[idx], "x")
+                 << "\n";
   }
 
   // Propagate normalized grids back to non-reinterpret ViewLayout operands
@@ -368,7 +453,23 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     }
     auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
     if (view && !view.getReinterpretLayout()) {
-      info.selectedGrid = result.normalizedOperandGrids[idx];
+      info.grid = makeGridDecision(result.normalizedOperandGrids[idx],
+                                   perOperandTargetGrids[idx]);
+    }
+  }
+
+  // If an operand is a view chain over a ToLayoutOp, compute the producer's
+  // grid decision from the consuming operand's layout grid. That keeps source
+  // tilization aligned with the virtual placement selected for the generic.
+  for (OperandGridInfo &info : result.operandInfos) {
+    if (auto toLayoutOp = getSourceToLayoutThroughViews(info.operand)) {
+      if (toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+        continue;
+      }
+      info.viewSourceGrid =
+          computeGridDecision(toLayoutOp.getResult(0), info.grid.layoutGrid,
+                              info.grid.targetGrid, ttnnMode, isMatmul)
+              .decision;
     }
   }
 

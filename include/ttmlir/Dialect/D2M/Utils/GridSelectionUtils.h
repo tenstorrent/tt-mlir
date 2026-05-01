@@ -33,8 +33,10 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetGrid);
 
 // Determine whether a tensor should use a virtual grid based on its physical
-// shape and the target grid. Returns true when block sharding yields low grid
-// utilization or when the tensor is ND.
+// shape and the target grid. Rank-2 tensors use virtual grids only when block
+// sharding underutilizes the target grid and one dominant tensor axis has
+// enough legal grid factors to materially improve over block sharding. ND
+// tensors use virtual grids when supported by their layout.
 bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
                                   ArrayRef<int64_t> physicalShape,
                                   ArrayRef<int64_t> targetGrid);
