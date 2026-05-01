@@ -21,7 +21,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNND2MFUSING
+#define GEN_PASS_DEF_TTNNCREATED2MSUBGRAPHS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
@@ -170,9 +170,11 @@ private:
 // Pass Definition
 //===----------------------------------------------------------------------===//
 
-class TTNND2MFusingPass : public impl::TTNND2MFusingBase<TTNND2MFusingPass> {
+class TTNNCreateD2MSubgraphsPass
+    : public impl::TTNNCreateD2MSubgraphsBase<TTNNCreateD2MSubgraphsPass> {
 public:
-  using impl::TTNND2MFusingBase<TTNND2MFusingPass>::TTNND2MFusingBase;
+  using impl::TTNNCreateD2MSubgraphsBase<
+      TTNNCreateD2MSubgraphsPass>::TTNNCreateD2MSubgraphsBase;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();

@@ -29,6 +29,15 @@ namespace {
 // when the remote memref has a view layout, is in DRAM, or the local buffer is
 // a streaming CB (CBLayoutAttr). Aliased ops do not need DMA and return false.
 static bool needsDMA(Value memref, Value localBuffer) {
+  // Check if the local buffer is a streaming CB.
+  if (localBuffer) {
+    if (auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType())) {
+      if (mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
+        return true;
+      }
+    }
+  }
+
   // View ops need datamovement, except for reinterpret view_layout ops
   // which are just type casts.
   if (auto *defOp = memref.getDefiningOp()) {
@@ -42,15 +51,6 @@ static bool needsDMA(Value memref, Value localBuffer) {
   if (auto memrefType = mlir::dyn_cast<MemRefType>(memref.getType())) {
     if (ttcore::getMemorySpace(memrefType) == ttcore::MemorySpace::DeviceDRAM) {
       return true;
-    }
-  }
-
-  // Check if the local buffer is a streaming CB.
-  if (localBuffer) {
-    if (auto bufType = mlir::dyn_cast<MemRefType>(localBuffer.getType())) {
-      if (mlir::isa<ttcore::CBLayoutAttr>(bufType.getLayout())) {
-        return true;
-      }
     }
   }
 

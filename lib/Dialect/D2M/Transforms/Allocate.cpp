@@ -384,6 +384,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
+    if (failed(reblockGenerics(funcOp, analysis))) {
+      return failure();
+    }
+
     if (failed(analyzeGenericRegionAllocs(funcOp, analysis))) {
       return failure();
     }
@@ -397,10 +401,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     if (failed(assignAllocAddresses(funcOp, analysis))) {
-      return failure();
-    }
-
-    if (failed(reblockGenerics(funcOp, analysis))) {
       return failure();
     }
 
@@ -1223,6 +1223,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       analysis.sequencing.positionMap[sequencePosition] = sequenceAnchor;
       analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
       analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
+      // Also register the new generic op with the same sequence position so
+      // subsequent passes (e.g. analyzeGenericRegionAllocs) can look it up.
+      analysis.sequencing.operationMap[reblocked->genericOp.getOperation()] =
+          sequencePosition;
 
       // Redirect the single externally visible output to the rebuilt view.
       if (oldGenericOp.getNumResults() > 0) {
