@@ -63,6 +63,7 @@ table CreateHostTensorCommand {
   stride: [uint32];
   item_size: uint32;
   data_type: tt.target.DataType;
+  logical_id: uint64 = null;
 }
 
 table StrategyEntry {

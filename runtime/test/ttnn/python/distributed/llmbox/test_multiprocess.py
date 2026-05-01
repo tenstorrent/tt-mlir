@@ -225,6 +225,43 @@ def test_memcpy():
     shutdown_distributed_runtime()
 
 
+def test_create_cached_owned_host_tensor():
+    launch_distributed_runtime()
+
+    reference_torch_tensor = torch.randn(177, 211, dtype=torch.float32)
+    runtime_dtype = Binary.Program.to_data_type(reference_torch_tensor.dtype)
+    shape = list(reference_torch_tensor.shape)
+    stride = list(reference_torch_tensor.stride())
+    element_size = reference_torch_tensor.element_size()
+
+    owned_tensor = ttrt.runtime.create_owned_host_tensor(
+        reference_torch_tensor.data_ptr(),
+        shape,
+        stride,
+        element_size,
+        runtime_dtype,
+    )
+    cached_tensor = ttrt.runtime.create_cached_owned_host_tensor(
+        reference_torch_tensor.data_ptr(),
+        shape,
+        stride,
+        element_size,
+        runtime_dtype,
+        1234,
+    )
+
+    owned_output = torch.empty_like(reference_torch_tensor)
+    cached_output = torch.empty_like(reference_torch_tensor)
+    ttrt.runtime.memcpy(owned_output.data_ptr(), owned_tensor)
+    ttrt.runtime.memcpy(cached_output.data_ptr(), cached_tensor)
+
+    assert torch.allclose(owned_output, reference_torch_tensor)
+    assert torch.allclose(cached_output, reference_torch_tensor)
+    assert torch.allclose(owned_output, cached_output)
+
+    shutdown_distributed_runtime()
+
+
 def test_deallocate():
     launch_distributed_runtime()
 

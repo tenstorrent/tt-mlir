@@ -340,6 +340,8 @@ void CommandExecutor::execute(uint64_t commandId,
                                command->stride()->end());
   uint32_t itemSize = command->item_size();
   ::tt::target::DataType dataType = command->data_type();
+  [[maybe_unused]] const ::flatbuffers::Optional<uint64_t> logicalId =
+      command->logical_id();
 
   ::tt::runtime::Tensor tensor = ::tt::runtime::createOwnedHostTensor(
       tensorData, shape, stride, itemSize, dataType);
