@@ -3457,6 +3457,23 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   const bool conservativeFolding =
       op.getConservativeFolding() || producerOp.getConservativeFolding();
 
+  // For integer-only narrowing→widening chains the intermediate truncation is
+  // always semantically significant: i32->i8->i32 means "& 0xFF", not identity.
+  // Check via MLIR IntegerType directly to avoid elementTypeToDataType for
+  // unsupported intermediate widths (e.g. i24 before TTIRWorkarounds runs).
+  {
+    auto producerInElem =
+        dyn_cast<IntegerType>(producerOp.getInput().getType().getElementType());
+    auto midElem =
+        dyn_cast<IntegerType>(op.getInput().getType().getElementType());
+    auto dstElem = dyn_cast<IntegerType>(op.getType().getElementType());
+    if (producerInElem && midElem && dstElem &&
+        producerInElem.getWidth() > midElem.getWidth() &&
+        midElem.getWidth() < dstElem.getWidth()) {
+      return mlir::failure();
+    }
+  }
+
   if (conservativeFolding) {
     // Disable folding if it has the potential to cause too much numerical
     // differences.
@@ -3466,13 +3483,8 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
         ttcore::elementTypeToDataType(op.getInput().getType().getElementType());
     auto dtypeOut =
         ttcore::elementTypeToDataType(op.getType().getElementType());
-
     assert(dtypeMid == ttcore::elementTypeToDataType(
                            producerOp.getType().getElementType()));
-
-    // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
-    // FP->Int->FP is special and should never fold, due to its truncation
-    // semantics and application in QDQ models.
     const bool isNarrowingProducer = isNarrowingConversion(dtypeIn, dtypeMid);
     const bool isNarrowingConsumer = isNarrowingConversion(dtypeMid, dtypeOut);
     const bool isFpIntFp =

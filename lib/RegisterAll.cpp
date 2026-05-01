@@ -46,6 +46,7 @@
 #include "mlir/Dialect/Quant/IR/Quant.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/SMT/IR/SMTDialect.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/SubsetInsertionOpInterfaceImpl.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -96,7 +97,7 @@ void mlir::tt::registerAllDialects(mlir::DialectRegistry &registry) {
       mlir::memref::MemRefDialect, mlir::emitc::EmitCDialect,
       mlir::bufferization::BufferizationDialect, mlir::LLVM::LLVMDialect,
       mlir::quant::QuantDialect, mlir::tt::emitpy::EmitPyDialect,
-      mlir::tt::debug::DebugDialect>();
+      mlir::tt::debug::DebugDialect, mlir::smt::SMTDialect>();
 
 #if TTMLIR_ENABLE_STABLEHLO
   mlir::stablehlo::registerAllDialects(registry);
