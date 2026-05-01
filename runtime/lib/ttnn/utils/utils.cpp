@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <memory>
+#include <ostream>
 
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -387,9 +388,22 @@ fromTTNNCoreRange(const tt::tt_metal::CoreRange &coreRange) {
 tt::tt_metal::CoreRangeSet
 toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSet &coreRangeSet) {
   std::set<tt::tt_metal::CoreRange> coreRanges;
+
+  // if (coreRangeSet.core_ranges() != nullptr) {
   for (const tt::target::ttnn::CoreRange *coreRange :
        *coreRangeSet.core_ranges()) {
     coreRanges.emplace(toTTNNCoreRange(*coreRange));
+  }
+  // } ///TODO
+
+  return tt::tt_metal::CoreRangeSet(coreRanges);
+}
+
+tt::tt_metal::CoreRangeSet
+toTTNNCoreRangeSet(const tt::target::ttnn::CoreRangeSetT &coreRangeSet) {
+  std::set<tt::tt_metal::CoreRange> coreRanges;
+  for (const tt::target::ttnn::CoreRange coreRange : coreRangeSet.core_ranges) {
+    coreRanges.emplace(toTTNNCoreRange(coreRange));
   }
   return tt::tt_metal::CoreRangeSet(coreRanges);
 }
