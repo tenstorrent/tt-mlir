@@ -14,8 +14,8 @@ module {
       %input: tensor<1x32x1x512xbf16>
   ) -> tensor<1x32x64x512xbf16> {
     %idx = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
-    %0 = "ttir.update_cache"(%cache, %input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
-    return %0 : tensor<1x32x64x512xbf16>
+    "ttir.update_cache"(%cache, %input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> ()
+    return %cache : tensor<1x32x64x512xbf16>
   }
 }
 
@@ -28,8 +28,8 @@ module {
       %cache: tensor<1x32x64x512xbf16>,
       %input: tensor<1x32x64x512xbf16>
   ) -> tensor<1x32x64x512xbf16> {
-    %0 = "ttir.fill_cache"(%cache, %input) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>) -> tensor<1x32x64x512xbf16>
-    return %0 : tensor<1x32x64x512xbf16>
+    "ttir.fill_cache"(%cache, %input) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>) -> ()
+    return %cache : tensor<1x32x64x512xbf16>
   }
 }
 
@@ -45,9 +45,9 @@ module {
       %value_input: tensor<1x32x1x512xbf16>
   ) -> (tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>) {
     %idx = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
-    %key_updated = "ttir.update_cache"(%key_cache, %key_input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
-    %value_updated = "ttir.update_cache"(%value_cache, %value_input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
-    return %key_updated, %value_updated : tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>
+    "ttir.update_cache"(%key_cache, %key_input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> ()
+    "ttir.update_cache"(%value_cache, %value_input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> ()
+    return %key_cache, %value_cache : tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>
   }
 }
 
@@ -62,8 +62,8 @@ module {
   ) -> tensor<2x32x64x512xbf16> {
     %sharded_cache = "ttir.mesh_shard"(%cache) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 1, 1, 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<2x32x64x512xbf16>) -> tensor<1x32x64x512xbf16>
     %idx = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
-    %updated = "ttir.update_cache"(%sharded_cache, %input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
-    %result = "ttir.mesh_shard"(%updated) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 1, 1, 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<1x32x64x512xbf16>) -> tensor<2x32x64x512xbf16>
+    "ttir.update_cache"(%sharded_cache, %input, %idx) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> ()
+    %result = "ttir.mesh_shard"(%sharded_cache) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 1, 1, 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<1x32x64x512xbf16>) -> tensor<2x32x64x512xbf16>
     return %result : tensor<2x32x64x512xbf16>
   }
 }
@@ -78,8 +78,8 @@ module {
       %input: tensor<1x32x64x512xbf16>
   ) -> tensor<2x32x64x512xbf16> {
     %sharded_cache = "ttir.mesh_shard"(%cache) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<full_to_shard>, shard_shape = array<i64: 2, 1, 1, 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<2x32x64x512xbf16>) -> tensor<1x32x64x512xbf16>
-    %updated = "ttir.fill_cache"(%sharded_cache, %input) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>) -> tensor<1x32x64x512xbf16>
-    %result = "ttir.mesh_shard"(%updated) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 1, 1, 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<1x32x64x512xbf16>) -> tensor<2x32x64x512xbf16>
+    "ttir.fill_cache"(%sharded_cache, %input) <{batch_offset = 0: i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x64x512xbf16>) -> ()
+    %result = "ttir.mesh_shard"(%sharded_cache) <{shard_dims = array<i64: -1, 0>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 2, 1, 1, 1>, shard_type = #ttcore.shard_type<identity>}> : (tensor<1x32x64x512xbf16>) -> tensor<2x32x64x512xbf16>
     return %result : tensor<2x32x64x512xbf16>
   }
 }
