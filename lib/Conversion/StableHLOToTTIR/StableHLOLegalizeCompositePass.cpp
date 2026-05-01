@@ -674,7 +674,27 @@ public:
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
     if (hasAttnMask) {
-      sdpaOperands.push_back(adaptor.getOperands()[3]);
+      Value attnMask = adaptor.getOperands()[3];
+      auto maskType = mlir::cast<RankedTensorType>(attnMask.getType());
+      auto queryType =
+          mlir::cast<RankedTensorType>(adaptor.getOperands()[0].getType());
+      int64_t seqLen = queryType.getShape()[2];
+
+      // PyTorch models often produce masks with shape [batch, 1, 1, kvSeqLen]
+      // where dim 2 = 1 is a broadcast placeholder. The TTIR SDPA verifier
+      // requires dim 2 == querySeqLen (no broadcasting). Expand it here.
+      if (maskType.getShape()[2] == 1 && seqLen > 1) {
+        SmallVector<int64_t> expandedShape(maskType.getShape());
+        expandedShape[2] = seqLen;
+        auto expandedMaskType =
+            RankedTensorType::get(expandedShape, maskType.getElementType());
+        SmallVector<int64_t> broadcastDims(maskType.getShape().size(), 1);
+        broadcastDims[2] = seqLen;
+        attnMask = rewriter.create<ttir::BroadcastOp>(
+            srcOp.getLoc(), expandedMaskType, attnMask,
+            rewriter.getDenseI64ArrayAttr(broadcastDims));
+      }
+      sdpaOperands.push_back(attnMask);
     }
 
     // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
