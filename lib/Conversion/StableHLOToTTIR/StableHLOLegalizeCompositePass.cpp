@@ -677,14 +677,56 @@ public:
       sdpaOperands.push_back(adaptor.getOperands()[3]);
     }
 
+    // ttir.scaled_dot_product_attention requires 4D tensors [batch, heads,
+    // seq, dim].  Some models (e.g. einops-based cross-attention) pass 3D
+    // tensors [batch*heads, seq, dim] — reshape to [batch*heads, 1, seq, dim]
+    // before lowering and reshape the result back to 3D.
+    auto queryType =
+        mlir::cast<RankedTensorType>(sdpaOperands[0].getType());
+    bool needs3Dto4DReshape = queryType.getRank() == 3;
+    RankedTensorType origOutputType = outputType;
+
+    if (needs3Dto4DReshape) {
+      auto reshape3Dto4D = [&](Value operand) -> Value {
+        auto t = mlir::cast<RankedTensorType>(operand.getType());
+        auto s = t.getShape();
+        SmallVector<int64_t> s4d = {s[0], 1, s[1], s[2]};
+        auto shapeAttr = rewriter.getI32ArrayAttr(
+            SmallVector<int32_t>(s4d.begin(), s4d.end()));
+        auto type4D =
+            RankedTensorType::get(s4d, t.getElementType(), t.getEncoding());
+        return rewriter.create<ttir::ReshapeOp>(srcOp.getLoc(), type4D,
+                                                operand, shapeAttr);
+      };
+      sdpaOperands[0] = reshape3Dto4D(sdpaOperands[0]);
+      sdpaOperands[1] = reshape3Dto4D(sdpaOperands[1]);
+      sdpaOperands[2] = reshape3Dto4D(sdpaOperands[2]);
+      auto os = outputType.getShape();
+      SmallVector<int64_t> os4d = {os[0], 1, os[1], os[2]};
+      outputType = RankedTensorType::get(os4d, outputType.getElementType(),
+                                         outputType.getEncoding());
+    }
+
     // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
     //   [query, key, value, attention_mask, attention_sink]
     SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
     namedAttrs.push_back(rewriter.getNamedAttr(
         "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-        srcOp, outputType, sdpaOperands, namedAttrs);
+    if (needs3Dto4DReshape) {
+      auto sdpaOp = rewriter.create<ttir::ScaledDotProductAttentionOp>(
+          srcOp.getLoc(), outputType, sdpaOperands, namedAttrs);
+      // Reshape result back from 4D [b, 1, s, d] to 3D [b, s, d].
+      auto origShape = origOutputType.getShape();
+      auto shapeAttr = rewriter.getI32ArrayAttr(
+          SmallVector<int32_t>(origShape.begin(), origShape.end()));
+      auto reshapeBack = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), origOutputType, sdpaOp.getResult(), shapeAttr);
+      rewriter.replaceOp(srcOp, reshapeBack.getResult());
+    } else {
+      rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+          srcOp, outputType, sdpaOperands, namedAttrs);
+    }
     return success();
   }
 };
