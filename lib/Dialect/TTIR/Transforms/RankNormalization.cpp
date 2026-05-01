@@ -123,6 +123,8 @@ public:
       updateArangeDimension(arangeOp);
     } else if (auto sliceOp = dyn_cast<ttir::SliceStaticOp>(newOp)) {
       updateSliceStaticAttrs(sliceOp);
+    } else if (auto broadcastOp = dyn_cast<ttir::BroadcastOp>(newOp)) {
+      updateBroadcastDimensionsAttr(broadcastOp);
     } else if (auto fullOp = dyn_cast<ttir::FullOp>(newOp)) {
       updateDenseI32ShapeAttr(fullOp);
     } else if (auto zerosOp = dyn_cast<ttir::ZerosOp>(newOp)) {
@@ -202,6 +204,35 @@ private:
 
     OpBuilder builder(reshapeOp.getContext());
     reshapeOp.setShapeAttr(builder.getI32ArrayAttr(expandShape(currentShape)));
+  }
+
+  static void updateBroadcastDimensionsAttr(ttir::BroadcastOp broadcastOp) {
+    auto inputType =
+        dyn_cast<RankedTensorType>(broadcastOp.getInput().getType());
+    if (!inputType) {
+      return;
+    }
+
+    ArrayRef<int64_t> currentBroadcastDimensions =
+        broadcastOp.getBroadcastDimensions();
+    if (static_cast<int64_t>(currentBroadcastDimensions.size()) ==
+        inputType.getRank()) {
+      return;
+    }
+
+    int64_t numDimsToAdd =
+        inputType.getRank() - currentBroadcastDimensions.size();
+    if (numDimsToAdd <= 0) {
+      return;
+    }
+
+    SmallVector<int64_t> newBroadcastDimensions(numDimsToAdd, 1);
+    newBroadcastDimensions.append(currentBroadcastDimensions.begin(),
+                                  currentBroadcastDimensions.end());
+
+    OpBuilder builder(broadcastOp.getContext());
+    broadcastOp.setBroadcastDimensionsAttr(
+        builder.getDenseI64ArrayAttr(newBroadcastDimensions));
   }
 
   static void updateSliceStaticAttrs(ttir::SliceStaticOp sliceOp) {
