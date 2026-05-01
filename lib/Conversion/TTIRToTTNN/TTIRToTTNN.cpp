@@ -1405,44 +1405,41 @@ class GroupNormOpConversionPattern
     : public OpConversionPattern<ttir::GroupNormOp> {
 private:
   // Compute a valid core grid for group_norm.
+  // This is mirror to tt-metal's computeGroupNormCoreGrid.
+  // ttnn/cpp/ttnn/operations/normalization/groupnorm/groupnorm_grid_utils.cpp
+  // metal issue: https://github.com/tenstorrent/tt-metal/issues/40916
   static std::pair<uint64_t, uint64_t>
   computeGroupNormCoreGrid(int64_t deviceGridX, int64_t deviceGridY,
                            int64_t numChannels, int64_t numGroups,
                            int64_t inputNHW) {
-    constexpr int64_t tileSize = 32;
-
+    constexpr int64_t tileSize = ttcore::TileType::getDefaultShape()[0];
     int64_t Ht = llvm::divideCeil(inputNHW, tileSize);
 
-    // Find numVirtualCols: largest value <= min(deviceGridX, numGroups) where
-    // channels per virtual col are tile-aligned and groups divide evenly.
-    // numVirtualCols == 1 always satisfies both conditions (given the
-    // precondition numChannels % 32 == 0), so the loop always terminates.
-    int64_t numVirtualCols = std::min(deviceGridX, numGroups);
-    while (numVirtualCols > 1 &&
-           ((numChannels / numVirtualCols) % tileSize != 0 ||
-            numGroups % numVirtualCols != 0)) {
-      numVirtualCols--;
-    }
+    for (int64_t gx = deviceGridX; gx >= 1; --gx) {
+      int64_t nvc = std::min(gx, numGroups);
+      while (nvc > 0 &&
+             ((numChannels / nvc) % tileSize != 0 || (numGroups % nvc) != 0)) {
+        --nvc;
+      }
+      if (nvc == 0) {
+        continue;
+      }
 
-    // Start with the full device grid, clamped to a multiple of
-    // numVirtualCols, then shrink until numVirtualRows <= Ht.
-    int64_t gridX =
-        llvm::divideCeil(deviceGridX, numVirtualCols) * numVirtualCols;
-    int64_t gridY = deviceGridY;
+      int64_t rowsPerY = gx / nvc;
+      if (rowsPerY == 0) {
+        continue;
+      }
 
-    int64_t rowsMult = gridX / numVirtualCols;
-    if (rowsMult * gridY > Ht) {
-      gridY = Ht / rowsMult;
-      if (gridY == 0) {
-        gridX = numVirtualCols;
-        gridY = std::min(deviceGridY, Ht);
+      int64_t maxGy = std::min(Ht / rowsPerY, deviceGridY);
+      for (int64_t gy = maxGy; gy >= 1; --gy) {
+        int64_t numVirtualRows = rowsPerY * gy;
+        if (Ht % numVirtualRows == 0) {
+          return {static_cast<uint64_t>(gx), static_cast<uint64_t>(gy)};
+        }
       }
     }
 
-    gridX = std::max(gridX, numVirtualCols);
-    gridY = std::max(gridY, static_cast<int64_t>(1));
-
-    return {gridX, gridY};
+    return {1, 1};
   }
 
 public:
@@ -1521,9 +1518,10 @@ public:
     RankedTensorType groupNormInputType =
         mlir::cast<RankedTensorType>(input.getType());
 
-    ArrayRef<int64_t> gnShape = groupNormInputType.getShape();
-    int64_t inputNHW = gnShape[0] * gnShape[1] * gnShape[2];
-    int64_t numChannels = gnShape[3];
+    llvm::SmallVector<int64_t> paddedGnShape =
+        ttnn::utils::getTilePaddedShape(groupNormInputType.getShape());
+    int64_t inputNHW = paddedGnShape[0] * paddedGnShape[1] * paddedGnShape[2];
+    int64_t numChannels = paddedGnShape[3];
     int64_t numGroups = adaptor.getNumGroups();
 
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
