@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_CONVERSION_TTIRPRUNETOOUTPUT_H
-#define TTMLIR_CONVERSION_TTIRPRUNETOOUTPUT_H
+#ifndef TTMLIR_CONVERSION_TTIRPRUNETOOUTPUT_TTIRPRUNETOOUTPUT_H
+#define TTMLIR_CONVERSION_TTIRPRUNETOOUTPUT_TTIRPRUNETOOUTPUT_H
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
@@ -22,4 +22,4 @@ std::unique_ptr<OperationPass<ModuleOp>> createFuncDropUnusedArgsPass();
 
 } // namespace mlir::tt
 
-#endif // TTMLIR_CONVERSION_TTIRPRUNETOOUTPUT_H
+#endif // TTMLIR_CONVERSION_TTIRPRUNETOOUTPUT_TTIRPRUNETOOUTPUT_H
