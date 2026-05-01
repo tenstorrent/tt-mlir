@@ -2585,6 +2585,303 @@ public:
 } // namespace
 
 namespace {
+static Value compareArgMaxCandidates(OpBuilder &rewriter, Location loc,
+                                     Value candidate, Value currentMax) {
+  Type candidateType = candidate.getType();
+  if (mlir::isa<FloatType>(candidateType)) {
+    // Ordered greater-than keeps the existing maximum if either operand is NaN.
+    return rewriter.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
+                                          candidate, currentMax);
+  }
+  if (d2m::utils::isI32ElementType(candidateType)) {
+    return rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::sgt,
+                                          candidate, currentMax);
+  }
+  llvm_unreachable("Unsupported argmax candidate type");
+}
+
+static Value loadArgMaxElementFromPacket(OpBuilder &rewriter, Location loc,
+                                         Value l1Ptr, Type elementType,
+                                         Value packetLane) {
+  bool isBF16 = mlir::isa<BFloat16Type>(elementType);
+  bool isF32 = mlir::isa<Float32Type>(elementType);
+  bool isI32 = d2m::utils::isI32ElementType(elementType);
+  assert((isBF16 || isF32 || isI32) &&
+         "argmax supports f32, bf16, and i32 inputs only");
+
+  Value wordLane;
+  Value halfLane = index(rewriter, loc, 0);
+  if (isBF16) {
+    Value two = index(rewriter, loc, 2);
+    wordLane = rewriter.create<arith::DivSIOp>(loc, packetLane, two);
+    Value wordBase = rewriter.create<arith::MulIOp>(loc, wordLane, two);
+    halfLane = rewriter.create<arith::SubIOp>(loc, packetLane, wordBase);
+  } else {
+    wordLane = packetLane;
+  }
+
+  Value wordLaneI32 =
+      rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), wordLane);
+  Value word = rewriter.create<ttkernel::LoadFromL1Op>(loc, l1Ptr, wordLaneI32);
+
+  if (isF32) {
+    return rewriter.create<ttkernel::BitcastOp>(loc, rewriter.getF32Type(),
+                                                word);
+  }
+  if (isI32) {
+    return word;
+  }
+
+  // TTKernel exposes each 16B packet as four little-endian i32 words. BF16
+  // values are packed two per word, with the low halfword holding the even
+  // lane.
+  Value lowBits =
+      rewriter.create<arith::AndIOp>(loc, word, i32(rewriter, loc, 0xffff));
+  Value highBits =
+      rewriter.create<arith::ShRUIOp>(loc, word, i32(rewriter, loc, 16));
+  Value isHighLane = rewriter.create<arith::CmpIOp>(
+      loc, arith::CmpIPredicate::ne, halfLane, index(rewriter, loc, 0));
+  Value bf16Bits =
+      rewriter.create<arith::SelectOp>(loc, isHighLane, highBits, lowBits);
+  Value bf16Value = rewriter.create<ttkernel::BitcastOp>(
+      loc, rewriter.getBF16Type(), bf16Bits);
+  return rewriter.create<arith::ExtFOp>(loc, rewriter.getF32Type(), bf16Value);
+}
+
+static Value loadArgMaxElement(OpBuilder &rewriter, Location loc,
+                               Value scratchCb, Value inputBase,
+                               AffineMap inputMemoryMap, MemRefType inputType,
+                               Value row, Value column,
+                               ttcore::ChipDescAttr chipDesc) {
+  Type elementType = inputType.getElementType();
+  Value elementsPerPacket =
+      index(rewriter, loc, mlir::isa<BFloat16Type>(elementType) ? 8 : 4);
+  Value packetIndex =
+      rewriter.create<arith::DivSIOp>(loc, column, elementsPerPacket);
+  Value packetColumn =
+      rewriter.create<arith::MulIOp>(loc, packetIndex, elementsPerPacket);
+  Value packetLane = rewriter.create<arith::SubIOp>(loc, column, packetColumn);
+
+  SmallVector<Value> inputLogicalIndices =
+      getCollapsed2DElementIndices(rewriter, loc, inputType, row, packetColumn);
+  Value inputNocAddr = buildMappedL1NocAddr(
+      rewriter, loc, inputBase, inputMemoryMap, inputLogicalIndices, chipDesc);
+  Value onePage = i32(rewriter, loc, 1);
+  rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
+  Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
+  rewriter.create<ttkernel::NocAsyncReadOp>(loc, inputNocAddr, writePtr,
+                                            i32(rewriter, loc, 16));
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
+  rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
+  Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
+  Value l1Ptr = rewriter.create<ttkernel::CastToL1PtrOp>(loc, readPtr);
+  Value element = loadArgMaxElementFromPacket(rewriter, loc, l1Ptr, elementType,
+                                              packetLane);
+  rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
+  return element;
+}
+
+static scf::ForOp
+scanArgMaxPacket(OpBuilder &rewriter, Location loc, Value scratchCb,
+                 Value inputBase, AffineMap inputMemoryMap,
+                 MemRefType inputType, Value inputRow, Value packetColumn,
+                 Value startLane, Value endLane, Value currentMax,
+                 Value currentIndex, ttcore::ChipDescAttr chipDesc) {
+  SmallVector<Value> inputLogicalIndices = getCollapsed2DElementIndices(
+      rewriter, loc, inputType, inputRow, packetColumn);
+  Value inputNocAddr = buildMappedL1NocAddr(
+      rewriter, loc, inputBase, inputMemoryMap, inputLogicalIndices, chipDesc);
+  Value onePage = i32(rewriter, loc, 1);
+  rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
+  Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
+  rewriter.create<ttkernel::NocAsyncReadOp>(loc, inputNocAddr, writePtr,
+                                            i32(rewriter, loc, 16));
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
+  rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
+  Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
+  Value l1Ptr = rewriter.create<ttkernel::CastToL1PtrOp>(loc, readPtr);
+
+  auto laneLoop = rewriter.create<scf::ForOp>(
+      loc, startLane, endLane, index(rewriter, loc, 1),
+      ValueRange{currentMax, currentIndex},
+      [&](OpBuilder &builder, Location bodyLoc, Value lane,
+          ValueRange iterArgs) {
+        Value candidate = loadArgMaxElementFromPacket(
+            builder, bodyLoc, l1Ptr, inputType.getElementType(), lane);
+        Value isGreater =
+            compareArgMaxCandidates(builder, bodyLoc, candidate, iterArgs[0]);
+        Value column =
+            builder.create<arith::AddIOp>(bodyLoc, packetColumn, lane);
+        Value columnIndex = builder.create<arith::IndexCastOp>(
+            bodyLoc, builder.getI32Type(), column);
+        Value nextMax = builder.create<arith::SelectOp>(bodyLoc, isGreater,
+                                                        candidate, iterArgs[0]);
+        Value nextIndex = builder.create<arith::SelectOp>(
+            bodyLoc, isGreater, columnIndex, iterArgs[1]);
+        builder.create<scf::YieldOp>(bodyLoc, ValueRange{nextMax, nextIndex});
+      });
+  rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
+  return laneLoop;
+}
+
+static void storeArgMaxIndex(OpBuilder &rewriter, Location loc, Value scratchCb,
+                             Value outputBase, AffineMap outputMemoryMap,
+                             MemRefType outputType, Value row, Value column,
+                             Value indexValue, ttcore::ChipDescAttr chipDesc) {
+  SmallVector<Value> outputLogicalIndices =
+      getCollapsed2DElementIndices(rewriter, loc, outputType, row, column);
+  Value outputNocAddr =
+      buildMappedL1NocAddr(rewriter, loc, outputBase, outputMemoryMap,
+                           outputLogicalIndices, chipDesc);
+
+  Value onePage = i32(rewriter, loc, 1);
+  rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
+  Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
+  Value l1Ptr = rewriter.create<ttkernel::CastToL1PtrOp>(loc, writePtr);
+  rewriter.create<ttkernel::StoreToL1Op>(loc, indexValue, l1Ptr,
+                                         i32(rewriter, loc, 0));
+  rewriter.create<ttkernel::NocAsyncWriteOp>(loc, writePtr, outputNocAddr,
+                                             i32(rewriter, loc, 4));
+  rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+  rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
+  rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
+  rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
+}
+
+class D2MArgMaxInterleavedRewriter
+    : public OpConversionPattern<d2m::ArgMaxInterleavedOp> {
+public:
+  using OpConversionPattern<d2m::ArgMaxInterleavedOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ArgMaxInterleavedOp op,
+                  d2m::ArgMaxInterleavedOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto inputType = mlir::cast<MemRefType>(op.getInput().getType());
+    auto outputType = mlir::cast<MemRefType>(op.getOutput().getType());
+
+    if (ttcore::getMemorySpace(inputType) != ttcore::MemorySpace::DeviceL1 ||
+        ttcore::getMemorySpace(outputType) != ttcore::MemorySpace::DeviceL1) {
+      return rewriter.notifyMatchFailure(
+          op, "argmax currently supports L1 input and output");
+    }
+    if (!hasCollapsed2DShard(inputType) || !hasCollapsed2DShard(outputType)) {
+      return rewriter.notifyMatchFailure(
+          op, "argmax currently requires collapsed 2D sharded memrefs");
+    }
+
+    Location loc = op.getLoc();
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
+    ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+    ArrayRef<int64_t> outputShardShape = ttcore::getShardShape(op.getOutput());
+    if (outputShardShape.size() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "argmax currently requires a 2D output shard");
+    }
+
+    AffineMap inputMemoryMap =
+        d2m::utils::getMemoryMap(device, op.getInput(), true);
+    AffineMap outputMemoryMap =
+        d2m::utils::getMemoryMap(device, op.getOutput(), true);
+    ArrayRef<int64_t> rowShape = op.getRowShape();
+
+    Value oneIndex = index(rewriter, loc, 1);
+    Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    Value startRow = rewriter.create<arith::MulIOp>(
+        loc, myY, index(rewriter, loc, outputShardShape[0]));
+    Value tentativeEndRow = rewriter.create<arith::AddIOp>(
+        loc, startRow, index(rewriter, loc, outputShardShape[0]));
+    Value numRows = index(rewriter, loc, op.getNumRows());
+    Value rowEndsBeforeTensorEnd = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::slt, tentativeEndRow, numRows);
+    Value endRow = rewriter.create<arith::SelectOp>(loc, rowEndsBeforeTensorEnd,
+                                                    tentativeEndRow, numRows);
+
+    Value startColumn = rewriter.create<arith::MulIOp>(
+        loc, myX, index(rewriter, loc, outputShardShape[1]));
+    Value tentativeEndColumn = rewriter.create<arith::AddIOp>(
+        loc, startColumn, index(rewriter, loc, outputShardShape[1]));
+    Value outputWidth = index(rewriter, loc, outputShardShape[1]);
+    Value columnEndsBeforeTensorEnd = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::slt, tentativeEndColumn, outputWidth);
+    Value endColumn = rewriter.create<arith::SelectOp>(
+        loc, columnEndsBeforeTensorEnd, tentativeEndColumn, outputWidth);
+
+    auto columnLoop =
+        rewriter.create<scf::ForOp>(loc, startColumn, endColumn, oneIndex);
+    {
+      OpBuilder::InsertionGuard columnGuard(rewriter);
+      rewriter.setInsertionPointToStart(columnLoop.getBody());
+      Value outputColumn = columnLoop.getInductionVar();
+      auto rowLoop =
+          rewriter.create<scf::ForOp>(loc, startRow, endRow, oneIndex);
+      {
+        OpBuilder::InsertionGuard rowGuard(rewriter);
+        rewriter.setInsertionPointToStart(rowLoop.getBody());
+        Value logicalRow = rowLoop.getInductionVar();
+        Value inputRow =
+            getCollapsedOutputRow(rewriter, loc, rowShape, logicalRow,
+                                  getCollapsed2DPhysicalRows(inputType));
+        Value outputRow =
+            getCollapsedOutputRow(rewriter, loc, rowShape, logicalRow,
+                                  getCollapsed2DPhysicalRows(outputType));
+        Value initialMax =
+            loadArgMaxElement(rewriter, loc, adaptor.getScratch(),
+                              adaptor.getInput(), inputMemoryMap, inputType,
+                              inputRow, index(rewriter, loc, 0), chipDesc);
+        Value initialIndex = i32(rewriter, loc, 0);
+
+        Value elementsPerPacket =
+            index(rewriter, loc,
+                  mlir::isa<BFloat16Type>(inputType.getElementType()) ? 8 : 4);
+        auto packetLoop = rewriter.create<scf::ForOp>(
+            loc, index(rewriter, loc, 0),
+            index(rewriter, loc, op.getRowWidth()), elementsPerPacket,
+            ValueRange{initialMax, initialIndex});
+        {
+          OpBuilder::InsertionGuard packetGuard(rewriter);
+          rewriter.setInsertionPointToStart(packetLoop.getBody());
+          Value packetColumn = packetLoop.getInductionVar();
+          Value packetEnd = rewriter.create<arith::AddIOp>(loc, packetColumn,
+                                                           elementsPerPacket);
+          Value rowWidth = index(rewriter, loc, op.getRowWidth());
+          Value packetEndsBeforeRowEnd = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::slt, packetEnd, rowWidth);
+          Value endColumn = rewriter.create<arith::SelectOp>(
+              loc, packetEndsBeforeRowEnd, packetEnd, rowWidth);
+          Value endLane =
+              rewriter.create<arith::SubIOp>(loc, endColumn, packetColumn);
+          Value isFirstPacket = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::eq, packetColumn,
+              index(rewriter, loc, 0));
+          Value startLane = rewriter.create<arith::SelectOp>(
+              loc, isFirstPacket, index(rewriter, loc, 1),
+              index(rewriter, loc, 0));
+          auto laneLoop = scanArgMaxPacket(
+              rewriter, loc, adaptor.getScratch(), adaptor.getInput(),
+              inputMemoryMap, inputType, inputRow, packetColumn, startLane,
+              endLane, packetLoop.getRegionIterArgs()[0],
+              packetLoop.getRegionIterArgs()[1], chipDesc);
+          rewriter.create<scf::YieldOp>(loc, laneLoop.getResults());
+        }
+
+        storeArgMaxIndex(rewriter, loc, adaptor.getScratch(),
+                         adaptor.getOutput(), outputMemoryMap, outputType,
+                         outputRow, outputColumn, packetLoop.getResults()[1],
+                         chipDesc);
+      }
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MCoreIndexRewriter : public OpConversionPattern<d2m::CoreIndexOp> {
 public:
   using OpConversionPattern<d2m::CoreIndexOp>::OpConversionPattern;
@@ -3248,6 +3545,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MMeshPositionRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::D2MIndexedRowCopyRewriter,
+               ttkernel::D2MArgMaxInterleavedRewriter,
                ttkernel::MemRefCollapseRewriter,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreSetOp>,
                ttkernel::D2MSemaphoreUpdateRewriter<d2m::SemaphoreIncOp>,

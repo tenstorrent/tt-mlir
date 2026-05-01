@@ -2478,6 +2478,8 @@ static void repairParallelizedRegionTypes(d2m::GenericOp genericOp,
       }
     } else if (auto embeddingOp = mlir::dyn_cast<d2m::EmbeddingOp>(&clonedOp)) {
       embeddingOp.getResult().setType(embeddingOp.getOutput().getType());
+    } else if (auto argMaxOp = mlir::dyn_cast<d2m::ArgMaxOp>(&clonedOp)) {
+      argMaxOp.getResult().setType(argMaxOp.getOutput().getType());
     } else if (auto dstOp =
                    mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
       unsigned numIns = dstOp.getNumDpsInputs();
@@ -3073,6 +3075,23 @@ struct LocalBufferAssociation {
   bool hasRemoteUse = false;
 };
 
+static bool isScratchAlloc(memref::AllocOp allocOp) {
+  Value result = allocOp.getResult();
+  return llvm::any_of(result.getUsers(), [result](Operation *user) {
+    if (mlir::isa<d2m::ScratchInitOp>(user)) {
+      return true;
+    }
+    if (auto copyOp = mlir::dyn_cast<d2m::IndexedRowCopyOp>(user)) {
+      return copyOp.getIndexScratch() == result ||
+             copyOp.getRowScratch() == result;
+    }
+    if (auto argMaxOp = mlir::dyn_cast<d2m::ArgMaxInterleavedOp>(user)) {
+      return argMaxOp.getScratch() == result;
+    }
+    return false;
+  });
+}
+
 static LocalBufferAssociation
 analyzeLocalBufferAssociation(Value localBuffer,
                               Value fallbackOperand = Value()) {
@@ -3138,6 +3157,10 @@ Value d2m::GenericOp::findAssocOperand(memref::AllocOp allocOp) {
   // First check that the memref.alloc is within a generic op
   GenericOp genericOp = allocOp->getParentOfType<GenericOp>();
   if (!genericOp) {
+    return Value();
+  }
+
+  if (isScratchAlloc(allocOp)) {
     return Value();
   }
 
@@ -3266,11 +3289,7 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
         }
       } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&op)) {
         // Scratch buffers are not operand allocs.
-        bool isScratchBuffer =
-            llvm::any_of(allocOp.getResult().getUsers(), [](Operation *user) {
-              return mlir::isa<d2m::ScratchInitOp>(user);
-            });
-        if (isScratchBuffer) {
+        if (isScratchAlloc(allocOp)) {
           continue;
         }
         LocalBufferAssociation assoc =

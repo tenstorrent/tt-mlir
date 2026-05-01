@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
@@ -199,10 +200,13 @@ void DMAWriteOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 static constexpr int64_t kIndexedRowCopyScratchPageElements = 1024;
+// Use one tile-sized CB page for the scratch buffers. Argmax only reads/writes
+// 16B packets, but the CB layout needs a concrete page shape.
+static constexpr int64_t kArgMaxScratchPageElements = 1024;
 
-static MemRefType createIndexedRowCopyScratchType(MLIRContext *ctx,
-                                                  ArrayRef<int64_t> shape,
-                                                  Type elementType) {
+static MemRefType createSingleBufferScratchType(MLIRContext *ctx,
+                                                ArrayRef<int64_t> shape,
+                                                Type elementType) {
   auto cbLayout =
       mlir::tt::ttcore::CBLayoutAttr::get(shape, elementType, /*buffers=*/1);
   auto l1MemorySpace = mlir::tt::ttcore::MemorySpaceAttr::get(
@@ -290,6 +294,173 @@ void IndexedRowCopyOp::getEffects(
                        mlir::SideEffects::DefaultResource::get());
 }
 
+static FailureOr<Value>
+getBufferIfTensor(Value value, RewriterBase &rewriter,
+                  const bufferization::BufferizationOptions &options,
+                  bufferization::BufferizationState &state) {
+  if (!mlir::isa<RankedTensorType>(value.getType())) {
+    return value;
+  }
+  return bufferization::getBuffer(rewriter, value, options, state);
+}
+
+//===----------------------------------------------------------------------===//
+// ArgMax operations
+//===----------------------------------------------------------------------===//
+
+static LogicalResult verifyArgMaxOperands(Operation *op, Value input,
+                                          Value output, int64_t numRows,
+                                          int64_t rowWidth,
+                                          ArrayRef<int64_t> rowShape) {
+  auto inputType = mlir::cast<ShapedType>(input.getType());
+  auto outputType = mlir::cast<ShapedType>(output.getType());
+
+  if (!mlir::tt::d2m::utils::isSupportedArgMaxInputElementType(
+          inputType.getElementType())) {
+    return op->emitOpError("currently supports f32, bf16, or i32 input only");
+  }
+
+  if (!mlir::tt::d2m::utils::isI32ElementType(outputType.getElementType())) {
+    return op->emitOpError("output must have 32-bit integer element type");
+  }
+
+  if (numRows <= 0) {
+    return op->emitOpError("num_rows must be positive");
+  }
+  if (rowWidth <= 0) {
+    return op->emitOpError("row_width must be positive");
+  }
+  if (rowShape.empty()) {
+    return op->emitOpError("row_shape must not be empty");
+  }
+  if (llvm::any_of(rowShape, [](int64_t dim) { return dim <= 0; })) {
+    return op->emitOpError("row_shape dimensions must be positive");
+  }
+  if (ttmlir::utils::volume(rowShape) != numRows) {
+    return op->emitOpError("row_shape volume must match num_rows");
+  }
+
+  return success();
+}
+
+LogicalResult ArgMaxInterleavedOp::verify() {
+  auto scratchType = mlir::cast<ShapedType>(getScratch().getType());
+  if (!mlir::tt::d2m::utils::isI32ElementType(scratchType.getElementType())) {
+    return emitOpError("scratch must have 32-bit integer element type");
+  }
+  return verifyArgMaxOperands(getOperation(), getInput(), getOutput(),
+                              getNumRows(), getRowWidth(), getRowShape());
+}
+
+void ArgMaxInterleavedOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getScratchMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getScratchMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+LogicalResult ArgMaxOp::verify() {
+  if (getResult().getType() != getOutput().getType()) {
+    return emitOpError("result type must match output operand type");
+  }
+
+  return verifyArgMaxOperands(getOperation(), getInput(), getOutput(),
+                              getNumRows(), getRowWidth(), getRowShape());
+}
+
+void ArgMaxOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+bool ArgMaxOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput();
+}
+
+bool ArgMaxOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput();
+}
+
+mlir::bufferization::AliasingValueList
+ArgMaxOp::getAliasingValues(mlir::OpOperand &operand,
+                            const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  if (operand.get() == getOutput()) {
+    aliasList.addAlias(
+        {getResult(), mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+ArgMaxOp::getBufferType(mlir::Value value,
+                        const mlir::bufferization::BufferizationOptions &,
+                        const mlir::bufferization::BufferizationState &,
+                        ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getResult()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+bool ArgMaxOp::hasTensorSemantics() { return true; }
+
+static MemRefType createArgMaxScratchType(MLIRContext *ctx) {
+  auto scratchElementType = IntegerType::get(ctx, 32);
+  return createSingleBufferScratchType(ctx, {1, kArgMaxScratchPageElements},
+                                       scratchElementType);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult
+ArgMaxOp::bufferize(mlir::RewriterBase &rewriter,
+                    const mlir::bufferization::BufferizationOptions &options,
+                    mlir::bufferization::BufferizationState &state) {
+  if (!hasTensorSemantics()) {
+    return mlir::failure();
+  }
+
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  FailureOr<Value> input =
+      getBufferIfTensor(getInput(), rewriter, options, state);
+  if (failed(input)) {
+    return input;
+  }
+
+  FailureOr<Value> maybeOutput =
+      getBufferIfTensor(getOutput(), rewriter, options, state);
+  if (failed(maybeOutput)) {
+    return maybeOutput;
+  }
+  Value output = *maybeOutput;
+
+  Value scratch = rewriter.create<memref::AllocOp>(
+      getLoc(), createArgMaxScratchType(getContext()));
+
+  rewriter.create<ArgMaxInterleavedOp>(getLoc(), *input, output, scratch,
+                                       getNumRowsAttr(), getRowWidthAttr(),
+                                       getRowShapeAttr());
+  mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this, output);
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
 //===----------------------------------------------------------------------===//
 // EmbeddingOp
 //===----------------------------------------------------------------------===//
@@ -351,16 +522,6 @@ EmbeddingOp::getBufferType(mlir::Value value,
 
 bool EmbeddingOp::hasTensorSemantics() { return true; }
 
-static FailureOr<Value>
-getBufferIfTensor(Value value, RewriterBase &rewriter,
-                  const bufferization::BufferizationOptions &options,
-                  bufferization::BufferizationState &state) {
-  if (!mlir::isa<RankedTensorType>(value.getType())) {
-    return value;
-  }
-  return bufferization::getBuffer(rewriter, value, options, state);
-}
-
 static Value createEmbeddingScratch(EmbeddingOp op, MemRefType scratchType,
                                     RewriterBase &rewriter) {
   return rewriter.create<memref::AllocOp>(op.getLoc(), scratchType).getResult();
@@ -397,7 +558,7 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
 
   Type indexScratchElementType =
       mlir::cast<ShapedType>((*indices).getType()).getElementType();
-  MemRefType indexScratchType = createIndexedRowCopyScratchType(
+  MemRefType indexScratchType = createSingleBufferScratchType(
       getContext(), {1, kIndexedRowCopyScratchPageElements},
       indexScratchElementType);
   Value indexScratch =
@@ -405,7 +566,7 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
 
   Type rowScratchElementType =
       mlir::cast<ShapedType>(output.getType()).getElementType();
-  MemRefType rowScratchType = createIndexedRowCopyScratchType(
+  MemRefType rowScratchType = createSingleBufferScratchType(
       getContext(), {1, kIndexedRowCopyScratchPageElements},
       rowScratchElementType);
   Value rowScratch = createEmbeddingScratch(*this, rowScratchType, rewriter);

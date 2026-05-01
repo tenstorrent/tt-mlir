@@ -1649,6 +1649,74 @@ def D2M_IndexedRowCopyOp : D2M_GenericRegionDatamovementOp<"indexed_row_copy",
     let hasVerifier = 1;
 }
 
+def D2M_ArgMaxInterleavedOp : D2M_GenericRegionDatamovementOp<"argmax_interleaved",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface> ]> {
+    let summary = "D2M interleaved argmax op";
+    let description = [{
+      Data-movement primitive for computing argmax over the last logical
+      dimension of a row-major tensor. The op reads source elements from L1,
+      scans each row on the data-movement core, and writes 32-bit indices to
+      the output buffer.
+
+      The op is memref-only. Tensor-level semantic ops should bufferize to this
+      op after choosing a scratch circular buffer.
+    }];
+
+    let arguments = (ins
+      DeviceL1MemRef:$input,
+      DeviceL1MemRef:$output,
+      DeviceL1MemRef:$scratch,
+      I64Attr:$numRows,
+      I64Attr:$rowWidth,
+      DenseI64ArrayAttr:$rowShape
+    );
+
+    let assemblyFormat = [{
+      $input `,` $output `scratch` $scratch
+      `<` $numRows `,` $rowWidth `>`
+      attr-dict `:` type($input) `,` type($output) `,` type($scratch)
+    }];
+
+    let hasVerifier = 1;
+}
+
+def D2M_ArgMaxOp : D2M_GenericRegionDatamovementOp<"argmax",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "D2M argmax op";
+    let description = [{
+      Tensor-level data-movement argmax over the last logical dimension. During
+      bufferization, this op allocates a scratch circular buffer and lowers to
+      `d2m.argmax_interleaved`, which owns the backend dataflow implementation.
+    }];
+
+    let arguments = (ins
+      AnyRankedTensor:$input,
+      AnyRankedTensor:$output,
+      I64Attr:$numRows,
+      I64Attr:$rowWidth,
+      DenseI64ArrayAttr:$rowShape
+    );
+    let results = (outs AnyRankedTensor:$result);
+
+    let assemblyFormat = [{
+      $input `,` $output
+      `<` $numRows `,` $rowWidth `>`
+      attr-dict `:` type($input) `,` type($output)
+      `->` type($result)
+    }];
+
+    let hasVerifier = 1;
+}
+
 def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
   [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
