@@ -4610,6 +4610,13 @@ def ttir_erf_golden(
     return torch.erf(input_tensor).to(output_dtype)
 
 
+def ttir_gelu_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.gelu(input_tensor).to(output_dtype)
+
+
 def ttir_floor_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4760,6 +4767,33 @@ def ttir_reduce_scatter_golden(
         scattered_tensor = torch.chunk(reduced_tensor, len(group), dim=scatter_dim)
         for index, id in enumerate(group.keys()):
             output_shards[id] = scattered_tensor[index].clone().to(output_dtype)
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+def ttir_mesh_partition_golden(
+    input: GoldenMapTensor,
+    dim_attr: IntegerAttr,
+    cluster_axis_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # `mesh_partition` is the lowering of `sdy.all_slice`: along `cluster_axis`
+    # the input is replicated, and we split it into N pieces along `dim` (where
+    # N is the mesh size on `cluster_axis`), distributing one slice to each
+    # device in the group. We assume the per-group shards are identical
+    # (replicated) and slice the first one.
+    dim = unpack_mlir_attr(dim_attr)
+    cluster_axis = unpack_mlir_attr(cluster_axis_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        group_tensor = next(iter(group.values()))
+        scattered = torch.chunk(group_tensor, len(group), dim=dim)
+        for index, id in enumerate(group.keys()):
+            output_shards[id] = scattered[index].clone().to(output_dtype)
     return GoldenMapTensor(
         {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
     )
@@ -7490,7 +7524,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ErfOp: ttir_erf_golden,
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
-    ttir.GeluOp: torch.nn.functional.gelu,
+    ttir.GeluOp: ttir_gelu_golden,
     ttir.GeluBackwardOp: ttir_gelu_backward_golden,
     ttir.IsFiniteOp: ttir_isfinite_golden,
     ttir.MishOp: torch.nn.functional.mish,
@@ -7641,6 +7675,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.AllReduceOp: ttir_all_reduce_golden,
     ttir.AllReduceAsyncOp: ttir_all_reduce_golden,
     ttir.ReduceScatterOp: ttir_reduce_scatter_golden,
+    ttir.MeshPartitionOp: ttir_mesh_partition_golden,
     ttir.CollectivePermuteOp: ttir_collective_permute_golden,
     ttir.AllToAllOp: ttir_all_to_all_golden,
     ttir.CollectiveBroadcastOp: ttir_collective_broadcast_golden,

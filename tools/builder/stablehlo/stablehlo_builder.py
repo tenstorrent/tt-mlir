@@ -9628,6 +9628,135 @@ class StableHLOBuilder(Builder):
             op_map_dictionary[old_op] = new_op_result
         return new_op, op_map_dictionary
 
+    @split(sdy.ManualComputationOp)
+    def manual_computation_split(
+        self,
+        old_op: sdy.ManualComputationOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        sdy_op = self.get_opview_from_split(StableHLOBuilder.manual_computation_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            manual_computation_module = Module.create()
+            manual_computation_builder = StableHLOBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [t.type for t in old_op.tensors]
+            old_op_result_types = [r.type for r in old_op.results_]
+
+            with InsertionPoint(manual_computation_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="manual_computation_module")
+                def decorated_func(*inputs):
+                    new_op = sdy_op(
+                        old_op_result_types,
+                        list(inputs),
+                        old_op.in_shardings,
+                        old_op.out_shardings,
+                        old_op.manual_axes,
+                        loc=old_op.location,
+                    )
+                    new_op_results = new_op.results_
+
+                    new_in_shardings = sdy.TensorShardingPerValueAttr.maybe_downcast(
+                        new_op.in_shardings
+                    )
+
+                    # Wire up outer inputs / outer goldens on the split builder
+                    # before constructing the body so block arg goldens can be
+                    # derived from them.
+                    outer_input_goldens = []
+                    for outer_in, old_tensor in zip(inputs, old_op.tensors):
+                        input_golden = self._get_golden_tensor(old_tensor)
+                        manual_computation_builder._set_golden_tensor(
+                            outer_in, input_golden
+                        )
+                        manual_computation_builder._annotate_presharded_arg(outer_in)
+                        outer_input_goldens.append(input_golden)
+                        ordered_inputs.append(outer_in)
+
+                    # Build the body region: recreate block arguments, set
+                    # their goldens (sharded view), then clone the inner
+                    # operations through the standard parse machinery.
+                    old_block = old_op.body.blocks[0]
+                    new_region = new_op.body
+                    new_block = Block.create_at_start(new_region)
+                    body_dict: Dict[Operand, Operand] = {}
+
+                    for old_arg in old_block.arguments:
+                        new_arg = new_block.add_argument(
+                            old_arg.type, loc=Location.unknown(self._ctx)
+                        )
+                        body_dict[old_arg] = new_arg
+
+                    for new_arg, inp_golden, in_sharding in zip(
+                        new_block.arguments,
+                        outer_input_goldens,
+                        new_in_shardings.shardings,
+                    ):
+                        tensor_sharding = sdy.TensorShardingAttr.maybe_downcast(
+                            in_sharding
+                        )
+                        new_inp_golden = (
+                            manual_computation_builder._apply_sharding_to_golden(
+                                inp_golden, tensor_sharding, is_shard=True
+                            )
+                        )
+                        manual_computation_builder._set_golden_tensor(
+                            new_arg, new_inp_golden
+                        )
+
+                    local_results = []
+                    with InsertionPoint(new_block):
+                        for old_inner_op in old_block.operations:
+                            if isinstance(old_inner_op, sdy.ReturnOp):
+                                returned_values = tuple(
+                                    body_dict[result]
+                                    for result in old_inner_op.results_
+                                )
+                                local_results.extend(old_inner_op.results_)
+                                sdy.ReturnOp(returned_values)
+                            else:
+                                (
+                                    parsed_op,
+                                    op_golden_dictionary,
+                                ) = manual_computation_builder._build_op_from_parsed_op(
+                                    old_inner_op, body_dict
+                                )
+                                body_dict.update(op_golden_dictionary)
+
+                    # Outer result goldens come from the original op so the
+                    # split's program-level golden equality holds.
+                    for i, old_result in enumerate(old_op.results_):
+                        old_result_golden = self._get_golden_tensor(old_result)
+                        manual_computation_builder._set_golden_tensor(
+                            new_op_results[i], old_result_golden
+                        )
+                        ordered_outputs.append(new_op_results[i])
+
+                    return (
+                        new_op_results[0]
+                        if len(new_op_results) == 1
+                        else tuple(new_op_results)
+                    )
+
+                new_func_op = decorated_func.func_op
+                manual_computation_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+            # The body uses sdy.TensorShardingAttrs that reference @mesh; the
+            # split sub-module must declare it to pass symbol resolution.
+            manual_computation_module.body.append(
+                manual_computation_builder._get_mesh()
+            )
+
+        return manual_computation_module, manual_computation_builder
+
     ################ sdy.AllGatherOp ###############
 
     @tag(sdy.AllGatherOp)
