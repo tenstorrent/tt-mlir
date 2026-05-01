@@ -722,19 +722,17 @@ parseMeshFromFrontendAttributes(mlir::ModuleOp &rootModule,
       gspmd_utils::parseAxisDefinitions(axesContent);
 
   std::string meshName = std::string(sharding_utils::kDefaultMeshName);
-  if (axes.size() == 1) {
-    shardy_utils::addMeshToModule(rootModule, meshName,
-                                  axes[0].first + "_updated", axes[0].first, 1,
-                                  axes[0].second);
-  } else if (axes.size() == 2) {
-    shardy_utils::addMeshToModule(rootModule, meshName, axes[0].first,
-                                  axes[1].first, axes[0].second,
-                                  axes[1].second);
-  } else {
+  if (axes.empty() || axes.size() > 2) {
     rootModule.emitError(
         "Unsupported mesh configuration: only 1D and 2D meshes are supported");
     return mlir::failure();
   }
+
+  shardy_utils::MeshMap meshMap;
+  for (auto &[name, size] : axes) {
+    meshMap[name] = size;
+  }
+  shardy_utils::addMeshToModule(rootModule, meshName, meshMap);
 
   return mlir::success();
 }

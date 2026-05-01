@@ -3,7 +3,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module @FlattenCompositeGrouping attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
-  sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+  sdy.mesh @mesh = <["_axis_0_aux"=1, "_axis_0"=2]>
   func.func @main(%arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"_axis_0"}]>, ttcore.shard_status = #ttcore.shard_status<presharded>}) -> (tensor<32x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
     %0 = stablehlo.reshape %arg0 : (tensor<32x32xf32>) -> tensor<1x32x32xf32>
     %1 = stablehlo.reshape %0 : (tensor<1x32x32xf32>) -> tensor<32x32xf32>
@@ -79,7 +79,7 @@ module @FlattenCompositeGrouping attributes {mhlo.cross_program_prefetches = [],
 // positions.
 
 module @FlattenCompositeArgIndices attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
-  sdy.mesh @mesh = <["_axis_0_updated"=1, "_axis_0"=2]>
+  sdy.mesh @mesh = <["_axis_0_aux"=1, "_axis_0"=2]>
   func.func @main(
     %arg0: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"_axis_0"}]>, ttcore.shard_status = #ttcore.shard_status<presharded>},
     %arg1: tensor<32x32xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"_axis_0"}]>, ttcore.shard_status = #ttcore.shard_status<presharded>}
