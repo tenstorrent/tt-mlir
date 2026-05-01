@@ -2451,6 +2451,8 @@ createEltwiseUnaryOp(FlatbufferObjectCache &cache, EltwiseUnaryOp op) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Log;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, Expm1Op>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::Expm1;
+  } else if constexpr (std::is_same_v<EltwiseUnaryOp, RoundOp>) {
+    type = ::tt::target::ttnn::EltwiseUnaryOpType::Round;
   } else if constexpr (std::is_same_v<EltwiseUnaryOp, LeakyReluOp>) {
     type = ::tt::target::ttnn::EltwiseUnaryOpType::LeakyRelu;
     paramsType =
@@ -4278,6 +4280,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto logOp = dyn_cast<LogOp>(op); logOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, logOp),
+                           debugString, locInfo);
+  }
+  if (auto roundOp = dyn_cast<RoundOp>(op); roundOp) {
+    return createOperation(cache, createEltwiseUnaryOp(cache, roundOp),
                            debugString, locInfo);
   }
   if (auto expm1Op = dyn_cast<Expm1Op>(op); expm1Op) {

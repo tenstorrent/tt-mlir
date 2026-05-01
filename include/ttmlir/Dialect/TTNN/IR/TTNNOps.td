@@ -581,6 +581,26 @@ def TTNN_Expm1Op: TTNN_ElementwiseUnaryOp<"expm1"> {
   }];
 }
 
+def TTNN_RoundOp: TTNN_ElementwiseUnaryOp<"round"> {
+  let description = [{
+    Element-wise round operation. Rounds each element of the input tensor to the nearest integer,
+    breaking ties towards the even integer, on the operand tensor and produces a result tensor.
+
+    Example:
+    ```mlir
+    // Compute round for all elements in %input
+    %result = "ttnn.round"(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
+    // Input tensor with values [-2.5, 0.4, 0.5, 0.6, 2.5]
+    // Output tensor with values [-2.0, 0.0, 0.0, 1.0, 2.0]
+    ```
+
+    Mathematical definition: round(x) = {
+      floor(x + 0.5) if floor(x) is even
+      ceil(x - 0.5) if floor(x) is odd
+    }
+  }];
+}
+
 class TTNN_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> traits = []> :
     TTNN_ElementwiseUnaryOp<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
     let summary = "Eltwise unary op with the float parameter.";
