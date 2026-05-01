@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-d2m-fusing --ttnn-optimizer="memory-layout-analysis-enabled=true memreconfig-enabled=true memory-layout-analysis-policy=DFSharding" --mlir-print-local-scope -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-create-d2m-subgraphs --ttnn-optimizer="memory-layout-analysis-enabled=true memreconfig-enabled=true memory-layout-analysis-policy=DFSharding" --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Linear chain with D2M: matmul -> matmul -> d2m_subgraph -> matmul.
