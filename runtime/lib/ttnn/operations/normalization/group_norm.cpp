@@ -52,7 +52,8 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
       /*reciprocals=*/std::nullopt, memoryConfig,
       /*dtype=*/std::nullopt, coreGridOpt,
       /*inplace=*/std::nullopt, /*output_layout=*/std::nullopt,
-      /*num_out_blocks=*/-1, /*compute_kernel_config=*/std::nullopt,
+      /*num_out_blocks=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt,
       /*negative_mask=*/std::nullopt,
       /*use_welford=*/false);
 
