@@ -3191,7 +3191,7 @@ def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition", [TTNN_MemoryConfigOpInterfac
   }];
   let arguments = (ins AnyRankedTensor:$input,
                        SI32Attr:$dim,
-                       OptionalAttr<UI32Attr>:$cluster_axis,
+                       UI32Attr:$cluster_axis,
                        OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;

@@ -5617,7 +5617,7 @@ def TTIR_MeshPartitionOp: TTIR_NamedOp<"mesh_partition"> {
   }];
   let arguments = (ins AnyRankedTensor:$input,
                        SI32Attr:$dim,
-                       OptionalAttr<UI32Attr>:$cluster_axis);
+                       UI32Attr:$cluster_axis);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }
