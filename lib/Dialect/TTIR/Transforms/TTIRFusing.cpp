@@ -1773,6 +1773,24 @@ private:
         continue;
       }
 
+      // For LinearOp: bias rank must match the root op's bias rank.  When CSE
+      // deduplicates a broadcast bias across multiple uses, peelBiasTransformations
+      // cannot peel it, leaving a higher-rank bias on some candidates.
+      // createConcatenatedBias requires all bias tensors to have the same rank.
+      if constexpr (std::is_same_v<OpType, LinearOp>) {
+        Value rootBias = rootOp.getBias();
+        Value candidateBias = op.getBias();
+        if (rootBias && candidateBias) {
+          int64_t rootBiasRank =
+              mlir::cast<RankedTensorType>(rootBias.getType()).getRank();
+          int64_t candidateBiasRank =
+              mlir::cast<RankedTensorType>(candidateBias.getType()).getRank();
+          if (rootBiasRank != candidateBiasRank) {
+            continue;
+          }
+        }
+      }
+
       // Track if transpose_b differs - if mixed, we'll need to insert permutes
       // to normalize before concatenation.
       if (op.getTransposeB() != result.firstTransposeB) {
