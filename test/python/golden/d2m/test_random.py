@@ -16,6 +16,7 @@ import pytest
 import torch
 
 from conftest import get_request_kwargs
+from d2m.shape_cases import rotated_params
 from test_utils import shape_str
 
 from builder.base.builder_utils import get_artifact_dir
@@ -160,20 +161,52 @@ def _assert_uniform_in_range(
 _RAND_SHAPES = [(32, 32), (128, 128), (64, 128)]
 
 
-@pytest.mark.parametrize("shape", _RAND_SHAPES, ids=shape_str)
+_RAND_CASES = [
+    pytest.param(torch.float32, 0.0, 1.0, 0, id="f32-uniform01"),
+    pytest.param(torch.bfloat16, -1.0, 1.0, 42, id="bf16-signed_unit"),
+    pytest.param(torch.float32, 2.0, 5.0, 1337, id="f32-range_2to5"),
+    pytest.param(torch.bfloat16, 0.0, 1.0, 7, id="bf16-uniform01"),
+    pytest.param(torch.int32, 0.0, 128.0, 0, id="i32-pos128"),
+    pytest.param(torch.int32, -64.0, 64.0, 42, id="i32-signed64"),
+    pytest.param(torch.int32, 10.0, 100.0, 1337, id="i32-range_10to100"),
+]
+
+
+def _assert_integer_rand_in_range(
+    t: torch.Tensor,
+    shape: Tuple[int, int],
+    low: float,
+    high: float,
+) -> None:
+    assert tuple(t.shape) == shape, f"shape mismatch: {tuple(t.shape)} vs {shape}"
+    assert not torch.isnan(t).any(), "int rand output contains NaNs"
+    assert not torch.isinf(t).any(), "int rand output contains infs"
+
+    fractional = t - torch.floor(t)
+    assert float(fractional.abs().max()) == 0.0, (
+        f"int rand produced non-integer values (max fractional part = "
+        f"{float(fractional.abs().max())})"
+    )
+
+    int_lo = math.floor(low)
+    int_hi_excl = math.ceil(high)
+    t_min = int(t.min().item())
+    t_max = int(t.max().item())
+    assert t_min >= int_lo, f"int rand min {t_min} below low {int_lo}"
+    assert t_max < int_hi_excl, f"int rand max {t_max} >= high {int_hi_excl}"
+
+    unique = int(torch.unique(t).numel())
+    possible = int_hi_excl - int_lo
+    expected_floor = max(2, min(possible, 8))
+    assert unique >= expected_floor, (
+        f"int rand produced too few distinct values: {unique} "
+        f"(expected at least {expected_floor} over range [{int_lo}, {int_hi_excl}))"
+    )
+
+
 @pytest.mark.parametrize(
-    "dtype",
-    [torch.float32, torch.bfloat16],
-    ids=["f32", "bf16"],
-)
-@pytest.mark.parametrize(
-    "low,high,seed",
-    [
-        (0.0, 1.0, 0),
-        (-1.0, 1.0, 42),
-        (2.0, 5.0, 1337),
-    ],
-    ids=["uniform01", "signed_unit", "range_2to5"],
+    "shape,dtype,low,high,seed",
+    rotated_params(_RAND_CASES, _RAND_SHAPES, value_order=[4, 0, 1, 2, 3]),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_rand(
@@ -190,6 +223,10 @@ def test_rand(
     out = _run_rand_and_capture(
         shape, dtype, low, high, seed, request, device, test_suffix="main"
     )
+
+    if not dtype.is_floating_point:
+        _assert_integer_rand_in_range(out, shape, low, high)
+        return
 
     # bf16 quantizes to ~2^-7, so loosen the bounds check.
     bounds_eps = 5e-3 if dtype == torch.bfloat16 else 1e-4
@@ -240,64 +277,6 @@ def test_rand_different_seeds_differ(target: str, request, device):
     assert diff_frac > 0.5, (
         f"different seeds produced near-identical tensors: only {diff_frac:.4f} "
         "of elements differ"
-    )
-
-
-@pytest.mark.parametrize("shape", _RAND_SHAPES, ids=shape_str)
-@pytest.mark.parametrize(
-    "int_dtype",
-    [torch.int32],
-    ids=["i32"],
-)
-@pytest.mark.parametrize(
-    "low,high,seed",
-    [
-        (0.0, 128.0, 0),
-        (-64.0, 64.0, 42),
-        (10.0, 100.0, 1337),
-    ],
-    ids=["pos128", "signed64", "range_10to100"],
-)
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_rand_int(
-    shape,
-    int_dtype: torch.dtype,
-    low: float,
-    high: float,
-    seed: int,
-    target: str,
-    request,
-    device,
-):
-    """Integer ``ttir.rand`` (lowered via f32 rand + tile_typecast); check
-    outputs are exact integers in [floor(low), ceil(high))."""
-    out = _run_rand_and_capture(
-        shape, int_dtype, low, high, seed, request, device, test_suffix="int"
-    )
-
-    assert tuple(out.shape) == shape, f"shape mismatch: {tuple(out.shape)} vs {shape}"
-    assert not torch.isnan(out).any(), "int rand output contains NaNs"
-    assert not torch.isinf(out).any(), "int rand output contains infs"
-
-    fractional = out - torch.floor(out)
-    assert float(fractional.abs().max()) == 0.0, (
-        f"int rand produced non-integer values (max fractional part = "
-        f"{float(fractional.abs().max())})"
-    )
-
-    int_lo = math.floor(low)
-    int_hi_excl = math.ceil(high)
-    t_min = int(out.min().item())
-    t_max = int(out.max().item())
-    assert t_min >= int_lo, f"int rand min {t_min} below low {int_lo}"
-    assert t_max < int_hi_excl, f"int rand max {t_max} >= high {int_hi_excl}"
-
-    unique = int(torch.unique(out).numel())
-    possible = int_hi_excl - int_lo
-    expected_floor = max(2, min(possible, 8))
-    assert unique >= expected_floor, (
-        f"int rand produced too few distinct values: {unique} "
-        f"(expected at least {expected_floor} over range [{int_lo}, {int_hi_excl}))"
     )
 
 

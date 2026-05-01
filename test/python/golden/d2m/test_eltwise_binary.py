@@ -14,7 +14,13 @@ from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from test_utils import Marks, shape_str, shapes_list_str, SkipIf
+from d2m.shape_cases import (
+    ELEMENTWISE_2D_SHAPES,
+    ELEMENTWISE_SHAPES,
+    UNALIGNED_SHAPES,
+    rotated_params,
+)
+from test_utils import Marks, shape_str, SkipIf
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -178,22 +184,28 @@ binary_ops = [
     subtract,
 ]
 
+binary_ops_dtypes = [
+    torch.float32,
+    torch.bfloat16,
+    torch.int32 | SkipIf("sim"),
+    torch.int64 | SkipIf("sim"),
+]
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+
+_BINARY_OP_PARAMS = rotated_params(
+    binary_ops, ELEMENTWISE_SHAPES, binary_ops_dtypes, value_order=[1, 2, 0]
+) + [
+    pytest.param((128,), torch.float32, add, id="128-f32-add_1d"),
+]
+
+
 @pytest.mark.parametrize(
-    "dtype",
-    [
-        torch.float32,
-        torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-    ],
-    ids=["f32", "bf16", "i32", "i64"],
+    "shape,dtype,test_fn",
+    _BINARY_OP_PARAMS,
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, test_fn: Callable, target: str, request, device
 ):
     if test_fn.__name__ == "pow" and (dtype == torch.int32 or dtype == torch.int64):
         pytest.xfail("TODO(dloke): int32 pow is not supported on ttmetal yet")
@@ -227,6 +239,73 @@ def test_binary_ops(
     )
 
 
+def _compile_collapse_tensors_case(
+    test_func: Callable,
+    test_name: str,
+    collapse_tensors: bool,
+    target: str,
+    request,
+    device,
+):
+    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
+    pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
+
+    compile_and_execute_ttir(
+        test_func,
+        target=target,
+        custom_pipeline=pipeline,
+        test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
+        device=device,
+    )
+
+
+def module_elementwise_add_3d_add(builder: TTIRBuilder):
+    @builder.func([(3, 32, 64), (3, 32, 64)], [torch.float32, torch.float32])
+    def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.add(in0, in1)
+
+
+def module_elementwise_add_4d_add(builder: TTIRBuilder):
+    @builder.func([(2, 3, 64, 32), (2, 3, 64, 32)], [torch.float32, torch.float32])
+    def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.add(in0, in1)
+
+
+def module_elementwise_multiply_3d_multiply(builder: TTIRBuilder):
+    @builder.func([(3, 32, 64), (3, 32, 64)], [torch.float32, torch.float32])
+    def elementwise_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        return builder.multiply(in0, in1)
+
+
+@pytest.mark.parametrize(
+    "test_func,test_name",
+    [
+        pytest.param(module_elementwise_add_3d_add, "3d_add", id="3d_add"),
+        pytest.param(
+            module_elementwise_multiply_3d_multiply,
+            "3d_multiply",
+            id="3d_multiply",
+        ),
+        pytest.param(module_elementwise_add_4d_add, "4d_add", id="4d_add"),
+    ],
+)
+@pytest.mark.parametrize(
+    "collapse_tensors", [True, False], ids=["collapsed", "non_collapsed"]
+)
+@pytest.mark.parametrize("target", ["ttmetal"], ids=["ttmetal"])
+def test_binary_ops_collapse_tensors(
+    test_func: Callable,
+    test_name: str,
+    collapse_tensors: bool,
+    target: str,
+    request,
+    device,
+):
+    _compile_collapse_tensors_case(
+        test_func, test_name, collapse_tensors, target, request, device
+    )
+
+
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_binary_ops_auto_reblock_large_tensor(request, device, target: str):
     shape = (1024, 1024)
@@ -250,6 +329,14 @@ logical_ops = [
     logical_and,
     logical_or,
     logical_xor,
+]
+
+logical_ops_dtypes = [
+    torch.float32,
+    torch.bfloat16,
+    torch.int32 | SkipIf("sim"),
+    torch.int64 | SkipIf("sim"),
+    torch.bool | SkipIf("sim"),
 ]
 
 
@@ -277,22 +364,15 @@ def create_logical_op_goldens(
     return golden0, golden1, output_golden
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype",
-    [
-        torch.float32,
-        torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-        torch.bool | SkipIf("sim"),
-    ],
-    ids=["f32", "bf16", "i32", "i64", "i1"],
+    "shape,dtype,test_fn",
+    rotated_params(
+        ELEMENTWISE_2D_SHAPES, logical_ops, logical_ops_dtypes, value_order=[0, 2, 1]
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", logical_ops)
 def test_logical_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, test_fn: Callable, target: str, request, device
 ):
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
@@ -379,41 +459,28 @@ def pow_scalar(
 
 
 scalar_binary_ops = [
-    (add_scalar, 2.5),
-    (add_scalar, 5),
-    (multiply_scalar, 3.7),
-    (subtract_scalar, 1.5),
-    (subtract_scalar, 3),
-    (div_scalar, 2.5),
-    (pow_scalar, 2.0),
+    pytest.param(add_scalar, 2.5, id="add_2p5"),
+    pytest.param(add_scalar, 5, id="add_5"),
+    pytest.param(multiply_scalar, 3.7, id="multiply_3p7"),
+    pytest.param(subtract_scalar, 1.5, id="subtract_1p5"),
+    pytest.param(subtract_scalar, 3, id="subtract_3"),
+    pytest.param(div_scalar, 2.5, id="div_2p5"),
+    pytest.param(pow_scalar, 2.0, id="pow_2p0"),
+]
+
+scalar_binary_dtypes = [
+    torch.float32,
+    torch.bfloat16,
 ]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize(
-    "dtype",
-    [
-        torch.float32,
-        torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-    ],
-    ids=["f32", "bf16", "i32"],
-)
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize(
-    "test_fn,scalar_value",
-    scalar_binary_ops,
-    ids=[
-        "add_2.5",
-        "add_5",
-        "multiply_3.7",
-        "subtract_1.5",
-        "subtract_3",
-        "div_2.5",
-        "pow_2.0",
-    ],
-)
-def test_scalar_binary_ops(
+scalar_binary_int_ops = [
+    pytest.param(add_scalar, 5, id="add_5"),
+    pytest.param(subtract_scalar, 3, id="subtract_3"),
+]
+
+
+def _compile_scalar_binary_op(
     test_fn: Callable,
     scalar_value: float,
     shape: Shape,
@@ -422,7 +489,6 @@ def test_scalar_binary_ops(
     request,
     device,
 ):
-    """Test binary operations with scalar operands across f32, bf16, and i32 on ttmetal"""
     int_dtypes = (torch.int32, torch.int64)
     float_only_ops = ("multiply_scalar", "div_scalar", "pow_scalar")
     is_int = dtype in int_dtypes
@@ -450,6 +516,35 @@ def test_scalar_binary_ops(
     )
 
 
+_SCALAR_BINARY_PARAMS = rotated_params(
+    scalar_binary_ops,
+    ELEMENTWISE_2D_SHAPES,
+    scalar_binary_dtypes,
+    value_order=[2, 3, 0, 1],
+) + rotated_params(
+    ELEMENTWISE_2D_SHAPES,
+    [torch.int32 | SkipIf("sim")],
+    scalar_binary_int_ops,
+)
+
+
+@pytest.mark.parametrize("shape,dtype,test_fn,scalar_value", _SCALAR_BINARY_PARAMS)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_scalar_binary_ops(
+    shape: Shape,
+    dtype: torch.dtype,
+    test_fn: Callable,
+    scalar_value: float,
+    target: str,
+    request,
+    device,
+):
+    """Test binary operations with scalar operands across dtypes on ttmetal."""
+    _compile_scalar_binary_op(
+        test_fn, scalar_value, shape, dtype, target, request, device
+    )
+
+
 # Scalar comparison ops
 SCALAR_CMP_VALUE = 5
 
@@ -473,6 +568,12 @@ scalar_comparison_ops = [
     _make_scalar_cmp_fn("le"),
 ]
 
+scalar_comparison_dtypes = [
+    torch.float32,
+    torch.bfloat16,
+    torch.int32 | SkipIf("sim"),
+]
+
 
 def _make_scalar_cmp_golden(shape, dtype, op_name):
     n = 1
@@ -490,22 +591,20 @@ def _make_scalar_cmp_golden(shape, dtype, op_name):
     return (torch.rand(n) * 20 + (sv - 10)).reshape(shape).to(dtype)
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype",
-    [
-        torch.float32,
-        torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-    ],
-    ids=["f32", "bf16", "i32"],
+    "shape,dtype,test_fn",
+    rotated_params(
+        scalar_comparison_ops,
+        ELEMENTWISE_2D_SHAPES,
+        scalar_comparison_dtypes,
+        value_order=[1, 2, 0],
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", scalar_comparison_ops)
 def test_scalar_comparison_ops(
-    test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
+    test_fn: Callable,
     target: str,
     request,
     device,
@@ -571,14 +670,18 @@ binary_bitwise_dtypes = [
 ]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
+    "shape,dtype,test_fn",
+    rotated_params(
+        ELEMENTWISE_2D_SHAPES,
+        binary_bitwise_ops,
+        binary_bitwise_dtypes,
+        value_order=[0, 2, 1],
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, test_fn: Callable, target: str, request, device
 ):
     if dtype == torch.uint8:
         pytest.xfail("uint8 bitwise ops are not supported on ttmetal yet")
@@ -636,14 +739,18 @@ binary_logical_shift_dtypes = [
 ]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize(
-    "dtype", binary_logical_shift_dtypes, ids=["i32", "u32", "u16"]
+    "shape,dtype,test_fn",
+    rotated_params(
+        ELEMENTWISE_2D_SHAPES,
+        binary_logical_shift_ops,
+        binary_logical_shift_dtypes,
+        value_order=[0, 2, 1],
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", binary_logical_shift_ops)
 def test_logical_shift_binary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, test_fn: Callable, target: str, request, device
 ):
     if test_fn == logical_left_shift and dtype == torch.uint16:
         pytest.xfail("uint16 logical left shift op is not supported yet")
@@ -666,7 +773,7 @@ binary_right_shift_dtypes = [
 ]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", ELEMENTWISE_2D_SHAPES, ids=shape_str)
 @pytest.mark.parametrize("dtype", binary_right_shift_dtypes, ids=["i32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_right_shift_binary_op(
@@ -726,15 +833,17 @@ def _logical_right_shift_edge_golden(
     return torch.bitwise_and(out, 0xFFFFFFFF).to(torch.int32)
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
-    "op_name",
-    ["logical_left_shift", "logical_right_shift", "right_shift"],
+    "shape,op_name",
+    rotated_params(
+        ELEMENTWISE_2D_SHAPES,
+        ["logical_left_shift", "logical_right_shift", "right_shift"],
+    ),
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.skip_config(["sim"])
 def test_shift_binary_ops_edge_cases(
-    shape: Shape, target: str, op_name: str, request, device
+    shape: Shape, op_name: str, target: str, request, device
 ):
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [torch.int32, torch.int32])
@@ -826,26 +935,33 @@ binary_comparison_ops = [
     ne,
 ]
 
+binary_comparison_cases = binary_comparison_ops + [ne]
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+binary_comparison_dtypes = [
+    torch.float32,
+    torch.bfloat16,
+    torch.int32 | SkipIf("sim"),
+    torch.int64 | SkipIf("sim"),
+    torch.bool | SkipIf("sim"),
+    torch.float32,
+    torch.uint8 | SkipIf("ttmetal"),
+]
+
+
 @pytest.mark.parametrize(
-    "dtype",
-    [
-        torch.float32,
-        torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
-        torch.bool | SkipIf("sim"),
-        torch.uint8 | SkipIf("ttmetal"),
-    ],
-    ids=["f32", "bf16", "i32", "i64", "i1", "u8"],
+    "shape,dtype,test_fn",
+    rotated_params(
+        binary_comparison_cases,
+        ELEMENTWISE_2D_SHAPES,
+        binary_comparison_dtypes,
+        value_order=[1, 2, 0],
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("test_fn", binary_comparison_ops)
 def test_comparison_ops(
-    test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
+    test_fn: Callable,
     target: str,
     request,
     device,
@@ -897,8 +1013,10 @@ implicit_bcast_inner_2D_shapes = [
 ]
 
 
-@pytest.mark.parametrize("shape", implicit_bcast_inner_2D_shapes, ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "shape,dtype",
+    rotated_params(implicit_bcast_inner_2D_shapes, [torch.float32, torch.bfloat16]),
+)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_implicit_bcast_inner_2D(
     shape: Shape,
@@ -957,41 +1075,41 @@ def test_implicit_bcast_inner_2D(
     )
 
 
+binary_broadcast_shard_dim_shapes = [
+    [(1, 2, 1, 32), (1, 1, 1, 32)],
+    [(1, 16, 1, 32), (1, 1, 1, 32)],
+    [(1, 1, 1, 32), (1, 2, 1, 32)],  # broadcast dim1
+    [(2, 2, 1, 32), (1, 2, 1, 32)],  # broadcast dim0
+    # 3D shape
+    [(3, 16, 32), (1, 16, 32)],
+    # 5D shape
+    [(1, 1, 1, 32, 32), (1, 1, 8, 32, 32)],
+    # Larger tensors
+    [(1, 2, 64, 64), (1, 1, 64, 64)],
+    [(1, 4, 64, 128), (1, 1, 64, 128)],
+    [(1, 1, 8, 64, 64), (1, 1, 1, 64, 64)],
+    # Broadcast on row/col dims
+    [(1, 2, 32, 32), (1, 2, 1, 32)],
+    [(1, 4, 64, 128), (1, 4, 1, 128)],
+    [(1, 1, 32, 32), (1, 1, 32, 1)],
+    # Broadcast on all dims
+    [(19, 160, 64), (1, 1, 1)],
+]
+
+
 @pytest.mark.parametrize(
-    "shapes",
-    [
-        [(1, 2, 1, 32), (1, 1, 1, 32)],
-        [(1, 16, 1, 32), (1, 1, 1, 32)],
-        [(1, 1, 1, 32), (1, 2, 1, 32)],  # broadcast dim1
-        [(2, 2, 1, 32), (1, 2, 1, 32)],  # broadcast dim0
-        # 3D shape
-        [(3, 16, 32), (1, 16, 32)],
-        # 5D shape
-        [(1, 1, 1, 32, 32), (1, 1, 8, 32, 32)],
-        # Larger tensors
-        [(1, 2, 64, 64), (1, 1, 64, 64)],
-        [(1, 4, 64, 128), (1, 1, 64, 128)],
-        [(1, 1, 8, 64, 64), (1, 1, 1, 64, 64)],
-        # Broadcast on row/col dims
-        [(1, 2, 32, 32), (1, 2, 1, 32)],
-        [(1, 4, 64, 128), (1, 4, 1, 128)],
-        [(1, 1, 32, 32), (1, 1, 32, 1)],
-        # Broadcast on all dims
-        [(19, 160, 64), (1, 1, 1)],
-    ],
-    ids=shapes_list_str,
+    "shapes,dtype,test_fn",
+    rotated_params(
+        binary_broadcast_shard_dim_shapes,
+        [torch.float32],
+        [add, subtract, multiply],
+    ),
 )
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [add, subtract, multiply],
-    ids=["add", "subtract", "multiply"],
-)
 def test_binary_ops_broadcast_shard_dims(
-    test_fn: Callable,
     shapes: List[Shape],
     dtype: torch.dtype,
+    test_fn: Callable,
     target: str,
     request,
     device,
@@ -1011,29 +1129,6 @@ def test_binary_ops_broadcast_shard_dims(
         **get_request_kwargs(request),
         target=target,
         print_ir=False,
-        device=device,
-    )
-
-
-# 1D tensor test for ttmetal
-@pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_1d(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func([shape, shape], [dtype, dtype])
-        def binary_1d(
-            in0: Operand,
-            in1: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return add(in0, in1, builder, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
         device=device,
     )
 
@@ -1081,6 +1176,47 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
                 {in0: dividend_tensor, in1: divisor_tensor}, {div0: output_golden}
             )
             return div0
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    UNALIGNED_SHAPES
+    + [
+        pytest.param(
+            (677, 1, 1), marks=pytest.mark.skip_config(["n150"])
+        ),  # TODO (anuragsingh): Fix nondeterministic issue with Allocator for this test.
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_unaligned_shapes_add(
+    shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def add(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
+            tensor_lhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
+            tensor_rhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
+            signs_lhs = torch.randint(0, 2, shape) * 2 - 1
+            signs_rhs = torch.randint(0, 2, shape) * 2 - 1
+            tensor_lhs *= signs_lhs
+            tensor_rhs *= signs_rhs
+            builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
+            return builder.add(in0, in1)
 
     compile_and_execute_ttir(
         module,

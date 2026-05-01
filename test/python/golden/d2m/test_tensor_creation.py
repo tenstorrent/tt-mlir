@@ -2,9 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# End-to-end golden tests for ttir.constant, ttir.ones, and ttir.zeros through
-# the TTMetal pipeline. Each test compiles a TTIR module and runs it on device,
-# verifying the output matches a torch golden.
+# End-to-end golden tests for TTIR tensor creation ops through the TTMetal
+# pipeline. Each test compiles a TTIR module and runs it on device, verifying
+# the output matches a torch golden.
 
 import pytest
 import torch
@@ -134,6 +134,65 @@ def test_zeros(
         "check_atol": True,
     }
     compile_and_execute_ttir(module, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "shape,start,step",
+    [
+        ((1, 32), 0, 1),
+        ((1, 64), 32, 2),
+        ((1, 96), 64, 1),
+        ((1, 128), 0, 1),
+    ],
+)
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_arange(
+    shape: tuple,
+    dtype: torch.dtype,
+    start: int,
+    step: int,
+    target: str,
+    request,
+    device,
+):
+    if dtype == torch.int32:
+        pytest.xfail(
+            reason="Currently no llk for multiplying a tile with a scalar for i32, Issue: https://github.com/tenstorrent/tt-mlir/issues/7946"
+        )
+
+    num_elements = shape[0] * shape[1]
+    end = start + num_elements * step
+    arange_dimension = 1
+
+    def arange_module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def arange(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.arange(
+                shape=list(shape),
+                dtype=dtype,
+                start=start,
+                end=end,
+                step=step,
+                arange_dimension=arange_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        arange_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        **get_request_kwargs(request),
+        atol=1e-6,
+        check_atol=True,
+    )
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)

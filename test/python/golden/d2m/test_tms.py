@@ -6,8 +6,8 @@
 Tests for tensor manipulation (TM) operations on the TTMetal backend.
 
 Combines the original TM pipeline tests (permute, reshape, etc.) with
-data-movement op tests (concat, slice, transpose, typecast, pad), the
-collapse-tensors-to-2d pipeline tests, and the rearrange op tests.
+data-movement op tests (concat, slice, transpose, typecast, pad), and the
+rearrange op tests.
 """
 
 import itertools
@@ -15,28 +15,19 @@ import math
 import pytest
 import torch
 import einops
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-from ttmlir.dialects import ttir, ttcore
+from ttmlir.dialects import ttir
 from ttmlir.ir import *
 
 from conftest import get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
-from test_utils import Marks, SkipIf, shape_str, shapes_list_str
+from d2m.shape_cases import rotated_params
+from test_utils import SkipIf, shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
-
-# Skip reason for shapes with slow compilation due to inefficient coalescing factor calculation
-SLOW_COMPILE_SKIP = pytest.mark.skip(
-    reason="Slow compilation due to inefficient calculateCoalescingFactors, see https://github.com/tenstorrent/tt-mlir/issues/6375"
-)
-
-# Skip for NOC read issue
-NOC_ISSUE_SKIP = pytest.mark.skip(
-    reason="NOC read issue, see https://github.com/tenstorrent/tt-mlir/issues/6377"
-)
 
 # ============================================================
 # TM pipeline tests (permute/reshape/broadcast etc.).
@@ -407,117 +398,7 @@ def test_reshape(
     )
 
 
-# ==================== ARANGE TESTS ====================
-
-
-@pytest.mark.parametrize(
-    "shape,start,step",
-    [
-        ((1, 32), 0, 1),  # Single tile
-        ((1, 64), 32, 2),  # Two tiles
-        ((1, 96), 64, 1),  # Three tiles
-        ((1, 128), 0, 1),  # Four tiles (from GPT model)
-    ],
-)
-@pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
-)
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_arange(
-    shape: tuple,
-    start: int,
-    step: int,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    """Test arange operation on TTMetal backend.
-
-    Tests tiled arange implementation with various shapes and parameters.
-    """
-
-    if dtype == torch.int32:
-        pytest.xfail(
-            reason="Currently no llk for multiplying a tile with a scalar for i32, Issue: https://github.com/tenstorrent/tt-mlir/issues/7946"
-        )
-
-    num_elements = shape[0] * shape[1]
-    end = start + num_elements * step
-    arange_dimension = 1  # Arange is always on the last dimension
-
-    def arange_module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def arange(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: List[str] = None,
-        ):
-            result = builder.arange(
-                shape=list(shape),
-                dtype=dtype,
-                start=start,
-                end=end,
-                step=step,
-                arange_dimension=arange_dimension,
-                unit_attrs=unit_attrs,
-            )
-            return result
-
-    compile_and_execute_ttir(
-        arange_module,
-        target=target,
-        device=device,
-        custom_pipeline="ttir-to-ttmetal-pipeline",
-        **get_request_kwargs(request),
-        atol=1e-6,
-        check_atol=True,
-    )
-
-
 # ==================== EMBEDDING TESTS ====================
-
-
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize(
-    "indices_shape, weight_shape",
-    [
-        ((1, 32), (1024, 32)),
-        ((1, 64), (1024, 32)),
-        ((1, 32), (1024, 64)),
-        ((1, 32), (2048, 32)),
-        ((2, 16), (1024, 32)),
-        ((4, 8), (128, 16)),
-        ((1, 128), (40960, 128)),
-    ],
-    ids=lambda shape: shape_str(shape),
-)
-def test_embedding(
-    target: str, request, device, indices_shape: Shape, weight_shape: Shape
-):
-    num_indices = math.prod(indices_shape)
-
-    def embedding_module(builder: TTIRBuilder):
-        @builder.func([indices_shape, weight_shape], [torch.int32, torch.float32])
-        def embedding(
-            indices: Operand,
-            weight: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            valid_indices = (
-                torch.arange(num_indices, dtype=torch.int32).reshape(indices_shape) * 97
-            ) % weight_shape[0]
-            builder.set_goldens(inputs={indices: valid_indices})
-            return builder.embedding(indices, weight, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        embedding_module,
-        target=target,
-        device=device,
-        custom_pipeline="ttir-to-ttmetal-pipeline",
-        **get_request_kwargs(request),
-    )
 
 
 _EMBEDDING_DTYPE_IDS = {
@@ -528,31 +409,53 @@ _EMBEDDING_DTYPE_IDS = {
 }
 
 
-@pytest.mark.parametrize("target", ["ttmetal"])
+_EMBEDDING_SHAPE_CASES = [
+    pytest.param(
+        indices_shape,
+        weight_shape,
+        id=f"indices_{shape_str(indices_shape)}-weight_{shape_str(weight_shape)}",
+    )
+    for indices_shape, weight_shape in [
+        ((2, 3), (16, 5)),
+        ((1, 32), (1024, 32)),
+        ((1, 64), (1024, 32)),
+        ((1, 32), (1024, 64)),
+        ((1, 32), (2048, 32)),
+        ((2, 16), (1024, 32)),
+        ((4, 8), (128, 16)),
+        ((1, 128), (40960, 128)),
+    ]
+]
+
+
+_EMBEDDING_DTYPE_CASES = [
+    pytest.param(
+        indices_dtype,
+        weight_dtype,
+        id=f"{_EMBEDDING_DTYPE_IDS[indices_dtype]}_indices_"
+        f"{_EMBEDDING_DTYPE_IDS[weight_dtype]}_table",
+    )
+    for indices_dtype, weight_dtype in itertools.product(
+        [torch.int32, torch.uint32],
+        [torch.float32, torch.bfloat16, torch.int32],
+    )
+]
+
+
 @pytest.mark.parametrize(
-    "indices_dtype, weight_dtype",
-    [
-        pytest.param(
-            indices_dtype,
-            weight_dtype,
-            id=f"{_EMBEDDING_DTYPE_IDS[indices_dtype]}_indices_"
-            f"{_EMBEDDING_DTYPE_IDS[weight_dtype]}_table",
-        )
-        for indices_dtype, weight_dtype in itertools.product(
-            [torch.int32, torch.uint32],
-            [torch.float32, torch.bfloat16, torch.int32],
-        )
-    ],
+    "indices_shape,weight_shape,indices_dtype,weight_dtype",
+    rotated_params(_EMBEDDING_SHAPE_CASES, _EMBEDDING_DTYPE_CASES),
 )
-def test_embedding_supported_dtypes(
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_embedding(
+    indices_shape: Shape,
+    weight_shape: Shape,
+    indices_dtype: torch.dtype,
+    weight_dtype: torch.dtype,
     target: str,
     request,
     device,
-    indices_dtype: torch.dtype,
-    weight_dtype: torch.dtype,
 ):
-    indices_shape = (2, 3)
-    weight_shape = (16, 5)
     num_indices = math.prod(indices_shape)
 
     def embedding_module(builder: TTIRBuilder):
@@ -566,7 +469,7 @@ def test_embedding_supported_dtypes(
             valid_indices = (
                 (
                     torch.arange(num_indices, dtype=torch.int64).reshape(indices_shape)
-                    * 7
+                    * 97
                 )
                 % weight_shape[0]
             ).to(indices_dtype)
@@ -579,110 +482,6 @@ def test_embedding_supported_dtypes(
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline",
         **get_request_kwargs(request),
-    )
-
-
-# ============================================================
-# Collapse-tensors-to-2d pipeline tests
-# (previously test_tensor_collapsing.py).
-# ============================================================
-
-
-def module_elementwise_add_3d_add(builder: TTIRBuilder):
-    @builder.func([(3, 32, 64), (3, 32, 64)], [torch.float32, torch.float32])
-    def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        """Element-wise addition operation."""
-        return builder.add(in0, in1)
-
-
-def module_elementwise_add_4d_add(builder: TTIRBuilder):
-    @builder.func([(2, 3, 64, 32), (2, 3, 64, 32)], [torch.float32, torch.float32])
-    def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        """Element-wise addition operation."""
-        return builder.add(in0, in1)
-
-
-def module_batch_matmul(builder: TTIRBuilder):
-    @builder.func([(2, 32, 64), (2, 64, 32)], [torch.float32, torch.float32])
-    def batch_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        """Batch matrix multiplication operation."""
-        return builder.matmul(in0, in1)
-
-
-def module_elementwise_multiply_3d_multiply(builder: TTIRBuilder):
-    @builder.func([(3, 32, 64), (3, 32, 64)], [torch.float32, torch.float32])
-    def elementwise_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        """Element-wise multiplication operation."""
-        return builder.multiply(in0, in1)
-
-
-def module_unary_exp_2d_exp(builder: TTIRBuilder):
-    @builder.func([(3, 32, 64)], [torch.float32])
-    def unary_exp(in0: Operand, builder: TTIRBuilder):
-        """Unary exponential operation."""
-        return builder.exp(in0)
-
-
-def module_unary_exp_4d_exp(builder: TTIRBuilder):
-    @builder.func([(1, 2, 32, 32)], [torch.float32])
-    def unary_exp(in0: Operand, builder: TTIRBuilder):
-        """Unary exponential operation."""
-        return builder.exp(in0)
-
-
-def module_transpose_inner_dims(builder: TTIRBuilder):
-    @builder.func([(3, 32, 64)], [torch.float32])
-    def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
-        """Transpose operation on inner dimensions (last two dims)."""
-        return builder.transpose(in0, 1, 2)
-
-
-@pytest.mark.parametrize(
-    "test_func,test_name",
-    [
-        # 3D element-wise operations (working with non-collapsed tensors)
-        (module_elementwise_add_3d_add, "3d_add"),
-        (module_elementwise_multiply_3d_multiply, "3d_multiply"),
-        (module_unary_exp_2d_exp, "3d_exp"),
-        # 4D element-wise operations (working with non-collapsed tensors)
-        pytest.param(module_elementwise_add_4d_add, "4d_add"),
-        (module_unary_exp_4d_exp, "4d_exp"),
-        # Batched matmul (fixed in #6648)
-        (module_batch_matmul, "matmul"),
-        # Operations with known issues (marked as skip)
-        pytest.param(
-            module_transpose_inner_dims,
-            "transpose",
-            marks=pytest.mark.skip(
-                reason="Hardcoded rank==2 assertions in permute rewriter cause core dump"
-            ),
-        ),
-    ],
-    ids=["3d_add", "3d_multiply", "3d_exp", "4d_add", "4d_exp", "matmul", "transpose"],
-)
-@pytest.mark.parametrize(
-    "collapse_tensors", [True, False], ids=["collapsed", "non_collapsed"]
-)
-@pytest.mark.parametrize("target", ["ttmetal"], ids=["ttmetal"])
-def test_uncollapsed_tensors(
-    test_func,
-    test_name: str,
-    collapse_tensors: bool,
-    target: str,
-    request,
-    device,
-):
-    """Test tensor operations with and without tensor collapsing to 2D."""
-
-    pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
-    pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
-
-    compile_and_execute_ttir(
-        test_func,
-        target=target,
-        custom_pipeline=pipeline,
-        test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
-        device=device,
     )
 
 
@@ -766,6 +565,7 @@ def test_rearrange(
 # Data-movement op mirrors (concat/slice/transpose/typecast/pad,
 # previously test_data_movement.py).
 # ============================================================
+
 
 # Concat tests
 @pytest.mark.parametrize(
@@ -914,10 +714,10 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_slice(
     shape: Shape,
+    dtype: torch.dtype,
     begins: List[int],
     ends: List[int],
     step: List[int],
-    dtype: torch.dtype,
     target: str,
     request,
     device,

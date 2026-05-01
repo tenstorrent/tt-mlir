@@ -56,21 +56,21 @@ pytestmark = pytest.mark.frontend("ttir")
     ],
     ids=shape_str,
 )
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("all_gather_dim", range(4))
 @pytest.mark.parametrize("cluster_axis", [0, 1])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D_RING]
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_all_gather(
     test_shape: Shape,
     mesh_shape: Tuple[int, int],
+    dtype: torch.dtype,
     all_gather_dim: int,
     cluster_axis: int,
-    dtype: torch.dtype,
-    target: str,
     fabric_config: tt_runtime.runtime.FabricConfig,
+    target: str,
     request,
     device,
 ):

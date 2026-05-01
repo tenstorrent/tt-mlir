@@ -2,18 +2,27 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 import pytest
 import torch
 from typing import List, Callable, Sequence, Optional
 
+import _ttmlir_runtime as tt_runtime
 from ttmlir.ir import *
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
 from ttmlir.dialects import ttir
-from conftest import get_request_kwargs
+from conftest import clear_device_cache, get_board_id, get_request_kwargs
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_apis import (
+    compile_and_execute_ttir,
+    compile_ttir_module_to_flatbuffer,
+    load_mlir_file,
+)
+from builder.base.builder_runtime import execute_fb
+from builder.base.builder_utils import get_artifact_dir
 from test_utils import (
     Marks,
     SkipIf,
@@ -22,8 +31,12 @@ from test_utils import (
     shard_wrap_factory,
 )
 
-
 pytestmark = pytest.mark.frontend("ttir")
+
+MLIR_SNIPPETS_DIR = os.path.join(
+    os.path.dirname(__file__), "mlir_snippets/models/gpt_oss_20b"
+)
+GPT_OSS_20B_SNIPPETS = ["gate_up", "rope_embedding"]
 
 
 ### ----------------------------------------------------------------------- ###
@@ -40,6 +53,7 @@ gridParams = [
 ### ----------------------------------------------------------------------- ###
 # Utilities
 ### ----------------------------------------------------------------------- ###
+
 
 # Generic utility to build a repeated op chain for unary or binary ops
 def repeat_op_chain(
@@ -84,6 +98,7 @@ def repeat_op_chain(
 
 
 ##--##-------------------------------------------------------------------##--##
+
 
 # Generic utility to build a binary reduction tree for binary ops
 def binary_reduction_tree(
@@ -175,14 +190,14 @@ def binary_op_builder(op_name: str, builder: TTIRBuilder):
 
 
 # Everything should pass
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize(
     "shape", [(128, 128)]
 )  # , (32, 64), (64, 64), (64, 128), (128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_cosh(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     options = [grid, "enable-elementwise-fusion=true"]
 
@@ -233,15 +248,15 @@ def test_eltwise_fuse_cosh(
         # "tan", # fails 128x128
     ],
 )
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_sanity_check_unary_op(
-    op_name: str,
-    grid: str,
     shape: Shape,
     dtype: torch.dtype,
+    op_name: str,
+    grid: str,
     target: str,
     request,
     device,
@@ -277,12 +292,12 @@ def test_eltwise_sanity_check_unary_op(
 ### ----------------------------------------------------------------------- ###
 
 
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_unary_chain(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     # unary ops are done in place, should be able to fuse
     # indefinitely
@@ -332,12 +347,12 @@ def test_eltwise_fuse_unary_chain(
 ### ----------------------------------------------------------------------- ###
 
 
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_converging_unary_branches(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
@@ -369,16 +384,17 @@ def test_eltwise_fuse_converging_unary_branches(
 
 ##--##-------------------------------------------------------------------##--##
 
+
 # TODO(mbagherbeikTT): figure out why a 4 input add fails without setting goldens
 # so we can use the helper functions and not have to manually copy paste
 # the same code for different tests. Or any way of setting goldens easily in
 # the tree and ladder builders
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_binary_reduction_tree(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     options = [grid, "enable-elementwise-fusion=true"]
 
@@ -446,12 +462,12 @@ def test_eltwise_fuse_binary_reduction_tree(
 ### ----------------------------------------------------------------------- ###
 
 
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_where_simple(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     """Test simple where with unary ops on true/false branches."""
 
@@ -487,12 +503,12 @@ def test_eltwise_fuse_where_simple(
 ##--##-------------------------------------------------------------------##--##
 
 
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_where_with_unary_chains(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     """Test where with longer unary chains on inputs and output."""
 
@@ -539,12 +555,12 @@ def test_eltwise_fuse_where_with_unary_chains(
 ##--##-------------------------------------------------------------------##--##
 
 
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_eltwise_fuse_where_with_binary_inputs(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     """Test where with binary ops feeding into the true/false branches."""
 
@@ -587,12 +603,12 @@ def test_eltwise_fuse_where_with_binary_inputs(
 ### ----------------------------------------------------------------------- ###
 
 
-@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_diamond_unary_op_fanout(
-    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, grid: str, target: str, request, device
 ):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -619,3 +635,118 @@ def test_diamond_unary_op_fanout(
         **get_request_kwargs(request),
         device=device,
     )
+
+
+### ----------------------------------------------------------------------- ###
+# Larger fusion and optimizer scenarios
+### ----------------------------------------------------------------------- ###
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (256, 512),
+        (512, 256),
+        (1024, 1024),
+        (1024, 2048),
+        (2048, 1024),
+        (2048, 2048),
+        (256, 256),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_binary_tree_fusion(
+    shape: Shape, dtype: torch.dtype, target: str, request, device, system_desc
+):
+    """Test a binary tree of adds: add(add(arg0, arg1), add(arg2, arg3))."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape, shape], [dtype, dtype, dtype, dtype])
+        def binary_tree(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            in3: Operand,
+            builder: TTIRBuilder,
+        ) -> Operand:
+            left = builder.add(in0, in1)
+            right = builder.add(in2, in3)
+            return builder.add(left, right)
+
+    if (
+        shape == (2048, 2048)
+        and dtype == torch.bfloat16
+        and get_board_id(system_desc) == "p150"
+    ):
+        pytest.skip("See issue https://github.com/tenstorrent/tt-mlir/issues/8120")
+    if shape == (2048, 2048) and dtype == torch.float32:
+        pytest.skip("See issue https://github.com/tenstorrent/tt-mlir/issues/8120")
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["enable-elementwise-fusion=true"],
+        save_artifacts=True,
+    )
+
+
+@pytest.mark.parametrize("snippet", GPT_OSS_20B_SNIPPETS)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_d2m_fusion_with_optimizer(snippet, target, request):
+    """Compile and run optimizer-enabled D2M fusion snippets end to end."""
+    mlir_path = os.path.join(MLIR_SNIPPETS_DIR, f"{snippet}.mlir")
+    if not os.path.exists(mlir_path):
+        pytest.skip(f"MLIR not found: {mlir_path}")
+
+    kwargs = get_request_kwargs(request)
+    system_desc_path = kwargs.get(
+        "system_desc_path", "ttrt-artifacts/system_desc.ttsys"
+    )
+    output_root = kwargs.get("output_root", ".")
+    save_artifacts = kwargs.get("save_artifacts", False)
+    artifact_dir = get_artifact_dir(
+        output_root, f"model_snippets/gpt_oss_20b_{snippet}", "ttnn", save_artifacts
+    )
+
+    with open(mlir_path, "r") as f:
+        mlir_content = f.read().strip()
+
+    module, builder = load_mlir_file(mlir_content, target="ttir")
+    (
+        compiled_bin,
+        input_output_goldens,
+        intermediate_goldens,
+    ) = compile_ttir_module_to_flatbuffer(
+        module,
+        builder,
+        system_desc_path=system_desc_path,
+        artifact_dir=artifact_dir,
+        target=target,
+        save_artifacts=save_artifacts,
+        pipeline_options=[
+            "optimization-level=1",
+            "enable-d2m-fusing-pass=true",
+        ],
+    )
+    # Open device only after compile so the pipeline can use mock context for opmodel.
+    # If this is not done, we'll get this error: "Cannot switch to real hardware while 1 device(s) are active."
+    device = request.getfixturevalue("device")
+
+    try:
+        execute_fb(
+            compiled_bin,
+            input_output_goldens=input_output_goldens,
+            intermediate_goldens=intermediate_goldens,
+            device=device,
+        )
+    finally:
+        # Use the same close path as conftest session teardown so the runtime
+        # fully releases the device; then clear cache so the next parametrized
+        # test opens a fresh device.
+        tt_runtime.runtime.close_mesh_device(device)
+        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
+        clear_device_cache()

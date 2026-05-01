@@ -23,9 +23,25 @@ _INTEGER_DTYPES = (torch.int32,)
 _REDUCE_TYPES = ["sum", "max", "min", "mean"]
 _INT_REDUCE_TYPES = ["sum", "max", "min"]
 _FLOAT_DTYPES = [torch.float32, torch.bfloat16]
-_INT_DTYPES = [torch.int32]
 _DTYPE_IDS = {torch.float32: "f32", torch.bfloat16: "bf16", torch.int32: "i32"}
 _KEEP_DIMS = [True, False]
+_FLOAT_REDUCTION_VARIANTS = [
+    (dtype, reduce_type, keep_dim)
+    for reduce_type in _REDUCE_TYPES
+    for dtype in _FLOAT_DTYPES
+    for keep_dim in _KEEP_DIMS
+]
+_INT_REDUCTION_VARIANTS = [
+    (torch.int32, reduce_type, keep_dim)
+    for reduce_type in _INT_REDUCE_TYPES
+    for keep_dim in _KEEP_DIMS
+]
+_REDUCTION_VARIANTS = _FLOAT_REDUCTION_VARIANTS + _INT_REDUCTION_VARIANTS
+_OUTER_REDUCTION_VARIANTS = [
+    (dtype, reduce_type, True)
+    for reduce_type in _REDUCE_TYPES
+    for dtype in _FLOAT_DTYPES
+] + [(torch.int32, reduce_type, True) for reduce_type in _INT_REDUCE_TYPES]
 
 
 def _reduction_atol(reduce_type: str, shape, dim_arg, dtype):
@@ -56,6 +72,8 @@ def _int_input_range(reduce_type: str, shape, dim_arg):
 def _cycled_reduction_params(
     combos,
     *,
+    shape_arity=None,
+    variants=None,
     reduce_types=_REDUCE_TYPES,
     dtypes=_FLOAT_DTYPES,
     keep_dims=_KEEP_DIMS,
@@ -65,17 +83,24 @@ def _cycled_reduction_params(
 
     params = []
     for i, combo in enumerate(combos):
-        reduce_type = pick(reduce_types, i)
-        dtype = pick(dtypes, i)
-        keep_dim = pick(keep_dims, i)
+        split_at = len(combo) if shape_arity is None else shape_arity
+        shape_values = combo[:split_at]
+        attr_values = combo[split_at:]
+        if variants is None:
+            reduce_type = pick(reduce_types, i)
+            dtype = pick(dtypes, i)
+            keep_dim = pick(keep_dims, i)
+        else:
+            dtype, reduce_type, keep_dim = pick(variants, i)
         ids = "-".join(
             "_".join(map(str, x)) if isinstance(x, list) else str(x) for x in combo
         )
         params.append(
             pytest.param(
-                *combo,
-                reduce_type,
+                *shape_values,
                 dtype,
+                *attr_values,
+                reduce_type,
                 keep_dim,
                 id=f"{ids}-{reduce_type}-{_DTYPE_IDS[dtype]}-keep{int(keep_dim)}",
             )
@@ -120,16 +145,18 @@ _2D_SHAPE_DIM_COMBOS = [
 
 
 @pytest.mark.parametrize(
-    "m,n,dim_arg,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_2D_SHAPE_DIM_COMBOS),
+    "m,n,dtype,dim_arg,reduce_type,keep_dim",
+    _cycled_reduction_params(
+        _2D_SHAPE_DIM_COMBOS, shape_arity=2, variants=_REDUCTION_VARIANTS
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_2d(
     m: int,
     n: int,
+    dtype: torch.dtype,
     dim_arg: List[int],
     reduce_type: str,
-    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
     request,
@@ -159,15 +186,17 @@ _2D_UNALIGNED_COMBOS = [
 
 
 @pytest.mark.parametrize(
-    "shape,dim_arg,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_2D_UNALIGNED_COMBOS),
+    "shape,dtype,dim_arg,reduce_type,keep_dim",
+    _cycled_reduction_params(
+        _2D_UNALIGNED_COMBOS, shape_arity=1, variants=_REDUCTION_VARIANTS
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_2d_unaligned(
     shape: tuple,
+    dtype: torch.dtype,
     dim_arg: List[int],
     reduce_type: str,
-    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
     request,
@@ -194,17 +223,19 @@ _3D_INNER_COMBOS = [
 
 
 @pytest.mark.parametrize(
-    "b,m,n,dim_arg,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_3D_INNER_COMBOS),
+    "b,m,n,dtype,dim_arg,reduce_type,keep_dim",
+    _cycled_reduction_params(
+        _3D_INNER_COMBOS, shape_arity=3, variants=_REDUCTION_VARIANTS
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_3d_inner(
     b: int,
     m: int,
     n: int,
+    dtype: torch.dtype,
     dim_arg: List[int],
     reduce_type: str,
-    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
     request,
@@ -237,16 +268,16 @@ _3D_OUTER_COMBOS = [
 
 
 @pytest.mark.parametrize(
-    "b,m,n,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_3D_OUTER_COMBOS, keep_dims=[True]),
+    "b,m,n,dtype,reduce_type,keep_dim",
+    _cycled_reduction_params(_3D_OUTER_COMBOS, variants=_OUTER_REDUCTION_VARIANTS),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_outer_3d(
     b: int,
     m: int,
     n: int,
-    reduce_type: str,
     dtype: torch.dtype,
+    reduce_type: str,
     keep_dim: bool,
     target: str,
     request,
@@ -283,8 +314,10 @@ _4D_INNER_COMBOS = [
 
 
 @pytest.mark.parametrize(
-    "a,b,m,n,dim_arg,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_4D_INNER_COMBOS),
+    "a,b,m,n,dtype,dim_arg,reduce_type,keep_dim",
+    _cycled_reduction_params(
+        _4D_INNER_COMBOS, shape_arity=4, variants=_REDUCTION_VARIANTS
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_4d_inner(
@@ -292,9 +325,9 @@ def test_reduce_4d_inner(
     b: int,
     m: int,
     n: int,
+    dtype: torch.dtype,
     dim_arg: List[int],
     reduce_type: str,
-    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
     request,
@@ -328,16 +361,18 @@ _4D_OUTER_COMBOS = [
 
 
 @pytest.mark.parametrize(
-    "a,b,reduce_dim,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(_4D_OUTER_COMBOS, keep_dims=[True]),
+    "a,b,dtype,reduce_dim,reduce_type,keep_dim",
+    _cycled_reduction_params(
+        _4D_OUTER_COMBOS, shape_arity=2, variants=_OUTER_REDUCTION_VARIANTS
+    ),
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_outer_4d(
     a: int,
     b: int,
+    dtype: torch.dtype,
     reduce_dim: int,
     reduce_type: str,
-    dtype: torch.dtype,
     keep_dim: bool,
     target: str,
     request,
@@ -376,146 +411,38 @@ def test_reduce_outer_4d(
     )
 
 
-# Int32 reductions: inner via SFPU reduce (tile_reduce_* is float-only),
-# outer via the D2M accumulation rewriter. Mean is float-only.
-
-
-@pytest.mark.parametrize("dim_arg", [[0], [1], [0, 1]])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
+@pytest.mark.parametrize("m", [8])
+@pytest.mark.parametrize("n", [8])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
-def test_reduce_i32_2d(
-    dim_arg: List[int],
-    keep_dim: bool,
-    reduce_type: str,
-    target: str,
+def test_allocate_max(
+    m: int,
+    n: int,
     dtype: torch.dtype,
-    request,
-    device,
-):
-    shape = (4 * 32, 2 * 32)
-
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(
-            shape, reduce_type, dim_arg, keep_dim, dtype
-        ),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
-    )
-
-
-_2D_UNALIGNED_INT_COMBOS = [
-    (shape, dim_arg)
-    for shape in [(100, 50), (37, 61), (50, 100), (129, 65), (1, 501)]
-    for dim_arg in [[0], [1], [0, 1]]
-]
-
-
-@pytest.mark.parametrize(
-    "shape,dim_arg,reduce_type,dtype,keep_dim",
-    _cycled_reduction_params(
-        _2D_UNALIGNED_INT_COMBOS,
-        reduce_types=_INT_REDUCE_TYPES,
-        dtypes=_INT_DTYPES,
-    ),
-)
-@pytest.mark.parametrize("target", ["ttmetal"])
-def test_reduce_i32_2d_unaligned(
-    shape: tuple,
-    dim_arg: List[int],
-    reduce_type: str,
-    dtype: torch.dtype,
+    dim_arg: int,
     keep_dim: bool,
     target: str,
     request,
     device,
 ):
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(
-            shape, reduce_type, dim_arg, keep_dim, dtype
-        ),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
+    tile_size = 32
+    shape = (
+        m * tile_size,
+        n * tile_size,
     )
 
-
-@pytest.mark.parametrize("dim_arg", [[1], [2], [1, 2]])
-@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
-def test_reduce_i32_3d_inner(
-    dim_arg: List[int],
-    reduce_type: str,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    # keep_dim is pinned to True to avoid the reshape-after-reduce issue
-    # (#6377) that affects multi-dim inner reductions.
-    shape = (2, 4 * 32, 2 * 32)
+    options = [
+        # Request the allocator to attempt to minimize stream buffer sizes
+        # and reblock streams accordingly.
+        "test-buffer-size-policy=min",
+    ]
 
     compile_and_execute_ttir(
-        create_reductions_constrained_inputs(
-            shape, reduce_type, dim_arg, keep_dim=True, dtype=dtype
-        ),
+        create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim, dtype),
         target=target,
-        **get_request_kwargs(request),
         device=device,
-        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
-    )
-
-
-@pytest.mark.parametrize("b", [2, 8])
-@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
-def test_reduce_i32_outer_3d(
-    b: int,
-    reduce_type: str,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    shape = (b, 2 * 32, 2 * 32)
-
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(
-            shape, reduce_type, dim_arg=[0], keep_dim=True, dtype=dtype
-        ),
-        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
-        device=device,
-        atol=_reduction_atol(reduce_type, shape, [0], dtype),
-    )
-
-
-@pytest.mark.parametrize("dim_arg", [[2], [3]])
-@pytest.mark.parametrize("reduce_type", _INT_REDUCE_TYPES)
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
-def test_reduce_i32_4d_inner(
-    dim_arg: List[int],
-    reduce_type: str,
-    target: str,
-    dtype: torch.dtype,
-    request,
-    device,
-):
-    shape = (2, 2, 4 * 32, 2 * 32)
-
-    compile_and_execute_ttir(
-        create_reductions_constrained_inputs(
-            shape, reduce_type, dim_arg, keep_dim=True, dtype=dtype
-        ),
-        target=target,
-        **get_request_kwargs(request),
-        device=device,
-        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )

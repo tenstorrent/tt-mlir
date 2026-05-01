@@ -34,14 +34,6 @@ def read_artifact(output_root: Path, test_base: str, filename: str) -> str:
 
 
 @pytest.mark.parametrize(
-    "grid",
-    [
-        # (1, 1),
-        (8, 8)
-        | OnlyIf("n150", "n300"),
-    ],
-)
-@pytest.mark.parametrize(
     "block_shape,block_factors",
     [
         # ((256, 256, 256), (1, 1, 1)),
@@ -52,6 +44,15 @@ def read_artifact(output_root: Path, test_base: str, filename: str) -> str:
         # ((32, 64, 64), (2, 1, 8)),
     ],
 )
+@pytest.mark.parametrize("dtype", ["bf16"])
+@pytest.mark.parametrize(
+    "grid",
+    [
+        # (1, 1),
+        (8, 8)
+        | OnlyIf("n150", "n300"),
+    ],
+)
 @pytest.mark.parametrize(
     "interchange",
     [
@@ -59,16 +60,15 @@ def read_artifact(output_root: Path, test_base: str, filename: str) -> str:
         # "kmn",
     ],
 )
-@pytest.mark.parametrize("dtype", ["bf16"])
 @pytest.mark.parametrize("enable_l1_acc", [True])
 @pytest.mark.parametrize("use_tile_matmul", [False])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_generic(
-    grid,
     block_shape,
     block_factors,
-    interchange,
     dtype,
+    grid,
+    interchange,
     enable_l1_acc,
     use_tile_matmul,
     target: str,
@@ -218,9 +218,9 @@ def test_generic(
     print("Theoretical:", system_desc.calc_fpu_tops(m * n * k, units="us"))
 
 
-@pytest.mark.parametrize("grid", [(1, 1)])
 @pytest.mark.parametrize("block_shape", [(256, 256, 256)])
 @pytest.mark.parametrize("block_factors", [(1, 1, 1)])
+@pytest.mark.parametrize("grid", [(1, 1)])
 @pytest.mark.parametrize(
     "buffer_policy, expected_cb_shapes, unexpected_cb_shape",
     [
@@ -241,9 +241,9 @@ def test_generic(
 )
 @pytest.mark.parametrize("target", ["ttmetal" | OnlyIf("n150", "n300")])
 def test_generic_allocator_reblock_policy(
-    grid,
     block_shape,
     block_factors,
+    grid,
     buffer_policy,
     expected_cb_shapes,
     unexpected_cb_shape,
@@ -356,12 +356,12 @@ def test_generic_allocator_reblock_policy(
     assert unexpected_cb_shape not in compiled_mlir
 
 
-@pytest.mark.parametrize("grid", [(1, 1)])
 @pytest.mark.parametrize("block_factors", [(8, 2)])
+@pytest.mark.parametrize("grid", [(1, 1)])
 @pytest.mark.parametrize("target", ["ttmetal" | OnlyIf("n150", "n300")])
 def test_generic_eltwise_reblock(
-    grid,
     block_factors,
+    grid,
     target: str,
     request,
     device,

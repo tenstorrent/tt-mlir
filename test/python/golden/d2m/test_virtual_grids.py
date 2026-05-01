@@ -4,28 +4,22 @@
 
 import pytest
 import torch
-import math
-import sys
-from typing import Callable, List, Optional, Tuple, Union
-from collections import OrderedDict
-from functools import reduce
-import operator
+from typing import List, Optional
+
 from conftest import get_request_kwargs
 
-from ttmlir.dialects import ttir, ttcore
-from builder.base.builder_utils import Operand, Shape, TypeInfo
+from ttmlir.dialects import ttcore
+from ttmlir.ir import (
+    AffineConstantExpr,
+    AffineDimExpr,
+    AffineFloorDivExpr,
+    AffineMap,
+    AffineModExpr,
+)
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import (
-    compile_ttir_to_flatbuffer,
-    compile_and_execute_ttir,
-)
-from ttmlir.ir import DenseI32ArrayAttr
-from test_utils import (
-    Marks,
-    shape_str,
-    make_shard_shape,
-    shard_wrap_factory,
-)
+from builder.base.builder_apis import compile_and_execute_ttir
+from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -70,6 +64,91 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
         stride *= num_tiles_per_dim[i]
 
     return tile_id.to(dtype)
+
+
+def compile_rowmajor_dma_test(test_func, shape, request, device):
+
+    # Back to back to_layout ops are normally folded during canonicalization
+    # into a single ToLayoutOp representing the final result. The
+    # disable-tolayout-folding option preserves both transitions.
+    pipeline_options = "{disable-tolayout-folding=1 collapse-tensors-2d=0}"
+    pipeline = ",".join(
+        [
+            f"ttir-to-ttmetal-pipeline{pipeline_options}",
+        ]
+    )
+    compile_and_execute_ttir(
+        test_func,
+        [shape],
+        target="ttmetal",
+        device=device,
+        custom_pipeline=pipeline,
+        **get_request_kwargs(request),
+    )
+
+
+def construct_hw_sharded_affine_map(
+    grid: tuple[int, ...], device_grid: tuple[int, int], builder: TTIRBuilder
+):
+
+    get_constant = lambda value: AffineConstantExpr.get(value, builder._ctx)
+    get_dim = lambda index: AffineDimExpr.get(index, builder._ctx)
+
+    assert (grid[0] == 1 or grid[1] == 1) and (
+        grid[0] > 1 or grid[1] > 1
+    ), "grid must be 1x1 or 1xN or Nx1"
+
+    is_height_sharded = grid[0] > 1
+    shard_dim = get_dim(0) if is_height_sharded else get_dim(1)
+    wrap_constant = (
+        get_constant(device_grid[0])
+        if is_height_sharded
+        else get_constant(device_grid[1])
+    )
+
+    floordiv_dim = AffineFloorDivExpr.get(shard_dim, wrap_constant)
+    mod_dim = AffineModExpr.get(shard_dim, wrap_constant)
+
+    exprs = [
+        mod_dim if is_height_sharded else floordiv_dim,
+        floordiv_dim if is_height_sharded else mod_dim,
+        get_dim(2),
+        get_dim(3),
+    ]
+
+    return AffineMap.get(2 * len(grid), 0, exprs, builder._ctx)
+
+
+def construct_nd_virtual_grid_affine_map(
+    grid: tuple[int, ...], device_grid: tuple[int, int], builder: TTIRBuilder
+):
+
+    get_constant = lambda value: AffineConstantExpr.get(value, builder._ctx)
+    get_dim = lambda index: AffineDimExpr.get(index, builder._ctx)
+
+    floor_div = lambda expr, constant: AffineFloorDivExpr.get(
+        expr, get_constant(constant)
+    )
+    mod = lambda expr, constant: AffineModExpr.get(expr, get_constant(constant))
+
+    flat_idx = get_constant(0)
+    stride = 1
+    for dim_idx, extent in reversed(list(enumerate(grid))):
+        dim_stride_expr = mod(get_dim(dim_idx), extent) * stride if extent > 1 else 0
+        flat_idx += dim_stride_expr
+        stride *= extent
+
+    grid_exprs = []
+    stride = 1
+    for extent in reversed(device_grid):
+        grid_exprs.append(mod(floor_div(flat_idx, stride), extent))
+        stride *= extent
+    grid_exprs = list(reversed(grid_exprs))
+
+    shard_exprs = [get_dim(i) for i in range(len(grid), 2 * len(grid))]
+    exprs = grid_exprs + shard_exprs
+
+    return AffineMap.get(2 * len(grid), 0, exprs, builder._ctx)
 
 
 @pytest.mark.parametrize(
@@ -149,3 +228,85 @@ def test_virtual_grid_eltwise(
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}} ",
         target=target,
     )
+
+
+@pytest.mark.skip(reason="Still in development")
+@pytest.mark.parametrize(
+    "shape, grid_shape",
+    [
+        ((32, 2048), (1, 64)),
+        ((2048, 32), (64, 1)),
+        ((1, 32, 2048), (1, 1, 64)),
+        ((1, 512, 512), (1, 8, 8)),
+        ((1, 256, 512), (1, 8, 8)),
+        ((1, 512, 256), (1, 8, 8)),
+        ((1, 512, 512), (1, 4, 4)),
+        ((1, 256, 512), (1, 4, 4)),
+        ((1, 512, 256), (1, 4, 4)),
+        ((1, 512, 512), (1, 2, 4)),
+        ((1, 256, 512), (1, 2, 4)),
+        ((1, 512, 256), (1, 2, 4)),
+        ((1, 512, 512), (1, 4, 2)),
+        ((1, 256, 512), (1, 4, 2)),
+        ((1, 512, 256), (1, 4, 2)),
+        ((4, 512, 512), (4, 4, 2)),
+        ((4, 256, 512), (4, 4, 2)),
+        ((4, 512, 256), (4, 4, 2)),
+        ((8, 64, 512), (4, 1, 8)),
+        ((8, 64, 512), (4, 1, 8)),
+        ((8, 64, 256), (4, 1, 2)),
+        ((1, 8, 64, 512), (1, 4, 1, 8)),
+        ((1, 8, 64, 512), (1, 4, 1, 8)),
+        ((1, 8, 64, 256), (1, 4, 1, 2)),
+        ((8, 1, 64, 512), (1, 1, 2, 8)),
+        ((8, 1, 64, 512), (1, 1, 2, 8)),
+        ((8, 1, 64, 256), (1, 1, 2, 2)),
+    ],
+)
+@pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceL1])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_roundtrip_dma_rowmajor_virtual_grid(
+    shape: Shape,
+    grid_shape: tuple[int, ...],
+    memory_space: ttcore.MemorySpace,
+    target: str,
+    request,
+    device,
+):
+    def dram_write(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+
+        device_grid = (8, 8)
+
+        start_index_map = (
+            construct_hw_sharded_affine_map(grid_shape, device_grid, builder)
+            if len(grid_shape) == 2
+            else construct_nd_virtual_grid_affine_map(grid_shape, device_grid, builder)
+        )
+        # There is a bug in builder.get_metal_tensor_layout that returns an
+        # incorrect device shape for ND shapes.
+        start_output_type = builder.get_metal_tensor_layout(
+            shape,
+            tiled=False,
+            memorySpace=memory_space,
+            grid=grid_shape,
+            index_map=start_index_map,
+        )
+        tensor_layout = builder.to_layout(
+            in0,
+            output_type=start_output_type,
+            unit_attrs=unit_attrs,
+        )
+
+        system_out = builder.to_layout(
+            tensor_layout,
+            output_type=in0.type,
+            unit_attrs=unit_attrs,
+        )
+
+        return system_out
+
+    compile_rowmajor_dma_test(dram_write, shape, request, device=device)

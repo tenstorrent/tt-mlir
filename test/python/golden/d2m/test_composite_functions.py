@@ -23,6 +23,7 @@ pytestmark = pytest.mark.frontend("ttir")
 
 ####################### Gamma based functions #######################
 
+
 # Support for the range (1, +inf)
 def digamma_composite(
     x: Operand,
@@ -396,14 +397,14 @@ def test_multigammaln(
 
 
 # Support for range of input(1, 10) and k(1, 10)
-@pytest.mark.parametrize("k", list(range(1, 11)))
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("k", list(range(1, 11)))
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_polygamma(
-    k: int,
     shape: Shape,
     dtype: torch.dtype,
+    k: int,
     target: str,
     request,
     device,

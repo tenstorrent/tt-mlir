@@ -151,16 +151,14 @@ jobs:
           mkdir -p test_reports
 
           pytest -ssv \
-            test/python/golden/d2m/test_binary.py \
-            test/python/golden/d2m/test_ternary.py \
-            test/python/golden/d2m/test_unary.py \
-            test/python/golden/d2m/test_unaligned.py \
-            test/python/golden/d2m/test_ttir_ops.py \
-            test/python/golden/d2m/test_bfp8_typecast.py \
+            test/python/golden/d2m/test_eltwise_binary.py \
+            test/python/golden/d2m/test_eltwise_ternary.py \
+            test/python/golden/d2m/test_eltwise_unary.py \
+            test/python/golden/d2m/test_builder_api.py \
             test/python/golden/d2m/test_composite_ops.py \
             test/python/golden/d2m/test_tilize.py \
             test/python/golden/d2m/test_tms.py \
-            test/python/golden/d2m/test_eltwise_fusion.py \
+            test/python/golden/d2m/test_fusion.py \
             --sys-desc "$SYSTEM_DESC_PATH" \
             --junit-xml "test_reports/ttsim_all_${{ matrix.arch }}.xml"
 

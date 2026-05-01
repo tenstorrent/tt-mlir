@@ -24,6 +24,7 @@ CUSTOM_TTIR_PIPELINE = "ttcore-mark-functions-as-forward,ttcore-wrap-device-modu
 
 
 @pytest.mark.frontend("ttir")
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "fabric_config",
     [
@@ -37,23 +38,22 @@ CUSTOM_TTIR_PIPELINE = "ttcore-mark-functions-as-forward,ttcore-wrap-device-modu
         # tt_runtime.runtime.FabricConfig.FABRIC_2D_TORUS_XY,
     ],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
 )
 @pytest.mark.parametrize("src_coord, dst_coord", [((0, 0), (0, 1))])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_fabric_unicast_2x4_line(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     src_coord,
     dst_coord,
     topology,
     cluster_axis,
     routing_mode,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -163,6 +163,7 @@ def test_fabric_unicast_2x4_line(
 
 
 @pytest.mark.frontend("ttir")
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "fabric_config",
     [
@@ -176,23 +177,22 @@ def test_fabric_unicast_2x4_line(
         # tt_runtime.runtime.FabricConfig.FABRIC_2D_TORUS_XY,
     ],
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
 )
 @pytest.mark.parametrize("src_coord, dst_coord", [((0, 0), (0, 1))])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_fabric_unicast_sem_inc_2x4_line(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     src_coord,
     dst_coord,
     topology,
     cluster_axis,
     routing_mode,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -312,9 +312,8 @@ def wrap_range(start, end, size):
 
 
 @pytest.mark.frontend("ttir")
-@pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(1, 8)])
+@pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
 )
@@ -331,18 +330,19 @@ def wrap_range(start, end, size):
         # ((0, 5), (0, 4), (0, 1)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_fabric_mcast_1x8_line(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     src_coord,
     dst_coord_start,
     dst_coord_end,
     topology,
     cluster_axis,
     routing_mode,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -468,11 +468,10 @@ def test_fabric_mcast_1x8_line(
 
 
 @pytest.mark.frontend("ttir")
+@pytest.mark.parametrize("mesh_shape", [(1, 8)])
 @pytest.mark.parametrize(
     "fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D_RING]
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("mesh_shape", [(1, 8)])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("ring", 1, "unidir_ring_torus")]
 )
@@ -486,18 +485,19 @@ def test_fabric_mcast_1x8_line(
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_fabric_mcast_1x8_ring(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     src_coord,
     dst_coord_start,
     dst_coord_end,
     topology,
     cluster_axis,
     routing_mode,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -625,9 +625,8 @@ def test_fabric_mcast_1x8_ring(
 
 
 @pytest.mark.frontend("ttir")
-@pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D])
-@pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("mesh_shape", [(2, 4)])
+@pytest.mark.parametrize("fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_1D])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
 )
@@ -640,18 +639,19 @@ def test_fabric_mcast_1x8_ring(
         # ((1, 3), (1, 2), (1, 0)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_fabric_mcast_2x4_line(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     src_coord,
     dst_coord_start,
     dst_coord_end,
     topology,
     cluster_axis,
     routing_mode,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -778,11 +778,10 @@ def test_fabric_mcast_2x4_line(
 
 # TODO:Issue if we use 4x8 since the directions are inverted and apis currently assume ns is dim 0 (look into if this is fixable)
 @pytest.mark.frontend("ttir")
+@pytest.mark.parametrize("mesh_shape", [(8, 4)])
 @pytest.mark.parametrize(
     "fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_2D_TORUS_XY]
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("mesh_shape", [(8, 4)])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("ring", 1, "unidir_ring_torus")]
 )
@@ -796,18 +795,19 @@ def test_fabric_mcast_2x4_line(
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_fabric_mcast_8x4_ring(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     src_coord,
     dst_coord_start,
     dst_coord_end,
     topology,
     cluster_axis,
     routing_mode,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -934,11 +934,10 @@ def test_fabric_mcast_8x4_ring(
 
 # TODO:Issue if we use 4x8 since the directions are inverted and apis currently assume ns is dim 0 (look into if this is fixable)
 @pytest.mark.frontend("ttir")
+@pytest.mark.parametrize("mesh_shape", [(8, 4)])
 @pytest.mark.parametrize(
     "fabric_config", [tt_runtime.runtime.FabricConfig.FABRIC_2D_TORUS_XY]
 )
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize("mesh_shape", [(8, 4)])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("torus", 1, "unidir_ring_torus")]
 )
@@ -956,18 +955,19 @@ def test_fabric_mcast_8x4_ring(
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_fabric_mcast_8x4_torus(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     src_coord,
     dst_coord_start,
     dst_coord_end,
     topology,
     cluster_axis,
     routing_mode,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -1093,6 +1093,7 @@ def test_fabric_mcast_8x4_torus(
 
 
 @pytest.mark.frontend("ttnn")
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "fabric_config",
     [
@@ -1102,23 +1103,22 @@ def test_fabric_mcast_8x4_torus(
         # tt_runtime.runtime.FabricConfig.FABRIC_2D,
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
 )
 @pytest.mark.parametrize("src_coord, dst_coord", [((0, 0), (0, 1))])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_ttnn_generic_unicast_2x4_line(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     topology,
     cluster_axis,
     routing_mode,
     src_coord,
     dst_coord,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -1212,6 +1212,7 @@ def test_ttnn_generic_unicast_2x4_line(
 
 
 @pytest.mark.frontend("ttnn")
+@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "fabric_config",
     [
@@ -1221,23 +1222,22 @@ def test_ttnn_generic_unicast_2x4_line(
         # tt_runtime.runtime.FabricConfig.FABRIC_2D,
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("mesh_shape", [(2, 4)])
 @pytest.mark.parametrize(
     "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
 )
 @pytest.mark.parametrize("src_coord, dst_coord", [((0, 0), (0, 1))])
+@pytest.mark.parametrize("target", ["ttnn"])
 def test_ttnn_generic_unicast_sem_inc_2x4_line(
-    target: str,
-    request,
     mesh_shape,
     fabric_config,
-    device,
     topology,
     cluster_axis,
     routing_mode,
     src_coord,
     dst_coord,
+    target: str,
+    request,
+    device,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
