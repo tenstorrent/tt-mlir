@@ -1,11 +1,33 @@
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for ttnn gather operation
 
-// Verify that index tensor must be unsigned integer type.
+// Verify that signless i32 is rejected (only ui16, ui32, and si32 are accepted).
 module {
-  func.func @gather_signed_index(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
-    // CHECK: error: 'ttnn.gather' op Index tensor must have an unsigned integer type of ui16 or ui32, got 'i32'
+  func.func @gather_signless_index(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xi32>) -> tensor<2x3xf32> {
+    // CHECK: error: 'ttnn.gather' op Index tensor must have type ui16, ui32, or si32, got 'i32'
     %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3xi32>) -> tensor<2x3xf32>
+    return %0 : tensor<2x3xf32>
+  }
+}
+
+// -----
+
+// Verify that si64 indices are rejected (si32 is allowed, but other signed widths are not).
+module {
+  func.func @gather_si64_index(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xsi64>) -> tensor<2x3xf32> {
+    // CHECK: error: 'ttnn.gather' op Index tensor must have type ui16, ui32, or si32, got 'si64'
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3xsi64>) -> tensor<2x3xf32>
+    return %0 : tensor<2x3xf32>
+  }
+}
+
+// -----
+
+// Verify that si16 indices are rejected (only si32 among signed widths is allowed).
+module {
+  func.func @gather_si16_index(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xsi16>) -> tensor<2x3xf32> {
+    // CHECK: error: 'ttnn.gather' op Index tensor must have type ui16, ui32, or si32, got 'si16'
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3xsi16>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
 }
