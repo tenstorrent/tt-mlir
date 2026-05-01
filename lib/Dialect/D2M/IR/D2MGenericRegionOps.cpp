@@ -418,12 +418,11 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
 }
 
 ::mlir::LogicalResult LocalCopyOp::verify() {
-  bool hasDst = static_cast<bool>(getDst());
-  bool hasCb = static_cast<bool>(getDstCb());
-  if (hasDst == hasCb) {
-    return emitOpError(
-        "must have exactly one of dst or cb (not both, not neither)");
+  if (isImplicitForm() == isExplicitCBForm()) {
+    return emitOpError("must be either in one of implicit form or explicit CB "
+                       "form (not both, not neither)");
   }
+  bool isImplicitForm = this->isImplicitForm();
 
   // Locality checks only apply to memref operands (tensors don't carry
   // device layout attributes).
@@ -436,7 +435,7 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
   if (!isLocalMemref(getSrc())) {
     return emitOpError("src must be a local memref");
   }
-  if (hasDst && !isLocalMemref(getDst())) {
+  if (isImplicitForm && !isLocalMemref(getDst())) {
     return emitOpError("dst must be a local memref");
   }
 
@@ -460,14 +459,15 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
     return emitOpError("source and destination element types must match");
   }
 
-  bool hasTensors = mlir::isa<RankedTensorType>(getSrc().getType()) ||
-                    (hasDst && mlir::isa<RankedTensorType>(getDst().getType()));
+  bool hasTensors =
+      mlir::isa<RankedTensorType>(getSrc().getType()) ||
+      (isImplicitForm && mlir::isa<RankedTensorType>(getDst().getType()));
   if (hasTensors) {
     if (!getResult()) {
       return emitOpError("tensor form requires a result");
     }
   } else if (getResult()) {
-    if (hasCb) {
+    if (!isImplicitForm) {
       return emitOpError("explicit CB form must not have a result");
     }
     if (!mlir::isa<MemTxType>(getResult().getType())) {

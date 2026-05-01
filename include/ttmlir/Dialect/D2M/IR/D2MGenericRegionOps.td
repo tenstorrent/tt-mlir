@@ -1510,7 +1510,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       ($src^ `,` $dst)?
       ($srcCb^ `into` $dstCb)?
       `indexing_maps` `=` $indexing_maps
-      attr-dict functional-type(operands, results)
+      attr-dict
+      (`:` type($src)^ `,` type($dst))?
+      (`:` type($srcCb)^ `into` type($dstCb))?
+      (`->` type($result)^)?
     }];
 
     let hasVerifier = 1;
@@ -1520,10 +1523,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       MutableOperandRange getDpsInitsMutable() { return getDstMutable(); }
 
       // Returns true if in explicit CB form (has CB, no dst).
-      bool isExplicitCBForm() { return static_cast<bool>(getDstCb()); }
+      bool isExplicitCBForm() { return static_cast<bool>(getDstCb()) && static_cast<bool>(getSrcCb()); }
 
       // Returns true if in implicit form (has dst, no CB).
-      bool isImplicitForm() { return static_cast<bool>(getDst()); }
+      bool isImplicitForm() { return static_cast<bool>(getDst()) && static_cast<bool>(getSrc()); }
 
       // Returns true if the result is a !d2m.mem_tx (post-LowerLoadStoreOpsToDMA).
       bool hasMemTxResult() {

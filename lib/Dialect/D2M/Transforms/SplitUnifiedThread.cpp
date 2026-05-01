@@ -161,7 +161,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
     // expand above
     while (start != outermostOp->getBlock()->begin() &&
-           !std::prev(start)->hasTrait<SynchronizableOpInterface::Trait>()) {
+           !dyn_cast<SynchronizableOpInterface>(std::prev(start))) {
       start--;
       if (outermostOps.contains(&*start)) {
         outermostOps.erase(&*start);
@@ -170,7 +170,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
     // expand below
     while (std::next(end) != outermostOp->getBlock()->end() &&
-           !std::next(end)->hasTrait<SynchronizableOpInterface::Trait>()) {
+           !dyn_cast<SynchronizableOpInterface>(std::next(end))) {
       end++;
       if (outermostOps.contains(&*end)) {
         outermostOps.erase(&*end);
@@ -297,7 +297,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
   computeBlock->walk([&](Operation *op) {
     // TODO: see if removed check for explicit CB form
     // (loadOp.isExplicitCBForm() || toErase.contains(loadOp)) causes any issues
-    if (op->hasTrait<SynchronizableOpInterface::Trait>() &&
+    if (dyn_cast<SynchronizableOpInterface>(op) &&
         !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
       auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
       // get consumers and insert wait+pop
