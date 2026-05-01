@@ -6,6 +6,7 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -2350,19 +2351,48 @@ static Value findAssocOperandForGetCB(d2m::GetCBOp getCbOp) {
   return Value();
 }
 
+// Derive the type of a nested alloc from its transferred d2m.blocking_map.
+static Type getTypeFromBlockingMap(d2m::GenericOp genericOp,
+                                   AffineMap blockingMap, Type typeToRetype) {
+  // Use the rebuilt generic's shard extents to retype nested allocs.
+  auto [_, shardExtents] = allocation::getGridAndShardExtents(genericOp);
+  SmallVector<int64_t> shardShape =
+      allocation::canonicalizeBroadcasts(blockingMap).compose(shardExtents);
+
+  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(typeToRetype)) {
+    return RankedTensorType::get(shardShape, oldTensorType.getElementType());
+  }
+  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(typeToRetype)) {
+    TT_assert(
+        (!oldMemRefType.getLayout() || oldMemRefType.getLayout().isIdentity()));
+    return MemRefType::get(shardShape, oldMemRefType.getElementType(),
+                           MemRefLayoutAttrInterface{},
+                           oldMemRefType.getMemorySpace());
+  }
+
+  return typeToRetype;
+}
+
 // Repair cloned ops whose result types depend on reblocked operand types.
-static void repairParallelizedRegionTypes(Block *newBlock) {
+static void repairParallelizedRegionTypes(d2m::GenericOp genericOp,
+                                          Block *newBlock) {
   for (Operation &clonedOp : *newBlock) {
     if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
       Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
+      Type newAllocType = allocOp.getType();
       if (associatedOperand) {
-        Type newAllocType = d2m::utils::cloneWithShardShape(associatedOperand,
-                                                            allocOp.getType());
-        if (newAllocType != allocOp.getType()) {
-          auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
-          TT_assert(newMemRefType);
-          allocOp.getResult().setType(newMemRefType);
-        }
+        newAllocType = d2m::utils::cloneWithShardShape(associatedOperand,
+                                                       allocOp.getType());
+      } else if (auto blockingMapAttr =
+                     allocOp->getAttrOfType<mlir::AffineMapAttr>(
+                         "d2m.blocking_map")) {
+        newAllocType = getTypeFromBlockingMap(
+            genericOp, blockingMapAttr.getValue(), allocOp.getType());
+      }
+      if (newAllocType != allocOp.getType()) {
+        auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
+        TT_assert(newMemRefType);
+        allocOp.getResult().setType(newMemRefType);
       }
     } else if (auto tensorEmptyOp =
                    mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
@@ -2405,6 +2435,14 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
       for (unsigned i = 0; i < numOuts; ++i) {
         clonedOp.getResult(i).setType(
             clonedOp.getOperand(numIns + i).getType());
+      }
+    }
+    // Keep threading the outer generic through
+    // recursive repair so loop-nested intermediates are retyped against the
+    // same grid/shard extents as top-level operands.
+    for (Region &region : clonedOp.getRegions()) {
+      for (Block &block : region) {
+        repairParallelizedRegionTypes(genericOp, &block);
       }
     }
   }
@@ -2459,7 +2497,7 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
 
     Block *newBlock = cloneParallelizedRegion(
         thisOp, newGenericOp, builder, oldRegion, newRegion, reblockedOperands);
-    repairParallelizedRegionTypes(newBlock);
+    repairParallelizedRegionTypes(newGenericOp, newBlock);
   }
 
   // Only return a view into the old generic op result if requested.
