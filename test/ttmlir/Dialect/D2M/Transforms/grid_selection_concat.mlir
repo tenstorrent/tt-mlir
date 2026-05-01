@@ -63,3 +63,20 @@ module attributes {ttcore.device = #any_device_3} {
     return %0 : tensor<1x32x128x192xbf16>
   }
 }
+
+// -----
+
+#any_device_4 = #ttcore.device<workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
+
+module attributes {ttcore.device = #any_device_4} {
+  func.func @concat_row_major(%arg0: tensor<136x448xf32>, %arg1: tensor<136x448xf32>) -> tensor<272x448xf32> {
+    // CHECK-LABEL: func.func @concat_row_major
+    // CHECK: d2m.to_layout %arg0, %{{.*}} : tensor<136x448xf32> into tensor<5x8x32x64xf32
+    // CHECK: d2m.to_layout %arg1, %{{.*}} : tensor<136x448xf32> into tensor<5x8x32x64xf32
+    // CHECK: d2m.composite_view
+    // CHECK: d2m.generic
+    // CHECK: d2m.to_layout %{{.*}}, %{{.*}} : tensor<8x8x64x64xf32{{.*}} into tensor<272x448xf32>
+    %0 = "ttir.concat"(%arg0, %arg1) <{dim = 0 : si32}> : (tensor<136x448xf32>, tensor<136x448xf32>) -> tensor<272x448xf32>
+    return %0 : tensor<272x448xf32>
+  }
+}
