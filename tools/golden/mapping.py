@@ -7227,9 +7227,9 @@ def ttir_sdpa_golden(
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     """
-    Matches tt-metal's FlashAttention implementation where scale is fused into
-    exp: exp((QK + mask - max) * scale). This means the mask is effectively
-    scaled, unlike PyTorch's standard SDPA which computes QK * scale + mask.
+    Matches tt-metal's SDPA implementation, which follows PyTorch semantics:
+    softmax(QK * scale + mask). The kernel folds scale into exp, but the host
+    wrapper pre-multiplies any user attn_mask by 1/scale to compensate.
     Supports standard attention and Grouped-Query Attention (GQA).
     """
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
@@ -7245,7 +7245,11 @@ def ttir_sdpa_golden(
         key = torch.repeat_interleave(key, num_repeats, dim=1)
         value = torch.repeat_interleave(value, num_repeats, dim=1)
 
+    if scale is None:
+        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+
     qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
+    qk = torch.mul(qk, scale)
 
     if is_causal and attention_mask is None:
         seq_len_q = qk.shape[-2]
@@ -7257,10 +7261,6 @@ def ttir_sdpa_golden(
 
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float())
-
-    if scale is None:
-        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
-    qk = torch.mul(qk, scale)
 
     attn_weights = torch.softmax(qk, dim=-1)
     output = torch.matmul(attn_weights, value.float())

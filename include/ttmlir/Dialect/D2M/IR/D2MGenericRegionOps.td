@@ -1213,6 +1213,7 @@ def D2M_UnpackStallOnPackOp : D2M_GenericRegionOp<"unpack_stall_on_pack"> {
     read by the next, and the usual tile_regs_acquire semwait is not present
     (single-tile shard path).
   }];
+  let hasCanonicalizer = 1;
   let assemblyFormat = [{ attr-dict }];
 }
 
