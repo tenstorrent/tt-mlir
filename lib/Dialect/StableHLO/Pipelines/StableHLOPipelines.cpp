@@ -67,6 +67,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   // tuple types).
   pm.addPass(createDecomposeCustomCallTuplesPass());
 
+  // Rewrite bodies of decomposition functions referenced by targeted
+  // tenstorrent.* composite ops.
+  pm.addPass(createRewriteCompositeDecompFunctionsPass());
+
   // Flatten or convert composite ops. Composites with custom sharding rules
   // are converted to stablehlo.custom_call ops so Shardy can propagate through
   // them. All other composites are flattened (inlined).
