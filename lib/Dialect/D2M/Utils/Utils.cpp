@@ -816,4 +816,20 @@ collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
   return result;
 }
 
+int32_t getNocElementAlignmentL1(
+    Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
+  const int32_t nocAlignmentL1 =
+      ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes();
+
+  const int32_t elemBitWidth = std::visit(
+      [&](auto &&ty) -> int32_t {
+        return static_cast<int32_t>(ty.getElementTypeBitWidth());
+      },
+      type);
+  const int32_t elemBytes = std::max(1, elemBitWidth / 8);
+
+  TT_assert(((nocAlignmentL1 != 0) && (nocAlignmentL1 % elemBytes == 0)));
+  return nocAlignmentL1 / elemBytes;
+}
+
 } // namespace mlir::tt::d2m::utils
