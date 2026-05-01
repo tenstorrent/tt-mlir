@@ -28,18 +28,13 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
   for (Value output : dispatchOp.getOutputs()) {
     if (EmptyOp emptyOp = output.getDefiningOp<EmptyOp>()) {
       emptyOp.getResult().setType(newTensorType);
-      BufferType bufferType = layoutAttr.getBufferType();
-      TensorMemoryLayoutAttr tensorMemoryLayoutAttr = layoutAttr.getMemLayout();
       emptyOp.setDtype(layoutAttr.getDataType());
       if (layoutAttr.isTiled()) {
         emptyOp.setLayout(ttnn::Layout::Tile);
       } else {
         emptyOp.setLayout(ttnn::Layout::RowMajor);
       }
-      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(
-          dispatchOp.getContext(), tensorMemoryLayoutAttr,
-          BufferTypeAttr::get(dispatchOp.getContext(), bufferType),
-          utils::createShardSpecIfNeeded(layoutAttr, deviceGrid)));
+      emptyOp.setMemoryConfigAttr(ttnn::MemoryConfigAttr::get(layoutAttr));
     } else {
       dispatchOp.emitOpError(
           "Expected EmptyOp for D2MSubgraphOp output buffer");
@@ -73,11 +68,7 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
               dispatchOp.getContext(), layoutAttr.getDataType());
           LayoutAttr newLayout =
               LayoutAttr::get(dispatchOp.getContext(), layoutAttr.getLayout());
-          MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
-              dispatchOp.getContext(), layoutAttr.getMemLayout(),
-              BufferTypeAttr::get(dispatchOp.getContext(),
-                                  layoutAttr.getBufferType()),
-              utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
+          MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(layoutAttr);
           Location loc = mainFunc.getLoc();
           ToLayoutOp toLayoutOp =
               builder.create<ToLayoutOp>(loc, newTensorType, currentResultValue,

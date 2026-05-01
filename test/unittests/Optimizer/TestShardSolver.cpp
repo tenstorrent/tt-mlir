@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Transforms.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -10,6 +11,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -49,11 +51,12 @@ public:
   mlir::RankedTensorType getTensorRankedType() {
     return mlir::RankedTensorType::get(
         getTensorShape(), builder.getF32Type(),
-        TTNNLayoutAttr::get(&context, getTensorShape(), builder.getF32Type(),
-                            BufferType::DRAM,
-                            mlir::tt::ttcore::GridAttr::get(&context, {1, 1}),
-                            mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
-                                &context, TensorMemoryLayout::Interleaved)));
+        TTNNLayoutAttr::Builder(&context, getTensorShape(),
+                                builder.getF32Type())
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+            .build());
   }
 
   mlir::Value createEmptyTensor() {
@@ -98,20 +101,19 @@ public:
       llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> &legalConfigs,
       BufferType memorySpace, TensorMemoryLayout tensorMemoryLayout,
       int gridWidth, int gridHeight) {
+    llvm::SmallVector<int64_t> gridShape{gridWidth, gridHeight};
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    auto layout =
+        TTNNLayoutAttr::Builder(&context, getTensorRankedType().getShape(),
+                                builder.getF32Type())
+            .setBufferType(memorySpace)
+            .setMemoryLayout(tensorMemoryLayout)
+            .setGridShape(gridShape)
+            .buildWithCanonicalCorePlacement(deviceAttr);
     if (legalConfigs.find(op) == legalConfigs.end()) {
-      legalConfigs[op] = std::vector<OpConfig>{TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(), builder.getF32Type(),
-          memorySpace,
-          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
-          mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                      tensorMemoryLayout))};
+      legalConfigs[op] = std::vector<OpConfig>{layout};
     } else {
-      legalConfigs[op].push_back(TTNNLayoutAttr::get(
-          &context, getTensorRankedType().getShape(), builder.getF32Type(),
-          memorySpace,
-          mlir::tt::ttcore::GridAttr::get(&context, {gridWidth, gridHeight}),
-          mlir::tt::ttnn::TensorMemoryLayoutAttr::get(&context,
-                                                      tensorMemoryLayout)));
+      legalConfigs[op].push_back(layout);
     }
   }
 
@@ -296,7 +298,8 @@ TEST_F(ShardSolverBase, VerifyProduceMaxCoreUsage) {
       shardSolver.finish().selectedOpConfig;
   float totalCoreUsage = 0;
   for (const auto &opLayout : selectedOpConfig) {
-    totalCoreUsage += opLayout.second.outputLayout.getGrid().getGridVolume();
+    totalCoreUsage +=
+        ttmlir::utils::volume(opLayout.second.outputLayout.getGridShape());
   }
 
   ASSERT_EQ(totalCoreUsage, accMaxCoreUsage[firstOp][0]);

@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --split-input-file --ttnn-collaspe-d2m %s | FileCheck %s
 
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 0)>]>>
 
 module {
   // CHECK-LABEL: func.func @one_d2m_subgraph
@@ -28,7 +28,7 @@ module {
 
 // -----
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 0)>]>>
 
 module {
   // CHECK-LABEL: func.func @two_d2m_subgraph_b2b
@@ -69,7 +69,7 @@ module {
 
 // -----
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 0)>]>>
 
 module {
   // CHECK-LABEL: func.func @mixed_ttnn_ops_d2m_subgraph

@@ -7,11 +7,11 @@
 
 // Input Layouts - Paired with Output Layouts
 // 1024x1024 DRAM Interleaved
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 // 2048x2048 on 8x8 L1 Block Sharded
-#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<8x8x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<8x8x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 7)>]>>
 // 512x256 on 8x8 L1 Block Sharded
-#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<2x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 7)>]>>
 
 
 // CHECK: #layout = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 32x32, collapsed_intervals
@@ -25,11 +25,11 @@
 
 // Output Layouts
 // 1024x1024 on 8x8 L1 Block Sharded
-#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<4x4x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<4x4x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (7, 7)>]>>
 // 2048x2048 on 4x4 L1 Block Sharded
-#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <4x4>, memref<16x16x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <4x4>, memref<16x16x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (3, 3)>]>>
 // 512x256 on 8x1 L1 Height Sharded
-#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x1>, memref<2x8x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, exactGrid = true>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x1>, memref<2x8x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 7)>]>>
 
 
 module {

@@ -46,28 +46,22 @@ namespace mlir::tt::ttnn {
 
 static std::vector<::tt::target::Dim2dRange>
 getTensorValueCoreRangeSet(FlatbufferObjectCache &cache, Value value) {
-  ttcore::DeviceAttr deviceAttr =
-      ttcore::lookupDevice(value.getParentBlock()->getParentOp());
-  assert(deviceAttr);
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(value.getType());
   ttnn::TTNNLayoutAttr layoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-  std::vector<::tt::target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, layoutAttr.getGrid(), deviceAttr.getWorkerGrid());
+  ttnn::CoreRangeSetAttr coreRangeSetAttr = layoutAttr.getCoreRangeSet();
+  std::vector<::tt::target::Dim2dRange> coreRangeSet;
+  if (coreRangeSetAttr) {
+    for (const ttnn::CoreRangeAttr &range : coreRangeSetAttr.getCoreRanges()) {
+      coreRangeSet.push_back(::tt::target::Dim2dRange(
+          ::tt::target::Dim2d(range.getStartCoord().getY(),
+                              range.getStartCoord().getX()),
+          ::tt::target::Dim2d(
+              range.getEndCoord().getY() - range.getStartCoord().getY() + 1,
+              range.getEndCoord().getX() - range.getStartCoord().getX() + 1)));
+    }
+  }
   return coreRangeSet;
-}
-
-static ttnn::MemoryConfigAttr
-getMemoryConfigAttr(::mlir::tt::ttnn::TTNNLayoutAttr layoutAttr,
-                    ttcore::GridAttr deviceGrid) {
-  MLIRContext *ctx = layoutAttr.getContext();
-  ttnn::BufferTypeAttr bufferTypeAttr =
-      ttnn::BufferTypeAttr::get(ctx, layoutAttr.getBufferType());
-
-  ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-      ctx, layoutAttr.getMemLayout(), bufferTypeAttr,
-      utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
-  return memoryConfigAttr;
 }
 
 static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
@@ -79,10 +73,7 @@ getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,
 
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
   if (isDeviceBufferType(bufferType)) {
-    ttcore::DeviceAttr deviceAttr =
-        ttcore::lookupDevice(tensor.getParentBlock()->getParentOp());
-    auto memoryConfigAttr =
-        getMemoryConfigAttr(layoutAttr, deviceAttr.getWorkerGrid());
+    auto memoryConfigAttr = ttnn::MemoryConfigAttr::get(layoutAttr);
     memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
   }
 
@@ -156,11 +147,12 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
     constexpr size_t bitWidth = 32;
     const BufferType bufferType = BufferType::SystemMemory;
 
-    layoutAttr = TTNNLayoutAttr::get(
-        ctx, /*shape=*/{},
-        ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
-        bufferType, ttcore::GridAttr::get(ctx), /*memoryLayoutAttr=*/nullptr,
-        /*tensorMeshAttr=*/nullptr);
+    layoutAttr =
+        TTNNLayoutAttr::Builder(
+            ctx, /*tensorShape=*/{},
+            ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned))
+            .setBufferType(bufferType)
+            .build();
   } else if (mlir::isa<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding())) {
     return getNDTensor(cache, tensorType, deviceAttr);
   } else {
@@ -198,8 +190,8 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
 
   return ::tt::target::ttnn::CreateTensorDescDirect(
       *cache.fbb, &shape, &meshShape,
-      cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer, deviceAttr),
-      shardStatus, &localShape);
+      cache.getOrCreate(layoutAttr, ttnnLayoutAttrToFlatbuffer), shardStatus,
+      &localShape);
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>

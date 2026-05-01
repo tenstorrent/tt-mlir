@@ -172,14 +172,19 @@ workaroundOutputOperand(mlir::TypedValue<RankedTensorType> opResult,
   RankedTensorType opResultType =
       mlir::cast<RankedTensorType>(opResult.getType());
 
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+
   // Create the new output layout attribute with the updated tensor layout,
   // buffer type, memory layout and data type.
   TTNNLayoutAttr newOutputLayoutAttr =
-      opResultLayoutAttr.withElementType(elementType, opResultType.getShape())
-          .withBufferType(
+      TTNNLayoutAttr::Builder(opResultLayoutAttr)
+          .setTensorShape(opResultType.getShape())
+          .setElementType(elementType)
+          .setBufferType(
               outputWorkaroundResults.tensorBufferTypeResult.targetValue)
-          .withMemoryLayout(
-              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue);
+          .setMemoryLayout(
+              outputWorkaroundResults.tensorMemoryLayoutResult.targetValue)
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   // Create the new output result type with the updated data type and layout.
   RankedTensorType newOutputResultType = utils::RankedTensorTypeFactory::create(

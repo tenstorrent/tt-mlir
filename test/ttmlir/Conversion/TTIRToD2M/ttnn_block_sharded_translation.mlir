@@ -18,36 +18,36 @@
 
 
 // Block Sharded - Rank 2 layouts
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 // 256x256 on 8x8
-#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 7)>]>>
 // 256x256 on 1x1
-#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<8x8x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<8x8x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 // 256x256 on 1x4
-#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x4>, memref<8x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x4>, memref<8x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (3, 0)>]>>
 // 256x256 on 4x1
-#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <4x1>, memref<2x8x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <4x1>, memref<2x8x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 3)>]>>
 
 
 // Block Sharded - Rank 3 layouts
 // 4x64x128 on 2x2
-#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <2x2>, memref<4x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <2x2>, memref<4x2x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (1, 1)>]>>
 // 4x64x128 on 1x1
-#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <1x1>, memref<8x4x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout6 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <1x1>, memref<8x4x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 // 4x64x128 on 4x1
-#ttnn_layout7 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <4x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout7 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <4x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 3)>]>>
 // 4x64x128 on 1x4
-#ttnn_layout8 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <1x4>, memref<8x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout8 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 64 + d1, d2), <1x4>, memref<8x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (3, 0)>]>>
 
 // Block Sharded - Rank 4 layouts
 // 1x8x32x256 on 8x1
-#ttnn_layout9 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x1>, memref<1x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout9 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x1>, memref<1x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 7)>]>>
 // 1x8x32x256 on 1x8
-#ttnn_layout10 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <1x8>, memref<8x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout10 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <1x8>, memref<8x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 0)>]>>
 // 1x8x32x256 on 8x8
-#ttnn_layout11 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout11 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (7, 7)>]>>
 // 1x8x32x256 on 1x1
-#ttnn_layout12 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <1x1>, memref<8x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>>
+#ttnn_layout12 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 256 + d1 * 32 + d2, d3), <1x1>, memref<8x8x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 
 module {
   // CHECK-LABEL: func.func @test_lower_block_sharded_l1

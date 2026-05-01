@@ -46,14 +46,17 @@ struct RankedTensorTypeFactory {
   static RankedTensorType create(RankedTensorType tensorType,
                                  ttnn::BufferType bufferType);
 
-  static RankedTensorType create(RankedTensorType tensorType,
-                                 ttnn::TensorMemoryLayout memoryLayout);
+  // `deviceAttr` is required only when re-encoding to a sharded layout.
+  static RankedTensorType
+  create(RankedTensorType tensorType, ttnn::TensorMemoryLayout memoryLayout,
+         mlir::tt::ttcore::DeviceAttr deviceAttr = nullptr);
 
   static RankedTensorType create(RankedTensorType tensorType,
                                  ttnn::Layout layout);
 
   static RankedTensorType create(RankedTensorType tensorType,
-                                 mlir::tt::ttcore::GridAttr grid);
+                                 ArrayRef<int64_t> gridShape,
+                                 mlir::tt::ttcore::DeviceAttr deviceAttr);
 
   static RankedTensorType create(RankedTensorType tensorType,
                                  mlir::tt::ttcore::DataType);
@@ -97,18 +100,6 @@ llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 // Extract input layouts from operation operands, skipping device type operands.
 std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op);
 
-// Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr>
-createShardSpecIfNeeded(TTNNLayoutAttr layout,
-                        mlir::tt::ttcore::GridAttr deviceGrid);
-
-// Helper method to create a ShardSpecAttr if needed.
-std::optional<ShardSpecAttr>
-createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
-                        ShapeAttr shardShape,
-                        mlir::tt::ttcore::GridAttr shardGrid,
-                        mlir::tt::ttcore::GridAttr deviceGrid);
-
 // Helper method to create a NDShardSpecAttr if needed.
 std::optional<NDShardSpecAttr>
 createNDShardSpecIfNeeded(TTNNNDLayoutAttr layout);
@@ -148,6 +139,7 @@ UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
 
 // Compute the bounding box grid dimensions from a layout's shard grid.
 // Returns {gridX, gridY} representing the physical core grid extent.
+// Precondition: layout has a non-null CoreRangeSet (i.e. is sharded).
 std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout);
 
 } // namespace mlir::tt::ttnn::utils

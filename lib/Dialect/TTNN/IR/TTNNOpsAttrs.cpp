@@ -5,12 +5,13 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <cassert>
 #include <cstdint>
@@ -83,19 +84,19 @@ bool TTNNLayoutAttr::hasInterleavedDRAMTensorMemoryLayout() const {
 // 2. Otherwise, unit grid is expected.
 llvm::LogicalResult
 verifyGridShape(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
-                mlir::tt::ttcore::GridAttr gridAttr, BufferType bufferType) {
+                llvm::ArrayRef<int64_t> gridShape, BufferType bufferType) {
   if (isL1BufferType(bufferType)) {
     return llvm::success();
   }
 
   llvm::SmallVector<int64_t> expectedGridShape({1, 1});
-  if (llvm::equal(gridAttr.getShape(), expectedGridShape)) {
+  if (llvm::equal(gridShape, expectedGridShape)) {
     return llvm::success();
   }
   return emitError() << "expected (" << expectedGridShape
                      << ") grid shape for non-L1 buffer type, got ("
-                     << gridAttr.getShape() << ") for "
-                     << stringifyBufferType(bufferType) << " buffer type";
+                     << gridShape << ") for " << stringifyBufferType(bufferType)
+                     << " buffer type";
 }
 
 // Checks:
@@ -165,17 +166,16 @@ verifySharding(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
 // Example: tensor<65x65xbf16> -> {9, 9}
 //
 // return The logical shard shape in case of block sharded tensor memory layout.
-llvm::SmallVector<int64_t>
-TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
-    ArrayRef<int64_t> tensorShape, mlir::AffineMap linear,
-    mlir::tt::ttcore::GridAttr grid) {
-  assert(linear.getNumResults() == grid.getShape().size());
+static llvm::SmallVector<int64_t>
+calculateLogicalShardShapeForSharding(llvm::ArrayRef<int64_t> tensorShape,
+                                      mlir::AffineMap linear,
+                                      llvm::ArrayRef<int64_t> gridShape) {
+  assert(linear.getNumResults() == gridShape.size());
   mlir::SmallVector<std::int64_t> physicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
   mlir::SmallVector<std::int64_t> shardShape(linear.getNumResults());
   for (size_t i = 0; i < linear.getNumResults(); ++i) {
-    shardShape[i] =
-        (physicalShape[i] + grid.getShape()[i] - 1) / grid.getShape()[i];
+    shardShape[i] = (physicalShape[i] + gridShape[i] - 1) / gridShape[i];
   }
   return shardShape;
 }
@@ -198,23 +198,21 @@ TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
 // Example: tensor<32x2049xbf16> -> {1, 1025}
 //
 // return The logical shard shape in case of interleaved tensor memory layout.
-llvm::SmallVector<int64_t>
-TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
-    ArrayRef<int64_t> tensorShape, mlir::Type elementType,
-    mlir::AffineMap linear, mlir::tt::ttcore::GridAttr grid) {
-  assert(linear.getNumResults() == grid.getShape().size());
+static llvm::SmallVector<int64_t> calculateLogicalShardShapeForL1Interleaved(
+    llvm::ArrayRef<int64_t> tensorShape, mlir::Type elementType,
+    mlir::AffineMap linear, llvm::ArrayRef<int64_t> gridShape) {
+  assert(linear.getNumResults() == gridShape.size());
 
   mlir::SmallVector<std::int64_t> physicalShape =
       ttmlir::utils::evalShape(linear, tensorShape);
 
-  uint64_t numOfGridUnits =
-      std::accumulate(grid.getShape().begin(), grid.getShape().end(), 1,
-                      std::multiplies<std::int64_t>());
+  uint64_t numOfGridUnits = std::accumulate(gridShape.begin(), gridShape.end(),
+                                            1, std::multiplies<std::int64_t>());
 
   // Create shard shape with all dims set to 1 except the last one which is
   // set to shardVolume.
   mlir::SmallVector<std::int64_t> shardShape;
-  shardShape.resize(grid.getShape().size() - 1, 1);
+  shardShape.resize(gridShape.size() - 1, 1);
 
   if (!mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
     // If RowMajor, single shard should be TensorVolume / NumCores rounded up.
@@ -380,293 +378,46 @@ uint64_t TTNNLayoutAttr::getShardSizeInBytes() const {
                          std::multiplies<uint64_t>());
 }
 
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a new TTNNLayoutAttr with the given parameters.
-// The element type, buffer type and memory layout are preserved.
-//
-// param context The MLIR context.
-// param tensorShape The shape of the tensor (i.e 6x10x10)
-// param grid The grid where the tensor will be placed (i.e 2x3)
-// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
-// return The constructed TTNNLayoutAttr
-TTNNLayoutAttr TTNNLayoutAttr::withGrid(
-    ArrayRef<int64_t> tensorShape, mlir::tt::ttcore::GridAttr grid,
-    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-  return get(getContext(), tensorShape, getElementType(), getBufferType(), grid,
-             getMemLayout(), getTensorMesh(), collapseIntervals,
-             getIgnorePhysicalLayout());
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a new TTNNLayoutAttr with the given parameters.
-// The shape of the tensor, buffer type, element type and memory layout are
-// preserved.
-//
-// param context The MLIR context.
-// param grid The grid where the tensor will be placed.
-// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
-// return The constructed TTNNLayoutAttr
-TTNNLayoutAttr TTNNLayoutAttr::withGrid(
-    RankedTensorType ty, mlir::tt::ttcore::GridAttr grid,
-    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-  assert(ty);
-  return TTNNLayoutAttr::withGrid(ty.getShape(), grid, collapseIntervals);
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// replaces the element type with the given one.
-//
-// param context The MLIR context.
-// param elementType The new element type.
-// param tensorShape The shape of the tensor.
-// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
-// return The new TTNNLayoutAttr with the given element type.
-TTNNLayoutAttr TTNNLayoutAttr::withElementType(
-    Type elementType, ArrayRef<int64_t> tensorShape,
-    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals) {
-  return TTNNLayoutAttr::get(getContext(), tensorShape, elementType,
-                             getBufferType(), getGrid(), getMemLayout(),
-                             getTensorMesh(), collapseIntervals,
-                             getIgnorePhysicalLayout());
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// replaces the data type with the given one.
-//
-// param dataType The new data type.
-// return The new TTNNLayoutAttr with the given data type.
-TTNNLayoutAttr TTNNLayoutAttr::withDataType(ttcore::DataType dataType) {
-  Type elementType = ttcore::dataTypeToElementType(getContext(), dataType);
-  if (isTiled()) {
-    elementType = mlir::tt::ttcore::TileType::get(elementType);
-  }
-
-  return TTNNLayoutAttr::get(
-      getContext(), getLinear(), getGrid(),
-      ttcore::buildMemRef<BufferType, BufferTypeAttr>(
-          getContext(), getScalarShardShape(), elementType, getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
-      getExactGrid());
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// replaces the memory space with the given one.
-//
-// param context The MLIR context.
-// param memorySpace The new memory space.
-// return The new TTNNLayoutAttr with the given memory space.
-TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
-  TensorMemoryLayoutAttr memLayoutAttr = getMemLayout();
-  mlir::tt::ttcore::GridAttr grid = getGrid();
-
-  // For SystemMemory we need to clear memory layout and set grid to 1x1.
-  if (memorySpace == BufferType::SystemMemory) {
-    memLayoutAttr = TensorMemoryLayoutAttr{};
-    grid =
-        mlir::tt::ttcore::GridAttr::get(getContext(), grid.getShape().size());
-  }
-
-  // For DRAM we need to set memory layout to interleaved and set grid to 1x1.
-  if (memorySpace == BufferType::DRAM) {
-    memLayoutAttr = TensorMemoryLayoutAttr::get(
-        getContext(), TensorMemoryLayout::Interleaved);
-    grid =
-        mlir::tt::ttcore::GridAttr::get(getContext(), grid.getShape().size());
-  }
-
-  // For L1 we will inherit the memory layout if its set.
-  // Otherwise we will set it to interleaved.
-  if (memorySpace == BufferType::L1) {
-    memLayoutAttr = getMemLayout()
-                        ? getMemLayout()
-                        : TensorMemoryLayoutAttr::get(
-                              getContext(), TensorMemoryLayout::Interleaved);
-  }
-
-  return TTNNLayoutAttr::get(
-      getContext(), getLinear(), grid,
-      mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
-          getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout(),
-      getExactGrid());
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// replaces the memory layout with the given one.
-//
-// param context The MLIR context.
-// param memLayoutAttr The new memory layout.
-// return The new TTNNLayoutAttr with the given memory layout.
-TTNNLayoutAttr
-TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
-  return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(),
-                             ttcore::buildMemRef<BufferType, BufferTypeAttr>(
-                                 getContext(), getScalarShardShape(),
-                                 getElementType(), getBufferType()),
-                             memLayoutAttr, getTensorMesh(),
-                             getIgnorePhysicalLayout(), getExactGrid());
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// replaces the memory layout with the given one.
-//
-// param context The MLIR context.
-// param memLayout The new memory layout.
-// return The new TTNNLayoutAttr with the given memory layout.
-TTNNLayoutAttr TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayout memLayout) {
-
-  TensorMemoryLayoutAttr memLayoutAttr =
-      TensorMemoryLayoutAttr::get(getContext(), memLayout);
-  return withMemoryLayout(memLayoutAttr);
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// replaces shard shape with the given one.
-//
-// param context The MLIR context.
-// param shardShape The new shard shape.
-// return The new TTNNLayoutAttr with the given shard shape.
-TTNNLayoutAttr
-TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
-  return TTNNLayoutAttr::get(
-      getContext(), getLinear(), getGrid(),
-      mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
-          getContext(), shardShape, getElementType(), getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
-      getExactGrid());
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr and
-// applies changes necessary to fit new tensor shape.
-//
-// param context The MLIR context.
-// param tensorShape The new tensor shape.
-// return The new TTNNLayoutAttr with the given tensor shape.
-TTNNLayoutAttr TTNNLayoutAttr::withTensorShape(ArrayRef<int64_t> tensorShape) {
-  // TODO(mrakita): This leaves default value of collapseIntervals parameter,
-  // which might be different than the original value used to create the layout
-  // attribute. This will work for now since we always use default value, but in
-  // the future we would need to take this into account.
-  return TTNNLayoutAttr::get(getContext(), tensorShape, getElementType(),
-                             getBufferType(), getGrid(), getMemLayout(),
-                             getTensorMesh(), getDefaultCollapseIntervals(),
-                             getIgnorePhysicalLayout());
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function creates a deep copy of the current TTNNLayoutAttr, setting the
-// ignorePhysicalLayout property to the provided value. This is a status bit.
-// The physical properties of the layout are preserved as calculated previously
-// and remain accessible via getters
-//
-// param context The MLIR context.
-// param ignorePhysicalLayout The new value for ignorePhysicalLayout.
-// return The new TTNNLayoutAttr.
-TTNNLayoutAttr
-TTNNLayoutAttr::withIgnorePhysicalLayout(bool ignorePhysicalLayout) {
-  return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(), getMemref(),
-                             getMemLayout(), getTensorMesh(),
-                             ignorePhysicalLayout, getExactGrid());
-};
-
-TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
-                                   AffineMap linear, ttcore::GridAttr grid,
-                                   MemRefType memref,
-                                   TensorMemoryLayoutAttr mem_layout,
-                                   ttcore::TensorMeshAttr tensor_mesh) {
-  return TTNNLayoutAttr::get(context, linear, grid, memref, mem_layout,
-                             tensor_mesh,
-                             /*ignorePhysicalLayout=*/false,
-                             /*exactGrid=*/false);
-}
-
-// Construct a new TTNNLayoutAttr
-//
-// This function constructs a new TTNNLayoutAttr with the given parameters.
-//
-// param context The MLIR context.
-// param tensorShape The shape of the tensor (i.e 6x10x10)
-// param elementType The type of the element i.e TileType/FloatType/IntegerType
-// param bufferType The type of the buffer
-// param grid The grid where the tensor will be placed (i.e 2x3)
-// param collapseIntervals The intervals to collapse (i.e. {{0, -1}})
-// param memLayout The memory layout of the tensor
-// return The constructed TTNNLayoutAttr
-TTNNLayoutAttr TTNNLayoutAttr::get(
-    ::mlir::MLIRContext *context, ArrayRef<int64_t> tensorShape,
-    Type elementType, BufferType bufferType, mlir::tt::ttcore::GridAttr grid,
-    TensorMemoryLayoutAttr memLayoutAttr,
-    mlir::tt::ttcore::TensorMeshAttr tensorMesh,
-    ArrayRef<std::pair<std::int64_t, std::int64_t>> collapseIntervals,
-    bool ignorePhysicalLayout) {
-
-  llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
-                                              tensorShape.end());
-
-  // If the tensor is tiled the last two dims need to be rounded up to tile size
-  // before creating the affine map. E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
-  if (llvm::isa<mlir::tt::ttcore::TileType>(elementType)) {
-    physicalShape = utils::getTilePaddedShape(tensorShape);
-  }
-
-  // Construct a new affine map which will be used to map from logical
-  // space to physical space.
-  AffineMap linear = mlir::tt::ttcore::collapsedLinearAffineMap(
-      context, physicalShape, grid.getShape(), collapseIntervals);
-
-  // Calculate shard shape
-  mlir::SmallVector<int64_t> shardShape;
-  if (bufferType == BufferType::L1 &&
-      memLayoutAttr.getValue() == TensorMemoryLayout::Interleaved) {
-    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForL1Interleaved(
-        physicalShape, elementType, linear, grid);
-  } else {
-    shardShape = TTNNLayoutAttr::calculateLogicalShardShapeForSharding(
-        physicalShape, linear, grid);
-  }
-
-  // Build memref type with the given parameters
-  MemRefType memRefType =
-      mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
-          context, shardShape, elementType, bufferType);
-  return get(context, linear, grid, memRefType, memLayoutAttr, tensorMesh,
-             ignorePhysicalLayout, /*exactGrid=*/false);
-}
-
 llvm::LogicalResult TTNNLayoutAttr::verify(
     llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
-    mlir::tt::ttcore::GridAttr grid, MemRefType memref,
+    llvm::ArrayRef<int64_t> gridShape, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
     mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout,
-    bool exactGrid) {
+    CoreRangeSetAttr coreRangeSet) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
   llvm::LogicalResult status = ::llvm::success();
-  if (llvm::failed(verifyGridShape(emitError, grid, bufferType))) {
+  if (llvm::failed(verifyGridShape(emitError, gridShape, bufferType))) {
     status = llvm::failure();
   }
   if (llvm::failed(
           verifyBufferAndMemoryLayout(emitError, bufferType, memLayout))) {
     status = llvm::failure();
   }
+
+  // CRS / memLayout consistency:
+  //   sharded memLayout      ⇒ non-null core_range_set
+  //   non-sharded / no memLayout ⇒ null core_range_set
+  // `ignorePhysicalLayout=true` opts out of the "sharded ⇒ non-null"
+  // direction (the layout is intentionally a placeholder with unspecified
+  // shard placement); the inverse direction is still enforced.
+  bool isSharded = memLayout && isShardedMemoryLayout(memLayout.getValue());
+  if (isSharded && !coreRangeSet && !ignorePhysicalLayout) {
+    emitError() << "sharded TTNN layout ("
+                << stringifyTensorMemoryLayout(memLayout.getValue())
+                << ") must carry a core_range_set";
+    status = llvm::failure();
+  }
+  if (!isSharded && coreRangeSet) {
+    emitError()
+        << "non-sharded TTNN layout must not carry a core_range_set (got "
+        << (memLayout ? stringifyTensorMemoryLayout(memLayout.getValue())
+                      : "no memory layout")
+        << ")";
+    status = llvm::failure();
+  }
+
   return status;
 }
 
@@ -677,13 +428,17 @@ llvm::LogicalResult TTNNLayoutAttr::verify(
 // param layoutAttr The TTNNLayoutAttr to create MemoryConfigAttr from.
 // param deviceGrid Device grid to use for sharding spec.
 // return The constructed MemoryConfigAttr.
-MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
-                                       mlir::tt::ttcore::GridAttr deviceGrid) {
+MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr) {
   BufferTypeAttr bufferTypeAttr =
       mlir::cast<BufferTypeAttr>(layoutAttr.getMemref().getMemorySpace());
-  return MemoryConfigAttr::get(
-      layoutAttr.getContext(), layoutAttr.getMemLayout(), bufferTypeAttr,
-      utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
+  TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
+  std::optional<ShardSpecAttr> shardSpec = std::nullopt;
+  if (tensorMemoryLayout &&
+      isShardedMemoryLayout(tensorMemoryLayout.getValue())) {
+    shardSpec = ShardSpecAttr::get(layoutAttr.getContext(), layoutAttr);
+  }
+  return MemoryConfigAttr::get(layoutAttr.getContext(), tensorMemoryLayout,
+                               bufferTypeAttr, shardSpec);
 }
 
 MemoryConfigAttr MemoryConfigAttr::get(
@@ -1038,25 +793,75 @@ bool Conv2dConfigAttr::hasConfigTensorsInDram() const {
   return getConfigTensorsInDram() != nullptr;
 }
 
-CoreRangeSetAttr
-ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
-                               mlir::tt::ttcore::GridAttr shardGrid,
-                               mlir::tt::ttcore::GridAttr deviceGrid) {
-  llvm::SmallVector<CoreRangeAttr> coreRangeSet;
-  AffineMap mapping = (shardGrid.getVirtToPhysicalMap().isEmpty() == true)
-                          ? deviceGrid.getVirtToPhysicalMap()
-                          : shardGrid.getVirtToPhysicalMap();
+// Build a CoreRangeSet covering `numCores` L1 cores laid out row-major on a
+// worker grid of width `workerWidth`, coalesced into at most two rectangles:
+//   - one `workerWidth x fullRows` block for full rows,
+//   - one `tail x 1` strip for the remainder.
+// This is the canonical row-major flattening for H/W-sharded tensors: shard m
+// lands on physical core (m / W, m % W).
+static llvm::SmallVector<CoreRangeAttr>
+buildRowMajorCoreRanges(mlir::MLIRContext *ctx, int64_t numCores,
+                        int64_t workerWidth) {
+  llvm::SmallVector<CoreRangeAttr> ranges;
+  int64_t fullRows = numCores / workerWidth;
+  int64_t tail = numCores % workerWidth;
+  if (fullRows > 0) {
+    ranges.push_back(CoreRangeAttr::get(
+        ctx, CoreCoordAttr::get(ctx, 0, 0),
+        CoreCoordAttr::get(ctx, workerWidth - 1, fullRows - 1)));
+  }
+  if (tail > 0) {
+    ranges.push_back(
+        CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, fullRows),
+                           CoreCoordAttr::get(ctx, tail - 1, fullRows)));
+  }
+  return ranges;
+}
 
-  for (const auto &locsize2d :
-       mlir::tt::ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping)) {
-    const auto &[loc, size] = locsize2d;
-    coreRangeSet.push_back(
-        CoreRangeAttr::get(context, CoreCoordAttr::get(context, loc[0], loc[1]),
-                           CoreCoordAttr::get(context, loc[0] + size[0] - 1,
-                                              loc[1] + size[1] - 1)));
+// Static helper to compute the canonical CoreRangeSet for a sharded layout
+// by mapping the virtual `gridShape` onto physical cores per the
+// `memLayout` flatten rule.
+CoreRangeSetAttr TTNNLayoutAttr::computeCanonicalCoreRangeSet(
+    mlir::MLIRContext *ctx, TensorMemoryLayout memLayout,
+    ArrayRef<int64_t> gridShape, mlir::tt::ttcore::GridAttr deviceGrid) {
+  assert(isShardedMemoryLayout(memLayout) &&
+         "CoreRangeSet can only be derived for sharded memory layouts");
+  assert(gridShape.size() == 2 &&
+         "TTNNLayoutAttr shard grid must be 2D for L1 sharding");
+  assert(deviceGrid &&
+         "deviceGrid is required to derive the canonical CoreRangeSet for a "
+         "sharded TTNN layout");
+
+  llvm::ArrayRef<int64_t> deviceGridShape = deviceGrid.getShape();
+  assert(deviceGridShape.size() == 2 && "device worker grid must be 2D");
+  int64_t workerWidth = deviceGridShape[1];
+
+  llvm::SmallVector<CoreRangeAttr> ranges;
+  switch (memLayout) {
+  case TensorMemoryLayout::BlockSharded: {
+    // Virtual [H, W] maps identity onto physical cores (0,0)-(W-1, H-1).
+    ranges.push_back(CoreRangeAttr::get(
+        ctx, CoreCoordAttr::get(ctx, 0, 0),
+        CoreCoordAttr::get(ctx, gridShape[1] - 1, gridShape[0] - 1)));
+    break;
+  }
+  case TensorMemoryLayout::HeightSharded: {
+    // Virtual [M, 1] row-major flattens onto (m / W, m % W).
+    assert(gridShape[1] == 1 && "HeightSharded expects [M, 1] shard grid");
+    ranges = buildRowMajorCoreRanges(ctx, gridShape[0], workerWidth);
+    break;
+  }
+  case TensorMemoryLayout::WidthSharded: {
+    // Virtual [1, M] row-major flattens onto (m / W, m % W).
+    assert(gridShape[0] == 1 && "WidthSharded expects [1, M] shard grid");
+    ranges = buildRowMajorCoreRanges(ctx, gridShape[1], workerWidth);
+    break;
+  }
+  default:
+    llvm_unreachable("unexpected sharded memory layout");
   }
 
-  return CoreRangeSetAttr::get(context, coreRangeSet);
+  return CoreRangeSetAttr::get(ctx, ranges);
 }
 
 NDShardSpecAttr NDShardSpecAttr::get(TTNNNDLayoutAttr layout) {
@@ -1299,19 +1104,6 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   return ::llvm::success();
 }
 
-// Transform TTNNLayoutAttr with a different layout while preserving the
-// element type.
-//
-// param layout The target layout (RowMajor or Tile).
-// param tensorShape The shape of the tensor.
-// return The new TTNNLayoutAttr with the specified layout.
-TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
-                                          ArrayRef<int64_t> tensorShape) {
-  assert(layout == Layout::RowMajor || layout == Layout::Tile);
-  Type elementType = utils::getElementType(getContext(), layout, getDataType());
-  return withElementType(elementType, tensorShape);
-}
-
 // Get scalar shard shape
 //
 // If the element type is TileType, this function returns the scalar shape of
@@ -1366,3 +1158,194 @@ bool TTNNNDLayoutAttr::isSharded() const {
 mlir::Type TTNNNDLayoutAttr::getElementType() const {
   return getMemref().getElementType();
 }
+
+//===----------------------------------------------------------------------===//
+// TTNNLayoutAttr::Builder
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+
+static llvm::SmallVector<int64_t>
+deriveShardShape(ArrayRef<int64_t> physicalShape, Type elementType,
+                 AffineMap linear, ArrayRef<int64_t> gridShape,
+                 BufferType bufferType, TensorMemoryLayoutAttr memLayout) {
+  if (bufferType == BufferType::L1 && memLayout &&
+      memLayout.getValue() == TensorMemoryLayout::Interleaved) {
+    return calculateLogicalShardShapeForL1Interleaved(
+        physicalShape, elementType, linear, gridShape);
+  }
+  return calculateLogicalShardShapeForSharding(physicalShape, linear,
+                                               gridShape);
+}
+
+TTNNLayoutAttr::Builder::Builder(TTNNLayoutAttr layout)
+    : context(layout.getContext()),
+      collapseIntervals(1, layout.getDefaultCollapseIntervals()),
+      elementType(layout.getElementType()), bufferType(layout.getBufferType()),
+      gridShape(layout.getGridShape().begin(), layout.getGridShape().end()),
+      memLayout(layout.getMemLayout()), tensorMesh(layout.getTensorMesh()),
+      ignorePhysicalLayout(layout.getIgnorePhysicalLayout()),
+      coreRangeSet(layout.getCoreRangeSet()) {}
+
+TTNNLayoutAttr::Builder::Builder(RankedTensorType type)
+    : Builder(mlir::cast<TTNNLayoutAttr>(type.getEncoding())) {
+  setTensorShape(type.getShape());
+}
+
+TTNNLayoutAttr::Builder::Builder(MLIRContext *ctx,
+                                 ArrayRef<int64_t> tensorShapeIn,
+                                 Type elementTypeIn)
+    : context(ctx), tensorShape(tensorShapeIn.begin(), tensorShapeIn.end()),
+      collapseIntervals(1, std::pair<std::int64_t, std::int64_t>{0, -1}),
+      elementType(elementTypeIn), bufferType(BufferType::DRAM), gridShape{1, 1},
+      memLayout(
+          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)),
+      tensorMesh(nullptr), ignorePhysicalLayout(false), coreRangeSet(nullptr) {}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setElementType(Type newElementType) {
+  elementType = newElementType;
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &TTNNLayoutAttr::Builder::setLayout(Layout layout) {
+  elementType = utils::getElementType(
+      context, layout, mlir::tt::ttcore::getDataType(elementType));
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setTensorShape(ArrayRef<int64_t> newTensorShape) {
+  tensorShape.assign(newTensorShape.begin(), newTensorShape.end());
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setTensorMesh(ttcore::TensorMeshAttr mesh) {
+  tensorMesh = mesh;
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setIgnorePhysicalLayout(bool ignore) {
+  ignorePhysicalLayout = ignore;
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &TTNNLayoutAttr::Builder::setCollapseIntervals(
+    ArrayRef<std::pair<std::int64_t, std::int64_t>> newCollapseIntervals) {
+  collapseIntervals.assign(newCollapseIntervals.begin(),
+                           newCollapseIntervals.end());
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setBufferType(BufferType newBufferType) {
+  bufferType = newBufferType;
+  if (newBufferType == BufferType::SystemMemory) {
+    memLayout = TensorMemoryLayoutAttr{};
+    gridShape = {1, 1};
+  } else if (newBufferType == BufferType::DRAM) {
+    memLayout =
+        TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::Interleaved);
+    gridShape = {1, 1};
+  } else if (newBufferType == BufferType::L1 && !memLayout) {
+    memLayout =
+        TensorMemoryLayoutAttr::get(context, TensorMemoryLayout::Interleaved);
+  }
+  coreRangeSet = nullptr;
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setMemoryLayout(TensorMemoryLayoutAttr ml) {
+  if (ml) {
+    int64_t volume = std::accumulate(gridShape.begin(), gridShape.end(),
+                                     int64_t{1}, std::multiplies<>());
+    switch (ml.getValue()) {
+    case TensorMemoryLayout::HeightSharded:
+      gridShape = {volume, 1};
+      break;
+    case TensorMemoryLayout::WidthSharded:
+      gridShape = {1, volume};
+      break;
+    case TensorMemoryLayout::BlockSharded:
+    case TensorMemoryLayout::Interleaved:
+    case TensorMemoryLayout::NDSharded:
+      break;
+    }
+  }
+  memLayout = ml;
+  coreRangeSet = nullptr;
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setMemoryLayout(TensorMemoryLayout ml) {
+  return setMemoryLayout(TensorMemoryLayoutAttr::get(context, ml));
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setGridShape(ArrayRef<int64_t> newGridShape) {
+  gridShape.assign(newGridShape.begin(), newGridShape.end());
+  coreRangeSet = nullptr;
+  return *this;
+}
+
+TTNNLayoutAttr::Builder &
+TTNNLayoutAttr::Builder::setCoreRangeSet(CoreRangeSetAttr crs) {
+  coreRangeSet = crs;
+  return *this;
+}
+
+TTNNLayoutAttr TTNNLayoutAttr::Builder::build() {
+  bool isSharded = memLayout && isShardedMemoryLayout(memLayout.getValue());
+
+  if (isSharded) {
+    assert(coreRangeSet &&
+           "coreRangeSet must be set for sharded memory layouts. Use "
+           "buildWithCanonicalCorePlacement, "
+           "or provide coreRangeSet explicitly before calling build().");
+  }
+
+  llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
+                                              tensorShape.end());
+  if (mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
+    physicalShape = utils::getTilePaddedShape(tensorShape);
+  }
+  AffineMap linear = mlir::tt::ttcore::collapsedLinearAffineMap(
+      context, physicalShape, gridShape, collapseIntervals);
+
+  llvm::SmallVector<int64_t> shardShape = deriveShardShape(
+      physicalShape, elementType, linear, gridShape, bufferType, memLayout);
+
+  MemRefType memref = mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+      context, shardShape, elementType, bufferType);
+
+  return TTNNLayoutAttr::get(context, linear, gridShape, memref, memLayout,
+                             tensorMesh, ignorePhysicalLayout, coreRangeSet);
+}
+
+TTNNLayoutAttr TTNNLayoutAttr::Builder::buildWithCanonicalCorePlacement(
+    ttcore::DeviceAttr deviceAttr) {
+  if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+    coreRangeSet = TTNNLayoutAttr::computeCanonicalCoreRangeSet(
+        context, memLayout.getValue(), gridShape, deviceAttr.getWorkerGrid());
+  }
+
+  return build();
+}
+
+BufferType TTNNLayoutAttr::Builder::getBufferType() const { return bufferType; }
+
+TensorMemoryLayoutAttr TTNNLayoutAttr::Builder::getMemLayout() const {
+  return memLayout;
+}
+
+ArrayRef<int64_t> TTNNLayoutAttr::Builder::getGridShape() const {
+  return gridShape;
+}
+
+Type TTNNLayoutAttr::Builder::getElementType() const { return elementType; }
+
+} // namespace mlir::tt::ttnn

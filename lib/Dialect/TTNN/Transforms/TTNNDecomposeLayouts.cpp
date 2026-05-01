@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -60,18 +61,9 @@ private:
     ttnn::Layout layoutEnum;
     ttcore::DataType dataType;
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout;
-    ttcore::GridAttr deviceGrid;
-    ttcore::GridAttr shardGrid;
-    llvm::SmallVector<int64_t> shardShape;
+    llvm::SmallVector<int64_t> gridShape;
+    ttnn::CoreRangeSetAttr coreRangeSet;
 
-    ttnn::MemoryConfigAttr createMemoryConfigAttr(MLIRContext *context) const {
-      return ttnn::MemoryConfigAttr::get(
-          context, tensorMemoryLayout,
-          ttnn::BufferTypeAttr::get(context, bufferType),
-          utils::createShardSpecIfNeeded(
-              tensorMemoryLayout, ttnn::ShapeAttr::get(context, shardShape),
-              shardGrid, deviceGrid));
-    }
     bool isL1Sharded() const {
       return isShardedMemoryLayout(tensorMemoryLayout.getValue());
     }
@@ -194,16 +186,13 @@ private:
     input.tensorMemoryLayout = inputLayoutAttr.getMemLayout();
     output.tensorMemoryLayout = outputMemoryConfig.getTensorMemoryLayout();
 
-    input.shardGrid = inputLayoutAttr.getGrid();
-    output.shardGrid = outputLayoutAttr.getGrid();
+    input.gridShape =
+        llvm::SmallVector<int64_t>(inputLayoutAttr.getGridShape());
+    output.gridShape =
+        llvm::SmallVector<int64_t>(outputLayoutAttr.getGridShape());
 
-    input.shardShape = inputLayoutAttr.getScalarShardShape();
-    output.shardShape = outputLayoutAttr.getScalarShardShape();
-
-    ttcore::DeviceAttr deviceAttr =
-        ttcore::lookupDevice(op.getResult().getParentBlock()->getParentOp());
-    input.deviceGrid = deviceAttr.getWorkerGrid();
-    output.deviceGrid = deviceAttr.getWorkerGrid();
+    input.coreRangeSet = inputLayoutAttr.getCoreRangeSet();
+    output.coreRangeSet = outputLayoutAttr.getCoreRangeSet();
 
     TTMLIR_DEBUG(ttmlir::LogComponent::General,
                  "Decompose layouts pass for op {} \nInput layout: {} \nOutput "
@@ -236,10 +225,14 @@ private:
            output.bufferType == ttnn::BufferType::L1) ||
           (input.bufferType == ttnn::BufferType::L1 &&
            output.bufferType == ttnn::BufferType::DRAM);
-      // If shard grids don't match we need to reshard
+      // Reshard if either the virtual grid or the physical placement (CRS)
+      // changes. Same CRS can host different virtual grids (e.g. BlockSharded
+      // {2,4} vs {4,2} on the same 8-core rectangle), and same gridShape can
+      // sit on different CRSes (custom placement) — both demand a reshard.
       opsToCreate.createToMemoryConfigOp |=
           (input.isL1Sharded() && output.isL1Sharded() &&
-           input.shardGrid != output.shardGrid);
+           (input.gridShape != output.gridShape ||
+            input.coreRangeSet != output.coreRangeSet));
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::General,
@@ -310,22 +303,23 @@ private:
     if (!info.opsToCreate.createToDeviceOp && !forceCreate) {
       return currentInput;
     }
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        info.output.createMemoryConfigAttr(op.getContext());
     RankedTensorType currentInputType =
         mlir::cast<RankedTensorType>(currentInput.getType());
-    RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
-        currentInputType, info.output.bufferType);
-    newResultType = utils::RankedTensorTypeFactory::create(
-        newResultType, info.output.tensorMemoryLayout.getValue());
 
-    // Respect grid attribute of the output layout
-    newResultType = utils::RankedTensorTypeFactory::create(
-        newResultType, info.output.shardGrid);
+    TTNNLayoutAttr newEncoding =
+        TTNNLayoutAttr::Builder(currentInputType)
+            .setBufferType(info.output.bufferType)
+            .setMemoryLayout(info.output.tensorMemoryLayout)
+            .setGridShape(info.output.gridShape)
+            .setCoreRangeSet(info.output.coreRangeSet)
+            .build();
+    RankedTensorType newResultType =
+        utils::RankedTensorTypeFactory::create(currentInputType, newEncoding);
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(newEncoding);
 
     mlir::Value device = utils::getOrInsertDevice(rewriter, op);
 
-    // Create new ranked tensor type with host memory buffer type
     return this->createOp<ttnn::ToDeviceOp>(
         rewriter, op, newResultType, currentInput, device, memoryConfigAttr);
   }
@@ -445,16 +439,17 @@ private:
       currentInputType = mlir::cast<RankedTensorType>(currentInput.getType());
     }
 
-    ttnn::MemoryConfigAttr memoryConfigAttr =
-        info.output.createMemoryConfigAttr(op.getContext());
     TTNNLayoutAttr newLayout =
-        utils::getLayoutAttrFromTensor(currentInputType)
-            .withBufferType(info.output.bufferType)
-            .withMemoryLayout(info.output.tensorMemoryLayout)
-            .withGrid(currentInputType.getShape(), info.output.shardGrid)
-            .withShardShape(info.output.shardShape);
+        TTNNLayoutAttr::Builder(currentInputType)
+            .setBufferType(info.output.bufferType)
+            .setMemoryLayout(info.output.tensorMemoryLayout)
+            .setGridShape(info.output.gridShape)
+            .setCoreRangeSet(info.output.coreRangeSet)
+            .build();
     RankedTensorType newResultType =
         utils::RankedTensorTypeFactory::create(currentInputType, newLayout);
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(newLayout);
     mlir::Value result = this->createOp<ttnn::ToMemoryConfigOp>(
         rewriter, op, newResultType, currentInput, memoryConfigAttr);
 
@@ -515,9 +510,12 @@ private:
     // ttnn.copy (to_memory_config) doesn't support u16 (tt-metal#41689),
     // so u16 tensors use a host round-trip (from_device → to_device).
     TTNNLayoutAttr dramEncoding =
-        inputEncoding.withBufferType(BufferType::DRAM)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved)
-            .withGrid(shape, ttcore::GridAttr::get(op.getContext(), {1, 1}));
+        TTNNLayoutAttr::Builder(inputEncoding)
+            .setTensorShape(shape)
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .setGridShape({1, 1})
+            .build();
     RankedTensorType dramType =
         RankedTensorType::get(shape, inputType.getElementType(), dramEncoding);
 

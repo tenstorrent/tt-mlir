@@ -236,16 +236,26 @@ getCoreRangeSet(const CoreRangeSetAttr &coreRangeSetAttr) {
 }
 
 ::tt::tt_metal::CoreRangeSet getCoreRangeSet(const TTNNLayoutAttr &layout) {
-  std::set<::tt::tt_metal::CoreRange> coreRangeSet;
-  assert(layout.getGrid().getVirtToPhysicalMap().isEmpty() == false);
-  for (const auto &[loc, size] :
-       ttcore::utils::toCoreRangeSet(layout.getGrid().getShape(),
-                                     layout.getGrid().getVirtToPhysicalMap())) {
-    coreRangeSet.insert(::tt::tt_metal::CoreRange(
-        ::tt::tt_metal::CoreCoord(loc[0], loc[1]),
-        ::tt::tt_metal::CoreCoord(loc[0] + size[0] - 1, loc[1] + size[1] - 1)));
+  CoreRangeSetAttr coreRangeSetAttr = layout.getCoreRangeSet();
+  assert(coreRangeSetAttr &&
+         "sharded TTNNLayoutAttr expected when building a metal CoreRangeSet");
+  return getCoreRangeSet(coreRangeSetAttr);
+}
+
+CoreRangeSetAttr
+getCoreRangeSet(MLIRContext *context,
+                const ::tt::tt_metal::CoreRangeSet &coreRangeSet) {
+  llvm::SmallVector<CoreRangeAttr> ranges;
+  ranges.reserve(coreRangeSet.ranges().size());
+  for (const ::tt::tt_metal::CoreRange &coreRange : coreRangeSet.ranges()) {
+    ranges.push_back(
+        CoreRangeAttr::get(context,
+                           CoreCoordAttr::get(context, coreRange.start_coord.x,
+                                              coreRange.start_coord.y),
+                           CoreCoordAttr::get(context, coreRange.end_coord.x,
+                                              coreRange.end_coord.y)));
   }
-  return ::tt::tt_metal::CoreRangeSet(coreRangeSet);
+  return CoreRangeSetAttr::get(context, ranges);
 }
 
 std::optional<::tt::tt_metal::ShardSpec>
@@ -667,18 +677,24 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
                 context, getTensorMemoryLayout(
                              tensorSpec.memory_config().memory_layout()));
 
-  ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
+  llvm::SmallVector<int64_t> gridShape = {1, 1};
   if (isL1BufferType(bufferType)) {
-    auto [virtToPhysicalMap, physicalToVirtMap] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            context, memoryLayoutAttr.getValue(), deviceGrid);
-    gridAttr = ttcore::GridAttr::get(
-        context, getLogicalGridShape(tensorSpec.memory_config(), deviceGrid),
-        virtToPhysicalMap, physicalToVirtMap);
+    gridShape = getLogicalGridShape(tensorSpec.memory_config(), deviceGrid);
   }
 
-  return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,
-                             memoryLayoutAttr);
+  CoreRangeSetAttr coreRangeSet{};
+  if (tensorSpec.memory_config().is_sharded() &&
+      tensorSpec.memory_config().shard_spec().has_value()) {
+    coreRangeSet = getCoreRangeSet(
+        context, tensorSpec.memory_config().shard_spec().value().grid);
+  }
+
+  return TTNNLayoutAttr::Builder(context, shape, elementType)
+      .setBufferType(bufferType)
+      .setMemoryLayout(memoryLayoutAttr)
+      .setGridShape(gridShape)
+      .setCoreRangeSet(coreRangeSet)
+      .build();
 }
 
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>

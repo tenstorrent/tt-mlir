@@ -4,11 +4,11 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_sharding_ttnn.mlir
 
 // CHECK: %[[LINEAR1:.*]] = "ttnn.linear"
-// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>>>
+// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>{{(, core_ranges = (#ttnn\.core_range_set)?<\[[^]]*\]>)?}}>>
 // CHECK: %[[RELU:.*]] = "ttnn.relu"(%[[LINEAR1]]
-// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>>>
+// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>{{(, core_ranges = (#ttnn\.core_range_set)?<\[[^]]*\]>)?}}>>
 // CHECK: %[[LINEAR2:.*]] = "ttnn.linear"(%[[RELU]]
-// CHECK-SAME: -> tensor<1x10xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>>>
+// CHECK-SAME: -> tensor<1x10xf32, #ttnn.ttnn_layout<{{.*}}<block_sharded>{{(, core_ranges = (#ttnn\.core_range_set)?<\[[^]]*\]>)?}}>>
 
 #loc = loc("MNISTLinear":4294967295:0)
 module @"tt-forge-graph" attributes {} {

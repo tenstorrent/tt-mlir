@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
@@ -64,13 +65,11 @@ static TensorMemoryLayoutAttr getMemoryLayoutAttr(MLIRContext *ctx,
   return TensorMemoryLayoutAttr{};
 }
 
-static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
-                                       ttcore::GridAttr deviceGrid,
-                                       RankedTensorType type,
+static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx, RankedTensorType type,
                                        BufferType bufferType, bool isTiled) {
 
   // Default to single core grid.
-  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(ctx);
+  llvm::SmallVector<int64_t> tensorGridShape{1, 1};
 
   llvm::ArrayRef<std::pair<int64_t, int64_t>> collapseDimsRef(
       g_defaultCollapseDims);
@@ -98,9 +97,13 @@ static TTNNLayoutAttr createLayoutAttr(MLIRContext *ctx,
   }
   TensorMemoryLayoutAttr memoryLayoutAttr =
       getMemoryLayoutAttr(ctx, bufferType);
-  return TTNNLayoutAttr::get(ctx, type.getShape(), elementType, bufferType,
-                             tensorGrid, memoryLayoutAttr, tensorMeshAttr,
-                             collapseDimsRef);
+  return TTNNLayoutAttr::Builder(ctx, type.getShape(), elementType)
+      .setCollapseIntervals(collapseDimsRef)
+      .setBufferType(bufferType)
+      .setMemoryLayout(memoryLayoutAttr)
+      .setGridShape(tensorGridShape)
+      .setTensorMesh(tensorMeshAttr)
+      .build();
 }
 
 static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
@@ -119,8 +122,8 @@ static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
 namespace {
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
-  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, ttcore::GridAttr deviceGrid,
-                                BufferType bufferType, bool isTiled) {
+  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, BufferType bufferType,
+                                bool isTiled) {
     addConversion([](Type type) { return type; });
     addConversion([=](RankedTensorType type) -> Type {
       if (isa_and_nonnull<TTNNLayoutAttr>(type.getEncoding())) {
@@ -128,7 +131,7 @@ public:
       }
 
       TTNNLayoutAttr newLayout =
-          createLayoutAttr(ctx, deviceGrid, type, bufferType, isTiled);
+          createLayoutAttr(ctx, type, bufferType, isTiled);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -146,9 +149,6 @@ createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
   TTNNLayoutAttr ttnnLayoutAttr = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
   // Get buffer type (i.e DRAM/L1 etc)
   BufferType currBufferType = ttnnLayoutAttr.getBufferType();
-
-  // Get mesh sharding
-  ttcore::TensorMeshAttr desiredTensorMesh = ttnnLayoutAttr.getTensorMesh();
 
   // Get the current element type (i.e bf16/TileType etc)
   Type currElementType = ttnnLayoutAttr.getElementType();
@@ -179,10 +179,12 @@ createDesiredType(PatternRewriter &rewriter, RankedTensorType ty,
 
   // Create a new ttnn layout with the desired buffer type, element type and
   // memory layout
-  TTNNLayoutAttr encoding = rewriter.getAttr<TTNNLayoutAttr>(
-      ty.getShape(), desiredElementType, desiredBufferType,
-      ttnnLayoutAttr.getGrid(), desiredMemLayoutAttr, desiredTensorMesh,
-      g_defaultCollapseDims);
+  TTNNLayoutAttr encoding = TTNNLayoutAttr::Builder(ttnnLayoutAttr)
+                                .setTensorShape(ty.getShape())
+                                .setBufferType(desiredBufferType)
+                                .setElementType(desiredElementType)
+                                .setMemoryLayout(desiredMemLayoutAttr)
+                                .build();
 
   return mlir::RankedTensorType::get(ty.getShape(), ty.getElementType(),
                                      encoding);
@@ -429,8 +431,9 @@ private:
         inputLayout.getLayout() == resultLayout.getLayout()) {
       return failure();
     }
-    TTNNLayoutAttr newLayout =
-        resultLayout.withLayout(inputLayout.getLayout(), resultType.getShape());
+    TTNNLayoutAttr newLayout = TTNNLayoutAttr::Builder(resultLayout)
+                                   .setTensorShape(resultType.getShape())
+                                   .setLayout(inputLayout.getLayout());
     rewriter.modifyOpInPlace(op, [&]() {
       op->getResult(0).setType(RankedTensorType::get(
           resultType.getShape(), resultType.getElementType(), newLayout));
@@ -453,7 +456,7 @@ private:
     RankedTensorType resultType =
         mlir::cast<RankedTensorType>(op.getResult().getType());
     TTNNLayoutAttr newLayout =
-        createLayoutAttr(rewriter.getContext(), nullptr, resultType,
+        createLayoutAttr(rewriter.getContext(), resultType,
                          BufferType::SystemMemory, /* isTiled */ false);
     if (newLayout != resultType.getEncoding()) {
       auto resultSystemMemoryType = RankedTensorType::get(
@@ -474,9 +477,8 @@ namespace {
 class TTNNLayoutFuncInputOutputTypeRewriter
     : public OpRewritePattern<mlir::func::FuncOp> {
 public:
-  TTNNLayoutFuncInputOutputTypeRewriter(MLIRContext *ctx,
-                                        ttcore::GridAttr deviceGrid)
-      : OpRewritePattern<mlir::func::FuncOp>(ctx), deviceGrid(deviceGrid) {}
+  TTNNLayoutFuncInputOutputTypeRewriter(MLIRContext *ctx)
+      : OpRewritePattern<mlir::func::FuncOp>(ctx) {}
 
   LogicalResult matchAndRewrite(mlir::func::FuncOp funcOp,
                                 PatternRewriter &rewriter) const final {
@@ -494,8 +496,6 @@ public:
   }
 
 private:
-  ttcore::GridAttr deviceGrid;
-
   // Rewrite the CPU-hoisted function declarations to have system memory in/out
   // types.
   bool rewriteFuncDecl(mlir::func::FuncOp funcOp,
@@ -616,8 +616,8 @@ private:
 
   RankedTensorType toSystemMemoryType(MLIRContext *ctx,
                                       RankedTensorType ty) const {
-    TTNNLayoutAttr newLayout = createLayoutAttr(
-        ctx, deviceGrid, ty, BufferType::SystemMemory, /*isTiled=*/false);
+    TTNNLayoutAttr newLayout =
+        createLayoutAttr(ctx, ty, BufferType::SystemMemory, /*isTiled=*/false);
     auto newType =
         RankedTensorType::get(ty.getShape(), ty.getElementType(), newLayout);
     return newType;
@@ -680,7 +680,7 @@ private:
     }
 
     TTNNLayoutAttr rmLayout =
-        createLayoutAttr(ctx, deviceGrid, ty, bufferType, /*isTiled=*/false);
+        createLayoutAttr(ctx, ty, bufferType, /*isTiled=*/false);
     return RankedTensorType::get(ty.getShape(), ty.getElementType(), rmLayout);
   }
 };
@@ -740,24 +740,6 @@ public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
 
   void runOnOperation() final {
-    ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(getOperation());
-
-    // If there is no device registered in the module, we simply want all
-    // tensors to be laid out in the system memory (e.g., CPU module).
-    if (!deviceOp) {
-      TTNNLayoutTensorTypeConverter typeConverter(
-          &getContext(), ttcore::GridAttr::get(&getContext()),
-          BufferType::SystemMemory, /* isTiled */ false);
-
-      RewritePatternSet patterns(&getContext());
-      patterns.add<ttir::UniformTypeRewriter>(typeConverter, &getContext());
-
-      FrozenRewritePatternSet patternSet(std::move(patterns));
-      if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
-        signalPassFailure();
-      }
-      return;
-    }
 
     // First add default attribute to all tensors. Example:
     // Given tensor type: tensor<15x10x32xf32>
@@ -765,10 +747,8 @@ public:
     // ttnn_layout<affine_map, grid<1x1>,
     // memref<1x1x!ttcore.tile<32x32>, #dram>, <interleaved>>
     {
-      ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
-      assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
-          &getContext(), device.getWorkerGrid(), g_defaultMemorySpaceDevice,
+          &getContext(), g_defaultMemorySpaceDevice,
           /* isTiled */ true);
       RewritePatternSet patterns(&getContext());
       // Set the tensor layouts to have proper values
@@ -777,8 +757,7 @@ public:
       // Set the tensor layouts of the func op inputs and outputs based on their
       // consumers/producers. For example, if a func op input is consumed by a
       // mesh shard op, that input tensor should be on host
-      patterns.add<TTNNLayoutFuncInputOutputTypeRewriter>(
-          &getContext(), device.getWorkerGrid());
+      patterns.add<TTNNLayoutFuncInputOutputTypeRewriter>(&getContext());
       FrozenRewritePatternSet patternSet(std::move(patterns));
       if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
         signalPassFailure();

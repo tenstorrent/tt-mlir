@@ -4,7 +4,7 @@
 
 // -----
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 0)>]>>
 
 module {
   // CHECK-LABEL: func.func @one_d2m_subgraph
@@ -27,7 +27,7 @@ module {
 
 // -----
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 0)>]>>
 module {
   // CHECK-LABEL: func.func @two_d2m_subgraph_b2b
   func.func @two_d2m_subgraph_b2b(%arg0: tensor<64x64xbf16, #ttnn_layout>, %out0: tensor<64x64xbf16, #ttnn_layout>, %out1: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {
@@ -61,7 +61,7 @@ module {
 
 // -----
 #l1 = #ttnn.buffer_type<l1>
-#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, exactGrid = true>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0, 0), (0, 0)>]>>
 module {
   // CHECK-LABEL: func.func @mixed_ttnn_ops_d2m_subgraph
   func.func @mixed_ttnn_ops_d2m_subgraph(%arg0: tensor<64x64xbf16, #ttnn_layout>, %arg1: tensor<64x64xbf16, #ttnn_layout>, %out0: tensor<64x64xbf16, #ttnn_layout>, %out1: tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x64xbf16, #ttnn_layout> {

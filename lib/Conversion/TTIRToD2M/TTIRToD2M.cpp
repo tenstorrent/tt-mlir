@@ -159,7 +159,7 @@ protected:
 
   llvm::SmallVector<int64_t>
   getLegacyGrid(ttnn::TTNNLayoutAttr ttnnLayout) const {
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
 
     bool legacyWithVirtualGrid = ttnnLayout.getMemLayout().getValue() ==
                                      ttnn::TensorMemoryLayout::HeightSharded ||
@@ -281,8 +281,7 @@ protected:
         auto memLayout = ttnnLayout.getMemLayout().getValue();
         if (memLayout == ttnn::TensorMemoryLayout::HeightSharded ||
             memLayout == ttnn::TensorMemoryLayout::WidthSharded) {
-          llvm::SmallVector<int64_t> ttnnGridShape(
-              ttnnLayout.getGrid().getShape());
+          llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
           llvm::SmallVector<int64_t> virtualGrid;
           if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
             virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};
@@ -648,23 +647,33 @@ protected:
   mlir::Value createScaler(mlir::ConversionPatternRewriter &rewriter,
                            mlir::Location loc, mlir::RankedTensorType inputType,
                            double fillValue = 1.0) const {
-
+    mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Type elementType = inputType.getElementType();
     mlir::Attribute encoding = nullptr;
 
     if (auto ttnnLayout = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
             inputType.getEncoding())) {
-      auto grid = ttcore::GridAttr::get(rewriter.getContext(), {1, 1});
+      llvm::SmallVector<int64_t> gridShape{1, 1};
       auto tileType = ttcore::TileType::get(
           elementType, ttcore::TileType::getDefaultShape());
       auto memref = mlir::MemRefType::get(
           {1, 1}, tileType, mlir::MemRefLayoutAttrInterface{},
           ttnnLayout.getMemref().getMemorySpace());
+
+      auto memLayout = ttnnLayout.getMemLayout();
+      ttnn::CoreRangeSetAttr coreRangeSet{};
+      if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+        coreRangeSet = ttnn::CoreRangeSetAttr::get(
+            ctx, ttnn::CoreRangeAttr::get(
+                     ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                     ttnn::CoreCoordAttr::get(ctx, gridShape[1] - 1,
+                                              gridShape[0] - 1)));
+      }
+
       encoding = ttnn::TTNNLayoutAttr::get(
-          rewriter.getContext(), rewriter.getMultiDimIdentityMap(2), grid,
-          memref, ttnnLayout.getMemLayout(),
-          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false,
-          /*exactGrid=*/true);
+          rewriter.getContext(), rewriter.getMultiDimIdentityMap(2),
+          /*gridShape=*/gridShape, memref, ttnnLayout.getMemLayout(),
+          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false, coreRangeSet);
     }
 
     mlir::RankedTensorType scalerType = mlir::RankedTensorType::get(
@@ -2564,7 +2573,7 @@ private:
       return std::nullopt;
     }
 
-    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGrid().getShape());
+    llvm::SmallVector<int64_t> ttnnGridShape(ttnnLayout.getGridShape());
     llvm::SmallVector<int64_t> virtualGrid;
     if (memLayout == ttnn::TensorMemoryLayout::HeightSharded) {
       virtualGrid = {ttnnGridShape[0] * ttnnGridShape[1], 1};

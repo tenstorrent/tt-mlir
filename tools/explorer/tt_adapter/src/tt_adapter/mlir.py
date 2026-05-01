@@ -384,7 +384,7 @@ def parse_ttnn_ttnn_layout(attr):
     result.append(
         utils.make_editable_kv(
             graph_builder.KeyValue(
-                key="grid_shape", value="x".join(map(str, layout.grid_attr.shape))
+                key="grid_shape", value="x".join(map(str, layout.grid_shape))
             ),
             editable={
                 "input_type": "grid",

@@ -62,14 +62,13 @@ private:
   ::mlir::RankedTensorType getPreparedBiasType(Value bias,
                                                Type newElementType) {
     auto oldType = mlir::cast<mlir::RankedTensorType>(bias.getType());
-    auto oldLayout = mlir::cast<ttnn::TTNNLayoutAttr>(oldType.getEncoding());
 
-    auto newLayout = ttnn::TTNNLayoutAttr::get(
-        &getContext(), oldType.getShape(),
-        ttcore::TileType::get(newElementType), BufferType::DRAM,
-        oldLayout.getGrid(),
-        ttnn::TensorMemoryLayoutAttr::get(
-            &getContext(), ttnn::TensorMemoryLayout::Interleaved));
+    auto newLayout =
+        ttnn::TTNNLayoutAttr::Builder(&getContext(), oldType.getShape(),
+                                      ttcore::TileType::get(newElementType))
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(ttnn::TensorMemoryLayout::Interleaved)
+            .build();
 
     return mlir::RankedTensorType::get(oldType.getShape(), newElementType,
                                        newLayout);
@@ -112,10 +111,8 @@ private:
     ttnn::TTNNLayoutAttr outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         convOp.getResult().getType().getEncoding());
 
-    ttcore::GridAttr deviceGrid =
-        ttcore::lookupDevice(moduleOp).getWorkerGrid();
     ttnn::MemoryConfigAttr inputMemConfigAttr =
-        ttnn::MemoryConfigAttr::get(inputLayoutAttr, deviceGrid);
+        ttnn::MemoryConfigAttr::get(inputLayoutAttr);
 
     // Input and output dtype attr on prepare api is used to specify
     // input/output dtype for the conv2d operation.

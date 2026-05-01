@@ -71,11 +71,14 @@ static TTNNLayoutAttr createL1InterleavedLayout(Operation *op,
                                                 TTNNLayoutAttr baseLayout) {
 
   static auto deviceAttr = ttcore::lookupDevice(op);
-  static ttcore::GridAttr l1InterleavedGrid = deviceAttr.getWorkerGrid();
+  static auto l1InterleavedGrid = deviceAttr.getWorkerGrid().getShape();
 
-  return baseLayout.withBufferType(BufferType::L1)
-      .withMemoryLayout(TensorMemoryLayout::Interleaved)
-      .withGrid(outputType, l1InterleavedGrid, {{0, -1}});
+  return TTNNLayoutAttr::Builder(baseLayout)
+      .setTensorShape(outputType.getShape())
+      .setBufferType(BufferType::L1)
+      .setMemoryLayout(TensorMemoryLayout::Interleaved)
+      .setGridShape(l1InterleavedGrid)
+      .build();
 }
 
 // Build a map from Operation* to its resolved output layout within a chain.
@@ -110,12 +113,12 @@ static bool rejectsEltwiseBinaryCoreShrink(Operation *op,
     return false;
   }
 
-  int64_t outputCores = outputLayout.getGrid().getGridVolume();
+  int64_t outputCores = ttmlir::utils::volume(outputLayout.getGridShape());
   int64_t lhsCores = (lhsLayout && lhsLayout.hasShardedL1TensorMemoryLayout())
-                         ? lhsLayout.getGrid().getGridVolume()
+                         ? ttmlir::utils::volume(lhsLayout.getGridShape())
                          : 0;
   int64_t rhsCores = (rhsLayout && rhsLayout.hasShardedL1TensorMemoryLayout())
-                         ? rhsLayout.getGrid().getGridVolume()
+                         ? ttmlir::utils::volume(rhsLayout.getGridShape())
                          : 0;
   int64_t maxInputCores = std::max(lhsCores, rhsCores);
 
@@ -986,7 +989,8 @@ static void resolveConcatChains(
     llvm::ArrayRef<int64_t> outputShape = concatOutputType.getShape();
 
     // Build output layout with same grid/memory config as first input
-    TTNNLayoutAttr outputLayout = firstInputLayout.withTensorShape(outputShape);
+    TTNNLayoutAttr outputLayout =
+        TTNNLayoutAttr::Builder(firstInputLayout).setTensorShape(outputShape);
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                  "Concat chain {}: constructed output layout from input: {}",
@@ -1250,8 +1254,8 @@ static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
   OpConfig testConfig = config;
   TTNNLayoutAttr expectedLayout = config.outputLayout;
   if (useIgnorePhysicalLayout && testConfig.outputLayout) {
-    testConfig.outputLayout =
-        testConfig.outputLayout.withIgnorePhysicalLayout(true);
+    testConfig.outputLayout = TTNNLayoutAttr::Builder(testConfig.outputLayout)
+                                  .setIgnorePhysicalLayout(true);
   }
 
   op_constraint_validation::ValidationResult result =

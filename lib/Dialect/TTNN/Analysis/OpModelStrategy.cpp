@@ -75,12 +75,9 @@ scoreCandidate(Operation *op, const OpConfig &config,
   score.isSharded = memLayout && isShardedMemoryLayout(memLayout.getValue());
 
   // Extract core count from grid shape.
-  if (auto grid = layout.getGrid()) {
-    auto gridShape = grid.getShape();
-    score.coreCount = 1;
-    for (auto dim : gridShape) {
-      score.coreCount *= dim;
-    }
+  score.coreCount = 1;
+  for (auto dim : layout.getGridShape()) {
+    score.coreCount *= dim;
   }
 
   return score;

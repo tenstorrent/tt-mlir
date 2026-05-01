@@ -30,9 +30,10 @@ namespace {
 // tensor type.
 //
 static TTNNLayoutAttr createSystemMemoryLayoutAttr(RankedTensorType type) {
-  auto currentLayout = mlir::cast<TTNNLayoutAttr>(type.getEncoding());
-  return currentLayout.withBufferType(BufferType::SystemMemory)
-      .withLayout(Layout::RowMajor, type.getShape());
+  return TTNNLayoutAttr::Builder(type)
+      .setBufferType(BufferType::SystemMemory)
+      .setLayout(Layout::RowMajor)
+      .build();
 }
 
 // Helper function to convert a tensor type to system memory type.
@@ -138,8 +139,7 @@ static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
 //
 static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
                                            size_t argumentIndex,
-                                           RankedTensorType systemMemoryType,
-                                           ttcore::GridAttr deviceGrid) {
+                                           RankedTensorType systemMemoryType) {
   SmallVector<Type> constEvalArgumentTypes(
       constEvalFuncOp.getFunctionType().getInputs());
 
@@ -180,7 +180,7 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
     auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
         blockArgument.getLoc(), deviceTensorType, blockArgument,
         deviceTensorLayout.getLayout(), originalDataTypeAttr,
-        MemoryConfigAttr::get(deviceTensorLayout, deviceGrid));
+        MemoryConfigAttr::get(deviceTensorLayout));
 
     // Replace the argument usages with the to_layout op result.
     //
@@ -207,9 +207,6 @@ public:
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
-
-    ttcore::DeviceAttr device = ttcore::lookupDevice(moduleOp);
-    TT_assertv(device, "Device not found");
 
     moduleOp->walk([&](func::FuncOp funcOp) {
       // We only want to process forward functions.
@@ -262,7 +259,7 @@ public:
               mlir::cast<RankedTensorType>(convertedArgument.getType());
 
           convertArgumentOfConstEvalFunc(constEvalFuncOp, argumentIndex,
-                                         convertedType, device.getWorkerGrid());
+                                         convertedType);
         }
       }
     });

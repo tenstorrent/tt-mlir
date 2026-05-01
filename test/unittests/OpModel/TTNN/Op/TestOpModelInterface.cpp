@@ -12,6 +12,7 @@
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
 #include "Constants.h"
+#include "testing/DeviceUtils.h"
 
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -74,24 +75,7 @@ public:
   }
 
   ttcore::DeviceAttr getFakeDeviceAttr() {
-    auto deviceIdx = mlir::getAffineConstantExpr(0, &context);
-    auto shardOffset = mlir::getAffineConstantExpr(0, &context);
-    auto d0 = mlir::getAffineDimExpr(0, &context); // d0
-    auto d1 = mlir::getAffineDimExpr(1, &context); // d1
-    auto d2 = mlir::getAffineDimExpr(2, &context); // d2
-    auto virtToPhysicalMap = mlir::AffineMap::get(
-        /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1}, &context);
-    auto physicalToVirtMap = mlir::AffineMap::get(
-        /*dimCount=*/3, /*symbolCount=*/0, {d1, d2}, &context);
-    auto map4 = mlir::AffineMap::get(
-        /*dimCount=*/2, /*symbolCount=*/0, {deviceIdx, d0, d1, shardOffset},
-        &context);
-    auto workerGrid = ttcore::GridAttr::get(
-        &context, gridShapeHwN300, virtToPhysicalMap, physicalToVirtMap);
-
-    auto dramGrid = ttcore::GridAttr::get(&context, {1, 1});
-    return ttcore::DeviceAttr::get(&context, workerGrid, dramGrid, map4, map4,
-                                   {1}, {0}, {});
+    return mlir::tt::test_utils::getFakeDeviceAttr(&context, gridShapeHwN300);
   }
 
   mlir::RankedTensorType
@@ -661,12 +645,15 @@ TEST_F(OpModelBase, BitwiseNotOpInterface) {
   auto int32DataType = ttcore::DataType::Int32;
   auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
   auto bufferType = BufferType::L1;
-  auto grid = ttcore::GridAttr::get(&context, {8, 8});
+  llvm::SmallVector<int64_t> grid{8, 8};
   auto memLayout =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto int32Layout = TTNNLayoutAttr::get(&context, tensorShape, tileType,
-                                         bufferType, grid, memLayout);
+  auto int32Layout = TTNNLayoutAttr::Builder(&context, tensorShape, tileType)
+                         .setBufferType(bufferType)
+                         .setMemoryLayout(memLayout)
+                         .setGridShape(grid)
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
 
   // Create tensors with the proper Int32 layout
   auto intType = builder.getIntegerType(32);
@@ -713,12 +700,15 @@ TEST_F(OpModelBase, LogicalRightShiftOpInterface) {
   auto int32DataType = ttcore::DataType::Int32;
   auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
   auto bufferType = BufferType::L1;
-  auto grid = ttcore::GridAttr::get(&context, {8, 8});
+  llvm::SmallVector<int64_t> grid{8, 8};
   auto memLayout =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto int32Layout = TTNNLayoutAttr::get(&context, tensorShape, tileType,
-                                         bufferType, grid, memLayout);
+  auto int32Layout = TTNNLayoutAttr::Builder(&context, tensorShape, tileType)
+                         .setBufferType(bufferType)
+                         .setMemoryLayout(memLayout)
+                         .setGridShape(grid)
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
 
   // Create tensors with the proper Int32 layout
   auto intType = builder.getIntegerType(32);
@@ -768,12 +758,15 @@ TEST_F(OpModelBase, LogicalLeftShiftOpInterface) {
   auto int32DataType = ttcore::DataType::Int32;
   auto tileType = ttcore::TileType::get(&context, {32, 32}, int32DataType);
   auto bufferType = BufferType::L1;
-  auto grid = ttcore::GridAttr::get(&context, {8, 8});
+  llvm::SmallVector<int64_t> grid{8, 8};
   auto memLayout =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto int32Layout = TTNNLayoutAttr::get(&context, tensorShape, tileType,
-                                         bufferType, grid, memLayout);
+  auto int32Layout = TTNNLayoutAttr::Builder(&context, tensorShape, tileType)
+                         .setBufferType(bufferType)
+                         .setMemoryLayout(memLayout)
+                         .setGridShape(grid)
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
 
   // Create tensors with the proper Int32 layout
   auto intType = builder.getIntegerType(32);
@@ -994,9 +987,11 @@ TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
   auto bias = createEmptyTensor(biasShape);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
-                                        TensorMemoryLayout::BlockSharded)
-                          .withIgnorePhysicalLayout(true);
+  auto outputLayout =
+      TTNNLayoutAttr(TTNNLayoutAttr::Builder(
+                         CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                           TensorMemoryLayout::BlockSharded))
+                         .setIgnorePhysicalLayout(true));
   auto linear =
       builder.create<LinearOp>(builder.getUnknownLoc(), outputType,
                                mlir::ValueRange{inputA, inputB, bias});
@@ -1015,7 +1010,7 @@ TEST_F(OpModelBase, LinearOpInterfacePartialOutput) {
   ASSERT_FALSE(constraints.outputLayouts.empty());
   EXPECT_EQ(constraints.outputLayouts[0].getLayout(), Layout::Tile);
   EXPECT_TRUE(constraints.outputLayouts[0].hasShardedL1TensorMemoryLayout());
-  EXPECT_TRUE(constraints.outputLayouts[0].getGrid());
+  EXPECT_FALSE(constraints.outputLayouts[0].getGridShape().empty());
 }
 
 TEST_F(OpModelBase, MatmulOpInterface) {
@@ -1093,9 +1088,11 @@ TEST_F(OpModelBase, MatmulOpInterfacePartialOutput) {
   auto inputB = createEmptyTensor(tensorShapeB);
   auto outputType = createRankedTensorType(tensorShapeO);
 
-  auto outputLayout = CreateTiledLayout(tensorShapeO, BufferType::L1,
-                                        TensorMemoryLayout::BlockSharded)
-                          .withIgnorePhysicalLayout(true);
+  auto outputLayout =
+      TTNNLayoutAttr(TTNNLayoutAttr::Builder(
+                         CreateTiledLayout(tensorShapeO, BufferType::L1,
+                                           TensorMemoryLayout::BlockSharded))
+                         .setIgnorePhysicalLayout(true));
   auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
                                          mlir::ValueRange{inputA, inputB});
 
@@ -1113,7 +1110,7 @@ TEST_F(OpModelBase, MatmulOpInterfacePartialOutput) {
   ASSERT_FALSE(constraints.outputLayouts.empty());
   EXPECT_EQ(constraints.outputLayouts[0].getLayout(), Layout::Tile);
   EXPECT_TRUE(constraints.outputLayouts[0].hasShardedL1TensorMemoryLayout());
-  EXPECT_TRUE(constraints.outputLayouts[0].getGrid());
+  EXPECT_FALSE(constraints.outputLayouts[0].getGridShape().empty());
 }
 
 // Forward declarations
@@ -1968,22 +1965,22 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
   auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
   auto tiledCurPosType = ttcore::TileType::get(builder.getI32Type());
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto queryLayout =
-      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto keyValueLayout =
-      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto curPosLayout =
-      TTNNLayoutAttr::get(&context, curPosShape, tiledCurPosType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto maskLayout =
-      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyValueLayout = makeDramLayout(keyValueShape, tiledElemType);
+  auto curPosLayout = makeDramLayout(curPosShape, tiledCurPosType);
+  auto maskLayout = makeDramLayout(maskShape, tiledElemType);
 
   auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
   auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
@@ -2054,22 +2051,22 @@ TEST_F(OpModelBase,
   auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
   auto tiledCurPosType = ttcore::TileType::get(builder.getI32Type());
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto queryLayout =
-      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto keyValueLayout =
-      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto curPosLayout =
-      TTNNLayoutAttr::get(&context, curPosShape, tiledCurPosType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto maskLayout =
-      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyValueLayout = makeDramLayout(keyValueShape, tiledElemType);
+  auto curPosLayout = makeDramLayout(curPosShape, tiledCurPosType);
+  auto maskLayout = makeDramLayout(maskShape, tiledElemType);
 
   auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
   auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
@@ -2144,22 +2141,22 @@ TEST_F(OpModelBase, DISABLED_PagedScaledDotProductAttentionDecodeOpInterface) {
   auto pageTableType = builder.getI32Type();
   auto curPosType = builder.getI32Type();
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto queryLayout =
-      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto keyValueLayout =
-      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto pageTableLayout =
-      TTNNLayoutAttr::get(&context, pageTableShape, pageTableType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto curPosLayout =
-      TTNNLayoutAttr::get(&context, curPosShape, curPosType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyValueLayout = makeDramLayout(keyValueShape, tiledElemType);
+  auto pageTableLayout = makeDramLayout(pageTableShape, pageTableType);
+  auto curPosLayout = makeDramLayout(curPosShape, curPosType);
 
   auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
   auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
@@ -2242,19 +2239,21 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
 
   auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto queryLayout =
-      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto keyValueLayout =
-      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto maskLayout =
-      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyValueLayout = makeDramLayout(keyValueShape, tiledElemType);
+  auto maskLayout = makeDramLayout(maskShape, tiledElemType);
 
   auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
   auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
@@ -2319,22 +2318,22 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
 
   auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto queryLayout =
-      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto keyValueLayout =
-      TTNNLayoutAttr::get(&context, keyValueShape, tiledElemType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto maskLayout =
-      TTNNLayoutAttr::get(&context, maskShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto sinkLayout =
-      TTNNLayoutAttr::get(&context, sinkShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyValueLayout = makeDramLayout(keyValueShape, tiledElemType);
+  auto maskLayout = makeDramLayout(maskShape, tiledElemType);
+  auto sinkLayout = makeDramLayout(sinkShape, tiledElemType);
 
   auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
   auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
@@ -2724,9 +2723,11 @@ TEST_F(OpModelBase, Conv2dInterface) {
 
   auto input = createEmptyTensor(inputShape);
   Type weightElementType = builder.getBF16Type();
-  auto weightLayout = TTNNLayoutAttr::get(
-      &context, weightShape, weightElementType, BufferType::SystemMemory,
-      ttcore::GridAttr::get(&context));
+  auto weightLayout =
+      TTNNLayoutAttr::Builder(&context, weightShape, weightElementType)
+          .setBufferType(BufferType::SystemMemory)
+          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
   auto outputDtype = ttcore::DataTypeAttr::get(
@@ -2786,9 +2787,11 @@ TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
 
   auto input = createEmptyTensor(inputShape);
   Type weightElementType = builder.getBF16Type();
-  auto weightLayout = TTNNLayoutAttr::get(
-      &context, weightShape, weightElementType, BufferType::SystemMemory,
-      ttcore::GridAttr::get(&context));
+  auto weightLayout =
+      TTNNLayoutAttr::Builder(&context, weightShape, weightElementType)
+          .setBufferType(BufferType::SystemMemory)
+          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
   auto outputType = createRankedTensorType(outputShape);
   auto outputDtype = ttcore::DataTypeAttr::get(
@@ -2848,15 +2851,18 @@ TEST_F(OpModelBase, PrepareConv2dWeightsOutput) {
 
   Type elementType = builder.getBF16Type();
 
-  auto inputLayout = TTNNLayoutAttr::get(
-      &context, inputShape, elementType, BufferType::DRAM,
-      ttcore::GridAttr::get(&context),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto inputLayout = TTNNLayoutAttr::Builder(&context, inputShape, elementType)
+                         .setBufferType(BufferType::DRAM)
+                         .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                         .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto input = createEmptyTensor(inputShape, elementType, inputLayout);
 
-  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elementType,
-                                          BufferType::SystemMemory,
-                                          ttcore::GridAttr::get(&context));
+  auto weightLayout =
+      TTNNLayoutAttr::Builder(&context, weightShape, elementType)
+          .setBufferType(BufferType::SystemMemory)
+          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, elementType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -2902,15 +2908,17 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
 
   Type elemetType = builder.getBF16Type();
 
-  auto inputLayout = TTNNLayoutAttr::get(
-      &context, inputShape, elemetType, BufferType::DRAM,
-      ttcore::GridAttr::get(&context),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto inputLayout = TTNNLayoutAttr::Builder(&context, inputShape, elemetType)
+                         .setBufferType(BufferType::DRAM)
+                         .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                         .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
 
-  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elemetType,
-                                          BufferType::SystemMemory,
-                                          ttcore::GridAttr::get(&context));
+  auto weightLayout = TTNNLayoutAttr::Builder(&context, weightShape, elemetType)
+                          .setBufferType(BufferType::SystemMemory)
+                          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -3012,15 +3020,17 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
 
   Type elemetType = builder.getBF16Type();
 
-  auto inputLayout = TTNNLayoutAttr::get(
-      &context, inputShape, elemetType, BufferType::DRAM,
-      ttcore::GridAttr::get(&context, 2),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto inputLayout = TTNNLayoutAttr::Builder(&context, inputShape, elemetType)
+                         .setBufferType(BufferType::DRAM)
+                         .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                         .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
 
-  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elemetType,
-                                          BufferType::SystemMemory,
-                                          ttcore::GridAttr::get(&context, 2));
+  auto weightLayout = TTNNLayoutAttr::Builder(&context, weightShape, elemetType)
+                          .setBufferType(BufferType::SystemMemory)
+                          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -3153,15 +3163,17 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
 
   Type elemetType = builder.getBF16Type();
 
-  auto inputLayout = TTNNLayoutAttr::get(
-      &context, inputShape, elemetType, BufferType::DRAM,
-      ttcore::GridAttr::get(&context),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto inputLayout = TTNNLayoutAttr::Builder(&context, inputShape, elemetType)
+                         .setBufferType(BufferType::DRAM)
+                         .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                         .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto input = createEmptyTensor(inputShape, elemetType, inputLayout);
 
-  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elemetType,
-                                          BufferType::SystemMemory,
-                                          ttcore::GridAttr::get(&context));
+  auto weightLayout = TTNNLayoutAttr::Builder(&context, weightShape, elemetType)
+                          .setBufferType(BufferType::SystemMemory)
+                          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, elemetType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -3232,15 +3244,18 @@ TEST_F(OpModelBase, PrepareConv2dWeightsTest) {
   llvm::SmallVector<int64_t> weightShape = {64, 3, 7, 7};
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
   Type elementType = builder.getBF16Type();
-  auto inputLayout = TTNNLayoutAttr::get(
-      &context, inputShape, elementType, BufferType::DRAM,
-      ttcore::GridAttr::get(&context),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto inputLayout = TTNNLayoutAttr::Builder(&context, inputShape, elementType)
+                         .setBufferType(BufferType::DRAM)
+                         .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                         .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto input = createEmptyTensor(inputShape, elementType, inputLayout);
 
-  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elementType,
-                                          BufferType::SystemMemory,
-                                          ttcore::GridAttr::get(&context));
+  auto weightLayout =
+      TTNNLayoutAttr::Builder(&context, weightShape, elementType)
+          .setBufferType(BufferType::SystemMemory)
+          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, elementType, weightLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -3337,20 +3352,24 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
   llvm::SmallVector<int64_t> outputShape = {1, 1, 12544, 64};
   Type elementType = builder.getBF16Type();
 
-  auto inputLayout = TTNNLayoutAttr::get(
-      &context, inputShape, elementType, BufferType::DRAM,
-      ttcore::GridAttr::get(&context),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto inputLayout = TTNNLayoutAttr::Builder(&context, inputShape, elementType)
+                         .setBufferType(BufferType::DRAM)
+                         .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                         .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                         .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto input = createEmptyTensor(inputShape, elementType, inputLayout);
 
-  auto weightLayout = TTNNLayoutAttr::get(&context, weightShape, elementType,
-                                          BufferType::SystemMemory,
-                                          ttcore::GridAttr::get(&context));
+  auto weightLayout =
+      TTNNLayoutAttr::Builder(&context, weightShape, elementType)
+          .setBufferType(BufferType::SystemMemory)
+          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto weight = createEmptyTensor(weightShape, elementType, weightLayout);
 
-  auto biasLayout = TTNNLayoutAttr::get(&context, biasShape, elementType,
-                                        BufferType::SystemMemory,
-                                        ttcore::GridAttr::get(&context));
+  auto biasLayout = TTNNLayoutAttr::Builder(&context, biasShape, elementType)
+                        .setBufferType(BufferType::SystemMemory)
+                        .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
   auto bias = createEmptyTensor(biasShape, elementType, biasLayout);
 
   auto outputType = createRankedTensorType(outputShape);
@@ -3388,11 +3407,13 @@ TEST_F(OpModelBase, PrepareConv2dBiasTest) {
       mlir::cast<mlir::RankedTensorType>(conv2d.getBias().getType());
   auto oldBiasLayout = mlir::cast<TTNNLayoutAttr>(oldBiasType.getEncoding());
 
-  auto newBiasLayout = TTNNLayoutAttr::get(
-      &context, oldBiasType.getShape(),
-      ttcore::TileType::get(oldBiasType.getElementType()), BufferType::DRAM,
-      oldBiasLayout.getGrid(),
-      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+  auto newBiasLayout = TTNNLayoutAttr::Builder(
+                           &context, oldBiasType.getShape(),
+                           ttcore::TileType::get(oldBiasType.getElementType()))
+                           .setBufferType(BufferType::DRAM)
+                           .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                           .setGridShape(oldBiasLayout.getGridShape())
+                           .buildWithCanonicalCorePlacement(CreateDeviceAttr());
 
   auto preparedBiasOutputType = mlir::RankedTensorType::get(
       oldBiasType.getShape(), oldBiasType.getElementType(), newBiasLayout);
@@ -6351,15 +6372,18 @@ TEST_F(OpModelBase, GatherOpInterface) {
   llvm::SmallVector<int64_t> indexShape = {32, 128};
   llvm::SmallVector<int64_t> outputShape = {32, 128};
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
   auto uint32Type =
       mlir::IntegerType::get(&context, 32, mlir::IntegerType::Unsigned);
   auto tiledUint32Type = ttcore::TileType::get(uint32Type);
   auto indexLayout =
-      TTNNLayoutAttr::get(&context, indexShape, tiledUint32Type,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
+      TTNNLayoutAttr::Builder(&context, indexShape, tiledUint32Type)
+          .setBufferType(BufferType::DRAM)
+          .setMemoryLayout(tensorMemoryLayoutAttr)
+          .setGridShape(gridAttr)
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
 
   auto input = createEmptyTensor(inputShape);
   auto index = createEmptyTensor(indexShape, tiledUint32Type, indexLayout);
@@ -6417,22 +6441,22 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
   auto pageTableType = builder.getI32Type();
   auto curPosType = builder.getI32Type();
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
-  auto queryLayout =
-      TTNNLayoutAttr::get(&context, queryShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto keyLayout =
-      TTNNLayoutAttr::get(&context, keyShape, tiledElemType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto pageTableLayout =
-      TTNNLayoutAttr::get(&context, pageTableShape, pageTableType,
-                          BufferType::DRAM, gridAttr, tensorMemoryLayoutAttr);
-  auto curPosLayout =
-      TTNNLayoutAttr::get(&context, curPosShape, curPosType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyLayout = makeDramLayout(keyShape, tiledElemType);
+  auto pageTableLayout = makeDramLayout(pageTableShape, pageTableType);
+  auto curPosLayout = makeDramLayout(curPosShape, curPosType);
 
   auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
   auto key = createEmptyTensor(keyShape, tiledElemType, keyLayout);
@@ -6497,7 +6521,7 @@ TEST_F(OpModelBase, SamplingOp) {
   llvm::SmallVector<int64_t> paramShape = {batch}; // k, p, temp
   llvm::SmallVector<int64_t> outputShape = {batch};
 
-  auto gridAttr = ttcore::GridAttr::get(&context);
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =
       TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
 
@@ -6509,21 +6533,19 @@ TEST_F(OpModelBase, SamplingOp) {
   auto si32Type = builder.getIntegerType(32, true);
   auto ui32Type = builder.getIntegerType(32, false);
 
-  auto valuesLayout =
-      TTNNLayoutAttr::get(&context, valuesShape, bf16TileType, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto indicesLayout =
-      TTNNLayoutAttr::get(&context, indicesShape, si32Type, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto kLayout =
-      TTNNLayoutAttr::get(&context, paramShape, ui32Type, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto paramLayout =
-      TTNNLayoutAttr::get(&context, paramShape, bf16Type, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
-  auto outputLayout =
-      TTNNLayoutAttr::get(&context, outputShape, si32Type, BufferType::DRAM,
-                          gridAttr, tensorMemoryLayoutAttr);
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto valuesLayout = makeDramLayout(valuesShape, bf16TileType);
+  auto indicesLayout = makeDramLayout(indicesShape, si32Type);
+  auto kLayout = makeDramLayout(paramShape, ui32Type);
+  auto paramLayout = makeDramLayout(paramShape, bf16Type);
+  auto outputLayout = makeDramLayout(outputShape, si32Type);
 
   auto inputValues = createEmptyTensor(valuesShape, bf16TileType, valuesLayout);
   auto inputIndices = createEmptyTensor(indicesShape, si32Type, indicesLayout);

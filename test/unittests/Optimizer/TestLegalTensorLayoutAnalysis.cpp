@@ -47,6 +47,7 @@ protected:
     // Create a simple module with a function
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     builder.setInsertionPointToEnd(module->getBody());
+    mlir::tt::ttcore::registerDevice(module.get());
 
     // Create a function
     auto funcType = builder.getFunctionType({}, {});
@@ -68,10 +69,12 @@ protected:
   // Helper method to create a tensor type with given dimensions
   mlir::RankedTensorType createTensorType(llvm::ArrayRef<int64_t> shape,
                                           mlir::Type elementType) {
-    auto gridAttr = mlir::tt::ttcore::GridAttr::get(&context);
-    TTNNLayoutAttr layoutAttr = TTNNLayoutAttr::get(
-        &context, shape, elementType, BufferType::DRAM, gridAttr,
-        TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved));
+    TTNNLayoutAttr layoutAttr =
+        TTNNLayoutAttr::Builder(&context, shape, elementType)
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+            .build();
     return mlir::RankedTensorType::get(shape, elementType, layoutAttr);
   }
 

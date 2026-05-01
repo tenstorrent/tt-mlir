@@ -7,9 +7,9 @@
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x40x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x40x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 
-#sharded_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
-#sharded_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<32x5x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
-#sharded_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x5x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>>
+#sharded_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x4x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>>
+#sharded_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<32x5x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>>
+#sharded_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x8>, memref<1x5x!ttcore.tile<32x32, bf16>, #l1>, <width_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,0)>]>>
 
 #matmul_program_config = #ttnn.matmul_multi_core_reuse_multi_cast_dram_sharded_program_config<
   in0_block_w = 1,

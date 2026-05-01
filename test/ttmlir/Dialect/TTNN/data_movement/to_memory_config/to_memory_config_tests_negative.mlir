@@ -20,7 +20,7 @@ module {
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
 #device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x3x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x3x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (0, 0)>]>>
 module {
   func.func @forward(%arg0: tensor<32x32xf32, #device_tile_layout1>) -> tensor<32x96xf32, #device_tile_layout2> {
     // CHECK: error: 'ttnn.to_memory_config' op Output tensor layout memory space block_sharded must match memory config memory space interleaved
@@ -35,7 +35,7 @@ module {
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
 #device_tile_dram_interleaved_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<3x3x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#device_tile_l1_sharded_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <3x3>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#device_tile_l1_sharded_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <3x3>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (2, 2)>]>>
 module {
   func.func @forward(%arg0: tensor<96x96xf32, #device_tile_dram_interleaved_layout>) -> tensor<96x96xf32, #device_tile_l1_sharded_layout> {
     // CHECK: error: 'ttnn.to_memory_config' op Output tensor scalar shard shape (32, 32) must match memory config shard spec shape (32, 64)
@@ -93,7 +93,7 @@ module{
 #dram = #ttnn.buffer_type<dram>
 #l1_small = #ttnn.buffer_type<l1_small>
 #device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<3x3x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <3x3>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_small>, <block_sharded>>
+#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <3x3>, memref<1x1x!ttcore.tile<32x32, f32>, #l1_small>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (2, 2)>]>>
 module{
   func.func @forward(%arg0: tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2> {
     // CHECK: error: Sharding is only valid for L1 buffer type
@@ -108,7 +108,7 @@ module{
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
 #device_tile_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<3x3x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
-#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <3x3>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>>
+#device_tile_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <3x3>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>, <block_sharded>, core_ranges = <[#ttnn.core_range<(0, 0), (2, 2)>]>>
 module{
   func.func @forward(%arg0: tensor<96x96xf32, #device_tile_layout1>) -> tensor<96x96xf32, #device_tile_layout2> {
     // CHECK: error: Sharding is only valid for block sharded, height sharded, or width sharded tensor memory layout

@@ -921,8 +921,9 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
   Attribute cosEncoding = nullptr;
   if (auto layout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(cosType.getEncoding())) {
-    cosEncoding =
-        layout.withElementType(cosType.getElementType(), cosFullShape);
+    cosEncoding = TTNNLayoutAttr(TTNNLayoutAttr::Builder(layout)
+                                     .setTensorShape(cosFullShape)
+                                     .setElementType(cosType.getElementType()));
   }
   auto cosFullType = RankedTensorType::get(
       cosFullShape, cosType.getElementType(), cosEncoding);
@@ -932,8 +933,9 @@ std::pair<Value, Value> prepareExpandedCosSin(mlir::PatternRewriter &rewriter,
   Attribute sinEncoding = nullptr;
   if (auto layout =
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(sinType.getEncoding())) {
-    sinEncoding =
-        layout.withElementType(sinType.getElementType(), sinFullShape);
+    sinEncoding = TTNNLayoutAttr(TTNNLayoutAttr::Builder(layout)
+                                     .setTensorShape(sinFullShape)
+                                     .setElementType(sinType.getElementType()));
   }
   auto sinFullType = RankedTensorType::get(
       sinFullShape, sinType.getElementType(), sinEncoding);

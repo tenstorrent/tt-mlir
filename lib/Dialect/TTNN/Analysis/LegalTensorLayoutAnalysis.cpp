@@ -5,14 +5,19 @@
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Support/Logger.h"
+#include "ttmlir/Utils.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/ArrayRef.h"
 
+#include <cstdint>
 #include <unordered_set>
 #include <vector>
 
@@ -44,7 +49,7 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
   if (layout.isTiled()) {
     llvm::SmallVector<int64_t, 2> tiledShape =
         layout.getTiledShape(tensorShape);
-    llvm::ArrayRef<int64_t> gridShape = layout.getGrid().getShape();
+    llvm::ArrayRef<int64_t> gridShape = layout.getGridShape();
 
     assert(tiledShape.size() == gridShape.size() &&
            "Tiled tensor shape and grid shape must have the same rank");
@@ -69,12 +74,11 @@ static bool tensorShapeCompatibleWithShard(RankedTensorType tensorType,
 // Function generates all possible TTNNLayout attributes for the given tensor
 // type. maxNumGeneratedLayouts limits the number of generated layouts. If
 // maxNumGeneratedLayouts is -1, all possible layouts are returned.
-static std::vector<TTNNLayoutAttr>
-generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
-                           ttcore::GridAttr maxGrid, Type scalarElementType,
-                           bool onlyShardedLayouts = false,
-                           int64_t maxNumGeneratedLayouts = -1,
-                           bool rowMajorAllowed = true) {
+static std::vector<TTNNLayoutAttr> generateAllPossibleLayouts(
+    mlir::MLIRContext *ctx, RankedTensorType tensorType,
+    ttcore::GridAttr maxGrid, ttcore::DeviceAttr deviceAttr,
+    Type scalarElementType, bool onlyShardedLayouts = false,
+    int64_t maxNumGeneratedLayouts = -1, bool rowMajorAllowed = true) {
 
   std::vector<TTNNLayoutAttr> allPossibleLayouts;
 
@@ -101,25 +105,26 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
 
     if (!onlyShardedLayouts) {
       // DRAM
-      allPossibleLayouts.push_back(TTNNLayoutAttr::get(
-          ctx, tensorShape, elementType, BufferType::DRAM,
-          ttcore::GridAttr::get(ctx),
-          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
+      allPossibleLayouts.push_back(
+          TTNNLayoutAttr::Builder(ctx, tensorShape, elementType)
+              .setBufferType(BufferType::DRAM)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .setGridShape({1, 1})
+              .build());
 
       // L1 Interleaved - It must be tiled.
       // TODO(odjuricic): Check that this is always the case.
       if (mlir::isa<ttcore::TileType>(elementType)) {
-        allPossibleLayouts.push_back(TTNNLayoutAttr::get(
-            ctx, tensorShape, elementType, BufferType::L1, maxGrid,
-            TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved)));
+        allPossibleLayouts.push_back(
+            TTNNLayoutAttr::Builder(ctx, tensorShape, elementType)
+                .setBufferType(BufferType::L1)
+                .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                .setGridShape(maxGrid.getShape())
+                .build());
       }
     }
 
     // L1 Sharded
-    TTNNLayoutAttr shardedBase =
-        layoutAttr.withBufferType(BufferType::L1)
-            .withMemoryLayout(TensorMemoryLayout::BlockSharded)
-            .withElementType(elementType, tensorShape);
 
     // We can cache shard shape and then discard larger grids with same shard
     std::unordered_set<std::pair<int64_t, int64_t>,
@@ -138,18 +143,16 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     assert(maxGrid.getShape().size() == 2 &&
            "Max device grid is expected to be 2D.");
     // Block Sharded
-    auto [virtToPhysicalMapBlock, physicalToVirtMapBlock] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            ctx, TensorMemoryLayout::BlockSharded, maxGrid.getShape());
     for (int height = 1; height <= maxGrid.getShape()[0]; ++height) {
       for (int width = 1; width <= maxGrid.getShape()[1]; ++width) {
         shardedResults.push_back(
-            shardedBase
-                .withGrid(tensorType,
-                          ttcore::GridAttr::get(ctx, {height, width},
-                                                virtToPhysicalMapBlock,
-                                                physicalToVirtMapBlock))
-                .withMemoryLayout(TensorMemoryLayout::BlockSharded));
+            TTNNLayoutAttr::Builder(layoutAttr)
+                .setTensorShape(tensorShape)
+                .setGridShape({height, width})
+                .setElementType(elementType)
+                .setBufferType(BufferType::L1)
+                .setMemoryLayout(TensorMemoryLayout::BlockSharded)
+                .buildWithCanonicalCorePlacement(deviceAttr));
         if (checkIfShardShapeExists(
                 shardedResults.back().getMemref().getShape())) {
           shardedResults.pop_back();
@@ -159,20 +162,17 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
 
     shardShapeSet.clear();
 
-    int64_t numCores = maxGrid.getGridVolume();
+    int64_t numCores = ttmlir::utils::volume(maxGrid.getShape());
     // Height Sharded
-    auto [virtToPhysicalMapHeight, physicalToVirtMapHeight] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            ctx, TensorMemoryLayout::HeightSharded, maxGrid.getShape());
-
     for (int height = 1; height <= numCores; ++height) {
       shardedResults.push_back(
-          shardedBase
-              .withGrid(tensorType,
-                        ttcore::GridAttr::get(ctx, {height, 1},
-                                              virtToPhysicalMapHeight,
-                                              physicalToVirtMapHeight))
-              .withMemoryLayout(TensorMemoryLayout::HeightSharded));
+          TTNNLayoutAttr::Builder(layoutAttr)
+              .setTensorShape(tensorShape)
+              .setGridShape({height, 1})
+              .setElementType(elementType)
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+              .buildWithCanonicalCorePlacement(deviceAttr));
 
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {
@@ -183,16 +183,15 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
     shardShapeSet.clear();
 
     // Width Sharded
-    auto [virtToPhysicalMapWidth, physicalToVirtMapWidth] =
-        optimizer_utils::createSingleDeviceVirtualToPhysicalAffineMaps(
-            ctx, TensorMemoryLayout::WidthSharded, maxGrid.getShape());
     for (int width = 1; width <= numCores; ++width) {
       shardedResults.push_back(
-          shardedBase
-              .withGrid(tensorType, ttcore::GridAttr::get(
-                                        ctx, {1, width}, virtToPhysicalMapWidth,
-                                        physicalToVirtMapWidth))
-              .withMemoryLayout(TensorMemoryLayout::WidthSharded));
+          TTNNLayoutAttr::Builder(layoutAttr)
+              .setTensorShape(tensorShape)
+              .setGridShape({1, width})
+              .setElementType(elementType)
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::WidthSharded)
+              .buildWithCanonicalCorePlacement(deviceAttr));
       if (checkIfShardShapeExists(
               shardedResults.back().getMemref().getShape())) {
         shardedResults.pop_back();
@@ -214,7 +213,8 @@ generateAllPossibleLayouts(mlir::MLIRContext *ctx, RankedTensorType tensorType,
   // be sharded onto a 8x8 grid.
   std::sort(shardedResults.begin(), shardedResults.end(),
             [](TTNNLayoutAttr a, TTNNLayoutAttr b) {
-              return a.getGrid().getGridVolume() > b.getGrid().getGridVolume();
+              return ttmlir::utils::volume(a.getGridShape()) >
+                     ttmlir::utils::volume(b.getGridShape());
             });
 
   const int64_t numLayoutsToGenerate =
@@ -296,10 +296,13 @@ LegalTensorLayoutAnalysis::generateLayouts(RankedTensorType tensorType) {
   assert(!analysisInput.allowedScalarTypes->empty() &&
          "LegalTensorAnalysis requires at least one scalar type");
 
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+
   // Generate layouts for each allowed scalar type
   for (Type scalarType : *analysisInput.allowedScalarTypes) {
     auto layoutsForType = generateAllPossibleLayouts(
-        tensorType.getContext(), tensorType, analysisInput.maxGrid, scalarType,
+        tensorType.getContext(), tensorType, analysisInput.maxGrid, deviceAttr,
+        scalarType,
         /*onlyShardedLayouts*/ false, /*maxNumGeneratedLayouts*/ -1,
         analysisInput.rowMajorAllowed);
 

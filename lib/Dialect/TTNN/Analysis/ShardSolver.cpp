@@ -227,9 +227,10 @@ bool ShardSolver::resolveStep() {
                   actualFirstOutputLayout.hasShardedL1TensorMemoryLayout() &&
                   llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(
                       consumerOp)) {
-                int64_t inputCores = inputLayout.getGrid().getGridVolume();
-                int64_t outputCores =
-                    actualFirstOutputLayout.getGrid().getGridVolume();
+                int64_t inputCores =
+                    ttmlir::utils::volume(inputLayout.getGridShape());
+                int64_t outputCores = ttmlir::utils::volume(
+                    actualFirstOutputLayout.getGridShape());
                 if (outputCores < inputCores) {
                   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                                "Rejecting {} config: elementwise binary op "
@@ -381,11 +382,17 @@ ShardSolver::supportsInterleavedInputShardedOutput(Operation *op,
       mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
   llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
-  inputLayout = inputLayout.withBufferType(BufferType::DRAM)
-                    .withMemoryLayout(TensorMemoryLayout::Interleaved);
+  inputLayout = TTNNLayoutAttr::Builder(inputLayout)
+                    .setTensorShape(tensorShape)
+                    .setBufferType(BufferType::DRAM)
+                    .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                    .build();
 
   if (rowMajorInputOverride) {
-    inputLayout = inputLayout.withLayout(Layout::RowMajor, tensorShape);
+    inputLayout = TTNNLayoutAttr::Builder(inputLayout)
+                      .setTensorShape(tensorShape)
+                      .setLayout(Layout::RowMajor)
+                      .build();
   }
 
   if (customCheckShardCompatible) {
@@ -469,7 +476,8 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr layoutForComparison = firstOpLayout;
 
     if (shouldUseIgnorePhysicalLayout(firstOp)) {
-      firstOpLayout = firstOpLayout.withIgnorePhysicalLayout(true);
+      firstOpLayout =
+          TTNNLayoutAttr::Builder(firstOpLayout).setIgnorePhysicalLayout(true);
     }
 
     TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
@@ -966,7 +974,8 @@ ShardSolver::produceMaxCoreUsage() {
     //
     for (size_t i = 0; i < configs.size(); ++i) {
       const OpConfig &config = configs[i];
-      uint64_t coreUsage = config.outputLayout.getGrid().getGridVolume();
+      uint64_t coreUsage =
+          ttmlir::utils::volume(config.outputLayout.getGridShape());
       accCoreUsage[op].push_back(coreUsage);
     }
 
