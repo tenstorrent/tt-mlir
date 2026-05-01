@@ -157,6 +157,8 @@ createMeshBufferForShardedMetalBuffer(
           metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
     }
 
+    // The flatbuffer mirrors tt_metal::BufferDistributionSpec's page-domain
+    // contract so runtime construction does not need compiler layout metadata.
     auto toShape = [](const ::flatbuffers::Vector<uint32_t> *shapeVector) {
       tt_metal::Shape::Container shape;
       shape.reserve(shapeVector->size());

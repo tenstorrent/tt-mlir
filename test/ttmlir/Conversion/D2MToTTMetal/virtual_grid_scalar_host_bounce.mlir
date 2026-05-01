@@ -4,8 +4,8 @@
 module {
   // CHECK-LABEL: func.func @slice_f32_cb_page_compatible
   // CHECK-NOT: memref<8x8x384x4xf32
-  // CHECK: "ttmetal.create_buffer"() {{.*}} : () -> memref<6x8x512x4xf32, #ttcore.shard<16x4, 1>, #l1>
-  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<6x8x512x4xf32, #ttcore.shard<16x4, 1>, #l1>
+  // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<3x16x2x1x2x4x32x32xf32, #ttcore.shard<16384x4096x128x4, 1>, #l1>
+  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<3x32x1x1x1x1x32x32xf32, #ttcore.shard<4096x4096x128x4, 1>, #l1>
   func.func @slice_f32_cb_page_compatible(%arg0: tensor<6x64x64x4xf32>) -> tensor<3x32x32x2xf32> {
     %0 = "ttir.slice_static"(%arg0) <{
       begins = [1 : i32, 15 : i32, 16 : i32, 2 : i32],
@@ -16,8 +16,8 @@ module {
   }
 
   // CHECK-LABEL: func.func @slice_bf16_noc_aligned
-  // CHECK: "ttmetal.create_buffer"() {{.*}} : () -> memref<4x4x256x8xbf16, #ttcore.shard<16x2, 1>, #l1>
-  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<4x4x256x8xbf16, #ttcore.shard<16x2, 1>, #l1>
+  // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<4x4x2x1x1x1x1x1x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048x2048x2048, 1>, #l1>
+  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<4x4x2x1x1x1x32x32xbf16, #ttcore.shard<2048x2048x64x2, 1>, #l1>
   func.func @slice_bf16_noc_aligned(%arg0: tensor<8x6x64x32xbf16>) -> tensor<4x4x64x32xbf16> {
     %0 = "ttir.slice_static"(%arg0) <{
       begins = [2 : i32, 1 : i32, 0 : i32, 0 : i32],
@@ -29,8 +29,8 @@ module {
 
   // CHECK-LABEL: func.func @permute_f32_virtual_grid_readback
   // CHECK-NOT: memref<6x8x96x16xf32
-  // CHECK: "ttmetal.create_buffer"() {{.*}} : () -> memref<6x8x128x16xf32, #ttcore.shard<64x4, 1>, #l1>
-  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<6x8x128x16xf32, #ttcore.shard<64x4, 1>, #l1>
+  // CHECK: "ttmetal.create_buffer"() <{address = {{[0-9]+}} : i64, virtualGridForwardMapping = #map{{[0-9]*}}, virtualGridInverseMapping = #map{{[0-9]*}}}> : () -> memref<1x18x1x4x1x1x32x32xf32, #ttcore.shard<4096x4096x128x4, 1>, #l1>
+  // CHECK: "ttmetal.enqueue_read_buffer"{{.*}} : (memref<18x1x1x4x1x1x32x32xf32, #ttcore.shard<4096x4096x128x4, 1>, #l1>
   func.func @permute_f32_virtual_grid_readback(%arg0: tensor<1x18x8x128xf32>) -> tensor<18x1x8x128xf32> {
     %0 = "ttir.permute"(%arg0) <{permutation = array<i64: 1, 0, 2, 3>}> : (tensor<1x18x8x128xf32>) -> tensor<18x1x8x128xf32>
     return %0 : tensor<18x1x8x128xf32>
