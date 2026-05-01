@@ -148,8 +148,7 @@ static LogicalResult runLEC(MLIRContext &context, const LecConfig &cfg) {
 
   // If a second input file is provided, parse and merge it.
   if (cfg.inputFilenames.size() == 2) {
-    auto second =
-        parseSourceFile<ModuleOp>(cfg.inputFilenames[1], &context);
+    auto second = parseSourceFile<ModuleOp>(cfg.inputFilenames[1], &context);
     if (!second) {
       return failure();
     }
@@ -431,20 +430,18 @@ int main(int argc, char **argv) {
 
   cl::OptionCategory mainCategory("ttmlir-lec Options");
 
-  cl::opt<std::string> firstFunc("c1", cl::Required,
-                                 cl::desc("Name of the first function to compare"),
-                                 cl::value_desc("function name"),
-                                 cl::cat(mainCategory));
+  cl::opt<std::string> firstFunc(
+      "c1", cl::Required, cl::desc("Name of the first function to compare"),
+      cl::value_desc("function name"), cl::cat(mainCategory));
   cl::opt<std::string> secondFunc(
-      "c2", cl::Required,
-      cl::desc("Name of the second function to compare"),
+      "c2", cl::Required, cl::desc("Name of the second function to compare"),
       cl::value_desc("function name"), cl::cat(mainCategory));
   cl::list<std::string> inputFilenames(cl::Positional, cl::OneOrMore,
                                        cl::desc("<input MLIR files>"),
                                        cl::cat(mainCategory));
-  cl::opt<std::string> outputFilename(
-      "o", cl::desc("Output filename"), cl::value_desc("filename"),
-      cl::init("-"), cl::cat(mainCategory));
+  cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
+                                      cl::value_desc("filename"), cl::init("-"),
+                                      cl::cat(mainCategory));
   cl::opt<OutputFormat> outputFormat(
       cl::desc("Specify output format"),
       cl::values(
@@ -460,13 +457,13 @@ int main(int argc, char **argv) {
                "Comma-separated."),
       cl::value_desc("path"), cl::MiscFlags::CommaSeparated,
       cl::cat(mainCategory));
-  cl::opt<bool> showModel("show-model",
-                          cl::desc("Print full solver model when non-equivalent"),
-                          cl::init(true), cl::cat(mainCategory));
+  cl::opt<bool> showModel(
+      "show-model", cl::desc("Print full solver model when non-equivalent"),
+      cl::init(true), cl::cat(mainCategory));
   cl::opt<unsigned> solverTimeout(
       "solver-timeout",
-      cl::desc("Solver timeout in milliseconds (0 = no timeout)"),
-      cl::init(0), cl::cat(mainCategory));
+      cl::desc("Solver timeout in milliseconds (0 = no timeout)"), cl::init(0),
+      cl::cat(mainCategory));
   cl::opt<bool> setLogicQFBV(
       "set-logic-qfbv",
       cl::desc("Emit (set-logic QF_BV) — speeds up bitvector-only problems"),
@@ -507,8 +504,8 @@ int main(int argc, char **argv) {
       "--shared-libs=/path/to/z3\n");
 
   LecConfig cfg;
-  cfg.inputFilenames = std::vector<std::string>(inputFilenames.begin(),
-                                                inputFilenames.end());
+  cfg.inputFilenames =
+      std::vector<std::string>(inputFilenames.begin(), inputFilenames.end());
   cfg.firstFunc = firstFunc;
   cfg.secondFunc = secondFunc;
   cfg.outputFilename = outputFilename;
