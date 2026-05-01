@@ -76,6 +76,64 @@ enum TypicalInitReductionValue {
 };
 
 // Check if the constant op is initialized with the desired init value.
+// Helper: check init value from a shaped ElementsAttr and its element type.
+static bool checkInitValueFromElements(ElementsAttr elements, Type elemType,
+                                       TypicalInitReductionValue desired) {
+  if (elements.size() != 1) {
+    return false;
+  }
+  if (desired == TypicalInitReductionValue::ZERO) {
+    if (elemType.isInteger(1))
+      return *elements.value_begin<bool>() == false;
+    if (elemType.isInteger(8))
+      return *elements.value_begin<uint8_t>() == 0;
+    if (elemType.isInteger(32))
+      return *elements.value_begin<int32_t>() == 0;
+    if (elemType.isInteger(64))
+      return *elements.value_begin<int64_t>() == 0;
+    if (elemType.isF32())
+      return *elements.value_begin<float>() == 0.0f;
+    if (elemType.isF64())
+      return *elements.value_begin<double>() == 0.0;
+    if (elemType.isBF16()) {
+      auto dense = mlir::dyn_cast<mlir::DenseElementsAttr>(elements);
+      if (!dense)
+        return false;
+      uint16_t bits;
+      std::memcpy(&bits, dense.getRawData().data(), sizeof(bits));
+      return bits == 0x0000;
+    }
+    return false;
+  }
+  if (desired == TypicalInitReductionValue::NEG_INF) {
+    if (elemType.isF32())
+      return *elements.value_begin<float>() ==
+             -std::numeric_limits<float>::infinity();
+    if (elemType.isF64())
+      return *elements.value_begin<double>() ==
+             -std::numeric_limits<double>::infinity();
+    if (elemType.isInteger(32))
+      return *elements.value_begin<int32_t>() ==
+             std::numeric_limits<int32_t>::min();
+    if (elemType.isInteger(64))
+      return *elements.value_begin<int64_t>() ==
+             std::numeric_limits<int64_t>::min();
+    if (elemType.isInteger(8))
+      return *elements.value_begin<uint8_t>() ==
+             static_cast<uint8_t>(std::numeric_limits<int8_t>::min());
+    if (elemType.isBF16()) {
+      auto dense = mlir::dyn_cast<mlir::DenseElementsAttr>(elements);
+      if (!dense)
+        return false;
+      uint16_t bits;
+      std::memcpy(&bits, dense.getRawData().data(), sizeof(bits));
+      return bits == 0xff80;
+    }
+    return false;
+  }
+  return false;
+}
+
 static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
                            TypicalInitReductionValue desired) {
   if (initValueOp.getValueAttr().size() != 1) {
@@ -96,6 +154,11 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
     desiredI32 = std::numeric_limits<int32_t>::min();
     desiredI64 = std::numeric_limits<int64_t>::min();
     desiredI8 = std::numeric_limits<int8_t>::min();
+    // i1 (bool) has no NEG_INF; false is the OR identity (ZERO).
+    // Returning true here would misclassify a cumOR init as NEG_INF.
+    if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
+      return false;
+    }
     desiredI1 = false;
   } else if (desired == TypicalInitReductionValue::ZERO) {
     desiredF32 = 0.0;
@@ -2464,7 +2527,8 @@ public:
     auto &operations = block.getOperations();
     SmallVector<mlir::Operation *> reductionOps;
     for (Operation &op : llvm::drop_end(operations, 1)) {
-      if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp>(&op)) {
+      if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp,
+               mlir::stablehlo::OrOp, mlir::tt::ttir::LogicalOrOp>(&op)) {
         return rewriter.notifyMatchFailure(srcOp, "Unsupported reduction op.");
       }
       reductionOps.push_back(&op);
@@ -2525,6 +2589,39 @@ public:
         rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
             srcOp, resultType, adaptor.getInputs()[0],
             rewriter.getI64IntegerAttr(*dimension));
+        return success();
+      }
+    }
+
+    // Handle boolean cumulative OR (reduce_window with OR body on i1 tensors).
+    // Equivalent to: cumOR[i] = any(input[0..i]) = (cumsum(cast(input,bf16))>0).
+    if (srcOp.getInputs().size() == 1) {
+      std::optional<int64_t> dimension =
+          isCumOR(srcOp, adaptor, (*initValues)[0], reductionOps[0], padding);
+      if (dimension) {
+        mlir::RankedTensorType resultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+        // Promote bool input to bfloat16 so we can use CumSumOp.
+        auto bf16Type = rewriter.getBF16Type();
+        auto inputShape =
+            mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType())
+                .getShape();
+        auto bf16InputType = RankedTensorType::get(inputShape, bf16Type);
+        Value bf16Input = rewriter.create<ttir::TypecastOp>(
+            srcOp.getLoc(), bf16InputType, adaptor.getInputs()[0]);
+        // Cumulative sum along the detected dimension.
+        auto bf16ResultType =
+            RankedTensorType::get(resultType.getShape(), bf16Type);
+        Value cumResult = rewriter.create<ttir::CumSumOp>(
+            srcOp.getLoc(), bf16ResultType, bf16Input,
+            rewriter.getI64IntegerAttr(*dimension));
+        // Produce bool output: cumsum > 0.
+        DenseElementsAttr zeroAttr = DenseElementsAttr::get(
+            bf16ResultType, rewriter.getFloatAttr(bf16Type, 0.0));
+        Value zeroConst = rewriter.create<ttir::ConstantOp>(
+            srcOp.getLoc(), bf16ResultType, zeroAttr);
+        rewriter.replaceOpWithNewOp<ttir::GreaterThanOp>(srcOp, resultType,
+                                                         cumResult, zeroConst);
         return success();
       }
     }
@@ -3019,6 +3116,34 @@ private:
     return dimension;
   }
 
+  // Detect whether a reduce_window encodes a boolean cumulative OR (cumany).
+  // Conditions: body is stablehlo.or (or ttir.logical_or after elementwise
+  // lowering), init is false (ZERO), window/padding follow the same
+  // triangular-cumsum structure as isCumSum.
+  std::optional<int64_t>
+  isCumOR(mlir::stablehlo::ReduceWindowOp &srcOp,
+          mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+          TypicalInitReductionValue initValue, mlir::Operation *frontOp,
+          DenseI64ArrayAttr padding) const {
+    // The elementwise stablehlo.or pattern may run before the reduce_window
+    // pattern, converting the body's stablehlo.or to ttir.logical_or.
+    if (!isa<mlir::stablehlo::OrOp>(frontOp) &&
+        !isa<mlir::tt::ttir::LogicalOrOp>(frontOp)) {
+      return std::nullopt;
+    }
+    if (initValue != TypicalInitReductionValue::ZERO) {
+      return std::nullopt;
+    }
+    if (!hasValidWindowAttributes(adaptor)) {
+      return std::nullopt;
+    }
+    int64_t dimension;
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension, padding)) {
+      return std::nullopt;
+    }
+    return dimension;
+  }
+
   // Helper function to find the StableHLO constant defining op by traversing
   // through operations that preserve constant semantics (similar to
   // getConstantValueDefiningOp).
@@ -3036,21 +3161,41 @@ private:
   }
 
   // Extract constant initialization values.
+  // Handles both stablehlo.constant and ttir.constant (the latter occurs when
+  // the elementwise stablehlo.constant → ttir.constant conversion runs before
+  // the reduce_window pattern).
   std::optional<llvm::SmallVector<TypicalInitReductionValue>>
   extractInitValues(mlir::stablehlo::ReduceWindowOp &srcOp) const {
     llvm::SmallVector<TypicalInitReductionValue> initValues;
     for (auto initValue : srcOp.getInitValues()) {
-      auto constantOp = getStableHLOConstantDefiningOp(initValue);
-      if (!constantOp) {
-        return std::nullopt;
+      // Try stablehlo.constant first (unconverted init value).
+      if (auto shloConst = getStableHLOConstantDefiningOp(initValue)) {
+        if (checkInitValue(shloConst, TypicalInitReductionValue::NEG_INF)) {
+          initValues.push_back(TypicalInitReductionValue::NEG_INF);
+        } else if (checkInitValue(shloConst, TypicalInitReductionValue::ZERO)) {
+          initValues.push_back(TypicalInitReductionValue::ZERO);
+        } else {
+          return std::nullopt;
+        }
+        continue;
       }
-      if (checkInitValue(constantOp, TypicalInitReductionValue::NEG_INF)) {
-        initValues.push_back(TypicalInitReductionValue::NEG_INF);
-      } else if (checkInitValue(constantOp, TypicalInitReductionValue::ZERO)) {
-        initValues.push_back(TypicalInitReductionValue::ZERO);
-      } else {
-        return std::nullopt;
+      // Fall back to ttir.constant (already converted by elementwise pass).
+      if (auto ttirConst = getConstantValueDefiningOp(initValue)) {
+        Type elemType =
+            mlir::cast<RankedTensorType>(ttirConst.getResult().getType())
+                .getElementType();
+        if (checkInitValueFromElements(ttirConst.getValue(), elemType,
+                                       TypicalInitReductionValue::NEG_INF)) {
+          initValues.push_back(TypicalInitReductionValue::NEG_INF);
+        } else if (checkInitValueFromElements(ttirConst.getValue(), elemType,
+                                              TypicalInitReductionValue::ZERO)) {
+          initValues.push_back(TypicalInitReductionValue::ZERO);
+        } else {
+          return std::nullopt;
+        }
+        continue;
       }
+      return std::nullopt;
     }
     return initValues;
   }
@@ -5193,6 +5338,16 @@ public:
 
     starts--;
     ends--;
+
+    // If there are no repeated leading or trailing indices, this pattern does
+    // not apply: the concat would have only one input and foldUnitConcatOp
+    // would return it with the wrong type.
+    if (starts <= 0 && ends <= 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "No repeated leading/trailing indices; slice-repeat-concat pattern "
+          "does not apply.");
+    }
 
     SmallVector<Value> slicesToConcat;
 
