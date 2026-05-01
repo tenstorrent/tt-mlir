@@ -13,6 +13,12 @@ table ShardSpecBuffer {
   tensor_shape_in_pages: Dim2d;
 }
 
+table BufferDistributionSpec {
+  tensor_shape_in_pages: [uint32];
+  shard_shape_in_pages: [uint32];
+  cores: [Dim2d];
+}
+
 table InterleavedBufferConfig {
   size: uint64;
   page_size: uint64;
@@ -22,6 +28,7 @@ table ShardedBufferConfig {
   size: uint64;
   page_size: uint64;
   shard_spec_buffer: ShardSpecBuffer;
+  buffer_distribution_spec: BufferDistributionSpec;
 }
 
 union BufferConfig {

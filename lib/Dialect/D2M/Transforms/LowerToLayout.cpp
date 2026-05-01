@@ -253,50 +253,21 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     }
 
     // Create a device tensor type from a system tensor type.
-    // For virtual grids (ND or exceeding device bounds), the data must bounce
-    // through DRAM interleaved because the host cannot directly scatter data
-    // across an ND/virtual L1 grid.  The subsequent DRAM→L1 step
-    // (lowerDatamovementGeneric) handles the actual scatter via a view/reblock
-    // map.
+    // Virtual grids are kept native here; the TTMetal flatbuffer/runtime path
+    // carries the virtual core order into BufferDistributionSpec for host
+    // transfers.
     RankedTensorType createDeviceType(RankedTensorType systemType,
                                       ttcore::MetalLayoutAttr referenceLayout,
                                       RankedTensorType referenceType,
-                                      ArrayRef<int64_t> targetGridShape) {
+                                      ArrayRef<int64_t> /*targetGridShape*/) {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
 
-      bool virtualBounceNeeded = ttmlir::d2m::utils::grids::requiresVirtualGrid(
-          tensorGridShape, targetGridShape);
-
-      ttcore::MetalLayoutAttr layout;
-      if (virtualBounceNeeded) {
-        // Virtual grids need to bounce through DRAM — the bounce shape
-        // should be collapsed to 2D for the unit-grid DRAM buffer.
-        tensorGridShape =
-            computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
-
-        auto [collapsedIntervals, dimAlignments] =
-            computeGridAwareCollapsedIntervalsAndDimAlignments(referenceLayout,
-                                                               targetGridShape);
-        // Bounce virtual grids through interleaved DRAM on the unit grid.
-        tensorGridShape.assign(targetGridShape.size(), 1);
-
-        // Keep old dimAlignments but use new collapsedIntervals to collapse the
-        // DRAM tensor to 2D.
-        TT_assert(collapsedIntervals.getType().getDimSize(0) == 2);
-        layout = ttcore::MetalLayoutAttr::get(
-            ctx, referenceLayout.getLogicalShape(),
-            referenceLayout.getDimAlignments(), collapsedIntervals,
-            referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
-            ttcore::TensorMemoryLayout::Interleaved);
-      } else {
-        layout = ttcore::MetalLayoutAttr::get(
-            ctx, referenceLayout.getLogicalShape(),
-            referenceLayout.getDimAlignments(),
-            referenceLayout.getCollapsedIntervals(),
-            referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceL1,
-            referenceLayout.getMemoryLayout());
-      }
+      ttcore::MetalLayoutAttr layout = ttcore::MetalLayoutAttr::get(
+          ctx, referenceLayout.getLogicalShape(),
+          referenceLayout.getDimAlignments(),
+          referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
+          ttcore::MemorySpace::DeviceL1, referenceLayout.getMemoryLayout());
 
       ArrayRef<int64_t> tileShape;
       if (ttcore::isTiled(systemType)) {
@@ -1148,34 +1119,6 @@ public:
                                             intermediateEmpty, op.getLoc());
           currentInfo = TensorInfo::from(currentValue);
         }
-      }
-    }
-
-    // VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
-    // need it. This should happen BEFORE any system transfer or whenever grid
-    // needs to shrink.
-    if (currentInfo.hasLayout() && targetInfo.isSystem()) {
-      auto currentGridShape = currentInfo.getGridShape();
-      auto targetGridShape_layout =
-          targetInfo.hasLayout() ? targetInfo.getGridShape() : targetGridShape;
-
-      // Check if we need to collapse a virtual grid.
-      bool needsVirtualGridCollapse =
-          ttmlir::d2m::utils::grids::requiresVirtualGrid(
-              currentGridShape, targetGridShape_layout);
-
-      if (needsVirtualGridCollapse && currentInfo.isL1()) {
-        auto existingRemapping =
-            utils::getAssociatedRemapping(currentValue).value_or(AffineMap());
-        auto reblocked = typeBuilder.modifyDeviceType(
-            currentInfo.type, *currentInfo.layout, targetGridShape,
-            existingRemapping, ttcore::MemorySpace::DeviceL1,
-            /*newTensorGrid=*/{}, /*newElementType=*/{},
-            /*newTileShape=*/{}, /*reblockVirtualGridShapes=*/true);
-        auto reblockedEmpty = createEmpty(reblocked);
-        currentValue = lowerMappingChange(rewriter, currentValue,
-                                          reblockedEmpty, op.getLoc());
-        currentInfo = TensorInfo::from(currentValue);
       }
     }
 

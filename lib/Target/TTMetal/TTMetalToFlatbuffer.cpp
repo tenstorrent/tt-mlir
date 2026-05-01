@@ -268,11 +268,86 @@ static SmallVector<int64_t> getPhysicalGridShapeForVirtualGrid(
                                                           workerGridShape);
 }
 
+static std::vector<uint32_t>
+computeShardShapeInPages(ArrayRef<int64_t> memrefShardShape,
+                         target::Dim2d elementShape, target::Dim2d pageShape) {
+  TT_assertv(memrefShardShape.size() >= 2u,
+             "Expected shard shape to have at least two dimensions");
+
+  std::vector<uint32_t> shardShapeInPages;
+  shardShapeInPages.reserve(memrefShardShape.size());
+
+  for (size_t i = 0; i < memrefShardShape.size(); ++i) {
+    int64_t dim = memrefShardShape[i];
+    int64_t pageDim = 1;
+    if (i == memrefShardShape.size() - 2) {
+      dim *= elementShape.y();
+      pageDim = pageShape.y();
+    } else if (i == memrefShardShape.size() - 1) {
+      dim *= elementShape.x();
+      pageDim = pageShape.x();
+    }
+
+    TT_assertv(pageDim > 0, "Expected positive page dimension");
+    shardShapeInPages.push_back(
+        static_cast<uint32_t>((dim + pageDim - 1) / pageDim));
+  }
+
+  return shardShapeInPages;
+}
+
+static flatbuffers::Offset<target::metal::BufferDistributionSpec>
+createBufferDistributionSpecForVirtualGrid(
+    FlatbufferObjectCache &cache, ttcore::ShardLayoutAttr shardLayout,
+    MemRefType memref, target::Dim2d elementShape, target::Dim2d pageShape,
+    std::optional<AffineMap> virtualGridForwardMapping) {
+  if (!virtualGridForwardMapping) {
+    return 0;
+  }
+
+  ArrayRef<int64_t> virtualGridShape = shardLayout.getGridShape(memref);
+  ArrayRef<int64_t> memrefShardShape = shardLayout.getShardShape(memref);
+  TT_assertv(virtualGridShape.size() == memrefShardShape.size(),
+             "Expected grid rank to match shard rank");
+
+  std::vector<uint32_t> shardShapeInPages =
+      computeShardShapeInPages(memrefShardShape, elementShape, pageShape);
+  std::vector<uint32_t> tensorShapeInPages;
+  tensorShapeInPages.reserve(shardShapeInPages.size());
+  for (size_t i = 0; i < shardShapeInPages.size(); ++i) {
+    tensorShapeInPages.push_back(static_cast<uint32_t>(virtualGridShape[i]) *
+                                 shardShapeInPages[i]);
+  }
+
+  AffineMap forwardMap = *virtualGridForwardMapping;
+  TT_assertv(forwardMap.getNumDims() >= virtualGridShape.size(),
+             "Expected forward virtual-grid map to accept grid dimensions");
+  std::vector<target::Dim2d> cores;
+  cores.reserve(ttmlir::utils::volume<int64_t>(virtualGridShape));
+  ttmlir::utils::sample(
+      virtualGridShape, [&](ArrayRef<int64_t> virtualCoreCoord) {
+        SmallVector<int64_t> operands(forwardMap.getNumDims(), 0);
+        for (size_t i = 0; i < virtualCoreCoord.size(); ++i) {
+          operands[i] = virtualCoreCoord[i];
+        }
+
+        SmallVector<int64_t> physicalCoord = forwardMap.compose(operands);
+        TT_assertv(physicalCoord.size() >= 2u,
+                   "Expected forward virtual-grid map to produce a 2D core");
+        cores.emplace_back(static_cast<int32_t>(physicalCoord[0]),
+                           static_cast<int32_t>(physicalCoord[1]));
+      });
+
+  return target::metal::CreateBufferDistributionSpecDirect(
+      *cache.fbb, &tensorShapeInPages, &shardShapeInPages, &cores);
+}
+
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 createShardedBufferConfigForL1Memref(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
     target::Dim2d elementShape,
-    std::optional<AffineMap> virtualGridInverseMapping) {
+    std::optional<AffineMap> virtualGridInverseMapping,
+    std::optional<AffineMap> virtualGridForwardMapping) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -321,6 +396,9 @@ createShardedBufferConfigForL1Memref(
                                    tensorShape[1] / pageShape.x());
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
+  auto bufferDistributionSpec = createBufferDistributionSpecForVirtualGrid(
+      cache, shardLayout, memref, elementShape, pageShape,
+      virtualGridForwardMapping);
 
   // Calculate ShardedBufferConfig.
   assert(pageShape.y() % elementShape.y() == 0);
@@ -332,15 +410,16 @@ createShardedBufferConfigForL1Memref(
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
-  return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
-                                                  shardSpecBuffer);
+  return target::metal::CreateShardedBufferConfig(
+      *cache.fbb, size, pageSize, shardSpecBuffer, bufferDistributionSpec);
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 memrefTypeToShardedBufferConfigFlatbuffer(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
     target::Dim2d elementShape, ttcore::SystemDescAttr systemDesc,
-    std::optional<AffineMap> virtualGridInverseMapping) {
+    std::optional<AffineMap> virtualGridInverseMapping,
+    std::optional<AffineMap> virtualGridForwardMapping) {
 
   flatbuffers::Offset<target::metal::ShardedBufferConfig> sharded_buffer_config;
   if (isMemrefDeviceDRAMMemspace(memref)) {
@@ -348,7 +427,8 @@ memrefTypeToShardedBufferConfigFlatbuffer(
         cache, memref, device, systemDesc);
   } else if (isMemrefDeviceL1Memspace(memref)) {
     sharded_buffer_config = createShardedBufferConfigForL1Memref(
-        cache, memref, device, elementShape, virtualGridInverseMapping);
+        cache, memref, device, elementShape, virtualGridInverseMapping,
+        virtualGridForwardMapping);
   } else {
     assert(false &&
            "ShardedBufferConfig not supported for System memory space");
@@ -462,7 +542,8 @@ static flatbuffers::Offset<target::metal::BufferDesc>
 memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        ttcore::DeviceAttr device,
                        ttcore::SystemDescAttr systemDesc,
-                       std::optional<AffineMap> virtualGridInverseMapping) {
+                       std::optional<AffineMap> virtualGridInverseMapping,
+                       std::optional<AffineMap> virtualGridForwardMapping) {
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
@@ -490,7 +571,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape, systemDesc,
-              virtualGridInverseMapping);
+              virtualGridInverseMapping, virtualGridForwardMapping);
 
       // only generate CircularBufferConfig for L1 memspace
       flatbuffers::Offset<target::metal::CircularBufferConfig>
@@ -584,9 +665,13 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
   auto memrefType = mlir::cast<MemRefType>(value.getType());
 
   std::optional<AffineMap> virtualGridInverseMapping;
+  std::optional<AffineMap> virtualGridForwardMapping;
   if (auto createBufferOp = value.getDefiningOp<ttmetal::CreateBufferOp>()) {
     if (auto mapAttr = createBufferOp.getVirtualGridInverseMappingAttr()) {
       virtualGridInverseMapping = mapAttr.getValue();
+    }
+    if (auto mapAttr = createBufferOp.getVirtualGridForwardMappingAttr()) {
+      virtualGridForwardMapping = mapAttr.getValue();
     }
 
     // Hoisted CB buffers carry CBLayoutAttr (per-core local shape).
@@ -606,9 +691,16 @@ bufferValueToFlatbuffer(FlatbufferObjectCache &cache, Value value,
     }
   }
 
-  auto bufferDesc =
-      cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device, systemDesc,
-                        virtualGridInverseMapping);
+  flatbuffers::Offset<target::metal::BufferDesc> bufferDesc;
+  if (virtualGridInverseMapping || virtualGridForwardMapping) {
+    bufferDesc = memrefTypeToFlatbuffer(cache, memrefType, device, systemDesc,
+                                        virtualGridInverseMapping,
+                                        virtualGridForwardMapping);
+  } else {
+    bufferDesc = cache.getOrCreate(memrefType, memrefTypeToFlatbuffer, device,
+                                   systemDesc, virtualGridInverseMapping,
+                                   virtualGridForwardMapping);
+  }
   return target::metal::CreateBufferRef(*cache.fbb, cache.nextGlobalId(),
                                         address, bufferDesc);
 }

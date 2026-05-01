@@ -217,6 +217,31 @@ def test_permute(shape: Shape, permutation: List[int], target: str, request, dev
     )
 
 
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_permute_virtual_grid_1x64(target: str, request, device):
+    """Test permute host transfers through a 1x64 virtual grid."""
+
+    shape = (32, 2048)
+    permutation = [1, 0]
+
+    def permute_module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def permute(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.permute(in0, permutation=permutation)
+
+    compile_and_execute_ttir(
+        permute_module,
+        target=target,
+        device=device,
+        **get_request_kwargs(request),
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
+    )
+
+
 # ==================== CONCATENATE HEADS TESTS ====================
 
 
