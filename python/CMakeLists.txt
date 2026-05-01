@@ -78,6 +78,26 @@ declare_mlir_dialect_python_bindings(
           ${CMAKE_SOURCE_DIR}/include/ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.td
 )
 
+# Generate a Python op-schema sidecar (operand/attr/result names) from the
+# TTNN tablegen JSON dump. Produces _ttnn_op_schema.py next to the existing
+# _ttnn_ops_gen.py and packages it as part of TTMLIRPythonSources.
+set(_ttnn_op_schema_py "${CMAKE_CURRENT_BINARY_DIR}/dialects/_ttnn_op_schema.py")
+set(_ttnn_ops_json "${CMAKE_BINARY_DIR}/include/ttmlir/Dialect/TTNN/IR/TTNNOps.json")
+set(_op_schema_gen "${CMAKE_SOURCE_DIR}/tools/python_op_schema_gen/gen.py")
+add_custom_command(
+  OUTPUT  "${_ttnn_op_schema_py}"
+  COMMAND ${Python3_EXECUTABLE} "${_op_schema_gen}"
+            --json "${_ttnn_ops_json}"
+            --out "${_ttnn_op_schema_py}"
+  DEPENDS "${_ttnn_ops_json}" "${_op_schema_gen}" MLIRTTNNOpsJsonIncGen
+  COMMENT "Building dialects/_ttnn_op_schema.py..."
+)
+declare_mlir_python_sources(TTMLIRPythonSources.Dialects.ttnn.op_schema
+  ROOT_DIR "${CMAKE_CURRENT_BINARY_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources.Dialects.ttnn
+  SOURCES "dialects/_ttnn_op_schema.py"
+)
+
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT TTMLIRPythonSources.Dialects
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
