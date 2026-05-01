@@ -5176,7 +5176,7 @@ public:
       if (index == 0) {
         starts++;
       }
-      if (index == maxIndex) {
+      if (index == maxIndex && maxIndex != 0) {
         ends++;
       }
       if (!((index - lastIndex == 1) || (index == lastIndex && index == 0) ||
