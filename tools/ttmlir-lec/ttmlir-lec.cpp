@@ -81,6 +81,7 @@ struct LecConfig {
   bool setLogicQFABV = false;
   std::string checkOutput;
   int checkOutputIdx = -1;
+  std::string nameAttr = "ttir.name";
 };
 
 //===----------------------------------------------------------------------===//
@@ -168,6 +169,7 @@ static LogicalResult runLEC(MLIRContext &context, const LecConfig &cfg) {
   if (!cfg.checkOutput.empty()) {
     TTIRPruneToOutputOptions pruneOpts;
     pruneOpts.keepOutput = cfg.checkOutput;
+    pruneOpts.nameAttr = cfg.nameAttr;
     pm.addPass(createTTIRPruneToOutputPass(pruneOpts));
     pm.addPass(createCanonicalizerPass());
     // Drop arguments that are now unused. This is critical for LEC because
@@ -182,6 +184,7 @@ static LogicalResult runLEC(MLIRContext &context, const LecConfig &cfg) {
   opts.secondFunc = cfg.secondFunc;
   opts.checkOutput = cfg.checkOutput;
   opts.checkOutputIdx = cfg.checkOutputIdx;
+  opts.nameAttr = cfg.nameAttr;
   pm.addPass(createConstructTTIRLECPass(opts));
 
   if (failed(pm.run(module.get()))) {
@@ -474,14 +477,18 @@ int main(int argc, char **argv) {
       cl::init(false), cl::cat(mainCategory));
   cl::opt<std::string> checkOutput(
       "check-output",
-      cl::desc("Compare only the output port with this hw.port_name "
-               "(default: compare all)"),
+      cl::desc("Compare only the named output (default: compare all)"),
       cl::init(""), cl::cat(mainCategory));
   cl::opt<int> checkOutputIdx(
       "check-output-idx",
       cl::desc(
           "Compare only the output at this index (overrides check-output)"),
       cl::init(-1), cl::cat(mainCategory));
+  cl::opt<std::string> nameAttr(
+      "name-attr",
+      cl::desc("Result-attribute key used to identify port names "
+               "(default: ttir.name; use hw.port_name for CIRCT-emitted IR)"),
+      cl::init("ttir.name"), cl::cat(mainCategory));
 
   // Hide unrelated LLVM/MLIR options so --help only surfaces what's
   // actually relevant to ttmlir-lec.
@@ -518,6 +525,7 @@ int main(int argc, char **argv) {
   cfg.setLogicQFABV = setLogicQFABV;
   cfg.checkOutput = checkOutput;
   cfg.checkOutputIdx = checkOutputIdx;
+  cfg.nameAttr = nameAttr;
 
   DialectRegistry registry;
   mlir::tt::registerAllDialects(registry);

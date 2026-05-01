@@ -13,10 +13,13 @@ namespace mlir::tt {
 struct ConstructTTIRLECOptions {
   std::string firstFunc;
   std::string secondFunc;
-  /// If non-empty, compare only the output port with this hw.port_name.
+  /// If non-empty, compare only the output whose `nameAttr` matches this name.
   std::string checkOutput;
   /// If >= 0, compare only the output at this index (overrides checkOutput).
   int checkOutputIdx = -1;
+  /// The result-attribute key used to identify port names (default:
+  /// "ttir.name"). Pass "hw.port_name" when consuming CIRCT-emitted IR.
+  std::string nameAttr = "ttir.name";
 };
 
 std::unique_ptr<OperationPass<ModuleOp>>

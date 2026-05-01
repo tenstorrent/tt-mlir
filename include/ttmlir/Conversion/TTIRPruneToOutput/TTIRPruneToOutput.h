@@ -11,8 +11,11 @@
 namespace mlir::tt {
 
 struct TTIRPruneToOutputOptions {
-  /// Keep only the result with this hw.port_name.
+  /// Keep only the result whose `nameAttr` result-attribute matches this name.
   std::string keepOutput;
+  /// The result-attribute key used to identify port names (default:
+  /// "ttir.name"). Pass "hw.port_name" when consuming CIRCT-emitted IR.
+  std::string nameAttr = "ttir.name";
 };
 
 std::unique_ptr<OperationPass<ModuleOp>>

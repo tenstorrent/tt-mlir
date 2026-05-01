@@ -14,16 +14,16 @@
 // CHECK-NOT: error
 
 func.func @multi_out(%a: tensor<1xi32>, %b: tensor<1xi32>)
-    -> (tensor<1xi32> {hw.port_name = "port_a"},
-        tensor<1xi32> {hw.port_name = "port_b"}) {
+    -> (tensor<1xi32> {ttir.name = "port_a"},
+        tensor<1xi32> {ttir.name = "port_b"}) {
   %0 = "ttir.add"(%a, %b) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   %1 = "ttir.subtract"(%a, %b) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   return %0, %1 : tensor<1xi32>, tensor<1xi32>
 }
 
 func.func @multi_out_impl(%a: tensor<1xi32>, %b: tensor<1xi32>)
-    -> (tensor<1xi32> {hw.port_name = "port_a"},
-        tensor<1xi32> {hw.port_name = "port_b"}) {
+    -> (tensor<1xi32> {ttir.name = "port_a"},
+        tensor<1xi32> {ttir.name = "port_b"}) {
   %0 = "ttir.add"(%b, %a) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   %1 = "ttir.add"(%a, %b) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   return %0, %1 : tensor<1xi32>, tensor<1xi32>

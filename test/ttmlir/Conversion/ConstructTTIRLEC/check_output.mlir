@@ -9,8 +9,8 @@
 
 // fn_a: out0 = a+b (named "match"), out1 = a-b (named "diff")
 func.func @fn_a(%a: tensor<1xi32>, %b: tensor<1xi32>)
-    -> (tensor<1xi32> {hw.port_name = "match"},
-        tensor<1xi32> {hw.port_name = "diff"}) {
+    -> (tensor<1xi32> {ttir.name = "match"},
+        tensor<1xi32> {ttir.name = "diff"}) {
   %0 = "ttir.add"(%a, %b) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   %1 = "ttir.subtract"(%a, %b) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   return %0, %1 : tensor<1xi32>, tensor<1xi32>
@@ -18,8 +18,8 @@ func.func @fn_a(%a: tensor<1xi32>, %b: tensor<1xi32>)
 
 // fn_b: out0 = b+a (matches fn_a out0), out1 = a*b (does NOT match fn_a out1)
 func.func @fn_b(%a: tensor<1xi32>, %b: tensor<1xi32>)
-    -> (tensor<1xi32> {hw.port_name = "match"},
-        tensor<1xi32> {hw.port_name = "diff"}) {
+    -> (tensor<1xi32> {ttir.name = "match"},
+        tensor<1xi32> {ttir.name = "diff"}) {
   %0 = "ttir.add"(%b, %a) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   %1 = "ttir.multiply"(%a, %b) : (tensor<1xi32>, tensor<1xi32>) -> tensor<1xi32>
   return %0, %1 : tensor<1xi32>, tensor<1xi32>

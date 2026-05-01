@@ -84,6 +84,7 @@ struct ConstructTTIRLECPass
     this->secondFunc = options.secondFunc;
     this->checkOutput = options.checkOutput;
     this->checkOutputIdx = options.checkOutputIdx;
+    this->nameAttr = options.nameAttr;
   }
 
   ConstructTTIRLECPass(const ConstructTTIRLECPass &rhs) : Base(rhs) {
@@ -93,6 +94,7 @@ struct ConstructTTIRLECPass
     this->secondFunc = rhs.secondFunc;
     this->checkOutput = rhs.checkOutput;
     this->checkOutputIdx = rhs.checkOutputIdx;
+    this->nameAttr = rhs.nameAttr;
   }
 
   void runOnOperation() override {
@@ -139,9 +141,9 @@ struct ConstructTTIRLECPass
       }
       selectedIndices.push_back(static_cast<size_t>(checkOutputIdx));
     } else if (!checkOutput.empty()) {
-      // Search both functions' result attributes for hw.port_name ==
-      // checkOutput. The HW->SMT pipeline can strip port_name attrs from the
-      // reference side, so we accept finding the port in either function.
+      // Search both functions' result attributes for the nameAttr key ==
+      // checkOutput. Some lowering pipelines can strip result attrs from one
+      // side, so we accept finding the name in either function.
       auto findInFunc = [&](func::FuncOp fn) -> ssize_t {
         ArrayAttr resAttrs = fn.getAllResultAttrs();
         if (!resAttrs) {
@@ -152,8 +154,8 @@ struct ConstructTTIRLECPass
           if (!dict) {
             continue;
           }
-          if (auto nameAttr = dict.getAs<StringAttr>("hw.port_name")) {
-            if (nameAttr.getValue() == checkOutput) {
+          if (auto portName = dict.getAs<StringAttr>(nameAttr)) {
+            if (portName.getValue() == checkOutput) {
               return static_cast<ssize_t>(i);
             }
           }

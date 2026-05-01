@@ -32,10 +32,12 @@ struct TTIRPruneToOutputPass
   TTIRPruneToOutputPass(const mlir::tt::TTIRPruneToOutputOptions &opts)
       : Base() {
     this->keepOutput = opts.keepOutput;
+    this->nameAttr = opts.nameAttr;
   }
 
   TTIRPruneToOutputPass(const TTIRPruneToOutputPass &rhs) : Base(rhs) {
     this->keepOutput = rhs.keepOutput;
+    this->nameAttr = rhs.nameAttr;
   }
 
   void runOnOperation() override {
@@ -45,10 +47,10 @@ struct TTIRPruneToOutputPass
       return signalPassFailure();
     }
 
-    // First pass: find the index in any function whose results have
-    // hw.port_name attrs matching keepOutput. We assume all functions in the
-    // module derive from the same hw.module port order, so the index is
-    // shared (even if the SMT-lowered reference has lost its port_name attrs).
+    // First pass: find the index in any function whose results have a
+    // `nameAttr`-keyed result attribute matching keepOutput. We assume all
+    // functions in the module share the same port order (even if some have
+    // lost their result attrs after lowering), so the index is shared.
     ssize_t portIdx = -1;
     for (auto fn : getOperation().getOps<func::FuncOp>()) {
       ArrayAttr resAttrs = fn.getAllResultAttrs();
@@ -60,8 +62,8 @@ struct TTIRPruneToOutputPass
         if (!dict) {
           continue;
         }
-        if (auto nameAttr = dict.getAs<StringAttr>("hw.port_name")) {
-          if (nameAttr.getValue() == keepOutput) {
+        if (auto portName = dict.getAs<StringAttr>(nameAttr)) {
+          if (portName.getValue() == keepOutput) {
             portIdx = static_cast<ssize_t>(i);
             break;
           }
@@ -73,8 +75,8 @@ struct TTIRPruneToOutputPass
     }
     if (portIdx < 0) {
       getOperation().emitError() << "ttir-prune-to-output: no func.func has a "
-                                    "result with hw.port_name = '"
-                                 << keepOutput << "'";
+                                    "result with "
+                                 << nameAttr << " = '" << keepOutput << "'";
       return signalPassFailure();
     }
 

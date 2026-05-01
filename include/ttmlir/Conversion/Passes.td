@@ -441,18 +441,22 @@ def FuncDropUnusedArgs : Pass<"func-drop-unused-args", "::mlir::ModuleOp"> {
 }
 
 def TTIRPruneToOutput : Pass<"ttir-prune-to-output", "::mlir::ModuleOp"> {
-  let summary = "Prune all func.func results except the one with the given hw.port_name.";
+  let summary = "Prune all func.func results except the one with the given name.";
   let description = [{
     For each func.func in the module that has at least one result with
-    hw.port_name attribute matching keepOutput, erase all other results
-    (and update the func.return). This works in concert with --canonicalize
-    to eliminate dead logic, shrinking the SMT problem for per-output LEC.
+    a result-attribute key (controlled by name-attr, default "ttir.name")
+    matching keep-output, erase all other results (and update the func.return).
+    This works in concert with --canonicalize to eliminate dead logic,
+    shrinking the SMT problem for per-output LEC.
   }];
   let constructor = "createTTIRPruneToOutputPass()";
   let dependentDialects = ["mlir::func::FuncDialect"];
   let options = [
     Option<"keepOutput", "keep-output", "std::string", /*default=*/"\"\"",
-           "hw.port_name of the result to keep">
+           "Name of the result to keep">,
+    Option<"nameAttr", "name-attr", "std::string", /*default=*/"\"ttir.name\"",
+           "Result-attribute key used to identify port names (default: ttir.name; "
+           "use hw.port_name for CIRCT-emitted IR)">
   ];
 }
 
@@ -471,9 +475,12 @@ def ConstructTTIRLEC : Pass<"construct-ttir-lec", "::mlir::ModuleOp"> {
     Option<"firstFunc", "c1", "std::string", /*default=*/"", "Name of first function to compare">,
     Option<"secondFunc", "c2", "std::string", /*default=*/"", "Name of second function to compare">,
     Option<"checkOutput", "check-output", "std::string", /*default=*/"\"\"",
-           "Compare only the output port with this hw.port_name (default: compare all)">,
+           "Compare only the named output (default: compare all)">,
     Option<"checkOutputIdx", "check-output-idx", "int", /*default=*/"-1",
-           "Compare only the output at this index (overrides check-output)">
+           "Compare only the output at this index (overrides check-output)">,
+    Option<"nameAttr", "name-attr", "std::string", /*default=*/"\"ttir.name\"",
+           "Result-attribute key used to identify port names (default: ttir.name; "
+           "use hw.port_name for CIRCT-emitted IR)">
   ];
 }
 
