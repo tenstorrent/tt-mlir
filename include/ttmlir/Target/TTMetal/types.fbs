@@ -13,6 +13,15 @@ table ShardSpecBuffer {
   tensor_shape_in_pages: Dim2d;
 }
 
+// Mirrors tt_metal::BufferDistributionSpec, which builds host/device page
+// mappings in the page domain. Compiler layout lowering should still reason in
+// logical/shard coordinates and only convert to pages at serialization time.
+table BufferDistributionSpec {
+  tensor_shape_in_pages: [uint32];
+  shard_shape_in_pages: [uint32];
+  cores: [Dim2d];
+}
+
 table InterleavedBufferConfig {
   size: uint64;
   page_size: uint64;
@@ -22,6 +31,7 @@ table ShardedBufferConfig {
   size: uint64;
   page_size: uint64;
   shard_spec_buffer: ShardSpecBuffer;
+  buffer_distribution_spec: BufferDistributionSpec;
 }
 
 union BufferConfig {
