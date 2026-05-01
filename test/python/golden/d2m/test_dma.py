@@ -104,11 +104,9 @@ def test_roundtrip_dma_tiled(
             assert (shape[0] % start_grid[0] == 0) and (
                 shape[1] % start_grid[1] == 0
             ), "shape must be divisible by start_grid"
-            start_shard_shape = (shape[0] // start_grid[0], shape[1] // start_grid[1])
             assert (shape[0] % end_grid[0] == 0) and (
                 shape[1] % end_grid[1] == 0
             ), "shard_shape must be divisible by end_grid"
-            end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
 
             # tilize the tensor on a single worker
             to_device = builder.tilize(
@@ -199,7 +197,6 @@ def test_roundtrip_dma_rowmajor(
             assert (start_shard_shape[0] % end_grid[0] == 0) and (
                 start_shard_shape[1] % end_grid[1] == 0
             ), "start_shard_shape must be divisible by end_grid"
-            end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
 
             # WRITE L1 to initial shard layout
             tensor_layoutA = builder.to_layout(
@@ -422,10 +419,8 @@ def test_interleaved_dma(
         ):
             # derive sharded shapes
             assert (
-                (shape[0] % end_grid[0] == 0) and (shape[1] % end_grid[1] == 0),
-                "shard_shape must be divisible by end_grid",
-            )
-            end_shard_shape = (shape[0] // end_grid[0], shape[1] // end_grid[1])
+                shape[0] % end_grid[0] == 0 and shape[1] % end_grid[1] == 0
+            ), "shard_shape must be divisible by end_grid"
 
             # tilize the tensor on a single worker
             to_device = builder.tilize(

@@ -227,7 +227,7 @@ createDramDistributedBufferConfigForMemref(FlatbufferObjectCache &cache,
 
   uint64_t pageSize = device.getMemrefSizeBytes(memref);
   uint64_t numPages = ttmlir::utils::volume(shardLayout.getGridShape(memref));
-  uint64_t size = ttmlir::utils::alignUp(numPages * pageSize, pageSize);
+  uint64_t size = numPages * pageSize;
   uint32_t numDramBanks = static_cast<uint32_t>(
       systemDesc.getChipDescs().front().getNumDramChannels());
 

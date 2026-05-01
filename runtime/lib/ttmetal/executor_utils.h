@@ -81,12 +81,13 @@ inline void packLogicalHostToDramPages(const TensorDesc &hostDesc,
   const auto *src = static_cast<const std::byte *>(hostData);
   auto *dst = static_cast<std::byte *>(dramPageData);
 
+  std::vector<uint32_t> logicalCoords(rank);
+  std::vector<uint32_t> gridCoords(rank);
+  std::vector<uint32_t> shardCoords(rank);
+
   for (size_t logicalLinear = 0; logicalLinear < hostDesc.volume();
        ++logicalLinear) {
-    std::vector<uint32_t> logicalCoords =
-        delinearize(logicalLinear, hostDesc.shape);
-    std::vector<uint32_t> gridCoords(rank);
-    std::vector<uint32_t> shardCoords(rank);
+    logicalCoords = delinearize(logicalLinear, hostDesc.shape);
     size_t hostOffsetElems = 0;
     for (size_t i = 0; i < rank; ++i) {
       gridCoords[i] = logicalCoords[i] / shardShape[i];
@@ -122,12 +123,13 @@ inline void unpackDramPagesToLogicalHost(const TensorDesc &dramDesc,
   const auto *src = static_cast<const std::byte *>(dramPageData);
   auto *dst = static_cast<std::byte *>(hostData);
 
+  std::vector<uint32_t> logicalCoords(rank);
+  std::vector<uint32_t> gridCoords(rank);
+  std::vector<uint32_t> shardCoords(rank);
+
   for (size_t logicalLinear = 0; logicalLinear < hostDesc.volume();
        ++logicalLinear) {
-    std::vector<uint32_t> logicalCoords =
-        delinearize(logicalLinear, hostDesc.shape);
-    std::vector<uint32_t> gridCoords(rank);
-    std::vector<uint32_t> shardCoords(rank);
+    logicalCoords = delinearize(logicalLinear, hostDesc.shape);
     size_t hostOffsetElems = 0;
     for (size_t i = 0; i < rank; ++i) {
       gridCoords[i] = logicalCoords[i] / shardShape[i];
