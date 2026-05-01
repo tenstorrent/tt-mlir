@@ -2673,6 +2673,14 @@ def update_cache_golden(
     """
     Custom golden function for update_cache operation.
 
+    Matches TTNN ``update_cache`` semantics:
+      cache shape: [num_users, num_heads, max_seq_len, head_dim]
+      input shape: [1, num_heads, num_input_users, head_dim]
+      update_index: scalar position in the cache sequence dimension
+    The update writes:
+      cache[batch_offset + b, h, update_index, d] = input[0, h, b, d]
+    for ``b`` in ``[0, num_input_users)``.
+
     Parameters
     ----------
     cache_tensor : GoldenMapTensor
@@ -2680,9 +2688,9 @@ def update_cache_golden(
     update_tensor : GoldenMapTensor
         Tensor containing update data
     indices_tensor : GoldenMapTensor
-        Tensor containing update indices
+        Tensor containing the (scalar) update index
     batch_offset : IntegerAttr, optional
-        Batch offset attribute (ignored in golden computation)
+        Offset along the cache batch dimension where the input batch starts
     output_type_mlir : Type, optional
         MLIR output type (ignored in golden computation)
     **kwargs : dict
@@ -2695,15 +2703,23 @@ def update_cache_golden(
     """
     result = cache_tensor.clone()
 
-    # indices_tensor contains the position(s) in the sequence dimension
-    # where update_tensor values should be written
     indices = indices_tensor.shard_at(0).to(torch.long)
-    seq_len = update_tensor.shape[2]
+    update_idx = int(indices.flatten()[0].item())
+
+    batch_offset_val = (
+        int(unpack_mlir_attr(batch_offset)) if batch_offset is not None else 0
+    )
+
     for device_id, shard in result.shard_map.items():
         update_data = update_tensor.shard_at(device_id)
-        for i in range(seq_len):
-            idx = indices[i].item()
-            shard[:, :, idx, :] = update_data[:, :, i, :]
+        num_input_users = update_data.shape[2]
+        # update_data[0, h, b, d] -> shard[batch_offset + b, h, update_idx, d]
+        shard[
+            batch_offset_val : batch_offset_val + num_input_users,
+            :,
+            update_idx,
+            :,
+        ] = update_data[0].permute(1, 0, 2)
     return result
 
 
@@ -3408,6 +3424,13 @@ def ttir_gelu_backward_golden(grad, input, approximate="none"):
     # implicit broadcasting (ONEDNN limitation). Broadcast inputs explicitly.
     grad, input = torch.broadcast_tensors(grad, input)
     return torch.ops.aten.gelu_backward(grad, input, approximate=approximate)
+
+
+def ttir_gelu_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.gelu(input_tensor).to(output_dtype)
 
 
 def ttir_cos_golden(
@@ -6661,12 +6684,16 @@ def ttnn_layer_norm_golden(
     epsilon = unpack_mlir_attr(epsilon)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
+    # Upcast weight/bias to match input's float32 dtype. torch.layer_norm
+    # rejects mixed fp32 input + bf16 params on CPU.
+    weight_float = weight.float() if weight is not None else None
+    bias_float = bias.float() if bias is not None else None
 
     return torch.nn.functional.layer_norm(
         input_float,
         normalized_shape=normalized_shape,
-        weight=weight,
-        bias=bias,
+        weight=weight_float,
+        bias=bias_float,
         eps=epsilon,
     ).to(output_dtype)
 
@@ -7490,7 +7517,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ErfOp: ttir_erf_golden,
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
-    ttir.GeluOp: torch.nn.functional.gelu,
+    ttir.GeluOp: ttir_gelu_golden,
     ttir.GeluBackwardOp: ttir_gelu_backward_golden,
     ttir.IsFiniteOp: ttir_isfinite_golden,
     ttir.MishOp: torch.nn.functional.mish,
