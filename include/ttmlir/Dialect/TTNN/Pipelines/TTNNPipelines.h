@@ -310,7 +310,7 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::init(false)};
 
   // Enable the d2m elementwise fusion pass when enable-create-d2m-subgraphs is
-  // on. See resolveD2MSubgraphsOptions for more details.
+  // on. See resolveCreateD2MSubgraphsOptions for more details.
   mutable Option<bool> enableD2MElementwiseFusion{
       *this, "enable-d2m-elementwise-fusion",
       llvm::cl::desc("Enable elementwise fusion pass."), llvm::cl::init(false)};
@@ -491,7 +491,7 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Print per-op compile-time statistics at DEBUG level."),
       llvm::cl::init(false)};
 
-  void resolveD2MSubgraphsOptions() const {
+  void resolveCreateD2MSubgraphsOptions() const {
     // enable-d2m-elementwise-fusion is a sub-option of
     // enable-create-d2m-subgraphs and should only be enabled if
     // enable-create-d2m-subgraphs is also enabled.

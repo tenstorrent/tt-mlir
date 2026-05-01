@@ -267,7 +267,7 @@ void createTTIRToTTNNCommonPipeline(
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
   // Resolve options controlled by enable-create-d2m-subgraphs.
-  options.resolveD2MSubgraphsOptions();
+  options.resolveCreateD2MSubgraphsOptions();
 
   // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
   // are resolved - tt-metal issue #31041.
