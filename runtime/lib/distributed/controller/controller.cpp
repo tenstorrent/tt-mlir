@@ -868,7 +868,11 @@ void Controller::processResponseQueue() {
       if (readFuture.wait_for(readTimeout_) == std::future_status::timeout) {
         LOG_FATAL("Read timeout occurred while receiving response from worker");
       }
-      responseBuffers.push_back(readFuture.get());
+      SizedBuffer responseBuffer = readFuture.get();
+      LOG_ASSERT(responseBuffer.size(),
+                 "Received empty response from worker, worker may have "
+                 "crashed or disconnected");
+      responseBuffers.push_back(std::move(responseBuffer));
     }
 
     for (const SizedBuffer &responseBuffer : responseBuffers) {
