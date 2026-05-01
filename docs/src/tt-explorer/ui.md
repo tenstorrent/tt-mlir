@@ -67,6 +67,12 @@ If the `Generate C++ Code` option is enabled, this button will become available 
 
 This button will open a window to view the shell logs while execution is running. If any errors occur they will be displayed here.
 
+## Load Graphs from Server
+
+![Load from server button](../images/tt-explorer/load-from-server.png)
+
+The "Load graphs from server" button scans the `~/explorer` directory for MLIR files (`.ttir`, `.mlir`, `.ttnn` extensions) and loads them as single entries for each collection into the graph selection interface. Each top-level directory with a .mlir extension in it's name becomes a separate collection, allowing you to easily find and switch between different compilation stages of your initial graph.
+
 ## Overridden Fields
 
 ![Example of fields with overrides enabled](../images/tt-explorer/overrides.png)
