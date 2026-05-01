@@ -335,6 +335,8 @@ def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
         -x if x < 0
       }
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
@@ -368,6 +370,8 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
 
       Mathematical definition: cbrt(x) = ∛x = x^(1/3)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [TTIR_Idempotence]> {
@@ -405,6 +409,8 @@ def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [TTIR_Idempotence]> {
 
       Mathematical definition: ceil(x) = ⌈x⌉ = min{n ∈ ℤ | n ≥ x}
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
@@ -424,6 +430,8 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
       // [[0.9601, 0.5403, -0.9553, -0.1365], ... ]
       ```
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AcosOp: TTIR_ElementwiseUnaryOp<"acos"> {
@@ -479,6 +487,8 @@ def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
 
       Mathematical definition: floor(x) = ⌊x⌋ = max{n ∈ ℤ | n ≤ x}
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_FracOp: TTIR_ElementwiseUnaryOp<"frac"> {
@@ -539,6 +549,8 @@ def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
 
       Mathematical definition: isfinite(x) = x ∈ ℝ
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
@@ -560,6 +572,8 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
 
       Mathematical definition: logical_not(x) = !x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]> {
@@ -588,6 +602,8 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]
 
       Mathematical definition: bitwise_not(x) = ~x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MishOp: TTIR_ElementwiseUnaryOp<"mish"> {
@@ -657,6 +673,8 @@ def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
 
       Mathematical definition: tan(x) = sin(x) / cos(x)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AtanOp: TTIR_ElementwiseUnaryOp<"atan"> {
@@ -686,6 +704,8 @@ def TTIR_AtanOp: TTIR_ElementwiseUnaryOp<"atan"> {
 
       Mathematical definition: atan(x) = tan⁻¹(x), where the result is in the range [-π/2, π/2]
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
@@ -731,6 +751,8 @@ def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal", [TTIR_Involution]>
 
       Mathematical definition: reciprocal(x) = 1 / x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
@@ -798,6 +820,8 @@ def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
 
       Mathematical definition: rsqrt(x) = 1 / sqrt(x)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
@@ -917,6 +941,8 @@ def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
         -1 if x < 0
       }
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_SignbitOp: TTIR_ElementwiseUnaryOp<"signbit"> {
@@ -944,6 +970,8 @@ def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
       // [[0.9601, 0.5403, -0.3, 4.5], ... ]
       ```
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AsinOp: TTIR_ElementwiseUnaryOp<"asin"> {
@@ -1017,6 +1045,8 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
 
       Mathematical definition: sqrt(x) = √x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_SquareOp : TTIR_ElementwiseUnaryOp<"square"> {
@@ -1121,6 +1151,8 @@ def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
 
       Mathematical definition: log(x) = ln(x), where ln is the natural logarithm
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Log1pOp: TTIR_ElementwiseUnaryOp<"log1p"> {
@@ -1152,6 +1184,8 @@ def TTIR_Log1pOp: TTIR_ElementwiseUnaryOp<"log1p"> {
 
       Mathematical definition: log1p(x) = ln(1 + x)
       }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
@@ -1184,6 +1218,8 @@ def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
 
     Mathematical definition: expm1(x) = e^x - 1
   }];
+
+  let hasFolder = 1;
 }
 
 def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
@@ -1205,6 +1241,8 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
 
       Mathematical definition: exp(x) = e^x
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Exp2Op: TTIR_ElementwiseUnaryOp<"exp2"> {
@@ -1374,6 +1412,8 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
 
       Mathematical definition: equal(x, y) = x == y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise ne(x, x) == 0.
@@ -1410,6 +1450,8 @@ def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
 
       Mathematical definition: not_equal(x, y) = x != y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise ge(x, x) == 1.
@@ -1443,6 +1485,8 @@ def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
 
       Mathematical definition: greater_equal(x, y) = x >= y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise gt(x, x) == 0.
@@ -1476,6 +1520,8 @@ def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
 
       Mathematical definition: greater_than(x, y) = x > y
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO (azecevic): NaN != NaN, otherwise le(x, x) == 1.
@@ -1579,7 +1625,7 @@ def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdem
       Mathematical definition: logical_and(x, y) = x && y
     }];
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempotence]> {
@@ -1613,7 +1659,7 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
       Mathematical definition: logical_or(x, y) = x || y
     }];
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
@@ -1679,6 +1725,8 @@ def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdem
 
       Mathematical definition: bitwise_and(x, y) = x & y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempotence]> {
@@ -1712,6 +1760,8 @@ def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempo
 
       Mathematical definition: bitwise_or(x, y) = x | y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
@@ -1746,7 +1796,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
       Mathematical definition: bitwise_xor(x, y) = x ^ y
     }];
 
-    let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotence]> {
@@ -1781,6 +1831,8 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
 
       Mathematical definition: minimum(x, y) = min(x, y)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
@@ -1791,6 +1843,7 @@ def TTIR_LogicalRightShiftOp : TTIR_ElementwiseBinaryOp<"logical_right_shift"> {
       second tensor.
     }];
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_RightShiftOp : TTIR_ElementwiseBinaryOp<"right_shift"> {
@@ -1811,6 +1864,7 @@ def TTIR_LogicalLeftShiftOp : TTIR_ElementwiseBinaryOp<"logical_left_shift"> {
       second tensor.
     }];
     let hasVerifier = 1;
+    let hasFolder = 1;
 }
 
 def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
@@ -1844,6 +1898,8 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
 
       Mathematical definition: subtract(x, y) = x - y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
@@ -1878,6 +1934,8 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
 
       Mathematical definition: remainder(x, y) = x % y (where % is the remainder operator)
     }];
+
+    let hasFolder = 1;
 }
 
 // TODO We need to add a broadcastable trait to this op.
@@ -1917,6 +1975,8 @@ def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
 
       Mathematical definition: pow(x, y) = x^y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
@@ -1938,6 +1998,8 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
       ```
       Mathematical definition: atan2(x, y) = arctan(y / x)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
@@ -1970,6 +2032,8 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
 
       Mathematical definition: add(x, y) = x + y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
@@ -2002,6 +2066,8 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
 
       Mathematical definition: multiply(x, y) = x * y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
@@ -2035,6 +2101,8 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
 
       Mathematical definition: div(x, y) = x / y
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
@@ -2061,6 +2129,8 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
 
       Mathematical definition: maximum(x, y) = max(x, y)
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_GeluBackwardOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
@@ -4728,6 +4798,8 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
     let hasVerifier = 1;
 
     let hasCanonicalizer = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
