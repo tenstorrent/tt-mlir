@@ -682,7 +682,15 @@ createOp(FlatbufferObjectCache &cache, func::CallOp op,
   uint32_t programIndex = it->second;
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> inputs;
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      semaphoreInputs;
   for (const auto input : op.getOperands()) {
+    if (::mlir::isa<::mlir::tt::ttnn::GlobalSemaphoreType>(input.getType())) {
+      semaphoreInputs.push_back(
+          cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+              getOperandThroughDPSOps(input)));
+      continue;
+    }
     inputs.push_back(cache.at<::tt::target::ttnn::TensorRef>(
         getOperandThroughDPSOps(input)));
   }
@@ -695,8 +703,8 @@ createOp(FlatbufferObjectCache &cache, func::CallOp op,
                                     /*local_shape*/ std::nullopt));
   }
 
-  return ::tt::target::ttnn::CreateFuncCallOpDirect(*cache.fbb, programIndex,
-                                                    &inputs, &outputs);
+  return ::tt::target::ttnn::CreateFuncCallOpDirect(
+      *cache.fbb, programIndex, &inputs, &outputs, &semaphoreInputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CumSumOp>
@@ -1599,10 +1607,17 @@ createOp(FlatbufferObjectCache &cache, DistributedRMSNormOp op) {
     programConfig = toFlatbuffer(cache, op.getProgramConfig().value());
   }
 
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef> semaphore = 0;
+  if (op.getSemaphore()) {
+    semaphore =
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(op.getSemaphore());
+  }
+
   return ::tt::target::ttnn::CreateDistributedRMSNormOp(
       *cache.fbb, input, weight, residual, op.getClusterAxis(),
       op.getEpsilon().convertToFloat(), subDeviceId, memoryConfig, numLinks,
-      topology, computeConfig.value_or(0), stats, programConfig, output);
+      topology, computeConfig.value_or(0), stats, programConfig, output,
+      semaphore);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormPreAllGatherOp>
@@ -3148,6 +3163,13 @@ createOp(FlatbufferObjectCache &cache, CaptureOrExecuteTraceOp op,
                                     /*local_shape*/ std::nullopt));
   }
 
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      semaphoreInputs;
+  for (auto semaphore : op.getSemaphoreInputs()) {
+    semaphoreInputs.push_back(cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+        getOperandThroughDPSOps(semaphore)));
+  }
+
   auto captureIt = programIndexMap.find(op.getCaptureCallee().str());
   assert(captureIt != programIndexMap.end() &&
          "Program name not found in program index map!");
@@ -3160,7 +3182,7 @@ createOp(FlatbufferObjectCache &cache, CaptureOrExecuteTraceOp op,
 
   return ::tt::target::ttnn::CreateCaptureOrExecuteTraceOpDirect(
       *cache.fbb, cache.at<::tt::target::DeviceRef>(device), captureProgramIdx,
-      executeProgramIdx, &inputs, &outputs);
+      executeProgramIdx, &inputs, &outputs, &semaphoreInputs);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::ConcatenateHeadsOp>
@@ -4956,7 +4978,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
     programs.push_back(::tt::target::ttnn::CreateProgramDirect(
         fbb, program.name, &program.inputs, &program.outputs, &program.ops,
-        &dylibs, debugInfo, func.isPrivate(), &meshShape));
+        &dylibs, debugInfo, func.isPrivate(), &meshShape,
+        &program.semaphoreInputs));
   }
 
   auto binary = ::tt::target::ttnn::CreateTTNNBinaryDirect(

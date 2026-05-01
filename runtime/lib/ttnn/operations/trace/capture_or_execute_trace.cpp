@@ -58,9 +58,12 @@ static void runTraceProgramAndCaptureTrace(
     inputTensors.push_back(inputTensor);
   }
 
+  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs =
+      utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
+
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->capture_program_id(), inputTensors,
-                           /*constEvalProgram=*/false);
+                           /*constEvalProgram=*/false, semaphoreInputs);
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor.gatherOutputTensors();
@@ -184,9 +187,14 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
   std::vector<::tt::runtime::Tensor> inputTensors = {
       ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(traceIdTensor)};
 
+  // The execute trace program only invokes ttnn.execute_trace(traceId); the
+  // semaphores were baked into the captured trace at capture time and are not
+  // arguments of the execute program. Passing them here would mismatch
+  // program->semaphore_inputs() (which is empty for the execute program).
   ProgramExecutor executor(deviceHandle, context.getExecutableHandle(),
                            op->execute_program_id(), inputTensors,
-                           /*constEvalProgram=*/false);
+                           /*constEvalProgram=*/false,
+                           /*programSemaphoreInputs=*/{});
   executor.execute();
 
   for (size_t i = 0; i < op->outputs()->size(); i++) {

@@ -4599,15 +4599,19 @@ void CaptureOrExecuteTraceOp::getEffects(
   }
 
   // Verify that the input arguments to this op match the capture_callee
-  // function's arguments
+  // function's arguments.
   auto captureInputTypes = captureFuncOp.getFunctionType().getInputs();
   auto opInputs = this->getInputs();
+  auto opSemaphoreInputs = this->getSemaphoreInputs();
+  size_t expectedCaptureInputs = opInputs.size() + opSemaphoreInputs.size();
 
-  if (captureInputTypes.size() != opInputs.size()) {
-    return emitOpError() << "Number of input arguments (" << opInputs.size()
-                         << ") does not match capture function '"
-                         << captureCalleeAttr.getValue() << "' input count ("
-                         << captureInputTypes.size() << ")";
+  if (captureInputTypes.size() != expectedCaptureInputs) {
+    return emitOpError()
+           << "Number of input arguments (inputs + semaphore_inputs = "
+           << opInputs.size() << " + " << opSemaphoreInputs.size() << " = "
+           << expectedCaptureInputs << ") does not match capture function '"
+           << captureCalleeAttr.getValue() << "' input count ("
+           << captureInputTypes.size() << ")";
   }
 
   for (size_t i = 0; i < opInputs.size(); ++i) {
@@ -4616,6 +4620,17 @@ void CaptureOrExecuteTraceOp::getEffects(
                            << "expected " << captureInputTypes[i]
                            << " from capture function, but got "
                            << opInputs[i].getType();
+    }
+  }
+
+  for (size_t i = 0; i < opSemaphoreInputs.size(); ++i) {
+    size_t captureIdx = opInputs.size() + i;
+    if (opSemaphoreInputs[i].getType() != captureInputTypes[captureIdx]) {
+      return emitOpError() << "Semaphore input argument " << i
+                           << " type mismatch: "
+                           << "expected " << captureInputTypes[captureIdx]
+                           << " from capture function, but got "
+                           << opSemaphoreInputs[i].getType();
     }
   }
 
@@ -4657,9 +4672,12 @@ void CaptureOrExecuteTraceOp::getEffects(
   }
 
   for (BlockArgument arg : traceFuncOp.getArguments()) {
+    if (::mlir::isa<ttnn::GlobalSemaphoreType>(arg.getType())) {
+      continue;
+    }
     if (!::mlir::isa<RankedTensorType>(arg.getType())) {
       return emitOpError() << "All input arguments of trace function must be "
-                           << "ranked tensors";
+                           << "ranked tensors or global semaphores";
     }
     auto tensorType = ::mlir::cast<RankedTensorType>(arg.getType());
     if (!utils::isTensorOnDevice(tensorType)) {

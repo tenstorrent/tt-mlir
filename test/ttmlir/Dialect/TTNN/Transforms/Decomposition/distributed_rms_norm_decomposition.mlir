@@ -28,7 +28,7 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     // CHECK: "ttnn.multiply"
     // CHECK-NOT: "ttnn.distributed_rms_norm"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x1x64x128xbf16, #ttnn_layout>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x1x64x128xbf16, #ttnn_layout>
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>}> : (tensor<1x1x64x128xbf16, #ttnn_layout>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x1x64x128xbf16, #ttnn_layout>
     return %1 : tensor<1x1x64x128xbf16, #ttnn_layout>
   }
 
@@ -40,7 +40,7 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     // CHECK: "ttnn.distributed_rms_norm"
     // CHECK-NOT: "ttnn.rsqrt"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x1x32x128xbf16, #ttnn_layout_supported>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x1x32x128xbf16, #ttnn_layout_supported>
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>}> : (tensor<1x1x32x128xbf16, #ttnn_layout_supported>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x1x32x128xbf16, #ttnn_layout_supported>
     return %1 : tensor<1x1x32x128xbf16, #ttnn_layout_supported>
   }
 
@@ -64,7 +64,7 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     // CHECK-SAME: shape = [1 : i32, 32 : i32, 128 : i32]
     // CHECK-SAME: -> tensor<1x32x128
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>}> : (tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>
     return %1 : tensor<1x32x128xbf16, #ttnn_layout_supported_rank3>
   }
 
@@ -79,7 +79,7 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     // CHECK: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.distributed_rms_norm"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 1>}> : (tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>}> : (tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>
     return %1 : tensor<1x2x32x128xbf16, #ttnn_layout_unsupported_leading>
   }
 
@@ -95,7 +95,7 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     // CHECK: "ttnn.all_gather"
     // CHECK-NOT: "ttnn.distributed_rms_norm"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %arg2, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 1>}> : (tensor<1x1x64x128xbf16, #ttnn_layout>, tensor<128xbf16, #ttnn_layout_weight>, tensor<1x1x64x128xbf16, #ttnn_layout>, !ttnn.device) -> tensor<1x1x64x128xbf16, #ttnn_layout>
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %arg2, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1>}> : (tensor<1x1x64x128xbf16, #ttnn_layout>, tensor<128xbf16, #ttnn_layout_weight>, tensor<1x1x64x128xbf16, #ttnn_layout>, !ttnn.device) -> tensor<1x1x64x128xbf16, #ttnn_layout>
     return %1 : tensor<1x1x64x128xbf16, #ttnn_layout>
   }
 }

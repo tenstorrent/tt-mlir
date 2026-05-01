@@ -95,10 +95,10 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
     auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
         loc, canonicalResultType, reshapedInput, op.getWeight(),
-        reshapedResidual, op.getStats(), op.getDevice(), op.getClusterAxis(),
-        op.getEpsilon(), op.getSubDeviceIdAttr(), op.getMemoryConfigAttr(),
-        op.getNumLinksAttr(), op.getTopologyAttr(), op.getComputeConfigAttr(),
-        op.getProgramConfigAttr());
+        reshapedResidual, op.getStats(), op.getSemaphore(), op.getDevice(),
+        op.getClusterAxis(), op.getEpsilon(), op.getSubDeviceIdAttr(),
+        op.getMemoryConfigAttr(), op.getNumLinksAttr(), op.getTopologyAttr(),
+        op.getComputeConfigAttr(), op.getProgramConfigAttr());
 
     mlir::Value reshapedResult =
         reshapeTo(rewriter, loc, newOp.getResult(), resultType.getShape());

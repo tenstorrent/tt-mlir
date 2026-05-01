@@ -4,6 +4,7 @@
 
 #include "operations/mlir_native/func_call.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 
@@ -18,11 +19,12 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
         context.getTensorPool().getRuntimeTensorAndValidate(input));
   }
 
-  // Forward the caller's context so state that must persist across nested
-  // invocations (e.g. implicit GlobalSemaphores) is shared with the parent.
+  std::vector<::ttnn::GlobalSemaphore> semaphoreInputs =
+      utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
+
   ProgramExecutor executor(context.getDeviceHandle(),
                            context.getExecutableHandle(), programIndex, inputs,
-                           /*constEvalProgram=*/false, &context);
+                           /*constEvalProgram=*/false, semaphoreInputs);
 
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputs = executor.gatherOutputTensors();

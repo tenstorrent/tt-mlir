@@ -132,7 +132,7 @@ ProgramExecutor::ProgramExecutor(
     ::tt::runtime::Device deviceHandle, ::tt::runtime::Binary &executableHandle,
     const size_t programIndex,
     std::vector<::tt::runtime::Tensor> &programInputs, bool constEvalProgram,
-    ProgramContext *parentContext)
+    const std::vector<::ttnn::GlobalSemaphore> &programSemaphoreInputs)
     : program(utils::getProgram(executableHandle, programIndex)),
       executableHandle(executableHandle), constEvalProgram(constEvalProgram) {
   LOG_ASSERT(program, "Program must be provided for execution");
@@ -155,10 +155,31 @@ ProgramExecutor::ProgramExecutor(
     programOutputIds.push_back(output->global_id());
   }
 
+  GlobalSemaphoreMap liveGlobalSemaphores;
+  size_t expectedSemaphoreInputs =
+      program->semaphore_inputs() ? program->semaphore_inputs()->size() : 0;
+  LOG_ASSERT(programSemaphoreInputs.size() == expectedSemaphoreInputs,
+             "Program semaphore input size mismatch: ", expectedSemaphoreInputs,
+             " != ", programSemaphoreInputs.size());
+  if (program->semaphore_inputs()) {
+    size_t i = 0;
+    for (const ::tt::target::ttnn::GlobalSemaphoreRef *semaphoreRef :
+         *program->semaphore_inputs()) {
+      auto semaphorePtr = std::make_shared<::ttnn::GlobalSemaphore>(
+          programSemaphoreInputs[i++]);
+      auto [iter, inserted] = liveGlobalSemaphores.try_emplace(
+          semaphoreRef->global_id(),
+          ::tt::runtime::GlobalSemaphore(
+              std::static_pointer_cast<void>(semaphorePtr),
+              DeviceRuntime::TTNN));
+      LOG_ASSERT(inserted, "Duplicate input semaphore");
+    }
+  }
+
   context = std::make_unique<ProgramContext>(
       programInputIds, programOutputIds, std::move(liveTensors),
-      GlobalSemaphoreMap(), common::DylibManager(program->dylibs()),
-      std::move(deviceHandle), executableHandle, programIndex, parentContext);
+      std::move(liveGlobalSemaphores), common::DylibManager(program->dylibs()),
+      std::move(deviceHandle), executableHandle, programIndex);
 }
 
 void ProgramExecutor::runOpCallback(

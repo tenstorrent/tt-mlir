@@ -129,7 +129,8 @@ private:
     return false;
   }
 
-  // Collect all inputs and outputs outside the operation set to hoist
+  // Collect all inputs and outputs outside the operation set to hoist.
+  // Tensor inputs come first, followed by semaphore inputs.
   void collectFunctionBoundary(llvm::ArrayRef<Operation *> opsToHoist,
                                llvm::SmallVector<mlir::Value> &inputs,
                                llvm::SmallVector<mlir::Value> &outputs) {
@@ -142,7 +143,8 @@ private:
     // Collect inputs: operands that come from outside the operation set
     for (Operation *op : opsToHoist) {
       for (auto operand : op->getOperands()) {
-        if (!::mlir::isa<RankedTensorType>(operand.getType())) {
+        if (!::mlir::isa<RankedTensorType, ttnn::GlobalSemaphoreType>(
+                operand.getType())) {
           continue;
         }
         Operation *definingOp = operand.getDefiningOp();
@@ -155,6 +157,13 @@ private:
     }
 
     llvm::sort(inputs.begin(), inputs.end(), [](mlir::Value a, mlir::Value b) {
+      // Tensors before semaphores; capture/execute op operand groups and the
+      // runtime program signature follow this layout.
+      bool aIsSemaphore = ::mlir::isa<ttnn::GlobalSemaphoreType>(a.getType());
+      bool bIsSemaphore = ::mlir::isa<ttnn::GlobalSemaphoreType>(b.getType());
+      if (aIsSemaphore != bIsSemaphore) {
+        return !aIsSemaphore;
+      }
       // prioritize block arguments
       // this is ok now since we check that the funcOp has only 1 block
       // should be updated if we support multiple blocks in the future
@@ -356,12 +365,20 @@ private:
     // - Regular inputs from host memory that need to be transferred to device
     // - Constants/parameters that are already on device (persisted)
     // - KV cache tensors that are device-native and updated in-place
+    // - Global semaphores: pass-through, no slot, no host staging
     // For each argument, we determine the appropriate input type and slot
     // allocation strategy.
     llvm::SmallVector<mlir::Type> inputTypes;
     llvm::SmallVector<mlir::Type> traceInputSlotTypes;
     for (size_t i = 0; i < traceFunc.getNumArguments(); i++) {
       mlir::Value traceFuncArg = traceFunc.getArgument(i);
+
+      // Semaphores are pass-through handles, not tensors. They go through the
+      // wrapper signature but have no persistent slot.
+      if (::mlir::isa<ttnn::GlobalSemaphoreType>(traceFuncArg.getType())) {
+        inputTypes.push_back(traceFuncArg.getType());
+        continue;
+      }
 
       RankedTensorType originalRankedTensorType =
           mlir::cast<RankedTensorType>(traceFuncArg.getType());
@@ -408,8 +425,8 @@ private:
     // execution.
     outputTypes.push_back(utils::getTraceIdType(context));
 
-    // Trace input slots for all inputs (including constants/parameters and KV
-    // cache) that are persisted on device.
+    // Trace input slots for all tensor inputs (including constants/parameters
+    // and KV cache) that are persisted on device.
     for (mlir::Type traceInputSlotType : traceInputSlotTypes) {
       outputTypes.push_back(traceInputSlotType);
     }
@@ -448,20 +465,35 @@ private:
         utils::getOrInsertDevice(rewriter, runAndCaptureTraceFuncEntryBlock);
     auto device = ttcore::lookupDevice(deviceOp);
 
-    // Create or reuse trace input slots on device.
-    // - Device-resident args (constants/parameters/KV cache): use directly
-    // - Regular inputs: allocate new empty tensors on device for data transfer
+    // Create or reuse trace input slots on device, and build the operand list
+    // for the inner func.call to the trace function.
+    // - Device-resident tensor args (constants/parameters/KV cache): use
+    //   directly as slots.
+    // - Regular tensor inputs: allocate new empty tensors on device for data
+    //   transfer; these become persistent slots.
+    // - Semaphores: pass-through into the inner call only, not slots.
     llvm::SmallVector<mlir::Value> traceInputSlots;
+    llvm::SmallVector<mlir::Value> traceCallArgs;
+    llvm::SmallVector<std::pair<mlir::Value, mlir::Value>> hostToSlotTransfers;
     for (size_t i = 0; i < runAndCaptureTraceFunc.getNumArguments(); i++) {
+      mlir::Value funcArg = runAndCaptureTraceFunc.getArgument(i);
+
+      if (::mlir::isa<ttnn::GlobalSemaphoreType>(funcArg.getType())) {
+        traceCallArgs.push_back(funcArg);
+        continue;
+      }
+
       if (shouldKeepArgOnDevice(traceFunc, i)) {
-        traceInputSlots.push_back(runAndCaptureTraceFunc.getArgument(i));
+        traceInputSlots.push_back(funcArg);
+        traceCallArgs.push_back(funcArg);
         continue;
       }
 
       // Regular inputs need device memory allocation for host-to-device
       // transfer. Create empty tensors on device that will serve as persistent
       // slots for trace input data during capture and replay.
-      mlir::Type traceInputSlotType = traceInputSlotTypes[i];
+      mlir::Type traceInputSlotType =
+          traceInputSlotTypes[traceInputSlots.size()];
 
       RankedTensorType deviceTensorType =
           mlir::cast<RankedTensorType>(traceInputSlotType);
@@ -484,28 +516,21 @@ private:
           memoryConfigAttr);
 
       traceInputSlots.push_back(emptyOp.getResult());
+      traceCallArgs.push_back(emptyOp.getResult());
+      hostToSlotTransfers.push_back({funcArg, emptyOp.getResult()});
     }
 
     // Transfer host inputs to their corresponding device slots.
-    // Device-resident arguments are skipped as they're already in place.
-    for (size_t i = 0; i < traceInputSlots.size(); i++) {
-      if (shouldKeepArgOnDevice(traceFunc, i)) {
-        continue;
-      }
-
-      // Copy the input argument from host to the allocated device slot for this
-      // input.
-      mlir::Value input = runAndCaptureTraceFunc.getArgument(i);
-
+    for (auto [hostInput, deviceSlot] : hostToSlotTransfers) {
       builder.create<ttnn::WriteTensorOp>(runAndCaptureTraceFunc.getLoc(),
-                                          input, traceInputSlots[i],
+                                          hostInput, deviceSlot,
                                           /*blocking=*/false, /*cq_id=*/0);
     }
 
     // Execute the trace function once without capture to compile programs and
     // populate program cache.
     builder.create<func::CallOp>(runAndCaptureTraceFunc.getLoc(), traceFunc,
-                                 traceInputSlots);
+                                 traceCallArgs);
 
     // Start capturing the trace.
     auto beginTraceCaptureOp = builder.create<ttnn::BeginTraceCaptureOp>(
@@ -515,7 +540,7 @@ private:
 
     // Execute the trace on device and capture it.
     auto captureTraceCall = builder.create<func::CallOp>(
-        runAndCaptureTraceFunc.getLoc(), traceFunc, traceInputSlots);
+        runAndCaptureTraceFunc.getLoc(), traceFunc, traceCallArgs);
 
     // Complete the trace capture.
     builder.create<ttnn::EndTraceCaptureOp>(runAndCaptureTraceFunc.getLoc(),
@@ -532,7 +557,7 @@ private:
 
     // Return the trace ID for correlation with execution.
     returnValues.push_back(beginTraceCaptureOp.getTraceId());
-    // Return the trace input slots for all inputs (including
+    // Return the trace input slots for all tensor inputs (including
     // constants/parameters and KV cache) that are persisted on device.
     for (mlir::Value inputSlot : traceInputSlots) {
       returnValues.push_back(inputSlot);
@@ -795,14 +820,21 @@ private:
 
     auto device = utils::getOrInsertDevice(rewriter, firstOp);
 
-    // Convert inputs to match capture function signature
-    llvm::SmallVector<mlir::Value> captureOrExecuteTraceOpInputs;
+    // Convert inputs to match capture function signature.
+    llvm::SmallVector<mlir::Value> captureOrExecuteTraceOpTensorInputs;
+    llvm::SmallVector<mlir::Value> captureOrExecuteTraceOpSemaphoreInputs;
 
     for (size_t i = 0; i < inputs.size(); i++) {
       mlir::Value input = inputs[i];
-      if (!mlir::isa<RankedTensorType>(input.getType())) {
-        captureOrExecuteTraceOpInputs.push_back(input);
+
+      if (::mlir::isa<ttnn::GlobalSemaphoreType>(input.getType())) {
+        captureOrExecuteTraceOpSemaphoreInputs.push_back(input);
         continue;
+      }
+
+      if (!mlir::isa<RankedTensorType>(input.getType())) {
+        return funcOp.emitError(
+            "Trace input must be a ranked tensor or global semaphore");
       }
 
       // Check if this value should remain on device during trace capture.
@@ -822,7 +854,7 @@ private:
               "Device-resident input must be on device, but found on "
               "system memory");
         }
-        captureOrExecuteTraceOpInputs.push_back(input);
+        captureOrExecuteTraceOpTensorInputs.push_back(input);
       }
       // For inputs, convert them to system memory/row major if needed
       else if (layout.getBufferType() != ttnn::BufferType::SystemMemory) {
@@ -842,16 +874,17 @@ private:
             /*layout=*/LayoutAttr::get(context, layout.getLayout()),
             /*dtype=*/ttcore::DataTypeAttr::get(context, layout.getDataType()),
             /*memory_config=*/memoryConfigAttr);
-        captureOrExecuteTraceOpInputs.push_back(toLayoutOp.getResult());
+        captureOrExecuteTraceOpTensorInputs.push_back(toLayoutOp.getResult());
       } else {
         // Already on system memory
-        captureOrExecuteTraceOpInputs.push_back(input);
+        captureOrExecuteTraceOpTensorInputs.push_back(input);
       }
     }
 
     auto traceOp = builder.create<ttnn::CaptureOrExecuteTraceOp>(
         funcOp.getLoc(), outputTypes, device, captureTraceSymbolAttr,
-        executeTraceSymbolAttr, captureOrExecuteTraceOpInputs);
+        executeTraceSymbolAttr, captureOrExecuteTraceOpTensorInputs,
+        captureOrExecuteTraceOpSemaphoreInputs);
 
     // Replace uses of original outputs with the output of the trace op function
     for (size_t i = 0; i < outputs.size(); i++) {
