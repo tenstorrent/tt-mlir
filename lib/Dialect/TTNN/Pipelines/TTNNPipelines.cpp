@@ -398,6 +398,15 @@ void createTTIRToTTNNCommonPipeline(
       }
     }
 
+    // Sink CL update cluster (add + DRAM broadcasts) to just before return.
+    // The optimizer places these ops early (no data deps on transformer layers),
+    // giving the L1 add result a function-spanning lifetime that displaces
+    // transformer residual ops. Moving them to the end reduces L1 pressure.
+    // Must run before trace hoisting so the trace function sees the correct op order.
+    if (options.enableTrace) {
+      devicePm.addPass(tt::ttnn::createTTNNSinkStaticCacheUpdates());
+    }
+
     // Trace hoisting must run before layout decomposition because it adjusts
     // layouts of function arguments (e.g. moving inputs to system_memory). It
     // is much easier to work at the layout abstraction level than on individual

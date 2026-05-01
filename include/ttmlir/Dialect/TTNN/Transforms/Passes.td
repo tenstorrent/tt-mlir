@@ -360,6 +360,29 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
   }];
 }
 
+def TTNNSinkStaticCacheUpdates
+    : Pass<"ttnn-sink-static-cache-updates", "::mlir::ModuleOp"> {
+  let summary = "Sink cumulative_length update cluster to just before return.";
+  let description = [{
+    After the TTNN optimizer, the CL (cumulative_length) add op and its N DRAM
+    broadcast copies end up at the start of the forward function body because
+    they have no data dependency on transformer layers. This gives them a live
+    range spanning the entire function, occupying L1 from step 0 and displacing
+    transformer residual ops.
+
+    This pass finds the canonical pattern:
+      to_memory_config(const_delta, L1) -> add(cl_arg, delta_l1) ->
+        N * to_memory_config(add_result, DRAM) -> return
+
+    and moves the entire cluster to just before the return, making L1 for the
+    add result a short-lived allocation (only during the last few ops).
+
+    Applies only to forward device functions, and only when all cluster outputs
+    are exclusively consumed by the return.
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+}
+
 def TTNNUniqueLocations: Pass<"ttnn-unique-locations", "::mlir::ModuleOp">
 {
   let summary = "Check if operations have unique locations.";
