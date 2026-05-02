@@ -80,7 +80,7 @@ module attributes {} {
         ins(%0 : memref<4x1x32x32xf32, #ttcore.view<4>, #l1>)
         outs(%alloc_2 : memref<4x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>)
      {
-      %1 = d2m.get_cb(1) operand_index = 1 resolution_stage =  compile : <memref<32x32xf32, #l1>>
+      %1 = d2m.get_cb(1) resolution_stage =  compile : <memref<32x32xf32, #l1>>
       %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
       // CHECK: d2m.reserve
@@ -114,7 +114,7 @@ module attributes {} {
         ins(%0 : memref<2x16x1x1x32x32xf32, #ttcore.view<6>, #l1>)
         outs(%alloc_2 : memref<2x16x1x1x32x32xf32, #ttcore.shard<4096x128x4, 1>, #l1>)
      {
-      %1 = d2m.get_cb(1) operand_index = 1 resolution_stage =  compile : <memref<1x32x32xf32, #l1>>
+      %1 = d2m.get_cb(1) resolution_stage =  compile : <memref<1x32x32xf32, #l1>>
       %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<(d0, d1) -> (0, ((d1 + d0 * 8) floordiv 16) mod 2, (d1 + d0 * 8) mod 16, 0)>} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<(d0, d1) -> (0, ((d1 + d0 * 8) floordiv 16) mod 2, (d1 + d0 * 8) mod 16, 0)>} : index
       %core2 = d2m.core_index(2) {phys_to_virt_map = affine_map<(d0, d1) -> (0, ((d1 + d0 * 8) floordiv 16) mod 2, (d1 + d0 * 8) mod 16, 0)>} : index
