@@ -50,6 +50,7 @@ set(ttmlir_export_targets
   MLIRD2MAnalysis
   MLIRD2MTransforms
   MLIRD2MUtils
+  MLIRLinalgSynchronizableOpInterfaceImpl
 
   # Conversions
   TTMLIRTosaToTTIR

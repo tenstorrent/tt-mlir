@@ -51,6 +51,7 @@ def TTKernel_UnpackStallOnPackOp
     is visible. Used between consecutive linalg.generics sharing an
     intermediate L1 buffer in the single-tile shard path.
   }];
+  let hasCanonicalizer = 1;
   let assemblyFormat = [{ attr-dict }];
 }
 
@@ -3715,6 +3716,21 @@ def TTKernel_StoreToL1Op : TTKernel_Op<"store_to_l1"> {
 
     let assemblyFormat = [{
       `(` $value `,` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_LoadFromL1Op : TTKernel_Op<"load_from_l1"> {
+    let summary = "LoadFromL1";
+    let description = [{
+      Load an i32 value from L1.
+    }];
+
+    let arguments = (ins TTKernel_L1AddrPtr:$l1_ptr, I32:$offset);
+
+    let results = (outs I32:$value);
+
+    let assemblyFormat = [{
+      `(` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

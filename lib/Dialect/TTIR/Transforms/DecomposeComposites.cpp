@@ -302,9 +302,21 @@ struct DecomposeSDPAPattern
                             encoding);
     }
 
-    // Add attention mask before scaling to match tt-metal FlashAttention
-    // semantics: exp((QK + mask - max) * scale).
-    Value attnInput = scoresVal;
+    // PyTorch SDPA semantics: softmax(QK * scale + mask). Scale is applied to
+    // QK first; the additive mask (user-provided and/or causal) is added after
+    // scaling so the mask is *not* itself scaled.
+    float scaleVal = 1.0f / std::sqrt(static_cast<float>(headSize));
+    if (auto scaleAttr = op.getScaleAttr()) {
+      scaleVal = static_cast<float>(scaleAttr.getValueAsDouble());
+    }
+
+    auto scaleConst = rewriter.create<FullOp>(
+        loc, fullScoresType, rewriter.getF32FloatAttr(scaleVal));
+    Value attnInput = rewriter
+                          .create<MultiplyOp>(loc, fullScoresType, scoresVal,
+                                              scaleConst.getResult())
+                          .getResult();
+
     if (op.getAttentionMask()) {
       attnInput = rewriter
                       .create<AddOp>(loc, fullScoresType, attnInput,
@@ -348,19 +360,6 @@ struct DecomposeSDPAPattern
                                      causalMask.getResult())
                       .getResult();
     }
-
-    // scale = 1 / sqrt(head_size) unless user-provided.
-    float scaleVal = 1.0f / std::sqrt(static_cast<float>(headSize));
-    if (auto scaleAttr = op.getScaleAttr()) {
-      scaleVal = static_cast<float>(scaleAttr.getValueAsDouble());
-    }
-
-    auto scaleConst = rewriter.create<FullOp>(
-        loc, fullScoresType, rewriter.getF32FloatAttr(scaleVal));
-    attnInput = rewriter
-                    .create<MultiplyOp>(loc, fullScoresType, attnInput,
-                                        scaleConst.getResult())
-                    .getResult();
 
     // Softmax along last dimension.
     int32_t softmaxDim = static_cast<int32_t>(fullScoresType.getRank() - 1);

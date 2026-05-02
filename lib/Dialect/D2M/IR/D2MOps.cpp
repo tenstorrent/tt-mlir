@@ -6,6 +6,7 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -1208,6 +1209,10 @@ LogicalResult d2m::CompositeViewOp::bufferize(
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  const bool isTiled = mlir::isa<ttcore::TileType>(
+      mlir::cast<RankedTensorType>(getResult().getType()).getElementType());
+  const int dim = getDim();
+  SmallVector<int64_t> logicalSizes;
   SmallVector<Value> bufferizedInputs;
   for (Value input : getInputs()) {
     auto maybeBuffer =
@@ -1216,6 +1221,10 @@ LogicalResult d2m::CompositeViewOp::bufferize(
       return maybeBuffer;
     }
     bufferizedInputs.push_back(*maybeBuffer);
+
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+    logicalSizes.push_back(layout.getLogicalShape()[dim]);
   }
 
   SmallVector<Value> invocationStack;
@@ -1226,8 +1235,10 @@ LogicalResult d2m::CompositeViewOp::bufferize(
   }
 
   auto outMemrefType = mlir::cast<MemRefType>(*outMemrefTypeOr);
+  // The logicalSizes attribute is only useful for row-major concat.
   auto newOp = rewriter.create<d2m::CompositeViewOp>(
-      getLoc(), outMemrefType, bufferizedInputs, getDim());
+      getLoc(), outMemrefType, bufferizedInputs, dim,
+      isTiled ? nullptr : rewriter.getDenseI64ArrayAttr(logicalSizes));
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, *this,
                                                      newOp.getResult());
   return success();
@@ -1249,44 +1260,84 @@ d2m::CompositeViewOp::getBufferType(
 }
 
 mlir::LogicalResult d2m::CompositeViewOp::verify() {
-  auto resultType = this->getResult().getType();
-  const bool isMemrefType = mlir::isa<MemRefType>(resultType);
+  auto outType = this->getResult().getType();
+  const bool isTensorType = mlir::isa<RankedTensorType>(outType);
 
-  auto outShape = isMemrefType
-                      ? mlir::cast<MemRefType>(resultType).getShape()
-                      : mlir::cast<RankedTensorType>(resultType).getShape();
-  const int32_t rank = static_cast<int32_t>(outShape.size()) / 2;
+  auto getVerificationShape = [&](Type type) {
+    SmallVector<int64_t> verificationShape;
+    if (isTensorType) {
+      auto tensorType = mlir::cast<RankedTensorType>(type);
+      auto layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+      verificationShape.assign(layout.getLogicalShape().begin(),
+                               layout.getLogicalShape().end());
+    } else {
+      auto memrefType = mlir::cast<MemRefType>(type);
+      auto gridShardShape = memrefType.getShape();
+      const size_t rank = gridShardShape.size() / 2;
+      verificationShape.resize(rank);
+      for (size_t i = 0; i < rank; i++) {
+        verificationShape[i] = gridShardShape[i] * gridShardShape[i + rank];
+      }
+    }
+    return verificationShape;
+  };
+
+  auto outShape = getVerificationShape(outType);
+  const int32_t rank = static_cast<int32_t>(outShape.size());
   const int32_t compositeDim = this->getDim();
   if (compositeDim < 0 || compositeDim >= rank) {
-    return emitOpError("Composite view dim out of range.");
+    return emitOpError("dim out of range.");
   }
 
   if (this->getInputs().size() < 2) {
-    return emitOpError("Composite view should have at least two inputs.");
+    return emitOpError("must have at least two inputs.");
   }
 
   int64_t accum = 0;
   for (auto input : this->getInputs()) {
-    auto inShape =
-        isMemrefType ? mlir::cast<MemRefType>(input.getType()).getShape()
-                     : mlir::cast<RankedTensorType>(input.getType()).getShape();
-    if (inShape.size() != static_cast<size_t>(2 * rank)) {
-      return emitOpError("Incompatible input/output shapes.");
+    auto inShape = getVerificationShape(input.getType());
+    if (inShape.size() != static_cast<size_t>(rank)) {
+      return emitOpError("incompatible inputs & output ranks.");
     }
 
     for (int32_t i = 0; i < rank; i++) {
       if (i == compositeDim) {
-        accum += inShape[i] * inShape[i + rank];
-      } else if (inShape[i] * inShape[i + rank] !=
-                 outShape[i] * outShape[i + rank]) {
-        return emitOpError("Incompatible non-composite dim.");
+        accum += inShape[i];
+      } else if (inShape[i] != outShape[i]) {
+        return emitOpError("incompatible non-composite dim.");
       }
     }
   }
 
-  // The output's composite dim could have been aligned-up.
-  if (accum > outShape[compositeDim] * outShape[compositeDim + rank]) {
-    return emitOpError("Incompatible composite dim.");
+  // The input & output memrefs' grid + shard shapes might have been aligned up:
+  // - Logical "1 & 1 -> 2", device "32 & 32 -> 32".
+  // - Logical "192 & 192 -> 384", device "192 & 192 -> 512".
+  if (isTensorType && (accum != outShape[compositeDim])) {
+    return emitOpError("incompatible composite dim.");
+  }
+
+  if (!isTensorType) {
+    auto outMemref = mlir::cast<MemRefType>(outType);
+    const bool isTiled =
+        mlir::isa<ttcore::TileType>(outMemref.getElementType());
+    auto logicalSizes = this->getLogicalSizes();
+    if (isTiled && logicalSizes.has_value()) {
+      return emitOpError("unneeded logicalSizes attr.");
+    }
+    if (!isTiled) {
+      if (!logicalSizes.has_value()) {
+        return emitOpError("missing logicalSizes attr.");
+      }
+      if (logicalSizes.value().size() != this->getInputs().size()) {
+        return emitOpError("wrong logicalSizes length.");
+      }
+      const int64_t totalLogicalExtent = std::accumulate(
+          logicalSizes.value().begin(), logicalSizes.value().end(), 0);
+      if (totalLogicalExtent > accum) {
+        return emitOpError("sum of logicalSizes exceeds output capacity.");
+      }
+    }
   }
 
   return mlir::success();
@@ -1514,6 +1565,19 @@ isNotEqualOrBroadcast(mlir::ArrayRef<int64_t> as, mlir::ArrayRef<int64_t> bs) {
     }
   }
   return std::nullopt;
+}
+
+static bool hasOperandBroadcasting(ArrayRef<AffineMap> indexingMaps) {
+  return llvm::any_of(indexingMaps, [](AffineMap map) {
+    for (unsigned dim = 0; dim < map.getNumDims(); ++dim) {
+      if (!llvm::any_of(map.getResults(), [dim](AffineExpr expr) {
+            return expr.isFunctionOfDim(dim);
+          })) {
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 static mlir::LogicalResult verifyAffineShapesPermutation(
@@ -1836,12 +1900,17 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       return gridResult;
     }
 
-    SmallVector<SmallVector<int64_t>> scalarShardShapes =
-        getInputOutputOperandShardShapes(/*convertTileToScalar=*/true);
-    LogicalResult shardResult = verifyAffineShapesPermutation(
-        "shard", indexingMaps, scalarShardShapes, emitDiag);
-    if (failed(shardResult)) {
-      return shardResult;
+    // Padded shard extents are only directly comparable when every operand
+    // participates in every loop dimension. Broadcast/reuse maps can legally
+    // have smaller operand shards along the omitted dimensions.
+    if (!hasOperandBroadcasting(indexingMaps)) {
+      SmallVector<SmallVector<int64_t>> scalarShardShapes =
+          getInputOutputOperandShardShapes(/*convertTileToScalar=*/true);
+      LogicalResult shardResult = verifyAffineShapesPermutation(
+          "shard", indexingMaps, scalarShardShapes, emitDiag);
+      if (failed(shardResult)) {
+        return shardResult;
+      }
     }
 
     assert(getNumDpsInits() == 1);
@@ -2332,19 +2401,48 @@ static Value findAssocOperandForGetCB(d2m::GetCBOp getCbOp) {
   return Value();
 }
 
+// Derive the type of a nested alloc from its transferred d2m.blocking_map.
+static Type getTypeFromBlockingMap(d2m::GenericOp genericOp,
+                                   AffineMap blockingMap, Type typeToRetype) {
+  // Use the rebuilt generic's shard extents to retype nested allocs.
+  auto [_, shardExtents] = allocation::getGridAndShardExtents(genericOp);
+  SmallVector<int64_t> shardShape =
+      allocation::canonicalizeBroadcasts(blockingMap).compose(shardExtents);
+
+  if (auto oldTensorType = mlir::dyn_cast<RankedTensorType>(typeToRetype)) {
+    return RankedTensorType::get(shardShape, oldTensorType.getElementType());
+  }
+  if (auto oldMemRefType = mlir::dyn_cast<MemRefType>(typeToRetype)) {
+    TT_assert(
+        (!oldMemRefType.getLayout() || oldMemRefType.getLayout().isIdentity()));
+    return MemRefType::get(shardShape, oldMemRefType.getElementType(),
+                           MemRefLayoutAttrInterface{},
+                           oldMemRefType.getMemorySpace());
+  }
+
+  return typeToRetype;
+}
+
 // Repair cloned ops whose result types depend on reblocked operand types.
-static void repairParallelizedRegionTypes(Block *newBlock) {
+static void repairParallelizedRegionTypes(d2m::GenericOp genericOp,
+                                          Block *newBlock) {
   for (Operation &clonedOp : *newBlock) {
     if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(&clonedOp)) {
       Value associatedOperand = d2m::GenericOp::findAssocOperand(allocOp);
+      Type newAllocType = allocOp.getType();
       if (associatedOperand) {
-        Type newAllocType = d2m::utils::cloneWithShardShape(associatedOperand,
-                                                            allocOp.getType());
-        if (newAllocType != allocOp.getType()) {
-          auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
-          TT_assert(newMemRefType);
-          allocOp.getResult().setType(newMemRefType);
-        }
+        newAllocType = d2m::utils::cloneWithShardShape(associatedOperand,
+                                                       allocOp.getType());
+      } else if (auto blockingMapAttr =
+                     allocOp->getAttrOfType<mlir::AffineMapAttr>(
+                         "d2m.blocking_map")) {
+        newAllocType = getTypeFromBlockingMap(
+            genericOp, blockingMapAttr.getValue(), allocOp.getType());
+      }
+      if (newAllocType != allocOp.getType()) {
+        auto newMemRefType = mlir::dyn_cast<MemRefType>(newAllocType);
+        TT_assert(newMemRefType);
+        allocOp.getResult().setType(newMemRefType);
       }
     } else if (auto tensorEmptyOp =
                    mlir::dyn_cast<tensor::EmptyOp>(&clonedOp)) {
@@ -2378,6 +2476,8 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
       if (remoteStoreOp.hasResultForm()) {
         remoteStoreOp.getResult().setType(remoteStoreOp.getMemref().getType());
       }
+    } else if (auto embeddingOp = mlir::dyn_cast<d2m::EmbeddingOp>(&clonedOp)) {
+      embeddingOp.getResult().setType(embeddingOp.getOutput().getType());
     } else if (auto dstOp =
                    mlir::dyn_cast<DestinationStyleOpInterface>(&clonedOp)) {
       unsigned numIns = dstOp.getNumDpsInputs();
@@ -2385,6 +2485,14 @@ static void repairParallelizedRegionTypes(Block *newBlock) {
       for (unsigned i = 0; i < numOuts; ++i) {
         clonedOp.getResult(i).setType(
             clonedOp.getOperand(numIns + i).getType());
+      }
+    }
+    // Keep threading the outer generic through
+    // recursive repair so loop-nested intermediates are retyped against the
+    // same grid/shard extents as top-level operands.
+    for (Region &region : clonedOp.getRegions()) {
+      for (Block &block : region) {
+        repairParallelizedRegionTypes(genericOp, &block);
       }
     }
   }
@@ -2439,7 +2547,7 @@ withParallelizationImpl(d2m::GenericOp thisOp, OpBuilder &builder,
 
     Block *newBlock = cloneParallelizedRegion(
         thisOp, newGenericOp, builder, oldRegion, newRegion, reblockedOperands);
-    repairParallelizedRegionTypes(newBlock);
+    repairParallelizedRegionTypes(newGenericOp, newBlock);
   }
 
   // Only return a view into the old generic op result if requested.

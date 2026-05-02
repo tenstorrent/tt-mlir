@@ -34,8 +34,8 @@ def D2M_ViewLayoutOp
   }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AffineMapAttr:$remapping,
-      DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
+                       AffineMapAttr:$remapping,
+                       DefaultValuedAttr<BoolAttr, "false">:$reinterpretLayout);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{
@@ -68,9 +68,13 @@ def D2M_CompositeViewOp : D2M_Op<"composite_view",
   let description = [{
     Represents a piecewise-affine view that aggregates multiple input tensors
     along a certain dimension.
+    The optional `logicalSizes` attribute records the logical sizes of the
+    inputs along `dim`, which is required for row-major inputs.
   }];
 
-  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs, SI32Attr:$dim);
+  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                       SI32Attr:$dim,
+                       OptionalAttr<DenseI64ArrayAttr>:$logicalSizes);
 
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
@@ -105,8 +109,7 @@ def D2M_ToLayoutOp
       ```
     }];
 
-  let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AnyRankedTensorOrMemRef:$output);
+  let arguments = (ins AnyRankedTensorOrMemRef:$input, AnyRankedTensorOrMemRef:$output);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat =
@@ -154,7 +157,8 @@ def D2M_ToDeviceOp
     }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AnyRankedTensorOrMemRef:$output, TTCore_MetalLayoutAttr:$layout);
+                       AnyRankedTensorOrMemRef:$output,
+                       TTCore_MetalLayoutAttr:$layout);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat =
@@ -192,7 +196,8 @@ def D2M_ToHostOp
     }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      AnyRankedTensorOrMemRef:$output, TTCore_MetalLayoutAttr:$layout);
+                       AnyRankedTensorOrMemRef:$output,
+                       TTCore_MetalLayoutAttr:$layout);
   let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let assemblyFormat =
@@ -229,13 +234,13 @@ def D2M_GenericOp
     }];
 
   let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
-      Variadic<AnyRankedTensorOrMemRef>:$outputs,
-      Variadic<AnyType>:$additionalArgs,
-      TTCore_GridAttr:$grid,
-      I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
-      TTCore_IteratorTypeArrayAttr:$iterator_types,
-      D2M_ThreadArrayAttr:$threads,
-      OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
+                       Variadic<AnyRankedTensorOrMemRef>:$outputs,
+                       Variadic<AnyType>:$additionalArgs,
+                       TTCore_GridAttr:$grid,
+                       I64ArrayAttr:$block_factors, AffineMapArrayAttr:$indexing_maps,
+                       TTCore_IteratorTypeArrayAttr:$iterator_types,
+                       D2M_ThreadArrayAttr:$threads,
+                       OptionalAttr<TTCore_FabricConnectionConfigAttr>:$fabricConnectionConfig);
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
 
@@ -534,9 +539,10 @@ def D2M_MeshShardOp
   }];
 
   let arguments = (ins AnyRankedTensorOrMemRef:$input,
-      TTCore_MeshShardTypeAttr:$shard_type,
-      TTCore_MeshShardDirectionAttr:$shard_direction,
-      DenseI64ArrayAttr:$shard_shape, DenseI64ArrayAttr:$shard_dims);
+                       TTCore_MeshShardTypeAttr:$shard_type,
+                       TTCore_MeshShardDirectionAttr:$shard_direction,
+                       DenseI64ArrayAttr:$shard_shape,
+                       DenseI64ArrayAttr:$shard_dims);
 
   let results = (outs AnyRankedTensorOrMemRef:$result);
 

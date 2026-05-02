@@ -87,20 +87,21 @@ public:
           customCallOp, "rms_norm operand does not come from an all_gather op");
     }
 
-    // Check that the custom_call has exactly one user: an sdy.all_slice
-    // composite that slices the gathered result back to local shape.
+    // Check that the custom_call has exactly one user and that it matches
+    // sdy.all_slice in either composite or decomposed
+    // (reshape+all_to_all+slice+ reshape) form.
     if (!customCallOp.getResult(0).hasOneUse()) {
       return rewriter.notifyMatchFailure(
           customCallOp, "rms_norm result has multiple uses, cannot fuse");
     }
 
     auto *soleUser = *customCallOp.getResult(0).getUsers().begin();
-    auto allSliceComposite =
-        mlir::dyn_cast<mlir::stablehlo::CompositeOp>(soleUser);
-    if (!allSliceComposite ||
-        !allSliceComposite.getName().starts_with("sdy.all_slice")) {
+    auto allSliceMatch = tryMatchAllSlice(soleUser);
+    if (!allSliceMatch) {
       return rewriter.notifyMatchFailure(
-          customCallOp, "rms_norm sole user is not an sdy.all_slice");
+          customCallOp,
+          "rms_norm sole user is not an sdy.all_slice composite "
+          "or reshape -> all_to_all -> slice -> reshape sequence");
     }
 
     // Derive cluster_axis from the input all_gather's replica_groups.
@@ -149,12 +150,10 @@ public:
         rewriter.getI32IntegerAttr(static_cast<int32_t>(clusterAxis))));
     auto newCompositeAttrs = rewriter.getDictionaryAttr(newAttrEntries);
 
-    // The result type is the all_slice output type (local shape).
-    auto resultType = allSliceComposite.getResult(0).getType();
-
-    // Create the distributed custom_call.
+    // Create the distributed custom_call with the local result type.
     auto distributedCall = rewriter.create<mlir::stablehlo::CustomCallOp>(
-        customCallOp.getLoc(), mlir::TypeRange{resultType}, localOperands,
+        customCallOp.getLoc(), mlir::TypeRange{allSliceMatch->resultType},
+        localOperands,
         rewriter.getStringAttr(utils::kDistributedRmsNormTargetName),
         /*has_side_effect=*/nullptr,
         /*backend_config=*/nullptr,
@@ -177,8 +176,15 @@ public:
       }
     }
 
-    // Replace the all_slice result with the distributed custom_call result.
-    rewriter.replaceOp(allSliceComposite, distributedCall.getResults());
+    // Replace the scatter-back result with the distributed custom_call result.
+    rewriter.replaceOp(allSliceMatch->resultOp, distributedCall.getResults());
+
+    // For the decomposed form, erase the intermediate ops in reverse use-def
+    // order (slice before all_to_all before reshape1) now that they have no
+    // users.
+    for (auto *op : llvm::reverse(allSliceMatch->intermediateOps)) {
+      rewriter.eraseOp(op);
+    }
 
     // Erase the original rms_norm custom_call (now has no users).
     rewriter.eraseOp(customCallOp);
@@ -191,6 +197,63 @@ public:
     }
 
     return success();
+  }
+
+private:
+  // Describes the scatter-back portion that follows custom_call @rms_norm.
+  // Two forms are supported:
+  //
+  //   Composite (sdy.all_slice input was fully replicated):
+  //     rms_norm -> stablehlo.composite "sdy.all_slice..."
+  //
+  //   Decomposed (sdy.all_slice input was batch-sharded, decomposed by
+  //   UpdateGlobalToLocalShapes and not restored in
+  //   ShardyToStableHLOAllSliceOpRewritePattern since input_is_fully_replicated
+  //   == false):
+  //     rms_norm -> reshape -> all_to_all -> slice -> reshape
+  struct AllSliceMatch {
+    mlir::Type resultType;
+    mlir::Operation *resultOp;
+    SmallVector<mlir::Operation *> intermediateOps;
+  };
+
+  // Try to match sdy.all_slice in either its composite or decomposed form.
+  static std::optional<AllSliceMatch> tryMatchAllSlice(mlir::Operation *op) {
+    // Composite form.
+    if (auto composite = mlir::dyn_cast<mlir::stablehlo::CompositeOp>(op)) {
+      if (composite.getName().starts_with("sdy.all_slice")) {
+        return AllSliceMatch{composite.getResult(0).getType(), composite, {}};
+      }
+      return std::nullopt;
+    }
+
+    // Decomposed form: reshape -> all_to_all -> slice -> reshape.
+    // UpdateGlobalToLocalShapes emits this sequence when the all_slice input
+    // is not fully replicated across all devices.
+    auto reshape1 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(op);
+    if (!reshape1 || !reshape1.getResult().hasOneUse()) {
+      return std::nullopt;
+    }
+    auto allToAll = mlir::dyn_cast<mlir::stablehlo::AllToAllOp>(
+        *reshape1.getResult().getUsers().begin());
+    if (!allToAll || !allToAll.getResult(0).hasOneUse()) {
+      return std::nullopt;
+    }
+    auto slice = mlir::dyn_cast<mlir::stablehlo::SliceOp>(
+        *allToAll.getResult(0).getUsers().begin());
+    if (!slice || !slice.getResult().hasOneUse()) {
+      return std::nullopt;
+    }
+    auto reshape2 = mlir::dyn_cast<mlir::stablehlo::ReshapeOp>(
+        *slice.getResult().getUsers().begin());
+    if (!reshape2) {
+      return std::nullopt;
+    }
+
+    return AllSliceMatch{reshape2.getResult().getType(),
+                         reshape2.getOperation(),
+                         {reshape1.getOperation(), allToAll.getOperation(),
+                          slice.getOperation()}};
   }
 };
 

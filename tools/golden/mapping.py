@@ -2373,9 +2373,18 @@ def gather_golden(
     # ---- validate attrs ----
     rank = x0.dim()
     assert len(slice_sizes) == rank, "slice_sizes must match operand dimensions"
-    assert set(collapsed_slice_dims) == set(
-        start_index_map
-    ), "gather golden assumes collapsed_slice_dims == start_index_map"
+    # Two patterns this golden supports:
+    # - Embedding-style: collapsed_slice_dims == start_index_map (all indexed
+    #   dims have slice size 1 and are removed from the output).
+    # - Window-style: collapsed_slice_dims is empty (the indexed dims keep their
+    #   slice as a window in the output).
+    assert (
+        set(collapsed_slice_dims) == set(start_index_map)
+        or len(collapsed_slice_dims) == 0
+    ), (
+        "gather golden assumes collapsed_slice_dims == start_index_map (embedding-"
+        "style) or collapsed_slice_dims is empty (window-style)"
+    )
     assert (
         len(operand_batching_dims) == 0 and len(start_indices_batching_dims) == 0
     ), "Batching dims not supported in this golden"
@@ -2483,9 +2492,16 @@ def gather_golden(
     for s_i in range(slice_rank):
         desired_index_for_current[batch_rank + s_i] = offset_dims[s_i]
 
-    # Permute if needed
-    if desired_index_for_current != list(range(result_rank)):
-        gathered = gathered.permute(*desired_index_for_current)
+    # desired_index_for_current[i] = j says current axis i should end up at
+    # output axis j (source -> target). torch.permute expects the inverse
+    # (output[i] = input[perm[i]], i.e. target -> source), so invert before
+    # passing it in.
+    inverse_perm = [0] * result_rank
+    for src, tgt in enumerate(desired_index_for_current):
+        inverse_perm[tgt] = src
+
+    if inverse_perm != list(range(result_rank)):
+        gathered = gathered.permute(*inverse_perm)
 
     return gathered.to(device=device)
 
@@ -3189,29 +3205,17 @@ def stablehlo_xor_golden(
         return torch.bitwise_xor(input_tensor, other_tensor)
 
 
-def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for StableHLO not operation.
+def stablehlo_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
-    Supports both logical NOT (for boolean tensors) and bitwise NOT (for integer tensors).
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to invert.
-    **kwargs : dict
-        Keyword arguments (unused for this operation).
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor containing the NOT of input_tensor.
-    """
     if input_tensor.dtype == torch.bool:
-        result_bool = torch.logical_not(input_tensor)
-        return result_bool.to(input_tensor.dtype)
+        result = torch.logical_not(input_tensor)
     else:
-        return torch.bitwise_not(input_tensor)
+        result = torch.bitwise_not(input_tensor)
+
+    return result.to(output_dtype)
 
 
 ################ Golden Utilities ###############
@@ -3539,6 +3543,27 @@ def ttir_bitwise_and_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.bitwise_and(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_or_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_or(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_xor_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_not(input_tensor).to(output_dtype)
 
 
 def ttir_minimum_golden(
@@ -5323,6 +5348,32 @@ def stablehlo_reshape_golden(
     shape = unpack_mlir_attr(shape_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.reshape(input_tensor, shape).clone().to(output_dtype)
+
+
+def stablehlo_broadcast_in_dim_golden(
+    input_tensor: GoldenMapTensor,
+    broadcast_dimensions_attr: DenseI64ArrayAttr,
+    output_shape: List[int],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    broadcast_dimensions = unpack_mlir_attr(broadcast_dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    # broadcast_dimensions specifies which dimensions of the output correspond to input dimensions
+    # We need to reshape the input to match the output rank first, then broadcast
+    input_shape = list(input_tensor.shape)
+
+    # Create a shape with 1s for all dimensions, then fill in the input dimensions
+    expanded_shape = [1] * len(output_shape)
+    for i, dim_idx in enumerate(broadcast_dimensions):
+        expanded_shape[dim_idx] = input_shape[i]
+
+    # Reshape input to the expanded shape
+    reshaped = input_tensor.reshape(expanded_shape)
+
+    # Now broadcast to the target shape
+    result = torch.broadcast_to(reshaped, output_shape)
+    return result.to(output_dtype)
 
 
 def stablehlo_rsqrt_golden(
@@ -7176,9 +7227,9 @@ def ttir_sdpa_golden(
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     """
-    Matches tt-metal's FlashAttention implementation where scale is fused into
-    exp: exp((QK + mask - max) * scale). This means the mask is effectively
-    scaled, unlike PyTorch's standard SDPA which computes QK * scale + mask.
+    Matches tt-metal's SDPA implementation, which follows PyTorch semantics:
+    softmax(QK * scale + mask). The kernel folds scale into exp, but the host
+    wrapper pre-multiplies any user attn_mask by 1/scale to compensate.
     Supports standard attention and Grouped-Query Attention (GQA).
     """
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
@@ -7194,7 +7245,11 @@ def ttir_sdpa_golden(
         key = torch.repeat_interleave(key, num_repeats, dim=1)
         value = torch.repeat_interleave(value, num_repeats, dim=1)
 
+    if scale is None:
+        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
+
     qk = torch.matmul(query.float(), key.float().transpose(-2, -1))
+    qk = torch.mul(qk, scale)
 
     if is_causal and attention_mask is None:
         seq_len_q = qk.shape[-2]
@@ -7206,10 +7261,6 @@ def ttir_sdpa_golden(
 
     if attention_mask is not None:
         qk = torch.add(qk, attention_mask.float())
-
-    if scale is None:
-        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
-    qk = torch.mul(qk, scale)
 
     attn_weights = torch.softmax(qk, dim=-1)
     output = torch.matmul(attn_weights, value.float())
@@ -7499,9 +7550,9 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.WhereOp: ttir_where_golden,
     # Bitwise operations
     ttir.BitwiseAndOp: ttir_bitwise_and_golden,
-    ttir.BitwiseOrOp: torch.bitwise_or,
-    ttir.BitwiseXorOp: torch.bitwise_xor,
-    ttir.BitwiseNotOp: torch.bitwise_not,
+    ttir.BitwiseOrOp: ttir_bitwise_or_golden,
+    ttir.BitwiseXorOp: ttir_bitwise_xor_golden,
+    ttir.BitwiseNotOp: ttir_bitwise_not_golden,
     # Reduction operations
     ttir.SumOp: ttir_sum_golden,
     ttir.MeanOp: mean_golden,
@@ -7651,7 +7702,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.MinOp: stablehlo_minimum_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
     # bitcast conversion operation
-    stablehlo.BroadcastInDimOp: torch.broadcast_to,
+    stablehlo.BroadcastInDimOp: stablehlo_broadcast_in_dim_golden,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,

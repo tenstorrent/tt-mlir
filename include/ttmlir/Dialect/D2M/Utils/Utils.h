@@ -9,6 +9,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+#include <variant>
+
 namespace mlir::tt::ttcore {
 class DeviceAttr;
 } // namespace mlir::tt::ttcore
@@ -155,6 +157,11 @@ collapseToPhysicalGrid2D(ArrayRef<int64_t> gridShape,
 
 AffineMap canonicalStridedMap(MLIRContext *context, ArrayRef<int64_t> shape,
                               Type elementType, AffineMap map);
+
+// Return the L1 NoC alignment (also the minimum L1 NoC transfer size) measured
+// in number of tensor/memref elements.
+int32_t getNocElementAlignmentL1(
+    Operation *op, const std::variant<RankedTensorType, MemRefType> &type);
 
 } // namespace mlir::tt::d2m::utils
 
