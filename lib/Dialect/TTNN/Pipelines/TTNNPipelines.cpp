@@ -266,6 +266,8 @@ void createTTIRToTTNNCommonPipeline(
     OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
+  // Resolve options controlled by enable-create-d2m-subgraphs.
+  options.resolveCreateD2MSubgraphsOptions();
 
   // TODO(dmilinkovic): Remove this once multithreading issues in MetalContext
   // are resolved - tt-metal issue #31041.
@@ -339,6 +341,14 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
+    // KV cache dtype conversion runs before analysis passes so that the
+    // optimizer sees the target dtype and can make informed sharding decisions.
+    if (options.experimentalKVCacheDtype != BFPDtype::None) {
+      TTNNKVCacheDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalKVCacheDtype;
+      devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
+    }
+
     // Apply ComputeKernelConfig settings before analysis passes.
     // Create options struct and forward pipeline options.
     TTNNSetComputeKernelConfigOptions setConfigOptions;
@@ -352,14 +362,15 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 
-    if (options.enableD2MFusing) {
+    if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {
         llvm::errs()
-            << "WARNING: D2M fusing pass only supported with Optimizer "
+            << "WARNING: D2M subgraph creation pass only supported with "
+               "Optimizer "
                "enabled. Automatically enabling Optimizer as a dependency.\n";
       }
       options.optimizerPassEnabled = true;
-      devicePm.addPass(tt::ttnn::createTTNND2MFusing());
+      devicePm.addPass(tt::ttnn::createTTNNCreateD2MSubgraphs());
     }
 
     // Const-eval pass which should pick up any const-evalable ops created in
@@ -374,8 +385,10 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
-    if (options.enableD2MFusing) {
-      createTTNNPipelineD2MPass(devicePm);
+    if (options.enableCreateD2MSubgraphs) {
+      TTNNPipelineD2MPassOptions d2mOptions;
+      d2mOptions.enableElementwiseFusion = options.enableD2MElementwiseFusion;
+      createTTNNPipelineD2MPass(devicePm, d2mOptions);
       devicePm.addPass(createTTNNCollaspeD2M());
       devicePm.addPass(createCanonicalizerPass());
     }
@@ -597,7 +610,8 @@ void createTTNNCommonToEmitPyPipeline(
   pm.addPass(createEmitPyAddImportsPass());
 }
 
-void createTTNNPipelineD2MPass(OpPassManager &pm) {
+void createTTNNPipelineD2MPass(OpPassManager &pm,
+                               const TTNNPipelineD2MPassOptions &options) {
   // TODO(vtang): pass to strip intermediate layouts.
   pm.addPass(tt::createConvertTTNNToTTIRPass());
   // pm.addPass(strip layouts pass)
@@ -606,6 +620,7 @@ void createTTNNPipelineD2MPass(OpPassManager &pm) {
   // only works on top-level modules (doesn't run module has a parent op).
   ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
   ttmetalOptions.ttnnMode = true;
+  ttmetalOptions.enableElementwiseFusion = options.enableElementwiseFusion;
   ttmetal::createTTIRToTTMetalFrontendPipeline(pm, ttmetalOptions);
   ttmetal::createTTIRToTTMetalMiddleendPipeline(pm, ttmetalOptions);
   ttmetal::createTTIRToTTMetalBackendPipeline(pm, ttmetalOptions);
@@ -742,13 +757,13 @@ void registerTTNNPipelines() {
 
   // TTNN D2M pipeline - runs D2M compilation on TTNN d2m_subgraph ops.
   //
-  mlir::PassPipelineRegistration<>(
+  mlir::PassPipelineRegistration<TTNNPipelineD2MPassOptions>(
       "ttnn-through-d2m-pipeline",
       "Pipeline to compile D2M subgraphs inside ttnn.d2m_subgraph ops.",
-      [](OpPassManager &pm) {
+      [](OpPassManager &pm, const TTNNPipelineD2MPassOptions &options) {
         auto &devicePm =
             pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
-        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm);
+        mlir::tt::ttnn::createTTNNPipelineD2MPass(devicePm, options);
       });
 }
 } // namespace mlir::tt::ttnn

@@ -294,7 +294,7 @@ Tensor createBorrowedHostTensor(void *data,
       },
       [&]() -> RetType {
         return ::tt::runtime::ttmetal::createBorrowedHostTensor(
-            data, TensorDesc(shape, dataType, itemsize, stride));
+            data, TensorDesc(shape, dataType, stride));
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("createBorrowedHostTensor",

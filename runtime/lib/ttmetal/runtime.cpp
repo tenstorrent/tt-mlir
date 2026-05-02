@@ -577,7 +577,8 @@ static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
 static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
                           void *dstData, const void *srcData) {
   LOG_ASSERT(dst.shape == src.shape, "Tensor shape mismatch");
-  LOG_ASSERT(dst.itemsize == src.itemsize, "Tensor item size mismatch");
+  LOG_ASSERT(dst.elementSize() == src.elementSize(),
+             "Tensor item size mismatch");
 
   const auto srcIndices = getStridedRowStartIndices(src.shape, src.stride);
   const auto dstIndices = getStridedRowStartIndices(dst.shape, dst.stride);
@@ -585,12 +586,13 @@ static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
   assert(srcIndices.size() ==
          utils::product(src.shape.cbegin(), src.shape.cend() - 1));
 
-  const size_t rowSize = src.shape[src.shape.size() - 1] * src.itemsize;
+  const size_t elemSize = src.elementSize();
+  const size_t rowSize = src.shape[src.shape.size() - 1] * elemSize;
   const std::byte *srcPtr = static_cast<const std::byte *>(srcData);
   std::byte *dstPtr = static_cast<std::byte *>(dstData);
   for (size_t i = 0; i < srcIndices.size(); i++) {
-    std::memcpy(dstPtr + dstIndices[i] * dst.itemsize,
-                srcPtr + srcIndices[i] * src.itemsize, rowSize);
+    std::memcpy(dstPtr + dstIndices[i] * elemSize,
+                srcPtr + srcIndices[i] * elemSize, rowSize);
   }
 }
 
@@ -848,7 +850,7 @@ std::uint32_t getTensorElementSize(Tensor tensor) {
       utils::overloaded{
           [&](const TensorDesc &desc) {
             return static_cast<std::uint32_t>(
-                ttmetal::getTensorDesc(tensor).itemsize);
+                ttmetal::getTensorDesc(tensor).elementSize());
           },
           [&](const HostBuffer &buffer) {
             auto span = buffer->view_bytes();

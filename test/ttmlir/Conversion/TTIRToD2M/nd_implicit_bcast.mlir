@@ -90,7 +90,7 @@ module {
   }
 
   // ND chain that previously crashed in TTIRToD2M::getMulticastGridDims when
-  // the d2m-fusing pass pulled it into a d2m_subgraph. With the physical-rank
+  // the d2m-subgraphs pass pulled it into a d2m_subgraph. With the physical-rank
   // indexing-map fix it lowers to two d2m.generic ops (one per ttir op).
   // CHECK-LABEL: func.func @nd4_bcast_chain
   func.func @nd4_bcast_chain(

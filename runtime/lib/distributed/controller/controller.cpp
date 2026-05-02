@@ -1408,7 +1408,6 @@ void Controller::handleGetTensorDescResponse(
   tensorDescHandle->shape.assign(tensorDescFlat->shape()->begin(),
                                  tensorDescFlat->shape()->end());
   tensorDescHandle->dataType = tensorDescFlat->data_type();
-  tensorDescHandle->itemsize = tensorDescFlat->itemsize();
   tensorDescHandle->stride.assign(tensorDescFlat->stride()->begin(),
                                   tensorDescFlat->stride()->end());
   tensorDescHandle->physicalVolume = tensorDescFlat->physical_volume();

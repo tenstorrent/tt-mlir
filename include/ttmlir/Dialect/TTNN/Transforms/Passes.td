@@ -290,10 +290,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   ];
 }
 
-def TTNND2MFusing: Pass<"ttnn-d2m-fusing", "::mlir::ModuleOp"> {
-  let summary = "TTNN D2M fusing pass.";
+def TTNNCreateD2MSubgraphs: Pass<"ttnn-create-d2m-subgraphs", "::mlir::ModuleOp"> {
+  let summary = "TTNN create D2M subgraphs pass.";
   let description = [{
-    This pass identifies potential subgraphs that can be fused through D2M compilation.
+    This pass identifies potential subgraphs that can be fused through D2M compilation,
+    outlines each subgraph into a private function, and replaces the original ops
+    with a `ttnn.d2m_subgraph` op. Fusion through the D2M pipeline is done in D2MElementwiseFusion pass.
 
     Right now, this is limited to eltwise chains.
   }];
@@ -426,9 +428,24 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   }];
 
   list<Option> options = [
-    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::WeightDtype",
-           /*default=*/"::mlir::tt::ttnn::WeightDtype::None",
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
            "Target data type for weight conversion (bfp_bf8, bfp_bf4).">,
+  ];
+}
+
+def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
+  let summary = "Convert KV cache tensors to a lower precision dtype.";
+  let description = [{
+    This pass changes KV cache function argument types to a target dtype and inserts
+    ttnn.typecast ops on the input operands of ttnn.fill_cache and
+    ttnn.update_cache so written data matches the new cache format.
+  }];
+
+  list<Option> options = [
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
+           "Target data type for KV cache conversion (bfp_bf8, bfp_bf4).">
   ];
 }
 

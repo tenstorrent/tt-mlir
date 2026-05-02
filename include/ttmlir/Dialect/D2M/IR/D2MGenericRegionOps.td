@@ -1213,6 +1213,7 @@ def D2M_UnpackStallOnPackOp : D2M_GenericRegionOp<"unpack_stall_on_pack"> {
     read by the next, and the usual tile_regs_acquire semwait is not present
     (single-tile shard path).
   }];
+  let hasCanonicalizer = 1;
   let assemblyFormat = [{ attr-dict }];
 }
 
@@ -1611,6 +1612,84 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
     let arguments = (ins D2M_MemTx:$mem_tx);
 
     let assemblyFormat = [{ $mem_tx attr-dict `:` qualified(type($mem_tx)) }];
+}
+
+def D2M_IndexedRowCopyOp : D2M_GenericRegionDatamovementOp<"indexed_row_copy",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface> ]> {
+    let summary = "D2M indexed row-copy op";
+    let description = [{
+      Data-movement primitive for copying rows from a source table to an output
+      buffer using a tensor of 32-bit row indices. This is the lower-level
+      operation used by embedding, and is shaped so other indexed
+      datamovement ops can share the same NoC lowering path.
+
+      The op is memref-only. Tensor-level semantic ops should bufferize or
+      decompose to this op after choosing scratch circular buffers.
+    }];
+
+    let arguments = (ins
+      DeviceL1MemRef:$indices,
+      DeviceL1MemRef:$src,
+      DeviceL1MemRef:$dst,
+      DeviceL1MemRef:$indexScratch,
+      DeviceL1MemRef:$rowScratch,
+      I64Attr:$numRows,
+      I64Attr:$rowWidth,
+      DenseI64ArrayAttr:$indicesShape
+    );
+
+    let assemblyFormat = [{
+      $indices `,` $src `,` $dst
+      `scratch` $indexScratch `,` $rowScratch
+      `<` $numRows `,` $rowWidth `>`
+      attr-dict `:` type($indices) `,` type($src)
+      `,` type($dst) `,` type($indexScratch) `,` type($rowScratch)
+    }];
+
+    let hasVerifier = 1;
+}
+
+def D2M_EmbeddingOp : D2M_GenericRegionDatamovementOp<"embedding",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "D2M embedding row-gather op";
+    let description = [{
+      Data-movement embedding lookup. The op reads integer indices and a row-major
+      embedding table, then writes the selected table rows to the output buffer.
+
+      The tensor form is emitted by TTIRToD2M with an output tensor operand and
+      a tensor result. During bufferization, this op allocates scratch circular
+      buffers and lowers to `d2m.indexed_row_copy`, which owns the backend row
+      gather implementation.
+    }];
+
+    let arguments = (ins
+      AnyRankedTensor:$indices,
+      AnyRankedTensor:$weight,
+      AnyRankedTensor:$output,
+      I64Attr:$numIndices,
+      I64Attr:$embeddingDim,
+      DenseI64ArrayAttr:$indicesShape
+    );
+    let results = (outs AnyRankedTensor:$result);
+
+    let assemblyFormat = [{
+      $indices `,` $weight `,` $output
+      `<` $numIndices `,` $embeddingDim `>`
+      attr-dict `:` type($indices) `,` type($weight)
+      `,` type($output)
+      `->` type($result)
+    }];
+
+    let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

@@ -49,14 +49,10 @@ def test_binary_tree(
             right = builder.add(in2, in3)
             return builder.add(left, right)
 
-    if (
-        shape == (2048, 2048)
-        and dtype == torch.bfloat16
-        and get_board_id(system_desc) == "p150"
-    ):
-        pytest.skip("See issue https://github.com/tenstorrent/tt-mlir/issues/8120")
     if shape == (2048, 2048) and dtype == torch.float32:
-        pytest.skip("See issue https://github.com/tenstorrent/tt-mlir/issues/8120")
+        pytest.skip(
+            "Hitting L1 limits in Allocator, need to enable DRAM spilling for intermediate allocs."
+        )
 
     compile_and_execute_ttir(
         module,
