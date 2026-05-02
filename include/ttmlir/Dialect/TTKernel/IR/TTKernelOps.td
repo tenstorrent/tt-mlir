@@ -3503,12 +3503,23 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
       (with 32-bit wrap) of a remote Tensix core L1 memory address. This L1 memory
       address is used as a semaphore of size 4 Bytes, as a synchronization
       mechanism.
+
+      The `posted` attribute selects the NOC transaction response mode and
+      maps to the homonymous template parameter of `noc_semaphore_inc` in
+      tt-metal. When unset or false, the transaction is non-posted: the
+      receiver returns an acknowledgement and the sender's outstanding-atomics
+      counter tracks completion. When true, the transaction is posted: no
+      acknowledgement is returned, the sender's counter is not updated, and
+      synchronization must be receiver-driven.
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$addr, IndexLike:$incr, Optional<I8>:$noc_id);
+    let arguments = (ins TTKernel_NocAddr:$addr,
+                         IndexLike:$incr,
+                         Optional<I8>:$noc_id,
+                         OptionalAttr<BoolAttr>:$posted);
 
     let assemblyFormat = [{
-      `(` $addr `,` $incr (`,` $noc_id^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $addr `,` $incr (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -3614,6 +3625,37 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 
     let assemblyFormat = [{
       `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocSemaphoreIncMulticastOp : TTKernel_Op<"noc_semaphore_inc_multicast"> {
+    let summary = "NocSemaphoreIncMulticast";
+    let description = [{
+      Initiates an atomic increment (with 32-bit wrap) of a 4-byte L1 semaphore
+      on every core in a rectangular destination grid. The destinations are
+      encoded in a uint64_t produced by *get_noc_multicast_addr* covering the
+      NOC coordinate range (x_start, y_start, x_end, y_end) and the target L1
+      address. Used for cumulative synchronization across multiple senders
+      sharing receivers, paired with *experimental::semaphore_wait_min*.
+
+      The sender must not be a member of the multicast destination set; for
+      including the sender there is no corresponding loopback variant in
+      tt-metal at this time.
+
+      The `posted` attribute mirrors the semantics of `noc_semaphore_inc`'s
+      `posted` template parameter. Posted multicast is currently restricted
+      on some architectures in the underlying tt-metal (cf. the assertion in
+      the v2 `Noc::async_write_multicast` API); leave unset when in doubt.
+    }];
+
+    let arguments = (ins TTKernel_NocAddr:$addr,
+                         IndexLike:$incr,
+                         I32:$num_dests,
+                         Optional<I8>:$noc_id,
+                         OptionalAttr<BoolAttr>:$posted);
+
+    let assemblyFormat = [{
+      `(` $addr `,` $incr `,` $num_dests (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
     }];
 }
 
