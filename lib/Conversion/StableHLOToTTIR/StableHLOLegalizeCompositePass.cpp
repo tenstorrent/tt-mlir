@@ -674,7 +674,24 @@ public:
                                        adaptor.getOperands()[1],
                                        adaptor.getOperands()[2]};
     if (hasAttnMask) {
-      sdpaOperands.push_back(adaptor.getOperands()[3]);
+      Value attnMask = adaptor.getOperands()[3];
+      auto attnMaskType = mlir::cast<RankedTensorType>(attnMask.getType());
+
+      // If the attention mask is 3D (num_heads, seq_len, seq_len), unsqueeze it
+      // to 4D (1, num_heads, seq_len, seq_len) as required by the TTIR SDPA
+      // verifier. timm RelPosBiasTf.get_bias() produces a 3D mask.
+      if (attnMaskType.getRank() == 3) {
+        auto shape = attnMaskType.getShape();
+        SmallVector<int64_t> newShape = {1, shape[0], shape[1], shape[2]};
+        auto newType = RankedTensorType::get(newShape,
+                                             attnMaskType.getElementType(),
+                                             attnMaskType.getEncoding());
+        attnMask = rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), newType, attnMask,
+            rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(newShape)));
+      }
+
+      sdpaOperands.push_back(attnMask);
     }
 
     // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
