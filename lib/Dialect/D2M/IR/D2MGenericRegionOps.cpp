@@ -432,7 +432,7 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
     }
     return !ttcore::hasDeviceLayout(operand);
   };
-  if (!isLocalMemref(getSrc())) {
+  if (isImplicitForm && !isLocalMemref(getSrc())) {
     return emitOpError("src must be a local memref");
   }
   if (isImplicitForm && !isLocalMemref(getDst())) {
@@ -454,13 +454,13 @@ EmbeddingOp::bufferize(mlir::RewriterBase &rewriter,
     }
   }
 
-  auto srcType = mlir::cast<ShapedType>(getSrc().getType());
+  ShapedType srcType = getSrcShapedType();
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("source and destination element types must match");
   }
 
   bool hasTensors =
-      mlir::isa<RankedTensorType>(getSrc().getType()) ||
+      mlir::isa<RankedTensorType>(srcType) ||
       (isImplicitForm && mlir::isa<RankedTensorType>(getDst().getType()));
   if (hasTensors) {
     if (!getResult()) {

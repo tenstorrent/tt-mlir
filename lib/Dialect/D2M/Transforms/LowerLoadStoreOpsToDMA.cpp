@@ -353,8 +353,8 @@ public:
     Value srcCb = dmaCopy.getSrcCb();
     Value dstCb = dmaCopy.getDstCb();
 
-    Value dstMemref = rewriter.create<ReserveOp>(loc, dstCb).getResult();
     Value srcMemref = rewriter.create<WaitOp>(loc, srcCb).getResult();
+    Value dstMemref = rewriter.create<ReserveOp>(loc, dstCb).getResult();
 
     auto memTxType = rewriter.getType<MemTxType>(DMAType::Read);
     auto newCopy = rewriter.create<LocalCopyOp>(

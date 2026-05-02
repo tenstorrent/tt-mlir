@@ -412,10 +412,6 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     }
   });
 
-  // Map local buffers to the CB assigned during remote_load conversion.
-  // Used to connect local_copy sources to the correct CB on the DMA thread.
-  DenseMap<Value, Value> localBufferToCB;
-
   for (RemoteLoadOp loadOp : loads) {
     if (loadOp.isExplicitCBForm()) {
       continue;
@@ -441,12 +437,6 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
     // D2MPreallocateMcastSemaphores (needed by LowerLoadStoreOpsToDMA).
     if (auto semAttr = loadOp->getAttr("preallocated_semaphores")) {
       newLoad->setAttr("preallocated_semaphores", semAttr);
-    }
-
-    // Record the buffer-to-CB mapping so local_copy ops can find
-    // the CB that holds their src data.
-    if (Value localBuffer = loadOp.getLocalBuffer()) {
-      localBufferToCB[localBuffer] = cb;
     }
 
     toErase.insert(loadOp);
@@ -476,14 +466,19 @@ convertDMAToExplicitCBForm(Block *dmBlock, PatternRewriter &rewriter,
   for (LocalCopyOp copyOp : localCopies) {
     Location loc = copyOp.getLoc();
 
-    // Find the source CB.  Check localBufferToCB first (populated during
-    // remote_load conversion for both streaming and aliased loads), then
-    // fall back to findAssociatedCB (traces to generic operand).
-    Value srcCb = localBufferToCB.lookup(copyOp.getSrc());
-    Value dstCb = localBufferToCB.lookup(copyOp.getDst());
+    unsigned srcCbOperandIdx =
+        copyOp->getParentOfType<GenericOp>().getOperandIndex(copyOp.getSrc());
+    auto srcCb =
+        d2m::getOrCreateCB(rewriter, copyOp->getParentOfType<GenericOp>(),
+                           dmBlock, srcCbOperandIdx);
+    unsigned dstCbOperandIdx =
+        copyOp->getParentOfType<GenericOp>().getOperandIndex(copyOp.getDst());
+    auto dstCb =
+        d2m::getOrCreateCB(rewriter, copyOp->getParentOfType<GenericOp>(),
+                           dmBlock, dstCbOperandIdx);
 
-    // Find the destination CB.
-    // Create explicit CB form: local_copy %src_memref into %dstCb.
+    // Create explicit CB form: local_copy %srcCb into %dstCb.
+    rewriter.setInsertionPoint(copyOp);
     rewriter.create<LocalCopyOp>(loc, TypeRange{}, /*src=*/Value{},
                                  /*dst=*/Value{}, srcCb, dstCb,
                                  copyOp.getIndexingMaps());

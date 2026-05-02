@@ -1468,8 +1468,8 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
 
       Explicit CB form (after LowerLoadStoreOpsToExplicitCBForm):
       ```mlir
-      d2m.local_copy %srcCb into %dstCb indexing_maps = [#src_map, #dst_map]
-        : !d2m.cb<memref<...>> into !d2m.cb<memref<...>>
+      d2m.local_copy from %srcCb into %dstCb indexing_maps = [#src_map, #dst_map]
+        : from !d2m.cb<memref<...>> into !d2m.cb<memref<...>>
       ```
 
       Memref form with MemTx result (after LowerLoadStoreOpsToDMA):
@@ -1507,12 +1507,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
     ];
 
     let assemblyFormat = [{
+      (`from` $srcCb^ `into` $dstCb)?
       ($src^ `,` $dst)?
-      ($srcCb^ `into` $dstCb)?
       `indexing_maps` `=` $indexing_maps
-      attr-dict
-      (`:` type($src)^ `,` type($dst))?
-      (`:` type($srcCb)^ `into` type($dstCb))?
+      attr-dict `:` type(operands)
       (`->` type($result)^)?
     }];
 
@@ -1540,10 +1538,20 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
         return mlir::cast<CBType>(cb.getType());
       }
 
+      // Returns the source CB type, or null if CB is not present.
+      CBType getSrcCbType() {
+        Value cb = getSrcCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
 
       // Returns the source memref type. Only valid post-bufferization.
       MemRefType getSrcMemRefType() {
-        return mlir::cast<MemRefType>(getSrc().getType());
+        if (getSrc())
+          return mlir::cast<MemRefType>(getSrc().getType());
+        if (getSrcCb())
+          return getSrcCbType().template getUnderlyingAs<MemRefType>();
+        llvm_unreachable("LocalCopyOp has neither src nor cb");
       }
 
       // Returns the destination memref type from dst or CB underlying type.
@@ -1563,6 +1571,15 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
         if (getDstCb())
           return getDstCbType().template getUnderlyingAs<ShapedType>();
         llvm_unreachable("LocalCopyOp has neither dst nor cb");
+      }
+
+      // Returns the source shaped type (works for both tensor and memref).
+      ShapedType getSrcShapedType() {
+        if (getSrc())
+          return mlir::cast<ShapedType>(getSrc().getType());
+        if (getSrcCb())
+          return getSrcCbType().template getUnderlyingAs<ShapedType>();
+        llvm_unreachable("LocalCopyOp has neither src nor cb");
       }
 
       /// Returns the CB port number. Op must be in explicit CB form.
