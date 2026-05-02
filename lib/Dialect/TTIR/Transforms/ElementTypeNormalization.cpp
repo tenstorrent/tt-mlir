@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -164,6 +166,49 @@ struct ElementTypeNormalization
       signalPassFailure();
       return;
     }
+
+    // After type normalization, update ttcore.local_shape annotations on
+    // function results to match the new element types. ElementTypeConverter
+    // may have downgraded f64→f32 or i64→i32, leaving stale local_shape
+    // attrs that cause PJRT buffer size mismatches at runtime.
+    mlir::ModuleOp moduleOp = getOperation();
+    moduleOp.walk([](func::FuncOp funcOp) {
+      MLIRContext *ctx = funcOp.getContext();
+      for (unsigned i = 0; i < funcOp.getNumResults(); ++i) {
+        auto resultType = mlir::cast<mlir::RankedTensorType>(
+            funcOp.getResultTypes()[i]);
+        auto resultAttrDict = funcOp.getResultAttrDict(i);
+        if (!resultAttrDict)
+          continue;
+
+        auto localShapeAttrVal =
+            resultAttrDict.get(mlir::tt::ttcore::LocalShapeAttr::name);
+        if (!localShapeAttrVal)
+          continue;
+
+        auto localShapeAttr =
+            mlir::cast<mlir::tt::ttcore::LocalShapeAttr>(localShapeAttrVal);
+        auto localShapeType = localShapeAttr.getLocalShape();
+
+        if (localShapeType.getElementType() == resultType.getElementType())
+          continue;
+
+        auto newLocalShape = mlir::RankedTensorType::get(
+            localShapeType.getShape(), resultType.getElementType(),
+            localShapeType.getEncoding());
+
+        llvm::SmallVector<mlir::NamedAttribute> newAttrs(
+            resultAttrDict.getValue());
+        for (auto &attr : newAttrs) {
+          if (attr.getName() == mlir::tt::ttcore::LocalShapeAttr::name) {
+            attr = {attr.getName(),
+                    mlir::tt::ttcore::LocalShapeAttr::get(ctx, newLocalShape)};
+          }
+        }
+        funcOp.setResultAttrs(i,
+                              mlir::DictionaryAttr::get(ctx, newAttrs));
+      }
+    });
   }
 
 private:
