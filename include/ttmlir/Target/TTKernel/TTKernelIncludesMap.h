@@ -32,12 +32,6 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         // The TTKernelToEmitC pass inserts this as a LiteralOp, so the TTKernelToCpp pass won't hit this entry.
         {"get_compile_time_arg_val",                       {"api/compile_time_args.h", "api/compile_time_args.h"}},
 
-        // CB.
-        {"cb_pop_front",                                   {"api/compute/cb_api.h", "api/dataflow/dataflow_api.h"}},
-        {"cb_push_back",                                   {"api/compute/cb_api.h", "api/dataflow/dataflow_api.h"}},
-        {"cb_reserve_back",                                {"api/compute/cb_api.h", "api/dataflow/dataflow_api.h"}},
-        {"cb_wait_front",                                  {"api/compute/cb_api.h", "api/dataflow/dataflow_api.h"}},
-
         // NoC.
         // The "get_interleaved_addr_gen_fast" op materializes as "InterleavedAddrGenFast<true>".
         {"get_dataformat",                                 {"", "api/dataflow/dataflow_api.h"}},
