@@ -1935,10 +1935,23 @@ public:
     // fits within MAX_CB_TILES (512 KB at 2048 B/tile), leaving headroom for
     // the other CBs in L1 (≈1.5 MB total).
     //
+    // Additional constraints:
+    // 1. cIn % cInBlock == 0 so the factory loop terminates correctly.
+    // 2. For multi-block schemes (numCInBlocks > 1), each block must occupy
+    //    an exact multiple of TILE_WIDTH rows in the weight tensor so that
+    //    tile boundaries align with block boundaries in the writer kernel.
+    //    This requires kernelElements * cInBlock ≡ 0 (mod TILE_WIDTH).
+    //    When no cInBlock satisfying all constraints divides cIn, fall back
+    //    to a single block (cInBlock = cIn).  A single block has no boundary
+    //    issue: the last partial tile is zero-padded by the tilize step.
+    //
     // The runtime also requires C_in_blocks ≤ num_cores, so we pass the full
-    // device worker grid as compute_with_storage_grid_size.  Always attach an
-    // explicit Conv3dConfigAttr so the runtime uses the same c_in_block as the
-    // pre-blocked weight tensor prepared below.
+    // device worker grid as compute_with_storage_grid_size.  When cInBlock is
+    // a multiple of l1_alignment (16), set c_in_block explicitly so the
+    // runtime uses the same value as the pre-blocked weight tensor.  When
+    // cInBlock < l1_alignment (e.g. cInBlock == cIn for small C_in), leave
+    // c_in_block unset so the runtime infers C_in_block = C_in without
+    // triggering the l1_alignment validation check.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
     constexpr uint32_t MAX_CB_TILES = 256; // 512 KB / 2048 B per tile
     int64_t cIn = weightTy.getDimSize(1);
@@ -1955,6 +1968,27 @@ public:
                              cIn % cInBlock != 0)) {
       cInBlock /= 2;
     }
+    // Verify block-boundary tile alignment for multi-block schemes.
+    // If the selected cInBlock produces numCInBlocks > 1 but
+    // kernelElements*cInBlock is not tile-aligned, the writer would read
+    // across block boundaries.  Fall back to a single block (cInBlock = cIn).
+    {
+      int64_t numCInBlocksSelected =
+          llvm::divideCeil(cIn, static_cast<int64_t>(cInBlock));
+      if (numCInBlocksSelected > 1 &&
+          (kernelElements * static_cast<int64_t>(cInBlock)) % TILE_WIDTH != 0) {
+        cInBlock = static_cast<uint32_t>(cIn);
+      }
+    }
+    // Only set c_in_block explicitly when it is a valid multiple of the
+    // L1 alignment (16).  For smaller values the runtime infers C_in_block
+    // from C_in directly (config.C_in_block == 0), avoiding the alignment
+    // validation in conv3d_device_operation.cpp.
+    constexpr uint32_t L1_ALIGNMENT = static_cast<uint32_t>(TILE_WIDTH) / 2;
+    std::optional<uint32_t> cInBlockOpt =
+        (cInBlock % L1_ALIGNMENT == 0)
+            ? std::optional<uint32_t>(cInBlock)
+            : std::nullopt;
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
     auto workerGrid = deviceAttr.getWorkerGrid();
     auto conv3dConfigAttr = ttnn::Conv3dConfigAttr::get(
@@ -1964,7 +1998,7 @@ public:
         std::nullopt,                                          // w_out_block
         std::nullopt,                                          // h_out_block
         std::optional<uint32_t>(static_cast<uint32_t>(TILE_WIDTH)), // c_out_block
-        std::optional<uint32_t>(cInBlock),                    // c_in_block
+        cInBlockOpt,                                           // c_in_block
         std::optional<ttcore::GridAttr>(workerGrid));          // full device grid
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc(),
@@ -2081,9 +2115,20 @@ private:
         mlir::cast<TypedValue<RankedTensorType>>(weight), {2, 3, 4, 1, 0},
         rewriter, loc);
 
-    // Step 2: Pad C/G to tile width alignment
-    int64_t cInAligned =
-        llvm::divideCeil(inChannPerGroup, TILE_WIDTH) * TILE_WIDTH;
+    // Step 2: Pad C/G so that it is an exact multiple of cInBlock.
+    // When cInBlock == 0 (full single-block, set to cInAligned in step 3),
+    // pad to TILE_WIDTH alignment so the single-block weight is tile-aligned.
+    // When cInBlock > 0 (explicit blocking), pad to ceil(C/cInBlock)*cInBlock
+    // so each block contains exactly cInBlock channels.  This avoids including
+    // zero-padded phantom blocks that would shift weight rows seen by the
+    // writer kernel.
+    int64_t cInAligned;
+    if (cInBlock == 0) {
+      cInAligned = llvm::divideCeil(inChannPerGroup, TILE_WIDTH) * TILE_WIDTH;
+    } else {
+      cInAligned =
+          llvm::divideCeil(inChannPerGroup, (int64_t)cInBlock) * (int64_t)cInBlock;
+    }
     if (cInAligned != inChannPerGroup) {
       int32_t cinPadAmount = static_cast<int32_t>(cInAligned - inChannPerGroup);
       llvm::SmallVector<int32_t> padding = {0, 0, 0, 0, 0, 0, 0, cinPadAmount,
