@@ -2973,9 +2973,7 @@ public:
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
           rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
-                                                       value,
-                                                       /*noc_id=*/nullptr,
-                                                       /*posted=*/nullptr);
+                                                       value);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -2996,8 +2994,8 @@ public:
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
-      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(
-          op, nocAddr, value, /*noc_id=*/nullptr, /*posted=*/nullptr);
+      rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
+                                                               value);
     } else {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc multicast is illegal.");

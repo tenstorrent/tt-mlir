@@ -3521,6 +3521,16 @@ def TTKernel_NocSemaphoreIncOp : TTKernel_Op<"noc_semaphore_inc"> {
     let assemblyFormat = [{
       `(` $addr `,` $incr (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins "Value":$addr, "Value":$incr), [{
+        build($_builder, $_state, addr, incr, /*noc_id=*/Value{},
+              /*posted=*/BoolAttr{});
+      }]>,
+      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$noc_id), [{
+        build($_builder, $_state, addr, incr, noc_id, /*posted=*/BoolAttr{});
+      }]>,
+    ];
 }
 
 def TTKernel_NocSemaphoreSetOp : TTKernel_Op<"noc_semaphore_set"> {
@@ -3657,6 +3667,18 @@ def TTKernel_NocSemaphoreIncMulticastOp : TTKernel_Op<"noc_semaphore_inc_multica
     let assemblyFormat = [{
       `(` $addr `,` $incr `,` $num_dests (`,` $noc_id^)? `)` (`posted` $posted^)? attr-dict `:` functional-type(operands, results)
     }];
+
+    let builders = [
+      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$num_dests), [{
+        build($_builder, $_state, addr, incr, num_dests, /*noc_id=*/Value{},
+              /*posted=*/BoolAttr{});
+      }]>,
+      OpBuilder<(ins "Value":$addr, "Value":$incr, "Value":$num_dests,
+                     "Value":$noc_id), [{
+        build($_builder, $_state, addr, incr, num_dests, noc_id,
+              /*posted=*/BoolAttr{});
+      }]>,
+    ];
 }
 
 //===----------------------------------------------------------------------===//
