@@ -1171,6 +1171,11 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         // Unqualified walk will visit the root op itself last, we should
         // ignore this.
         return;
+      } else if (auto operandAliasOp =
+                     dyn_cast_if_present<ttmetal::OperandAliasOp>(op);
+                 operandAliasOp) {
+        // Underlying buffer of alias is correctly taken by enqueue program op
+        return;
       } else {
         llvm_unreachable("Encountered unsupported op.");
       }

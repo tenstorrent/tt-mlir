@@ -10,11 +10,11 @@
 module {
   // CHECK-LABEL: func.func @custom_cb_ports
   // Verify that operand indices appear in the ArgSpec ct_args.
-  // CHECK-SAME: ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]
+  // CHECK-SAME: ct_args = [<arg_type = cb_port, operand_index = 3>, <arg_type = cb_port, operand_index = 5>]
   func.func @custom_cb_ports() attributes {d2m.thread = #d2m.thread<compute>} {
     %c0 = arith.constant 0 : index
-    %cb0 = d2m.get_cb(3) operand_index = 0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(5) operand_index = 1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(3) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(5) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
     // CHECK: ttkernel.get_compile_time_arg_val(0)
     // CHECK: ttkernel.get_compile_time_arg_val(1)
     %in = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
@@ -29,8 +29,8 @@ module {
   // CHECK-SAME: ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]
   func.func @default_cb_ports() attributes {d2m.thread = #d2m.thread<compute>} {
     %c0 = arith.constant 0 : index
-    %cb0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
-    %cb1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+    %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
     // CHECK: ttkernel.get_compile_time_arg_val(0)
     // CHECK: ttkernel.get_compile_time_arg_val(1)
     %in = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>

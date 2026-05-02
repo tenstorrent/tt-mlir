@@ -1468,8 +1468,8 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
 
       Explicit CB form (after LowerLoadStoreOpsToExplicitCBForm):
       ```mlir
-      d2m.local_copy %src into %cb indexing_maps = [#src_map, #dst_map]
-        : memref<...> into !d2m.cb<memref<...>>
+      d2m.local_copy from %srcCb into %dstCb indexing_maps = [#src_map, #dst_map]
+        : from !d2m.cb<memref<...>> into !d2m.cb<memref<...>>
       ```
 
       Memref form with MemTx result (after LowerLoadStoreOpsToDMA):
@@ -1481,9 +1481,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
     }];
 
     let arguments = (ins
-      AnyRankedTensorOrMemRef:$src,
+      Optional<AnyRankedTensorOrMemRef>:$src,
       Optional<AnyRankedTensorOrMemRef>:$dst,
-      Optional<D2M_CB>:$cb,
+      Optional<D2M_CB>:$srcCb,
+      Optional<D2M_CB>:$dstCb,
       AffineMapArrayAttr:$indexing_maps
     );
 
@@ -1495,20 +1496,21 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
         Type dstType = dst.getType();
         TypeRange resultTypes = mlir::isa<RankedTensorType>(dstType)
             ? TypeRange(dstType) : TypeRange{};
-        build($_builder, $_state, resultTypes, src, dst, /*cb=*/Value{},
+        build($_builder, $_state, resultTypes, src, dst, /*srcCb=*/Value{}, /*dstCb=*/Value{},
               indexingMaps);
       }]>,
       // MemTx result form (post-LowerLoadStoreOpsToDMA): memref operands, !d2m.mem_tx result.
       OpBuilder<(ins "Type":$resultType, "Value":$src, "Value":$dst, "ArrayAttr":$indexingMaps), [{
         build($_builder, $_state, TypeRange(resultType), src, dst,
-              /*cb=*/Value{}, indexingMaps);
+              /*srcCb=*/Value{}, /*dstCb=*/Value{}, indexingMaps);
       }]>
     ];
 
     let assemblyFormat = [{
-      $src (`,` $dst^)? (`into` $cb^)?
+      (`from` $srcCb^ `into` $dstCb)?
+      ($src^ `,` $dst)?
       `indexing_maps` `=` $indexing_maps
-      attr-dict `:` type($src) (`,` type($dst)^)? (`into` type($cb)^)?
+      attr-dict `:` type(operands)
       (`->` type($result)^)?
     }];
 
@@ -1519,10 +1521,10 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       MutableOperandRange getDpsInitsMutable() { return getDstMutable(); }
 
       // Returns true if in explicit CB form (has CB, no dst).
-      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+      bool isExplicitCBForm() { return static_cast<bool>(getDstCb()) && static_cast<bool>(getSrcCb()); }
 
       // Returns true if in implicit form (has dst, no CB).
-      bool isImplicitForm() { return static_cast<bool>(getDst()); }
+      bool isImplicitForm() { return static_cast<bool>(getDst()) && static_cast<bool>(getSrc()); }
 
       // Returns true if the result is a !d2m.mem_tx (post-LowerLoadStoreOpsToDMA).
       bool hasMemTxResult() {
@@ -1530,16 +1532,26 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       }
 
       // Returns the CB type, or null if CB is not present.
-      CBType getCbType() {
-        Value cb = getCb();
+      CBType getDstCbType() {
+        Value cb = getDstCb();
         if (!cb) return CBType();
         return mlir::cast<CBType>(cb.getType());
       }
 
+      // Returns the source CB type, or null if CB is not present.
+      CBType getSrcCbType() {
+        Value cb = getSrcCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
 
       // Returns the source memref type. Only valid post-bufferization.
       MemRefType getSrcMemRefType() {
-        return mlir::cast<MemRefType>(getSrc().getType());
+        if (getSrc())
+          return mlir::cast<MemRefType>(getSrc().getType());
+        if (getSrcCb())
+          return getSrcCbType().template getUnderlyingAs<MemRefType>();
+        llvm_unreachable("LocalCopyOp has neither src nor cb");
       }
 
       // Returns the destination memref type from dst or CB underlying type.
@@ -1547,8 +1559,8 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       MemRefType getDstMemRefType() {
         if (getDst())
           return mlir::cast<MemRefType>(getDst().getType());
-        if (getCb())
-          return getCbType().template getUnderlyingAs<MemRefType>();
+        if (getDstCb())
+          return getDstCbType().template getUnderlyingAs<MemRefType>();
         llvm_unreachable("LocalCopyOp has neither dst nor cb");
       }
 
@@ -1556,9 +1568,18 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       ShapedType getDstShapedType() {
         if (getDst())
           return mlir::cast<ShapedType>(getDst().getType());
-        if (getCb())
-          return getCbType().template getUnderlyingAs<ShapedType>();
+        if (getDstCb())
+          return getDstCbType().template getUnderlyingAs<ShapedType>();
         llvm_unreachable("LocalCopyOp has neither dst nor cb");
+      }
+
+      // Returns the source shaped type (works for both tensor and memref).
+      ShapedType getSrcShapedType() {
+        if (getSrc())
+          return mlir::cast<ShapedType>(getSrc().getType());
+        if (getSrcCb())
+          return getSrcCbType().template getUnderlyingAs<ShapedType>();
+        llvm_unreachable("LocalCopyOp has neither src nor cb");
       }
 
       /// Returns the CB port number. Op must be in explicit CB form.
@@ -1569,16 +1590,16 @@ def D2M_LocalCopyOp : D2M_GenericRegionDatamovementOp<"local_copy",
       }
 
       bool isConsumer(mlir::OpOperand &operand) {
-        return &getSrcMutable() == &operand;
+        return llvm::any_of(getSrcMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
       }
     }];
 
   let extraClassDefinition = [{
     unsigned $cppClass::getCBPort() {
       assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
-      auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+      auto getCBOp = getDstCb().getDefiningOp<GetCBOp>();
       assert(getCBOp && "CB operand must be defined by a GetCBOp");
-      return getCBOp.getPort();
+      return getCBOp.getCbOperandIdx();
     }
   }];
 }
@@ -1914,7 +1935,7 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
         assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
+        return getCBOp.getCbOperandIdx();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -2129,7 +2150,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
         auto getCBOp = getCb().getDefiningOp<GetCBOp>();
         assert(getCBOp && "CB operand must be defined by a GetCBOp");
-        return getCBOp.getPort();
+        return getCBOp.getCbOperandIdx();
       }
 
       /// Returns true if the circular buffer operand is present (explicit CB form).
@@ -2917,14 +2938,11 @@ def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
 //===----------------------------------------------------------------------===//
 
 def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
-    let summary = "Get a circular buffer for the given port.";
+    let summary = "Get a circular buffer for the given cb operand index.";
     let description = [{
-      Obtain a CB handle for the specified port number.  Each unique port maps
-      to exactly one physical circular buffer.
+      Obtain a CB handle for the specified cb operand in the generic.
 
-      The port number is a local identifier — it does not correspond to the
-      parent generic op's operand index.  The binding between a CB port and a
-      generic operand is established by `remote_load`/`remote_store` ops.
+      The cb_operand_idx corresponds to the parent generic op's operand index.
 
       ```mlir
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>
@@ -2932,12 +2950,11 @@ def D2M_GetCBOp : D2M_GenericRegionOp<"get_cb", [Pure]> {
       ```
     }];
 
-    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$port,
-                         OptionalAttr<I64Attr>:$operand_index,
+    let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$cb_operand_idx,
                          OptionalAttr<D2M_ResolutionStageAttr>:$resolution_stage);
     let results = (outs D2M_CB:$result);
 
-    let assemblyFormat = [{ `(` $port `)` (`operand_index` `=` $operand_index^)? (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
+    let assemblyFormat = [{ `(` $cb_operand_idx `)` (`resolution_stage` `=` $resolution_stage^)? attr-dict `:` type($result) }];
 }
 
 def D2M_GetArgOp : D2M_GenericRegionOp<"get_arg", [Pure]> {
@@ -3157,6 +3174,39 @@ def D2M_PrintOp : D2M_GenericRegionOp<"print", [MemoryEffects<[MemRead, MemWrite
                      ::mlir::ValueRange{std::forward<Args>(argv)...});
       }
     }];
+}
+
+def D2M_OperandAliasOp : D2M_GenericRegionOp<"operand_alias", [
+    MemoryEffects<[MemRead, MemWrite]>
+  ]> {
+  let summary = "Alias a shard of an input buffer without allocation.";
+  let description = [{
+    The `alias_buffer` operation declares that a local buffer within a generic
+    region directly aliases (shares storage with) a shard of an input operand
+    rather than requiring a separate allocation. It takes a full sharded memref
+    (with grid dimensions) and returns a memref containing only the shard
+    portion (grid dimensions stripped).
+
+    This op is introduced by the allocator pass for operands that do not
+    require streaming. It encodes in the IR that no separate buffer
+    allocation is needed; the compute kernel operates directly on the
+    input data in place. Downstream passes convert this op into circular
+    buffer operations (reserve/push/wait/pop).
+
+    ```mlir
+    d2m.generic ins(%input : memref<1x1x32x32xf32, ...>) ... {
+      %shard = d2m.alias_buffer %input :
+          memref<1x1x32x32xf32, ...> -> memref<32x32xf32, ...>
+    }
+    ```
+  }];
+
+  let arguments = (ins AnyNon0RankedMemRef:$memref);
+  let results = (outs AnyNon0RankedMemRef:$aliasedBuffer);
+
+  let assemblyFormat = [{
+    $memref attr-dict `:` type($memref) `->` type($aliasedBuffer)
+  }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

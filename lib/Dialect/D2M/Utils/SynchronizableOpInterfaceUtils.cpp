@@ -40,6 +40,31 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
   return cbUsageInfo;
 }
 
+bool isPurelyDerivedOp(Operation *op,
+                       DenseMap<Operation *, bool> &purelyDerivedOps) {
+  // check if the result is already cached
+  if (purelyDerivedOps.contains(op)) {
+    return purelyDerivedOps[op];
+  }
+
+  // if not, compute the result
+  bool isPurelyDerived = mlir::isPure(op);
+  for (auto operand : op->getOperands()) {
+    // Block arguments (e.g., loop induction variables) have no defining op
+    // and are considered pure since they don't have side effects.
+    Operation *definingOp = operand.getDefiningOp();
+    if (definingOp != nullptr &&
+        !isPurelyDerivedOp(definingOp, purelyDerivedOps)) {
+      isPurelyDerived = false;
+      break;
+    }
+  }
+
+  // cache the result and return it
+  purelyDerivedOps[op] = isPurelyDerived;
+  return isPurelyDerived;
+}
+
 // Wraps a range of ops in a SynchronizedRegionOp and returns the latter.
 // This is to be used to wrap a region of non-synchronized ops into an op that
 // generically implements SynchronizableOpInterface (e.g. wrapping
@@ -61,20 +86,10 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
     opsInRange.insert(&op);
   }
 
-  DenseSet<Operation *> pureOps;
+  DenseMap<Operation *, bool> purelyDerivedOps;
   SmallVector<Operation *> opsToErase;
   for (Operation &op : llvm::make_range(start, end)) {
-    bool isPure = mlir::isPure(&op);
-    for (auto operand : op.getOperands()) {
-      if (!pureOps.contains(operand.getDefiningOp())) {
-        isPure = false;
-        break;
-      }
-    }
-
-    if (isPure) {
-      pureOps.insert(&op);
-    } else {
+    if (!isPurelyDerivedOp(&op, purelyDerivedOps)) {
       opsToErase.push_back(&op);
       for (Value result : op.getResults()) {
         for (Operation *user : result.getUsers()) {

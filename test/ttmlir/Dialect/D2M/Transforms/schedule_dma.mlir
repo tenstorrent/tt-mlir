@@ -434,8 +434,7 @@ module {
           %0 = arith.addi %core0, %arg1 : index
           %1 = arith.addi %core1, %arg2 : index
           d2m.remote_load %arg0[%0, %1] into %cb0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-          %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-          d2m.local_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+          d2m.local_copy from %cb0 into %cb2 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
         } {d2m.blocking_loop = 1}
       } {d2m.blocking_loop = 0}
     }, {
@@ -462,8 +461,7 @@ module {
       // CHECK: }, {
       %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      %src = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.local_copy %src into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy from %cb0 into %cb2 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
     }, {
     ^compute0:
       %cb2 = d2m.get_cb(2) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
@@ -491,10 +489,8 @@ module {
       // CHECK: }, {
       // CHECK: d2m.local_copy
       // CHECK: }, {
-      %a = d2m.wait %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.local_copy %a into %cb2 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      %b = d2m.wait %cb2 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
-      d2m.local_copy %b into %cb4 indexing_maps = [#map, #map] : memref<2x4x!ttcore.tile<32x32, f32>, #l1> into !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy from %cb0 into %cb2 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.local_copy from %cb2 into %cb4 indexing_maps = [#map, #map] : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
     }, {
     ^compute0:
       %cb4 = d2m.get_cb(4) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>

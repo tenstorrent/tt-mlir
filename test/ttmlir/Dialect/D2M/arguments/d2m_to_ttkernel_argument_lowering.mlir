@@ -7,8 +7,8 @@
 // CHECK: %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
 // CHECK: %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1024, f32>
 func.func private @cb_lowering() attributes {d2m.thread = #d2m.thread<compute>, tt.function_type = "kernel"} {
-  %arg0 = d2m.get_cb(0) operand_index = 0 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
-  %arg1 = d2m.get_cb(1) operand_index = 1 : <memref<32x32xf32, #l1>>
+  %arg0 = d2m.get_cb(0) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+  %arg1 = d2m.get_cb(1) : <memref<32x32xf32, #l1>>
   %0 = d2m.reserve %arg0 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
   d2m.push %arg0 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
   %1 = d2m.wait %arg0 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1>
@@ -30,8 +30,8 @@ func.func private @cb_lowering() attributes {d2m.thread = #d2m.thread<compute>, 
 // CHECK: %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
 // CHECK: %2 = ttkernel.get_compile_time_arg_val(2) : () -> ui32
 func.func private @scalar_lowering() attributes {d2m.thread = #d2m.thread<datamovement>, tt.function_type = "kernel"} {
-  %cb0 = d2m.get_cb(0) operand_index = 0 : <memref<32x32xf32, #l1>>
-  %cb1 = d2m.get_cb(1) operand_index = 1 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+  %cb0 = d2m.get_cb(0) : <memref<32x32xf32, #l1>>
+  %cb1 = d2m.get_cb(1) : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
   %scalar = d2m.get_arg(2) : ui32
   %0 = d2m.reserve %cb0 : <memref<32x32xf32, #l1>> -> memref<32x32xf32, #l1>
   d2m.push %cb0 : <memref<32x32xf32, #l1>>
@@ -53,7 +53,7 @@ func.func private @scalar_lowering() attributes {d2m.thread = #d2m.thread<datamo
 func.func private @datamovement_kernel1() attributes {d2m.thread = #d2m.thread<datamovement>, tt.function_type = "kernel"} {
   // CHECK: %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<4, !ttcore.tile<32x32, f32>>
   // CHECK: %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.l1_addr
-  %arg1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>
+  %arg1 = d2m.get_cb(1) : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>
   %arg3 = d2m.get_arg(3) : !d2m.global_semaphore
   %c2 = arith.constant 2 : index
   %c1 = arith.constant 1 : index
@@ -86,7 +86,7 @@ func.func private @datamovement_kernel4() attributes {d2m.thread = #d2m.thread<d
   // CHECK: %2 = ttkernel.get_semaphore(%1) : (i32) -> !ttkernel.local_semaphore
   // CHECK: %3 = ttkernel.get_compile_time_arg_val(2) : () -> i32
   // CHECK: %4 = ttkernel.get_semaphore(%3) : (i32) -> !ttkernel.local_semaphore
-  %arg0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+  %arg0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
   %arg5 = d2m.get_arg(5) : !d2m.local_semaphore
   %arg6 = d2m.get_arg(6) : !d2m.local_semaphore
   %c4 = arith.constant 4 : index
@@ -159,8 +159,8 @@ module {
     // CHECK: %19 = ttkernel.bitcast %18 : ui32 to bf16
     // CHECK: %20 = ttkernel.get_compile_time_arg_val(11) : () -> ui32
     // CHECK: %21 = ttkernel.bitcast %20 : ui32 to f16
-    %arg0 = d2m.get_cb(0) operand_index = 0 : !d2m.cb<memref<32x32xf32, #l1>>
-    %arg1 = d2m.get_cb(1) operand_index = 1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+    %arg0 = d2m.get_cb(0) : !d2m.cb<memref<32x32xf32, #l1>>
+    %arg1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
     %arg2 = d2m.get_arg(2) : i32
     %arg3 = d2m.get_arg(3) : si32
     %arg4 = d2m.get_arg(4) : ui16
@@ -200,9 +200,9 @@ module {
       // CHECK: %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
       // CHECK: %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
       // CHECK: %2 = ttkernel.get_compile_time_arg_val(2) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
-      %0 = d2m.get_cb(0) operand_index = 0 resolution_stage =  compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      %1 = d2m.get_cb(1) operand_index = 1 resolution_stage =  compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-      %2 = d2m.get_cb(2) operand_index = 2 resolution_stage =  compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %0 = d2m.get_cb(0) resolution_stage =  compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %1 = d2m.get_cb(1) resolution_stage =  compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %2 = d2m.get_cb(2) resolution_stage =  compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
       %3 = d2m.reserve %1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
       %c0 = arith.constant 0 : index
       // CHECK: %3 = ttkernel.get_compile_time_arg_val(3) : () -> i32
@@ -226,9 +226,9 @@ module {
     // CHECK: %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
     // CHECK: %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
     // CHECK: %2 = ttkernel.get_compile_time_arg_val(2) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
-    %0 = d2m.get_cb(0) operand_index = 0 resolution_stage = compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-    %1 = d2m.get_cb(1) operand_index = 1 resolution_stage = compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
-    %2 = d2m.get_cb(2) operand_index = 2 resolution_stage = compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    %0 = d2m.get_cb(0) resolution_stage = compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    %1 = d2m.get_cb(1) resolution_stage = compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+    %2 = d2m.get_cb(2) resolution_stage = compile : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
     %3 = d2m.reserve %1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
     %c0 = arith.constant 0 : index
     // CHECK: %3 = ttkernel.get_compile_time_arg_val(3) : () -> i32
