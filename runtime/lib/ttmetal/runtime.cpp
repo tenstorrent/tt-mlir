@@ -208,7 +208,22 @@ Tensor createMultiDeviceBorrowedHostTensor(
 bool isTensorAllocated(Tensor tensor) {
   const MetalTensor &metalTensor =
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal);
-  return !std::holds_alternative<TensorDesc>(metalTensor);
+  return std::visit(
+      utils::overloaded{
+          // HostAllocCommand stores TensorDesc with a non-null data pointer for
+          // fully allocated outputs. A null data pointer means an unallocated
+          // const-eval placeholder.
+          [&](const TensorDesc &) -> bool { return tensor.data != nullptr; },
+          // HostBuffer / DistributedHostBuffer are created by MeshShardCommand
+          // and are always backed by real host memory (data field is null, but
+          // the buffer object itself holds the allocation).
+          [&](const HostBuffer &) -> bool { return true; },
+          [&](const DistributedHostBuffer &) -> bool { return true; },
+          // MeshBuffer: device-side only; toHost is not yet implemented for it,
+          // so treat as unallocated to avoid a LOG_FATAL in toHost.
+          [&](const MeshBuffer &) -> bool { return false; },
+      },
+      metalTensor);
 }
 
 target::DataType getTensorDataType(Tensor tensor) {
