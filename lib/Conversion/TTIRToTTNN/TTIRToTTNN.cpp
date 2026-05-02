@@ -1941,8 +1941,9 @@ public:
     // pre-blocked weight tensor prepared below.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
     constexpr uint32_t MAX_CB_TILES = 256; // 512 KB / 2048 B per tile
+    int64_t cIn = weightTy.getDimSize(1);
     int64_t cInAlignedForBlocking =
-        llvm::divideCeil(weightTy.getDimSize(1), TILE_WIDTH) * TILE_WIDTH;
+        llvm::divideCeil(cIn, TILE_WIDTH) * TILE_WIDTH;
     int64_t kernelElements =
         weightTy.getDimSize(2) * weightTy.getDimSize(3) * weightTy.getDimSize(4);
     uint32_t maxCInBlock = std::max(
@@ -1950,7 +1951,8 @@ public:
         static_cast<uint32_t>(MAX_CB_TILES * TILE_WIDTH / kernelElements));
     uint32_t cInBlock = static_cast<uint32_t>(TILE_WIDTH);
     while (cInBlock > 1 && (cInBlock > maxCInBlock ||
-                             cInAlignedForBlocking % cInBlock != 0)) {
+                             cInAlignedForBlocking % cInBlock != 0 ||
+                             cIn % cInBlock != 0)) {
       cInBlock /= 2;
     }
     ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
