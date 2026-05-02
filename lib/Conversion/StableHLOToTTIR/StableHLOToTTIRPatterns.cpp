@@ -5155,11 +5155,19 @@ public:
                                          "Start indices must be a constant op");
     }
 
+    auto collapsedSliceDims = dimensionNumbers.getCollapsedSliceDims();
+    int64_t indexedDim = startIndexMap[0];
+    if (llvm::is_contained(collapsedSliceDims, indexedDim)) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Indexed dimension is collapsed; input dim does not map to output "
+          "dim at the same index");
+    }
+
     auto input = adaptor.getOperands()[0];
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     auto inputShape = inputType.getShape();
     auto sliceSizes = srcOp.getSliceSizes();
-    int64_t indexedDim = startIndexMap[0];
     int64_t maxIndex = inputShape[indexedDim] - sliceSizes[indexedDim];
     int64_t sliceSize = sliceSizes[indexedDim];
     int32_t starts = 0, ends = 0, lastIndex = 0;
