@@ -3357,9 +3357,16 @@ private:
 
   // Determine if the decode op should be used based on query sequence length.
   // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
+  // The decode kernel requires k_chunk_size % 32 == 0, which only holds when
+  // kSeqLen is itself a multiple of 32.
   bool shouldUseDecode(ttir::ScaledDotProductAttentionOp op) const {
     auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
-    return queryType.getDimSize(kSeqLenDim) == 1;
+    if (queryType.getDimSize(kSeqLenDim) != 1) {
+      return false;
+    }
+    auto keyType = mlir::cast<RankedTensorType>(op.getKey().getType());
+    int64_t kSeqLen = keyType.getDimSize(kSeqLenDim);
+    return kSeqLen > 0 && (kSeqLen % 32 == 0);
   }
 
   // Broadcast attention mask's head dimension to match the number of heads.
