@@ -1834,6 +1834,58 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @noc_semaphore_inc_posted_false
+    // Verify explicit `posted = false` round-trips and emits no template args
+    // (must match the unset case byte-for-byte).
+    func.func @noc_semaphore_inc_posted_false() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
+      %temp = arith.constant 262400 : i32
+      %addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[INCR:.*]] = "emitc.constant"
+      %incr = arith.constant 1 : i32
+      // CHECK: emitc.call_opaque "noc_semaphore_inc"(%[[ADDR]], %[[INCR]]) :
+      // CHECK-NOT: template_args
+      "ttkernel.noc_semaphore_inc"(%addr, %incr) <{posted = false}> : (!ttkernel.noc_addr, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_inc_multicast_posted_false
+    func.func @noc_semaphore_inc_multicast_posted_false() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
+      %temp = arith.constant 262400 : i32
+      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[INCR:.*]] = "emitc.constant"
+      %incr = arith.constant 1 : i32
+      // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
+      %num_dsts = arith.constant 8 : i32
+      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]]) :
+      // CHECK-NOT: template_args
+      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts) <{posted = false}> : (!ttkernel.noc_addr, i32, i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @noc_semaphore_inc_multicast_with_noc_id_posted
+    func.func @noc_semaphore_inc_multicast_with_noc_id_posted() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[ADDR:.*]] = emitc.call_opaque "get_noc_addr"
+      %x = arith.constant 1 : index
+      %y = arith.constant 1 : index
+      %temp = arith.constant 262400 : i32
+      %mcast_addr = "ttkernel.get_noc_addr"(%x, %y, %temp) : (index, index, i32) -> (!ttkernel.noc_addr)
+      // CHECK: %[[INCR:.*]] = "emitc.constant"
+      %incr = arith.constant 1 : i32
+      // CHECK: %[[NUM_DSTS:.*]] = "emitc.constant"
+      %num_dsts = arith.constant 8 : i32
+      // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
+      %noc_id = arith.constant 3 : i8
+      // CHECK: emitc.call_opaque "noc_semaphore_inc_multicast"(%[[ADDR]], %[[INCR]], %[[NUM_DSTS]], %[[NOC_ID]]) {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.noc_semaphore_inc_multicast"(%mcast_addr, %incr, %num_dsts, %noc_id) <{posted = true}> : (!ttkernel.noc_addr, i32, i32, i8) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @noc_semaphore_set
     func.func @noc_semaphore_set() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.call_opaque "reinterpret_cast
