@@ -87,3 +87,35 @@ module {
     return %dram1, %model_out : tensor<1xsi32, #cl_dram>, tensor<32x32xbf16, #bf16_dram>
   }
 }
+
+// Positive case: trailing MeshShardOps before the return. The cluster must be
+// sunk to BEFORE the mesh_shards so TTNNTraceHoistTransform doesn't see
+// hoistable ops after non-hoistable ones.
+module {
+  // CHECK-LABEL: func.func @sink_before_mesh_shard
+  func.func @sink_before_mesh_shard(
+      %arg0: tensor<1xsi32, #cl_dram>,
+      %arg1: tensor<1xsi32, #cl_dram>,
+      %arg2: tensor<32x32xbf16, #bf16_dram>,
+      %arg3: tensor<32x32xbf16, #bf16_dram>,
+      %arg4: !ttnn.device
+  ) -> (tensor<1xsi32, #cl_dram>, tensor<32x32xbf16, #bf16_dram>)
+  attributes {tt.function_type = "forward_device"} {
+    // CL cluster at the start — should sink to just before the mesh_shard.
+    %cl_new = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<si32>}> : (tensor<1xsi32, #cl_dram>, tensor<1xsi32, #cl_dram>) -> tensor<1xsi32, #cl_dram>
+    %dram1 = "ttnn.to_memory_config"(%cl_new) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<1xsi32, #cl_dram>) -> tensor<1xsi32, #cl_dram>
+
+    // Model op.
+    %model_out = "ttnn.add"(%arg2, %arg3) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #bf16_dram>, tensor<32x32xbf16, #bf16_dram>) -> tensor<32x32xbf16, #bf16_dram>
+
+    // Trailing mesh_shard (non-hoistable) — cluster must land before this.
+    %gathered = "ttnn.mesh_shard"(%model_out, %arg4) <{shard_dims = array<i64: -1, 1>, shard_direction = #ttcore.shard_direction<shard_to_full>, shard_shape = array<i64: 1, 8>, shard_type = #ttcore.shard_type<identity>}> : (tensor<32x32xbf16, #bf16_dram>, !ttnn.device) -> tensor<32x32xbf16, #bf16_dram>
+
+    // CHECK: "ttnn.add"(%arg2, %arg3)
+    // CHECK: "ttnn.add"(%arg0, %arg1)
+    // CHECK: "ttnn.to_memory_config"
+    // CHECK: "ttnn.mesh_shard"
+    // CHECK: return
+    return %dram1, %gathered : tensor<1xsi32, #cl_dram>, tensor<32x32xbf16, #bf16_dram>
+  }
+}

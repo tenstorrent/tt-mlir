@@ -141,9 +141,21 @@ private:
       for (auto dramCopy : dramCopies)
         clusterOrder.push_back(dramCopy.getOperation());
 
-      // Move each cluster op to just before the return, preserving dep order.
+      // Find insertion point: just before any trailing MeshShardOps.
+      // TTNNTraceHoistTransform requires hoistable ops to form a contiguous
+      // block; inserting after trailing MeshShardOps would split that block.
+      Operation *insertPoint = returnOp;
+      for (Operation *prev = returnOp->getPrevNode(); prev;
+           prev = prev->getPrevNode()) {
+        if (llvm::isa<MeshShardOp>(prev))
+          insertPoint = prev;
+        else
+          break;
+      }
+
+      // Move each cluster op to the insertion point, preserving dep order.
       for (auto *op : clusterOrder)
-        op->moveBefore(returnOp);
+        op->moveBefore(insertPoint);
     }
   }
 };
