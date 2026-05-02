@@ -137,3 +137,66 @@ func.func @test_tensor_accessor_args_malformed_attr_dict() {
   %args = ttkernel.TensorAccessorArgs(%c0, %c0) {foo =
   return
 }
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// NocSemaphoreIncMulticastOp type-constraint tests.
+//===----------------------------------------------------------------------===//
+
+// Test: $addr must be !ttkernel.noc_addr.
+func.func @test_noc_semaphore_inc_multicast_wrong_addr_type() {
+  // expected-note @+1 {{prior use here}}
+  %bad_addr = arith.constant 0 : i32
+  %incr = arith.constant 1 : i32
+  %num_dests = arith.constant 8 : i32
+  // expected-error @+1 {{use of value '%bad_addr' expects different type than prior uses: '!ttkernel.noc_addr' vs 'i32'}}
+  "ttkernel.noc_semaphore_inc_multicast"(%bad_addr, %incr, %num_dests) : (!ttkernel.noc_addr, i32, i32) -> ()
+  return
+}
+
+// -----
+
+// Test: $num_dests must be i32.
+func.func @test_noc_semaphore_inc_multicast_wrong_num_dests_type() {
+  %x = arith.constant 1 : index
+  %y = arith.constant 1 : index
+  %off = arith.constant 0 : i32
+  %addr = "ttkernel.get_noc_addr"(%x, %y, %off) : (index, index, i32) -> (!ttkernel.noc_addr)
+  %incr = arith.constant 1 : i32
+  // expected-note @+1 {{prior use here}}
+  %bad_num_dests = arith.constant 8 : i64
+  // expected-error @+1 {{use of value '%bad_num_dests' expects different type than prior uses: 'i32' vs 'i64'}}
+  "ttkernel.noc_semaphore_inc_multicast"(%addr, %incr, %bad_num_dests) : (!ttkernel.noc_addr, i32, i32) -> ()
+  return
+}
+
+// -----
+
+// Test: optional $noc_id must be i8.
+func.func @test_noc_semaphore_inc_multicast_wrong_noc_id_type() {
+  %x = arith.constant 1 : index
+  %y = arith.constant 1 : index
+  %off = arith.constant 0 : i32
+  %addr = "ttkernel.get_noc_addr"(%x, %y, %off) : (index, index, i32) -> (!ttkernel.noc_addr)
+  %incr = arith.constant 1 : i32
+  %num_dests = arith.constant 8 : i32
+  // expected-note @+1 {{prior use here}}
+  %bad_noc_id = arith.constant 0 : i32
+  // expected-error @+1 {{use of value '%bad_noc_id' expects different type than prior uses: 'i8' vs 'i32'}}
+  "ttkernel.noc_semaphore_inc_multicast"(%addr, %incr, %num_dests, %bad_noc_id) : (!ttkernel.noc_addr, i32, i32, i8) -> ()
+  return
+}
+
+// -----
+
+// Test: NocSemaphoreIncOp $addr must be !ttkernel.noc_addr (regression cover for
+// the same constraint after adding the optional `posted` attribute).
+func.func @test_noc_semaphore_inc_wrong_addr_type() {
+  // expected-note @+1 {{prior use here}}
+  %bad_addr = arith.constant 0 : i32
+  %incr = arith.constant 1 : i32
+  // expected-error @+1 {{use of value '%bad_addr' expects different type than prior uses: '!ttkernel.noc_addr' vs 'i32'}}
+  "ttkernel.noc_semaphore_inc"(%bad_addr, %incr) <{posted = true}> : (!ttkernel.noc_addr, i32) -> ()
+  return
+}
