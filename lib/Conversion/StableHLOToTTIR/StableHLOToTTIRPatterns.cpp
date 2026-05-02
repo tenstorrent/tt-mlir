@@ -5162,6 +5162,11 @@ public:
     int64_t indexedDim = startIndexMap[0];
     int64_t maxIndex = inputShape[indexedDim] - sliceSizes[indexedDim];
     int64_t sliceSize = sliceSizes[indexedDim];
+    if (maxIndex == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "maxIndex is 0 (single-element input dim); falls through to "
+                 "embedding pattern");
+    }
     int32_t starts = 0, ends = 0, lastIndex = 0;
     // It is expected that the indices are consecutive and in ascending order.
     // Like [0,0,0,1,2,3,4,5,5,5,5,5].
